@@ -23,6 +23,8 @@ import asyncio
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Any
 
 logger = logging.getLogger("aria.voice")
@@ -202,8 +204,95 @@ def _build_voice_system_prompt(authenticated: bool, customer_id: str | None) -> 
 
 
 # ---------------------------------------------------------------------------
-# Terminal output handler (BidiOutput-compatible)
+# Half-duplex echo gate — mutes the mic while ARIA is playing audio
 # ---------------------------------------------------------------------------
+# Without this, the microphone picks up the speaker output, Nova Sonic
+# transcribes it as USER speech, and ARIA generates another greeting —
+# creating an endless "hello, hello" feedback loop.
+
+class _EchoGate:
+    """Shared state between the gated audio input and output.
+
+    Output marks the gate each time it sends an audio chunk; input
+    replaces real mic audio with silence for TAIL_SECS after the last
+    chunk, giving the echo time to decay before unmuting.
+    """
+
+    TAIL_SECS: float = float(os.getenv("ECHO_GATE_TAIL_SECS", "0.8"))
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last_audio: float = 0.0
+
+    def mark_speaking(self) -> None:
+        """Call every time an audio chunk is sent to the output device."""
+        with self._lock:
+            self._last_audio = time.monotonic()
+
+    def is_suppressed(self) -> bool:
+        """Return True if the mic should send silence."""
+        with self._lock:
+            return (time.monotonic() - self._last_audio) < self.TAIL_SECS
+
+
+class _GatedAudioInput:
+    """Microphone input that substitutes silence while the echo gate is active.
+
+    Subclasses the private strands ``_BidiAudioInput``, overriding only the
+    PyAudio callback to inject the gate.
+    """
+
+    def __new__(cls, config: dict, gate: _EchoGate):
+        try:
+            import pyaudio as _pa
+            from strands.experimental.bidi.io.audio import _BidiAudioInput
+
+            class _Impl(_BidiAudioInput):
+                def __init__(self, config: dict, gate: _EchoGate) -> None:
+                    super().__init__(config)
+                    self._gate = gate
+                    self._pa = _pa
+
+                def _callback(self, in_data: bytes, *args: Any) -> tuple[None, int]:
+                    if self._gate.is_suppressed():
+                        self._buffer.put(b"\x00" * len(in_data))
+                    else:
+                        self._buffer.put(in_data)
+                    return (None, self._pa.paContinue)
+
+            return _Impl(config, gate)
+        except ImportError:
+            raise
+
+
+class _GatedAudioOutput:
+    """Speaker output that marks the echo gate when audio chunks are sent.
+
+    Subclasses the private strands ``_BidiAudioOutput``, overriding only
+    ``__call__`` to additionally notify the gate.
+    """
+
+    def __new__(cls, config: dict, gate: _EchoGate):
+        try:
+            from strands.experimental.bidi.io.audio import _BidiAudioOutput
+            from strands.experimental.bidi.types.events import BidiAudioStreamEvent
+
+            class _Impl(_BidiAudioOutput):
+                def __init__(self, config: dict, gate: _EchoGate) -> None:
+                    super().__init__(config)
+                    self._gate = gate
+
+                async def __call__(self, event: Any) -> None:
+                    await super().__call__(event)
+                    if isinstance(event, BidiAudioStreamEvent):
+                        self._gate.mark_speaking()
+
+            return _Impl(config, gate)
+        except ImportError:
+            raise
+
+
+
 
 class _TerminalOutput:
     """Prints live transcripts and tool activity to the terminal.
@@ -211,27 +300,22 @@ class _TerminalOutput:
     Implements the BidiOutput protocol so it can be passed directly to
     ``BidiAgent.run(outputs=[..., terminal_output])``.
 
-    Generation stage logic (critical — from AWS sample analysis):
-    ─────────────────────────────────────────────────────────────
-    Nova Sonic sends two stages of text for each assistant turn:
+    Generation stage logic (confirmed from Nova Sonic protocol):
+    ────────────────────────────────────────────────────────────
+    ASSISTANT text:
+      SPECULATIVE  (is_final=False) — Real AI response text. ACCUMULATE.
+      FINAL        (is_final=True)  — Audio-playback echo transcript. SKIP.
 
-    SPECULATIVE (is_final=False):
-        The actual AI response text being generated. This is what ARIA
-        is saying. Display this for role=ASSISTANT.
-
-    FINAL (is_final=True):
-        A post-hoc transcription of the audio that was played back.
-        This is an audio echo — do NOT display for ASSISTANT.
-
-    For USER speech: contentStart has no additionalModelFields so
-    _generation_stage stays None → is_final=False always for real
-    user speech. Display is_final=False USER events as Customer speech.
+    USER speech:
+      Nova Sonic sends the user's confirmed speech transcript with
+      generationStage=FINAL → is_final=True.
+      Print ONLY when is_final=True to show the confirmed final transcript.
 
     Summary:
-        role=assistant, is_final=False → ACCUMULATE (SPECULATIVE, real AI text)
-        role=assistant, is_final=True  → SKIP (FINAL, audio echo)
-        role=user,      is_final=False → PRINT immediately (real user speech)
-        role=user,      is_final=True  → SKIP (echo of played audio)
+        role=assistant, is_final=False → ACCUMULATE (real AI text)
+        role=assistant, is_final=True  → SKIP (audio echo)
+        role=user,      is_final=True  → PRINT (confirmed user speech)
+        role=user,      is_final=False → SKIP (partial/in-progress)
     """
 
     def __init__(self) -> None:
@@ -277,11 +361,13 @@ class _TerminalOutput:
                 # SPECULATIVE stage = real AI response text → accumulate
                 self._aria_buf.append(text)
 
-            elif role == "user" and not is_final:
-                # Real user speech (no generationStage → is_final=False)
-                # Flush any pending ARIA text first to preserve order
+            elif role == "user" and is_final:
+                # Nova Sonic sends USER speech with generationStage=FINAL
+                # (is_final=True). Only print the confirmed final transcript.
                 self._flush_aria()
-                print(f"\nCustomer: {text}\n")
+                display = (event.current_transcript or text).strip()
+                if display:
+                    print(f"\nCustomer: {display}\n")
 
             # role=assistant + is_final=True → FINAL echo, skip
             # role=user      + is_final=True → unlikely echo, skip
@@ -409,7 +495,7 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
     """
     # Fail fast if audio deps are missing rather than hanging silently
     try:
-        from strands.experimental.bidi.io.audio import BidiAudioIO
+        from strands.experimental.bidi.io.audio import _BidiAudioInput, _BidiAudioOutput  # noqa: F401
     except (ImportError, ModuleNotFoundError) as exc:
         logger.error("Voice audio dependency missing: %s", exc)
         print(
@@ -433,7 +519,9 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         )
         sys.exit(1)
 
-    audio_io = BidiAudioIO()
+    gate = _EchoGate()
+    audio_input = _GatedAudioInput({}, gate)
+    audio_output = _GatedAudioOutput({}, gate)
     terminal = _TerminalOutput()
 
     logger.info(
@@ -443,8 +531,8 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
 
     try:
         await agent.run(
-            inputs=[audio_io.input()],
-            outputs=[audio_io.output(), terminal],
+            inputs=[audio_input],
+            outputs=[audio_output, terminal],
         )
     except KeyboardInterrupt:
         logger.info("Voice session interrupted by user (Ctrl-C)")
