@@ -233,7 +233,7 @@ class ARIANovaSonicSession:
         creds = self._boto_session.get_credentials()
         if creds is None:
             raise RuntimeError("No AWS credentials available.")
-        resolved = creds.resolve()
+        resolved = creds.get_frozen_credentials()
 
         config = Config(
             endpoint_uri=(
