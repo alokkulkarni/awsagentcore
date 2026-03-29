@@ -1492,9 +1492,49 @@ cmd_deploy() {
 # =============================================================================
 
 cmd_teardown() {
-    header "ARIA AgentCore Teardown"
+    header "ARIA Teardown"
 
-    [[ -f "$STATE_FILE" ]] || die "No state file found at ${STATE_FILE}. Nothing to tear down."
+    # If no state file exists, this was likely a local-only deploy
+    if [[ ! -f "$STATE_FILE" ]]; then
+        warn "No AgentCore deployment state found — checking for local resources..."
+        echo ""
+
+        local cleaned=0
+
+        # Kill any uvicorn process running on port 8080
+        local pids
+        pids=$(lsof -ti tcp:8080 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            step "Stopping local ARIA server (port 8080, PID(s): ${pids})"
+            echo "$pids" | xargs kill 2>/dev/null || true
+            ok "Local server stopped"
+            cleaned=1
+        else
+            echo "  No local ARIA server running on port 8080."
+        fi
+
+        # Remove client/.env.local if it was written by local deploy
+        if [[ -f "${PROJECT_ROOT}/client/.env.local" ]]; then
+            step "Removing client/.env.local"
+            rm -f "${PROJECT_ROOT}/client/.env.local"
+            ok "Removed client/.env.local"
+            cleaned=1
+        fi
+
+        echo ""
+        if [[ $cleaned -eq 1 ]]; then
+            ok "Local teardown complete."
+        else
+            echo "  Nothing to clean up."
+        fi
+        echo ""
+        echo "  To tear down an AgentCore deployment, run:"
+        echo "    ./scripts/deploy.sh deploy agentcore   # deploy first"
+        echo "    ./scripts/deploy.sh teardown           # then teardown"
+        return 0
+    fi
+
+    header "ARIA AgentCore Teardown"
 
     echo -e "${RED}${BOLD}  This will permanently delete all ARIA AWS resources.${NC}"
     echo -e "  Reading state from: ${STATE_FILE}\n"
