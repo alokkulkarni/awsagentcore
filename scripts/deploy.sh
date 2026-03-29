@@ -763,53 +763,77 @@ create_agentcore_memory() {
 
     # Memory name must match [a-zA-Z][a-zA-Z0-9_]{0,47} — no hyphens
     local mem_name="aria_bank_mem"
-    step "Creating AgentCore memory resource (name: ${mem_name})..."
+    step "Creating AgentCore memory resource (name: ${mem_name})"
+    echo -e "  ${YELLOW}LTM memory provisioning takes 1–3 minutes. Please wait...${NC}" >&2
 
-    local mem_id
-    mem_id=$(
-        source "$PROJECT_ROOT/venv/bin/activate" 2>/dev/null || true
-        python3 - "$mem_name" "$AGENTCORE_REGION" <<'PYEOF'
-import sys
-name, region = sys.argv[1], sys.argv[2]
+    local mem_id_file="/tmp/aria-mem-id-$$.txt"
+    local mem_log="/tmp/aria-mem-log-$$.txt"
+    local mem_py="/tmp/aria-mem-$$.py"
+
+    # Write the Python script to a temp file so it can be run cleanly
+    # (avoids heredoc stdin conflicts inside $() or background subshells)
+    cat > "$mem_py" << 'PYEOF'
+import sys, os
+name, region, out_file = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     from bedrock_agentcore_starter_toolkit.operations.memory.manager import MemoryManager
-    mgr = MemoryManager(region_name=region)
-    # Check if a memory with this name already exists
+    from rich.console import Console
+    console = Console(stderr=True)  # force Rich output to stderr; stdout stays clean
+    mgr = MemoryManager(region_name=region, console=console)
     try:
         memories = mgr.list_memories()
         for m in memories:
-            if getattr(m, "name", "") == name or str(getattr(m, "id", "")).startswith(name):
-                print(m.id)
+            if str(getattr(m, 'name', '')).startswith(name) or str(getattr(m, 'id', '')).startswith(name):
+                with open(out_file, 'w') as f: f.write(m.id)
                 sys.exit(0)
     except Exception:
         pass
-    # Create with semantic + user-preference strategies for LTM
     strategies = [
-        {"semanticMemoryStrategy": {"name": "CustomerFacts", "description": "Key customer facts and preferences"}},
-        {"userPreferenceMemoryStrategy": {"name": "Preferences", "description": "Customer product and service preferences"}},
+        {'semanticMemoryStrategy': {'name': 'CustomerFacts', 'description': 'Key customer facts'}},
+        {'userPreferenceMemoryStrategy': {'name': 'Preferences', 'description': 'Customer preferences'}},
     ]
     memory = mgr.create_memory_and_wait(
         name=name,
-        description="ARIA Banking Agent long-term memory",
+        description='ARIA Banking Agent long-term memory',
         strategies=strategies,
         event_expiry_days=90,
     )
-    print(memory.id)
+    with open(out_file, 'w') as f: f.write(memory.id)
 except Exception as e:
-    import sys as _sys
-    print(f"WARN: {e}", file=_sys.stderr)
+    print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
 PYEOF
-    ) || true
+
+    # Run creation in background; all output goes to log, ID written to file
+    (
+        source "$PROJECT_ROOT/venv/bin/activate" 2>/dev/null || true
+        python3 "$mem_py" "$mem_name" "$AGENTCORE_REGION" "$mem_id_file"
+    ) > "$mem_log" 2>&1 &
+    local bg_pid=$!
+
+    # Spinner so the user knows the script is alive
+    local spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local i=0 elapsed=0
+    while kill -0 "$bg_pid" 2>/dev/null; do
+        printf "\r  %s  Memory provisioning... (%ds elapsed)" "${spin[$i]}" "$elapsed" >&2
+        i=$(( (i+1) % 10 ))
+        sleep 2
+        elapsed=$(( elapsed + 2 ))
+    done
+    printf "\r  %-60s\n" "" >&2  # clear spinner line
+    wait "$bg_pid" || true
+
+    local mem_id=""
+    [[ -f "$mem_id_file" ]] && mem_id=$(cat "$mem_id_file" | tr -d '[:space:]')
+    rm -f "$mem_id_file" "$mem_log" "$mem_py"
 
     if [[ -z "$mem_id" ]]; then
         warn "Memory creation failed — agent will run with STM only (in-session context only)"
-        # Switch YAML to STM_ONLY so SDK doesn't attempt (and fail) LTM creation
-        sed -i.bak 's/mode: STM_AND_LTM/mode: STM_ONLY/' "$YAML_FILE" && rm -f "${YAML_FILE}.bak"
+        _patch_yaml_memory_mode "STM_ONLY"
         return
     fi
 
-    ok "Memory created: ${mem_id}"
+    ok "Memory ready: ${mem_id}"
     state_set "memory_id" "$mem_id"
     _patch_yaml_memory_id "$mem_id"
 }
@@ -817,21 +841,34 @@ PYEOF
 _patch_yaml_memory_id() {
     local mem_id="$1"
     python3 -c "
-import sys, re
+import sys, yaml
 yaml_file, mem_id = sys.argv[1], sys.argv[2]
-with open(yaml_file) as f: content = f.read()
-# Patch memory_id under memory: block
-new_content = re.sub(r'^(\s+memory_id:\s*).*$', rf'\g<1>{mem_id}', content, flags=re.MULTILINE)
-if new_content == content:
-    # memory_id line not present — insert it after 'mode:' line
-    new_content = re.sub(
-        r'(^\s+mode:\s+STM_AND_LTM\s*$)',
-        rf'\g<1>\n      memory_id: {mem_id}',
-        content, flags=re.MULTILINE
-    )
-with open(yaml_file, 'w') as f: f.write(new_content)
+with open(yaml_file) as f:
+    data = yaml.safe_load(f)
+for agent in data.get('agents', {}).values():
+    if 'memory' in agent:
+        agent['memory']['memory_id'] = mem_id
+        agent['memory']['was_created_by_toolkit'] = True
+with open(yaml_file, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 print(f'  patched memory_id = {mem_id}')
 " "$YAML_FILE" "$mem_id"
+}
+
+_patch_yaml_memory_mode() {
+    local mode="$1"
+    python3 -c "
+import sys, yaml
+yaml_file, mode = sys.argv[1], sys.argv[2]
+with open(yaml_file) as f:
+    data = yaml.safe_load(f)
+for agent in data.get('agents', {}).values():
+    if 'memory' in agent:
+        agent['memory']['mode'] = mode
+with open(yaml_file, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+print(f'  patched memory.mode = {mode}')
+" "$YAML_FILE" "$mode"
 }
 
 launch_agentcore() {

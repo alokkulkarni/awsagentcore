@@ -1,0 +1,20 @@
+{
+  "deploy_id": "db23db",
+  "account_id": "395402194296",
+  "agentcore_region": "eu-west-2",
+  "claude_region": "eu-west-2",
+  "nova_sonic_region": "us-east-1",
+  "transcript_bucket": "meridian-aria-transcripts-db23db",
+  "audit_bucket": "meridian-aria-audit-db23db",
+  "agent_name": "aria_banking_agent",
+  "eventbridge_bus_arn": "arn:aws:events:eu-west-2:395402194296:event-bus/aria-audit",
+  "cloudtrail_eds_arn": "arn:aws:cloudtrail:eu-west-2:395402194296:eventdatastore/086aa4cf-1864-4ad3-9034-12e7acf759ad",
+  "cloudtrail_eds_name": "aria-banking-audit-db23db",
+  "cloudtrail_channel_arn": "arn:aws:cloudtrail:eu-west-2:395402194296:channel/e47e38f3-07c7-4e22-a06a-80fd5a11306b",
+  "lambda_role_arn": "arn:aws:iam::395402194296:role/aria-lambda-audit-role",
+  "cloudtrail_lambda_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-audit-cloudtrail-writer",
+  "dynamodb_lambda_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-audit-dynamodb-writer",
+  "firehose_arn": "arn:aws:firehose:eu-west-2:395402194296:deliverystream/aria-audit-firehose",
+  "firehose_role_arn": "arn:aws:iam::395402194296:role/aria-firehose-audit-role",
+  "memory_id": "aria_bank_mem-sRaj7gH5rN"
+}
