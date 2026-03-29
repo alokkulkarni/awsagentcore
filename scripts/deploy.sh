@@ -797,6 +797,7 @@ try:
         description='ARIA Banking Agent long-term memory',
         strategies=strategies,
         event_expiry_days=90,
+        enable_observability=False,  # X-Ray requires CloudWatch Logs trace destination pre-configured
     )
     with open(out_file, 'w') as f: f.write(memory.id)
 except Exception as e:
