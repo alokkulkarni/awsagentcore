@@ -186,11 +186,15 @@ class ARIANovaSonicSession:
         boto_session: Any,
         system_prompt: str,
         session_id: str,
+        authenticated: bool = False,
+        customer_id: str | None = None,
     ) -> None:
         self.model_id      = model_id
         self.region        = region
         self.system_prompt = system_prompt
         self.session_id    = session_id
+        self._authenticated = authenticated
+        self._customer_id   = customer_id
 
         self._boto_session = boto_session
         self._client       = None
@@ -383,7 +387,7 @@ class ARIANovaSonicSession:
         })
         await asyncio.sleep(0.05)
 
-        # 4. Audio content start — opens the continuous mic stream
+        # 5. Audio content start — opens the continuous mic stream
         await self._send_event({
             "event": {
                 "contentStart": {
@@ -429,6 +433,65 @@ class ARIANovaSonicSession:
     # ------------------------------------------------------------------
     # Response processor
     # ------------------------------------------------------------------
+
+    async def send_kickoff(self) -> None:
+        """Send the SESSION_START trigger that causes ARIA to call
+        get_customer_details and deliver its opening greeting.
+
+        Must be called AFTER the response-processing task is running so that
+        the resulting toolUse events are received and dispatched correctly.
+        """
+        kickoff_content = str(uuid.uuid4())
+        if self._authenticated and self._customer_id:
+            kickoff_text = (
+                f"SESSION_START: An authenticated customer has connected. "
+                f"X-Channel: voice. X-Channel-Auth: authenticated. "
+                f"X-Customer-ID: {self._customer_id}. "
+                f"X-Session-ID: {self.session_id}. "
+                f"Call get_customer_details with customer_id=\"{self._customer_id}\" "
+                f"to fetch their profile, then greet them by their preferred_name "
+                f"and ask how you can help today. "
+                f"Do not ask them to re-verify their identity."
+            )
+        else:
+            kickoff_text = (
+                f"SESSION_START: A new customer has connected on voice. "
+                f"X-Channel: voice. X-Channel-Auth: unauthenticated. "
+                f"X-Session-ID: {self.session_id}. "
+                f"Greet the caller warmly as ARIA from Meridian Bank and begin "
+                f"the identity verification flow."
+            )
+
+        logger.info("Sending session kickoff (auth=%s, customer=%s)", self._authenticated, self._customer_id)
+        await self._send_event({
+            "event": {
+                "contentStart": {
+                    "promptName": self._prompt_name,
+                    "contentName": kickoff_content,
+                    "type": "TEXT",
+                    "interactive": False,
+                    "role": "USER",
+                    "textInputConfiguration": {"mediaType": "text/plain"},
+                }
+            }
+        })
+        await self._send_event({
+            "event": {
+                "textInput": {
+                    "promptName": self._prompt_name,
+                    "contentName": kickoff_content,
+                    "content": kickoff_text,
+                }
+            }
+        })
+        await self._send_event({
+            "event": {
+                "contentEnd": {
+                    "promptName": self._prompt_name,
+                    "contentName": kickoff_content,
+                }
+            }
+        })
 
     async def _process_responses(self) -> None:
         """Continuously read events from the Nova Sonic stream."""
@@ -722,6 +785,8 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         boto_session=boto_sess,
         system_prompt=system_prompt,
         session_id=session_id,
+        authenticated=authenticated,
+        customer_id=customer_id,
     )
 
     logger.info(
@@ -748,6 +813,10 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
     response_task = asyncio.create_task(nova._process_responses())
     playback_task = asyncio.create_task(nova.play_audio())
     capture_task  = asyncio.create_task(nova.capture_audio())
+
+    # Send the SESSION_START kickoff NOW — after tasks are running so that
+    # the toolUse event (get_customer_details) is handled by _process_responses.
+    await nova.send_kickoff()
 
     try:
         await response_task
