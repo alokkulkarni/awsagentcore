@@ -280,7 +280,14 @@ create_dynamodb_table() {
     step "Creating aria-audit-events"
 
     if [[ -n "$(dynamodb_table_exists 'aria-audit-events' "$AGENTCORE_REGION")" ]]; then
-        warn "Table already exists — skipping"
+        warn "Table already exists — ensuring TTL is enabled"
+        aws dynamodb wait table-exists \
+            --table-name aria-audit-events \
+            --region "$AGENTCORE_REGION"
+        aws dynamodb update-time-to-live \
+            --table-name aria-audit-events \
+            --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+            --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
     else
         aws dynamodb create-table \
             --table-name aria-audit-events \
@@ -293,6 +300,12 @@ create_dynamodb_table() {
             --billing-mode PAY_PER_REQUEST \
             --region "$AGENTCORE_REGION" \
             --output text --query "TableDescription.TableName" > /dev/null
+
+        # Wait for table to reach ACTIVE state before enabling TTL
+        step "Waiting for aria-audit-events to become ACTIVE..."
+        aws dynamodb wait table-exists \
+            --table-name aria-audit-events \
+            --region "$AGENTCORE_REGION"
 
         # Enable TTL
         aws dynamodb update-time-to-live \
