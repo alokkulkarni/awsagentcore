@@ -363,72 +363,110 @@ create_cloudtrail_lake() {
     step "Checking CloudTrail Lake event data store"
     local eds_arn="" eds_name=""
 
-    # Single API call — find any ENABLED store with our naming prefix
+    # Fetch store list with explicit timeouts — avoids infinite hang if the API
+    # is slow or the region has a cold-start delay. Falls back to empty list.
     local stores_json
     stores_json=$(aws cloudtrail list-event-data-stores \
-        --region "$AGENTCORE_REGION" --output json 2>/dev/null || echo '{"EventDataStores":[]}')
+        --region "$AGENTCORE_REGION" \
+        --cli-connect-timeout 10 --cli-read-timeout 20 \
+        --output json 2>/dev/null || echo '{"EventDataStores":[]}')
 
-    read -r eds_arn eds_name < <(echo "$stores_json" | python3 -c "
+    # Find first ENABLED store — no process substitution, no read/heredoc
+    local eds_info
+    eds_info=$(echo "$stores_json" | python3 -c "
 import json, sys
-stores = json.load(sys.stdin).get('EventDataStores', [])
-# Prefer exact primary name, then fallback name, then any aria-banking-audit prefix
-for name in ('${PRIMARY_NAME}', '${FALLBACK_NAME}'):
+try:
+    stores = json.load(sys.stdin).get('EventDataStores', [])
+except Exception:
+    stores = []
+for name in ['${PRIMARY_NAME}', '${FALLBACK_NAME}']:
     for s in stores:
         if s.get('Name') == name and s.get('Status') == 'ENABLED':
-            print(s['EventDataStoreArn'], s['Name'])
-            exit()
+            print(s['EventDataStoreArn'] + '|' + s['Name'])
+            raise SystemExit(0)
 " 2>/dev/null || true)
 
-    if [[ -n "$eds_arn" ]]; then
+    if [[ -n "$eds_info" ]]; then
+        eds_arn="${eds_info%%|*}"
+        eds_name="${eds_info##*|}"
         warn "Event data store '${eds_name}' is ENABLED — skipping creation"
     else
-        # Check if primary name is blocked (PENDING_DELETION or other non-ENABLED status)
-        local primary_blocked
-        primary_blocked=$(echo "$stores_json" | python3 -c "
+        # Check if primary name is blocked in any non-ENABLED status
+        local primary_exists
+        primary_exists=$(echo "$stores_json" | python3 -c "
 import json, sys
-stores = json.load(sys.stdin).get('EventDataStores', [])
-print('yes' if any(s.get('Name') == '${PRIMARY_NAME}' for s in stores) else ''
-)" 2>/dev/null || true)
+try:
+    stores = json.load(sys.stdin).get('EventDataStores', [])
+except Exception:
+    stores = []
+print('yes' if any(s.get('Name') == '${PRIMARY_NAME}' for s in stores) else '')
+" 2>/dev/null || true)
 
-        eds_name="$( [[ -n "$primary_blocked" ]] && echo "$FALLBACK_NAME" || echo "$PRIMARY_NAME" )"
-        [[ -n "$primary_blocked" ]] && warn "Primary name blocked — using fallback: ${eds_name}"
+        if [[ -n "$primary_exists" ]]; then
+            warn "Primary name blocked (PENDING_DELETION) — using fallback: ${FALLBACK_NAME}"
+            eds_name="$FALLBACK_NAME"
+        else
+            eds_name="$PRIMARY_NAME"
+        fi
 
         step "Creating event data store: ${eds_name}"
-        eds_arn=$(aws cloudtrail create-event-data-store \
+        local create_out create_err
+        create_out=$(aws cloudtrail create-event-data-store \
             --name "$eds_name" \
             --retention-period 2557 \
             --no-multi-region-enabled \
             --advanced-event-selectors "$ACTIVITY_SELECTORS" \
             --region "$AGENTCORE_REGION" \
-            --query "EventDataStoreArn" --output text)
-        ok "Event data store created: ${eds_name}"
+            --query "EventDataStoreArn" --output text 2>/tmp/ctl_err) \
+            && eds_arn="$create_out" \
+            || {
+                create_err=$(cat /tmp/ctl_err)
+                if echo "$create_err" | grep -q "AlreadyExists"; then
+                    warn "Store already exists — looking up ARN"
+                    eds_arn=$(aws cloudtrail list-event-data-stores \
+                        --region "$AGENTCORE_REGION" \
+                        --cli-read-timeout 20 \
+                        --query "EventDataStores[?Name=='${eds_name}'].EventDataStoreArn | [0]" \
+                        --output text 2>/dev/null || true)
+                else
+                    warn "CloudTrail Lake unavailable: ${create_err} — audit continues via DynamoDB/S3"
+                fi
+            }
+        rm -f /tmp/ctl_err
+        [[ -n "$eds_arn" ]] && ok "Event data store ready: ${eds_name}"
     fi
 
-    state_set "cloudtrail_eds_arn"  "$eds_arn"
-    state_set "cloudtrail_eds_name" "$eds_name"
+    state_set "cloudtrail_eds_arn"  "${eds_arn:-}"
+    state_set "cloudtrail_eds_name" "${eds_name:-}"
 
-    # ── Channel ────────────────────────────────────────────────────────────────
+    # ── Channel (non-fatal — DynamoDB/S3 audit paths work without it) ──────────
     step "Creating CloudTrail Lake channel"
     local channel_arn
     channel_arn=$(aws cloudtrail list-channels \
         --region "$AGENTCORE_REGION" \
+        --cli-read-timeout 20 \
         --query "Channels[?Name=='aria-audit-channel'].ChannelArn" \
         --output text 2>/dev/null || true)
 
     if [[ "$channel_arn" == "None" || -z "$channel_arn" ]]; then
-        channel_arn=$(aws cloudtrail create-channel \
-            --name aria-audit-channel \
-            --source Custom \
-            --destinations "[{\"Type\":\"EVENT_DATA_STORE\",\"Location\":\"${eds_arn}\"}]" \
-            --region "$AGENTCORE_REGION" \
-            --query "ChannelArn" --output text 2>/dev/null) \
-            && ok "Channel created: ${channel_arn}" \
-            || { warn "Channel creation failed — audit will use DynamoDB/S3 paths only"; channel_arn=""; }
+        if [[ -n "$eds_arn" ]]; then
+            channel_arn=$(aws cloudtrail create-channel \
+                --name aria-audit-channel \
+                --source Custom \
+                --destinations "[{\"Type\":\"EVENT_DATA_STORE\",\"Location\":\"${eds_arn}\"}]" \
+                --region "$AGENTCORE_REGION" \
+                --query "ChannelArn" --output text 2>/dev/null) \
+                && ok "Channel created: ${channel_arn}" \
+                || { warn "Channel creation failed — audit continues via DynamoDB/S3 only"; channel_arn=""; }
+        else
+            warn "Skipping channel — no valid event data store ARN"
+            channel_arn=""
+        fi
     else
         warn "Channel already exists — skipping"
     fi
 
-    state_set "cloudtrail_channel_arn" "$channel_arn"
+    state_set "cloudtrail_channel_arn" "${channel_arn:-}"
     CLOUDTRAIL_CHANNEL_ARN="${channel_arn:-}"
 }
 
