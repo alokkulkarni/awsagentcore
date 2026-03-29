@@ -78,6 +78,22 @@ state_init() {
     [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
 }
 
+# A short random hex suffix generated once per deployment and persisted in
+# state. Used in place of account ID for resource names (S3 buckets, CloudTrail
+# Lake fallback name) so no AWS account number appears in any resource name.
+get_or_create_deploy_id() {
+    local existing
+    existing=$(state_get "deploy_id" 2>/dev/null || true)
+    if [[ -n "$existing" ]]; then
+        echo "$existing"
+    else
+        local new_id
+        new_id=$(python3 -c "import secrets; print(secrets.token_hex(3))")
+        state_set "deploy_id" "$new_id"
+        echo "$new_id"
+    fi
+}
+
 state_set() {
     local key="$1" value="$2"
     python3 - "$STATE_FILE" "$key" "$value" <<'PYEOF'
@@ -184,15 +200,18 @@ collect_inputs() {
     header "Deployment configuration"
     echo -e "  Press Enter to accept defaults shown in [brackets].\n"
 
-    local detected_account
-    detected_account=$(aws_account_id)
+    # Auto-detect account ID (used only for ARN construction, not in resource names)
+    ACCOUNT_ID=$(aws_account_id)
 
-    ask ACCOUNT_ID         "AWS Account ID"                 "$detected_account"
+    # A stable random suffix stored in state — avoids account ID in resource names
+    state_init
+    DEPLOY_ID=$(get_or_create_deploy_id)
+
     ask AGENTCORE_REGION   "AgentCore Runtime region"       "eu-west-2"
     ask CLAUDE_REGION      "Claude (chat) region"           "eu-west-2"
     ask NOVA_SONIC_REGION  "Nova Sonic (voice) region"      "eu-north-1"
-    ask TRANSCRIPT_BUCKET  "Transcript S3 bucket name"      "meridian-aria-transcripts-${ACCOUNT_ID}"
-    ask AUDIT_BUCKET       "Audit archive S3 bucket name"   "meridian-aria-audit-${ACCOUNT_ID}"
+    ask TRANSCRIPT_BUCKET  "Transcript S3 bucket name"      "meridian-aria-transcripts-${DEPLOY_ID}"
+    ask AUDIT_BUCKET       "Audit archive S3 bucket name"   "meridian-aria-audit-${DEPLOY_ID}"
     ask AGENT_NAME         "AgentCore agent name"           "aria-banking-agent"
     ask BANK_API_BASE_URL  "Bank API base URL"              "https://api.meridianbank.internal"
     ask BANK_API_KEY       "Bank API key"                   "your-api-key-here"
@@ -201,7 +220,7 @@ collect_inputs() {
     ask DEPLOY_MODE "Build mode — 1=CodeBuild/cloud (recommended, no Docker needed), 2=Local Docker build" "1"
 
     echo -e "\n  ${BOLD}Summary:${NC}"
-    echo "    Account:              ${ACCOUNT_ID}"
+    echo "    Deploy ID:            ${DEPLOY_ID}"
     echo "    AgentCore region:     ${AGENTCORE_REGION}"
     echo "    Claude region:        ${CLAUDE_REGION}"
     echo "    Nova Sonic region:    ${NOVA_SONIC_REGION}"
@@ -213,7 +232,7 @@ collect_inputs() {
 
     ask_yn "Proceed with deployment?" "Y" || die "Deployment cancelled."
 
-    # Persist to state file
+    # Persist to state file (account_id kept for ARN construction, not used in names)
     state_set "account_id"        "$ACCOUNT_ID"
     state_set "agentcore_region"  "$AGENTCORE_REGION"
     state_set "claude_region"     "$CLAUDE_REGION"
@@ -338,28 +357,48 @@ create_cloudtrail_lake() {
     header "CloudTrail Lake (immutable audit store)"
 
     # Channels require the destination event data store to have eventCategory =
-    # ActivityAuditLog in its advanced event selectors. This is a CREATION-TIME
-    # property — it cannot be changed via update-event-data-store. If an existing
-    # store has the wrong type it must be deleted and recreated.
+    # ActivityAuditLog. This is set at CREATION TIME and is immutable — it cannot
+    # be changed via update-event-data-store. Wrong-type stores must be deleted.
+    # Deleted stores enter PENDING_DELETION (can take hours) and block name reuse,
+    # so we fall back to aria-banking-audit-${DEPLOY_ID} when the primary name is taken.
     local ACTIVITY_SELECTORS='[{"Name":"ARIA custom audit events","FieldSelectors":[{"Field":"eventCategory","Equals":["ActivityAuditLog"]}]}]'
+    local PRIMARY_NAME="aria-banking-audit"
+    local FALLBACK_NAME="aria-banking-audit-${DEPLOY_ID}"
 
     step "Creating CloudTrail Lake event data store (ActivityAuditLog type)"
-    local eds_arn stale_channel=false
+    local eds_arn="" eds_name="" stale_channel=false
 
-    # Only query ENABLED stores — PENDING_DELETION stores cannot be used
-    eds_arn=$(aws cloudtrail list-event-data-stores \
+    # ── look up ALL statuses (including PENDING_DELETION) ──────────────────────
+    local existing_json
+    existing_json=$(aws cloudtrail list-event-data-stores \
         --region "$AGENTCORE_REGION" \
-        --query "EventDataStores[?Name=='aria-banking-audit' && Status=='ENABLED'].EventDataStoreArn" \
-        --output text 2>/dev/null || true)
+        --output json 2>/dev/null | \
+        python3 -c "
+import json, sys
+stores = json.load(sys.stdin).get('EventDataStores', [])
+for s in stores:
+    if s.get('Name') in ('${PRIMARY_NAME}', '${FALLBACK_NAME}'):
+        print(s.get('EventDataStoreArn',''), s.get('Status',''), s.get('Name',''))
+" 2>/dev/null || true)
 
-    if [[ -n "$eds_arn" ]]; then
-        # Inspect the actual eventCategory — this property is immutable after creation
-        local category
-        category=$(aws cloudtrail get-event-data-store \
-            --event-data-store "$eds_arn" \
-            --region "$AGENTCORE_REGION" \
-            --output json 2>/dev/null | \
-            python3 -c "
+    if [[ -n "$existing_json" ]]; then
+        local found_arn found_status found_name
+        found_arn=$(echo "$existing_json"    | awk '{print $1}')
+        found_status=$(echo "$existing_json" | awk '{print $2}')
+        found_name=$(echo "$existing_json"   | awk '{print $3}')
+
+        if [[ "$found_status" == "PENDING_DELETION" ]]; then
+            warn "Existing store '${found_name}' is PENDING_DELETION — using fallback name"
+            eds_name="$FALLBACK_NAME"
+
+        elif [[ "$found_status" == "ENABLED" ]]; then
+            # Check the actual eventCategory — immutable after creation
+            local category
+            category=$(aws cloudtrail get-event-data-store \
+                --event-data-store "$found_arn" \
+                --region "$AGENTCORE_REGION" \
+                --output json 2>/dev/null | \
+                python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for sel in data.get('AdvancedEventSelectors', []):
@@ -368,31 +407,37 @@ for sel in data.get('AdvancedEventSelectors', []):
             print(','.join(fs.get('Equals', [])))
 " 2>/dev/null || true)
 
-        if echo "$category" | grep -q "ActivityAuditLog"; then
-            warn "Event data store already exists with correct ActivityAuditLog type — skipping"
-        else
-            warn "Existing data store has wrong event category ('${category:-Management}') — deleting and recreating"
-            aws cloudtrail delete-event-data-store \
-                --event-data-store "$eds_arn" \
-                --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
-            eds_arn=""
-            stale_channel=true  # any existing channel points to the old ARN — must recreate
+            if echo "$category" | grep -q "ActivityAuditLog"; then
+                warn "Event data store '${found_name}' already correct — skipping creation"
+                eds_arn="$found_arn"
+                eds_name="$found_name"
+            else
+                warn "Store '${found_name}' has wrong category ('${category:-Management}') — deleting and using fallback name"
+                aws cloudtrail delete-event-data-store \
+                    --event-data-store "$found_arn" \
+                    --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
+                eds_name="$FALLBACK_NAME"
+                stale_channel=true
+            fi
         fi
+    else
+        eds_name="$PRIMARY_NAME"
     fi
 
     if [[ -z "$eds_arn" ]]; then
         eds_arn=$(aws cloudtrail create-event-data-store \
-            --name aria-banking-audit \
+            --name "$eds_name" \
             --retention-period 2557 \
             --no-multi-region-enabled \
             --advanced-event-selectors "$ACTIVITY_SELECTORS" \
             --region "$AGENTCORE_REGION" \
             --query "EventDataStoreArn" --output text)
-        ok "Event data store created: ${eds_arn}"
+        ok "Event data store created: ${eds_name} (${eds_arn})"
     fi
-    state_set "cloudtrail_eds_arn" "$eds_arn"
+    state_set "cloudtrail_eds_arn"  "$eds_arn"
+    state_set "cloudtrail_eds_name" "$eds_name"
 
-    # Channel (custom event source → data store)
+    # ── Channel ────────────────────────────────────────────────────────────────
     step "Creating CloudTrail Lake channel"
     local channel_arn
     channel_arn=$(aws cloudtrail list-channels \
@@ -400,7 +445,7 @@ for sel in data.get('AdvancedEventSelectors', []):
         --query "Channels[?Name=='aria-audit-channel'].ChannelArn" \
         --output text 2>/dev/null || true)
 
-    # Delete stale channel if the data store was recreated (ARN changed)
+    # Delete stale channel if the data store ARN changed
     if [[ -n "$channel_arn" && "$stale_channel" == "true" ]]; then
         warn "Deleting stale channel (data store ARN changed)"
         aws cloudtrail delete-channel --channel "$channel_arn" \
@@ -996,9 +1041,11 @@ cmd_teardown() {
     fi
 
     if [[ -n "$eds_arn" ]]; then
-        step "Deleting CloudTrail Lake event data store (may take 1-2 min)"
+        local eds_name
+        eds_name=$(state_get "cloudtrail_eds_name")
+        step "Deleting CloudTrail Lake event data store: ${eds_name:-aria-banking-audit}"
         aws cloudtrail delete-event-data-store --event-data-store "$eds_arn" \
-            --region "$agentcore_region" 2>/dev/null && ok "Event data store deleted" || warn "Data store not found"
+            --region "$agentcore_region" 2>/dev/null && ok "Event data store deletion initiated (enters PENDING_DELETION)" || warn "Data store not found"
     fi
 
     # ── Step 9: Delete DynamoDB table ─────────────────────────────────────────
@@ -1053,7 +1100,7 @@ import json, sys
 with open(sys.argv[1]) as f:
     state = json.load(f)
 keys_labels = [
-    ("account_id",            "AWS Account"),
+    ("deploy_id",             "Deploy ID"),
     ("agentcore_region",      "AgentCore region"),
     ("claude_region",         "Claude region"),
     ("nova_sonic_region",     "Nova Sonic region"),
@@ -1062,7 +1109,8 @@ keys_labels = [
     ("audit_bucket",          "Audit WORM bucket"),
     ("eventbridge_bus_arn",   "EventBridge bus"),
     ("cloudtrail_channel_arn","CloudTrail channel"),
-    ("cloudtrail_eds_arn",    "CloudTrail data store"),
+    ("cloudtrail_eds_name",   "CloudTrail data store name"),
+    ("cloudtrail_eds_arn",    "CloudTrail data store ARN"),
     ("cloudtrail_lambda_arn", "CloudTrail Lambda"),
     ("dynamodb_lambda_arn",   "DynamoDB Lambda"),
     ("firehose_arn",          "Firehose stream"),
