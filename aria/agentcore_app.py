@@ -37,6 +37,7 @@ from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.runtime.context import RequestContext
 
 from aria.agentcore_voice import ARIAWebSocketVoiceSession
+from aria.audit_manager import emit_chat_tool_audits as _emit_audit
 
 logger = logging.getLogger("aria.agentcore")
 
@@ -210,6 +211,7 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     # ------------------------------------------------------------------
     # Call the Strands Agent
     # ------------------------------------------------------------------
+    _msg_idx = len(agent.messages)
     try:
         result = agent(prompt)
         aria_text = _clean_response(str(result))
@@ -219,6 +221,15 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
             "I'm sorry, I'm experiencing a technical issue. "
             "Please try again or call our main line on 0161 900 9900."
         )
+
+    # Emit audit events for every tool call made during this turn
+    _emit_audit(
+        agent.messages, _msg_idx,
+        customer_id=meta.get("customer_id"),
+        session_id=session_id,
+        channel="agentcore-chat",
+        authenticated=meta.get("authenticated", False),
+    )
 
     # ------------------------------------------------------------------
     # Save turn to AgentCore Memory (async-friendly: best-effort fire)

@@ -297,3 +297,6 @@ docs/_build/
 
 # PEP 582 (local packages directory)
 __pypackages__/
+
+# Local audit JSONL files
+audit/

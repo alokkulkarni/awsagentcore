@@ -238,6 +238,7 @@ def main() -> None:
 
     import uuid as _uuid
     from aria.transcript_manager import TranscriptManager
+    from aria.audit_manager import emit_chat_tool_audits as _emit_audit
     _session_id = str(_uuid.uuid4())
     transcript = TranscriptManager(
         session_id=_session_id,
@@ -285,7 +286,15 @@ def main() -> None:
             transcript.add_turn("Customer", user_input)
 
             try:
+                _msg_idx = len(agent.messages)
                 response = agent(user_input)
+                _emit_audit(
+                    agent.messages, _msg_idx,
+                    customer_id=args.customer_id,
+                    session_id=_session_id,
+                    channel=args.channel,
+                    authenticated=args.auth,
+                )
                 cleaned = _clean_response(str(response))
                 if cleaned:
                     _aria_say(response)

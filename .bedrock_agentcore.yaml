@@ -24,3 +24,19 @@ bedrock_agentcore:
         mode: STM_AND_LTM         # Short-term (session turns) + Long-term (cross-session preferences)
       observability:
         enabled: true             # CloudWatch + X-Ray traces via OpenTelemetry
+      environment:
+        # ── Model regions ────────────────────────────────────────────────────────
+        AWS_REGION: eu-west-2                        # Claude Sonnet (chat agent)
+        NOVA_SONIC_REGION: eu-north-1                # Nova Sonic 2 (voice agent)
+        # ── Transcript storage ───────────────────────────────────────────────────
+        TRANSCRIPT_S3_BUCKET: ""                     # Set: meridian-aria-transcripts-<account-id>
+        TRANSCRIPT_S3_PREFIX: transcripts
+        TRANSCRIPT_STORE: s3                         # local | s3 | both
+        # ── Audit event storage ──────────────────────────────────────────────────
+        AUDIT_STORE: eventbridge                     # local | eventbridge | both
+        AUDIT_EVENTBRIDGE_BUS: ""                    # Set: aria-audit  (bus name) or full ARN
+        AUDIT_REGION: eu-west-2                      # AWS region for EventBridge client
+        # ── AgentCore Memory ─────────────────────────────────────────────────────
+        AGENTCORE_MEMORY_ID: ""                      # Set after provisioning AgentCore Memory
+        # ── Logging ──────────────────────────────────────────────────────────────
+        LOG_LEVEL: INFO

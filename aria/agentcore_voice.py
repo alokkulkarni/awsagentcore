@@ -46,6 +46,8 @@ import time
 import uuid
 from typing import Any, Optional
 
+from aria.audit_manager import audit as _audit
+
 logger = logging.getLogger("aria.voice.ws")
 
 # ---------------------------------------------------------------------------
@@ -739,6 +741,12 @@ class ARIAWebSocketVoiceSession:
         tool = self._tool_map.get(name)
         if tool is None:
             logger.warning("Unknown tool requested: %s", name)
+            _audit.record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="agentcore-voice",
+                authenticated=self._authenticated, parameters=args,
+                outcome="FAILURE", error_message="Tool not found",
+            )
             return json.dumps({"error": f"Tool '{name}' not found."})
 
         sig = inspect.signature(tool._tool_func)
@@ -748,8 +756,22 @@ class ARIAWebSocketVoiceSession:
         logger.info("Executing tool %s", name)
         try:
             result = await asyncio.to_thread(tool._tool_func, **args)
+            _audit.record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="agentcore-voice",
+                authenticated=self._authenticated,
+                parameters={k: v for k, v in args.items() if k != "session_id"},
+                outcome="SUCCESS",
+            )
             return json.dumps(result, default=str)
         except Exception as exc:
+            _audit.record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="agentcore-voice",
+                authenticated=self._authenticated,
+                parameters={k: v for k, v in args.items() if k != "session_id"},
+                outcome="FAILURE", error_message=str(exc),
+            )
             logger.error("Tool %s failed: %s", name, exc, exc_info=True)
             return json.dumps({"error": str(exc)})
 
