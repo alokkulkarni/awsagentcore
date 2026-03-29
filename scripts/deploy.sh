@@ -767,13 +767,46 @@ sdk_cb    = sdk_agent.get('codebuild', {})
 sdk_bac   = sdk_agent.get('bedrock_agentcore', {})
 sdk_mem   = sdk_agent.get('memory', {})
 
-# Use SDK-populated values if present, else fall back to state
-resolved_exec_role   = sdk_aws.get('execution_role')   or _or_none(exec_role)
-resolved_account     = sdk_aws.get('account')          or _or_none(account)
-resolved_ecr         = sdk_aws.get('ecr_repository')   or _or_none(ecr_repo)
-resolved_cb_project  = sdk_cb.get('project_name')      or _or_none(cb_project)
-resolved_cb_role     = sdk_cb.get('execution_role')    or _or_none(cb_role)
-resolved_cb_bucket   = sdk_cb.get('source_bucket')     or _or_none(cb_bucket)
+import subprocess
+
+def iam_role_exists(arn):
+    """Return True only if the IAM role actually exists in AWS right now."""
+    if not arn:
+        return False
+    role_name = arn.split('/')[-1]
+    r = subprocess.run(
+        ['aws', 'iam', 'get-role', '--role-name', role_name, '--query', 'Role.Arn', '--output', 'text'],
+        capture_output=True, text=True
+    )
+    return r.returncode == 0
+
+def ecr_repo_exists(uri):
+    """Return True only if the ECR repository actually exists."""
+    if not uri:
+        return False
+    repo_name = uri.split('/')[-1]
+    region_from_uri = uri.split('.')[3] if '.' in uri else region
+    r = subprocess.run(
+        ['aws', 'ecr', 'describe-repositories', '--repository-names', repo_name,
+         '--region', region_from_uri, '--query', 'repositories[0].repositoryName', '--output', 'text'],
+        capture_output=True, text=True
+    )
+    return r.returncode == 0
+
+# Validate each stored ARN — if the resource was deleted, treat as None so SDK auto-creates
+candidate_exec_role  = sdk_aws.get('execution_role')  or _or_none(exec_role)
+candidate_ecr        = sdk_aws.get('ecr_repository')  or _or_none(ecr_repo)
+candidate_cb_role    = sdk_cb.get('execution_role')   or _or_none(cb_role)
+candidate_cb_project = sdk_cb.get('project_name')     or _or_none(cb_project)
+candidate_cb_bucket  = sdk_cb.get('source_bucket')    or _or_none(cb_bucket)
+
+resolved_exec_role   = candidate_exec_role  if iam_role_exists(candidate_exec_role)  else None
+resolved_cb_role     = candidate_cb_role    if iam_role_exists(candidate_cb_role)     else None
+resolved_ecr         = candidate_ecr        if ecr_repo_exists(candidate_ecr)         else None
+# CodeBuild project and bucket are only valid if the CB role also exists
+resolved_cb_project  = candidate_cb_project if resolved_cb_role else None
+resolved_cb_bucket   = candidate_cb_bucket  if resolved_cb_role else None
+resolved_account     = sdk_aws.get('account') or _or_none(account)
 resolved_mem_id      = sdk_mem.get('memory_id')        or _or_none(mem_id)
 resolved_mem_created = sdk_mem.get('was_created_by_toolkit', bool(_or_none(mem_id)))
 
@@ -995,13 +1028,31 @@ launch_agentcore() {
         --env "LOG_LEVEL=INFO"
     )
 
-    if [[ "$DEPLOY_MODE" == "2" ]]; then
-        step "Running: agentcore launch --agent $AGENT_NAME --local-build (requires Docker)"
-        agentcore launch --agent "$AGENT_NAME" --local-build "${env_args[@]}" 2>&1 | tee "$launch_log"
-    else
-        step "Running: agentcore launch --agent $AGENT_NAME (CodeBuild, no Docker needed)"
-        agentcore launch --agent "$AGENT_NAME" "${env_args[@]}" 2>&1 | tee "$launch_log"
-    fi
+    local attempt=0 max_attempts=3 launch_exit=0
+    while (( attempt < max_attempts )); do
+        attempt=$(( attempt + 1 ))
+        launch_exit=0
+        rm -f "$launch_log"
+
+        if [[ "$DEPLOY_MODE" == "2" ]]; then
+            step "Running: agentcore launch --agent $AGENT_NAME --local-build (attempt ${attempt}/${max_attempts})"
+            agentcore launch --agent "$AGENT_NAME" --local-build "${env_args[@]}" 2>&1 | tee "$launch_log" || launch_exit=1
+        else
+            step "Running: agentcore launch --agent $AGENT_NAME (attempt ${attempt}/${max_attempts})"
+            agentcore launch --agent "$AGENT_NAME" "${env_args[@]}" 2>&1 | tee "$launch_log" || launch_exit=1
+        fi
+
+        # Detect IAM propagation error — retry after a wait
+        if grep -q "not authorized to perform: sts:AssumeRole\|CodeBuild is not authorized\|IAM\|trust policy" "$launch_log" 2>/dev/null \
+           && (( attempt < max_attempts )); then
+            warn "IAM propagation delay detected — waiting 30s before retry (attempt ${attempt}/${max_attempts})"
+            sleep 30
+            # Regenerate YAML in case SDK deleted it during the failed attempt
+            patch_agentcore_yaml
+            continue
+        fi
+        break
+    done
 
     # Extract Agent Runtime ARN from output
     local runtime_arn
