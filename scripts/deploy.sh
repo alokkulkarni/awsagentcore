@@ -337,8 +337,11 @@ create_eventbridge_bus() {
 create_cloudtrail_lake() {
     header "CloudTrail Lake (immutable audit store)"
 
-    # Event data store
-    step "Creating CloudTrail Lake event data store"
+    # Channels can ONLY ingest into an event data store whose eventCategory is
+    # ActivityAuditLog — Management/Data event stores are rejected by CreateChannel.
+    local ACTIVITY_SELECTORS='[{"Name":"ARIA custom audit events","FieldSelectors":[{"Field":"eventCategory","Equals":["ActivityAuditLog"]}]}]'
+
+    step "Creating CloudTrail Lake event data store (ActivityAuditLog type)"
     local eds_arn
     eds_arn=$(aws cloudtrail list-event-data-stores \
         --region "$AGENTCORE_REGION" \
@@ -346,12 +349,21 @@ create_cloudtrail_lake() {
         --output text 2>/dev/null || true)
 
     if [[ -n "$eds_arn" ]]; then
-        warn "Event data store already exists — skipping"
+        warn "Event data store already exists — patching selectors to ActivityAuditLog"
+        # Idempotent: update selectors to ActivityAuditLog in case the store was
+        # previously created without them (this fixes the InvalidEventDataStoreCategoryException).
+        aws cloudtrail update-event-data-store \
+            --event-data-store "$eds_arn" \
+            --advanced-event-selectors "$ACTIVITY_SELECTORS" \
+            --region "$AGENTCORE_REGION" > /dev/null 2>&1 \
+            && ok "Selectors updated" \
+            || warn "Selector update returned non-zero — will attempt channel creation anyway"
     else
         eds_arn=$(aws cloudtrail create-event-data-store \
             --name aria-banking-audit \
             --retention-period 2557 \
             --no-multi-region-enabled \
+            --advanced-event-selectors "$ACTIVITY_SELECTORS" \
             --region "$AGENTCORE_REGION" \
             --query "EventDataStoreArn" --output text)
         ok "Event data store created: ${eds_arn}"
