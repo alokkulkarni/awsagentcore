@@ -35,6 +35,8 @@ from typing import Optional
 
 from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.runtime.context import RequestContext
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
 from aria.agentcore_voice import ARIAWebSocketVoiceSession
 from aria.audit_manager import emit_chat_tool_audits as _emit_audit
@@ -45,7 +47,18 @@ logger = logging.getLogger("aria.agentcore")
 # Application instance
 # ---------------------------------------------------------------------------
 
-app = BedrockAgentCoreApp()
+# Allow all origins in development (CORS required for React dev server → localhost)
+# In production (AgentCore), the runtime proxy handles auth — CORS is irrelevant.
+_cors_middleware = [
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+]
+
+app = BedrockAgentCoreApp(middleware=_cors_middleware)
 
 # ---------------------------------------------------------------------------
 # Session state (per-microVM in-memory cache)
