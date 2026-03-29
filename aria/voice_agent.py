@@ -212,27 +212,40 @@ class _TerminalOutput:
     ``BidiAgent.run(outputs=[..., terminal_output])``.
 
     Transcript strategy:
-    - BidiTranscriptStreamEvent arrives as streaming chunks; we accumulate
-      them per-turn and print the complete turn only when is_final=True.
-    - This avoids garbled output from \r overwriting partial chunks of
-      different lengths.
+    - Nova Sonic emits one BidiTranscriptStreamEvent per sentence/chunk.
+      ARIA's full response arrives as many individual events in sequence.
+    - We accumulate all ASSISTANT (role="assistant") text into a buffer
+      and flush it as one complete block on BidiResponseCompleteEvent.
+    - USER (role="user") speech is printed on each is_final=True event
+      (each user utterance is one event).
+    - Only events with is_final=True are used — Nova Sonic may emit
+      SPECULATIVE stage events before the FINAL stage; we ignore speculative.
     """
 
     def __init__(self) -> None:
-        self._aria_buf: str = ""
-        self._customer_buf: str = ""
+        self._aria_buf: list[str] = []
 
     async def start(self, agent: Any) -> None:
         print("\n[Voice session connected — speak now. Say 'stop conversation' or press Ctrl-C to end]\n")
 
     async def stop(self) -> None:
+        # Flush any remaining buffered text before closing
+        self._flush_aria()
         print("\n[Voice session ended]\n")
+
+    def _flush_aria(self) -> None:
+        if self._aria_buf:
+            full_text = " ".join(self._aria_buf).strip()
+            self._aria_buf.clear()
+            if full_text:
+                print(f"\nARIA: {full_text}\n")
 
     async def __call__(self, event: Any) -> None:
         from strands.experimental.bidi import (
             BidiTranscriptStreamEvent,
             BidiResponseCompleteEvent,
             BidiConnectionCloseEvent,
+            BidiInterruptionEvent,
             BidiErrorEvent,
             BidiUsageEvent,
             ToolUseStreamEvent,
@@ -240,18 +253,37 @@ class _TerminalOutput:
         )
 
         if isinstance(event, BidiTranscriptStreamEvent):
+            # is_final=True means this chunk is from the FINAL generation stage
+            # (not speculative). Only process final-stage events.
+            if not event.is_final:
+                return
+
             role = event.role  # "user" or "assistant"
-            if event.is_final:
-                # current_transcript holds the full accumulated text for this turn
-                full_text = event.current_transcript or event.text
-                if full_text:
-                    if role == "assistant":
-                        print(f"\nARIA: {full_text}\n")
-                    else:
-                        print(f"\nCustomer: {full_text}\n")
+            text = (event.text or "").strip()
+            if not text:
+                return
+
+            if role == "assistant":
+                # Accumulate — print as one block when the response is complete
+                self._aria_buf.append(text)
+            else:
+                # USER utterance — flush any pending ARIA text first so the
+                # order on screen is ARIA → Customer, not interleaved
+                self._flush_aria()
+                print(f"\nCustomer: {text}\n")
 
         elif isinstance(event, BidiResponseCompleteEvent):
-            logger.debug("Nova Sonic response complete | stop_reason=%s", getattr(event, "stop_reason", ""))
+            # ARIA has finished speaking — flush the full accumulated response
+            self._flush_aria()
+            logger.debug(
+                "Nova Sonic response complete | stop_reason=%s",
+                getattr(event, "stop_reason", ""),
+            )
+
+        elif isinstance(event, BidiInterruptionEvent):
+            # User interrupted ARIA mid-sentence — discard partial buffer
+            self._aria_buf.clear()
+            logger.debug("Nova Sonic response interrupted")
 
         elif isinstance(event, BidiConnectionCloseEvent):
             reason = getattr(event, "reason", "")
