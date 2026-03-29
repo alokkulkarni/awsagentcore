@@ -295,6 +295,10 @@ class ARIAWebSocketVoiceSession:
         # Audio output queue (Nova Sonic → client)
         self._audio_output_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
+        # Transcript — populated during session, saved on close
+        from aria.transcript_manager import TranscriptManager
+        self._transcript: Optional[TranscriptManager] = None  # set after config received
+
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
@@ -321,6 +325,15 @@ class ARIAWebSocketVoiceSession:
         self._authenticated = bool(config.get("authenticated", False))
         self._customer_id   = config.get("customer_id") or None
 
+        # Initialise transcript now that we know the customer
+        from aria.transcript_manager import TranscriptManager
+        self._transcript = TranscriptManager(
+            session_id=self.session_id,
+            customer_id=self._customer_id,
+            channel="agentcore-voice",
+            authenticated=self._authenticated,
+        )
+
         logger.info(
             "WS voice session starting: session_id=%s authenticated=%s customer_id=%s",
             self.session_id, self._authenticated, self._customer_id,
@@ -336,6 +349,8 @@ class ARIAWebSocketVoiceSession:
             logger.error("Voice session error: %s", exc, exc_info=True)
             await self._ws_send_text({"type": "error", "message": "Voice session error — session ended."})
         finally:
+            if self._transcript:
+                self._transcript.save()
             await self._ws_send_text({"type": "session.ended"})
 
     # ------------------------------------------------------------------
@@ -561,6 +576,8 @@ class ARIAWebSocketVoiceSession:
                 if text:
                     logger.info("Customer said: %s", text)
                     await self._ws_send_text({"type": "transcript.user", "text": text})
+                    if self._transcript:
+                        self._transcript.add_turn("Customer", text)
                     low = text.lower()
                     if any(ph in low for ph in _FAREWELL_PHRASES):
                         self._farewell_detected = True
@@ -652,6 +669,8 @@ class ARIAWebSocketVoiceSession:
             if text:
                 logger.info("ARIA: %s", text)
                 await self._ws_send_text({"type": "transcript.aria", "text": text})
+                if self._transcript:
+                    self._transcript.add_turn("ARIA", text)
 
     async def _handle_interrupt(self) -> None:
         """Handle barge-in: drain audio queue, clear ARIA buffer."""

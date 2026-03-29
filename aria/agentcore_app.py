@@ -58,6 +58,9 @@ _CHAT_AGENTS: dict[str, object] = {}    # session_id → Strands Agent
 # Each value: {"authenticated": bool, "customer_id": str | None}
 _SESSION_META: dict[str, dict] = {}
 
+# Transcript managers keyed by session_id
+_TRANSCRIPTS: dict[str, object] = {}
+
 # Session IDs that have already received the SESSION_START injection
 _SESSION_STARTED: set[str] = set()
 
@@ -99,6 +102,26 @@ def _clean_response(text: str) -> str:
     return text.strip()
 
 
+_FAREWELL_WORDS = frozenset({
+    "goodbye", "good bye", "bye", "farewell", "that's all",
+    "thank you goodbye", "thanks goodbye", "no more", "all done",
+})
+
+
+def _maybe_save_transcript(transcript, aria_text: str) -> None:
+    """Save the transcript to S3 after every turn (durable in case of crash)
+    and perform a final save when a farewell is detected in ARIA's response."""
+    lower = aria_text.lower()
+    if any(w in lower for w in ("goodbye", "take care", "farewell", "pleasure helping")):
+        transcript.save()
+    else:
+        # Incremental save: overwrite S3 object with latest content each turn.
+        # This ensures no transcript is lost if the microVM is recycled.
+        transcript._saved = False   # allow re-save
+        transcript.save()
+        transcript._saved = False   # keep open for future turns
+
+
 # ---------------------------------------------------------------------------
 # Chat handler — POST /invocations
 # ---------------------------------------------------------------------------
@@ -132,11 +155,18 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     # ------------------------------------------------------------------
     if session_id not in _CHAT_AGENTS:
         from aria.agent import create_aria_agent
+        from aria.transcript_manager import TranscriptManager
         _CHAT_AGENTS[session_id] = create_aria_agent()
         _SESSION_META[session_id] = {
             "authenticated": authenticated,
             "customer_id":   customer_id,
         }
+        _TRANSCRIPTS[session_id] = TranscriptManager(
+            session_id=session_id,
+            customer_id=customer_id,
+            channel="agentcore-chat",
+            authenticated=authenticated,
+        )
         logger.info(
             "Created new chat agent session: %s authenticated=%s customer_id=%s",
             session_id, authenticated, customer_id,
@@ -144,6 +174,7 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
 
     agent = _CHAT_AGENTS[session_id]
     meta  = _SESSION_META[session_id]
+    transcript = _TRANSCRIPTS[session_id]
 
     # ------------------------------------------------------------------
     # Retrieve conversation history from AgentCore Memory (if configured)
@@ -197,6 +228,11 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
         memory_client.save_turn(actor_id, session_id, user_message, aria_text)
     except Exception as exc:
         logger.warning("Memory save skipped: %s", exc)
+
+    # Save to transcript (appends turn; S3 upload on farewell/session end)
+    transcript.add_turn("Customer", user_message)
+    transcript.add_turn("ARIA", aria_text)
+    _maybe_save_transcript(transcript, aria_text)
 
     return aria_text
 

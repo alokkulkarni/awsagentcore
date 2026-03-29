@@ -236,6 +236,16 @@ def main() -> None:
         )
         sys.exit(1)
 
+    import uuid as _uuid
+    from aria.transcript_manager import TranscriptManager
+    _session_id = str(_uuid.uuid4())
+    transcript = TranscriptManager(
+        session_id=_session_id,
+        customer_id=args.customer_id,
+        channel=args.channel,
+        authenticated=args.auth,
+    )
+
     print("\n" + "=" * 60)
     print("  ARIA — Meridian Bank Voice Banking Agent")
     if args.auth:
@@ -248,38 +258,48 @@ def main() -> None:
         session_start_msg = _build_session_start(args.auth, args.customer_id, args.channel)
         greeting = agent(session_start_msg)
         _aria_say(greeting)
+        transcript.add_turn("ARIA", str(greeting))
     except Exception as exc:
         _aria_say(_friendly_message(exc))
         sys.exit(1)
 
-    while True:
-        try:
-            user_input = input("Customer: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            _aria_say(_MSG_GOODBYE)
-            logger.info("Session ended by interrupt")
-            break
+    try:
+        while True:
+            try:
+                user_input = input("Customer: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                _aria_say(_MSG_GOODBYE)
+                transcript.add_turn("ARIA", _MSG_GOODBYE)
+                logger.info("Session ended by interrupt")
+                break
 
-        if not user_input:
-            continue
+            if not user_input:
+                continue
 
-        if user_input.lower() in ("quit", "exit", "q"):
-            _aria_say(_MSG_GOODBYE)
-            logger.info("Session ended by customer")
-            break
+            if user_input.lower() in ("quit", "exit", "q"):
+                _aria_say(_MSG_GOODBYE)
+                transcript.add_turn("ARIA", _MSG_GOODBYE)
+                logger.info("Session ended by customer")
+                break
 
-        try:
-            response = agent(user_input)
-            cleaned = _clean_response(str(response))
-            if cleaned:
-                _aria_say(response)
-            logger.debug("Agent response delivered successfully")
-        except KeyboardInterrupt:
-            _aria_say(_MSG_GOODBYE)
-            logger.info("Session interrupted during response")
-            break
-        except Exception as exc:
-            _aria_say(_friendly_message(exc))
+            transcript.add_turn("Customer", user_input)
+
+            try:
+                response = agent(user_input)
+                cleaned = _clean_response(str(response))
+                if cleaned:
+                    _aria_say(response)
+                    transcript.add_turn("ARIA", cleaned)
+                logger.debug("Agent response delivered successfully")
+            except KeyboardInterrupt:
+                _aria_say(_MSG_GOODBYE)
+                transcript.add_turn("ARIA", _MSG_GOODBYE)
+                logger.info("Session interrupted during response")
+                break
+            except Exception as exc:
+                _aria_say(_friendly_message(exc))
+    finally:
+        transcript.save()
 
 
 if __name__ == "__main__":

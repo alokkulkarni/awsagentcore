@@ -317,6 +317,15 @@ class ARIANovaSonicSession:
         self._tools    = ALL_TOOLS
         self._tool_map = {t.tool_name: t for t in ALL_TOOLS}
 
+        # Transcript manager — saves conversation to .md file on session end
+        from aria.transcript_manager import TranscriptManager
+        self._transcript = TranscriptManager(
+            session_id=session_id,
+            customer_id=customer_id,
+            channel="voice",
+            authenticated=authenticated,
+        )
+
     # ------------------------------------------------------------------
     # Client initialisation  (converts boto3 credentials → SDK Config)
     # ------------------------------------------------------------------
@@ -667,6 +676,7 @@ class ARIANovaSonicSession:
                 self._flush_aria()
                 if text.strip():
                     print(f"\nCustomer: {text.strip()}\n")
+                    self._transcript.add_turn("Customer", text.strip())
                 # Detect farewell to trigger graceful session end
                 if not self._farewell_detected:
                     lower = text.lower()
@@ -713,6 +723,7 @@ class ARIANovaSonicSession:
             self._aria_buf.clear()
             if text:
                 print(f"\nARIA: {text}\n")
+                self._transcript.add_turn("ARIA", text)
 
     async def _handle_interrupt(self) -> None:
         """Handle a barge-in interrupt signal from Nova Sonic.
@@ -1023,5 +1034,6 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         except Exception:
             pass
 
+        nova._transcript.save()
         print("\n[Voice session ended]\n")
         logger.info("Voice session ended.")
