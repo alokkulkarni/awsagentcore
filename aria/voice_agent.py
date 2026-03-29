@@ -22,7 +22,9 @@ import base64
 import inspect
 import json
 import logging
+import math
 import os
+import struct
 import sys
 import threading
 import time
@@ -48,6 +50,12 @@ _CHUNK_SIZE = 1024             # frames per mic read
 # Seconds to keep mic muted *after* the last audio chunk finishes playing.
 _ECHO_TAIL_SECS = float(os.getenv("ECHO_GATE_TAIL_SECS", "0.8"))
 
+# RMS energy threshold for the smart echo gate.
+# Audio above this level passes through even during ARIA playback (barge-in).
+# 800 ≈ 2.4 % of 16-bit full scale (32768). Decrease for more sensitive barge-in.
+# Set NOVA_BARGE_IN_THRESHOLD=0 to always send real mic audio (headphone users).
+_BARGE_IN_THRESHOLD = int(os.getenv("NOVA_BARGE_IN_THRESHOLD", "800"))
+
 # Phrases that indicate the customer is ending the conversation.
 _FAREWELL_PHRASES = frozenset({
     "goodbye", "good bye", "bye", "bye bye", "farewell",
@@ -62,6 +70,15 @@ _NOVA_VOICE       = os.getenv("NOVA_SONIC_VOICE", "tiffany")
 _ENDPOINTING      = os.getenv("NOVA_SONIC_ENDPOINTING", "HIGH")
 if _ENDPOINTING not in {"HIGH", "MEDIUM", "LOW"}:
     _ENDPOINTING = "HIGH"
+
+
+def _compute_rms(data: bytes) -> float:
+    """Return the RMS energy of a 16-bit little-endian PCM audio chunk."""
+    n = len(data) // 2
+    if n == 0:
+        return 0.0
+    samples = struct.unpack_from(f"<{n}h", data)
+    return math.sqrt(sum(s * s for s in samples) / n)
 
 
 # ---------------------------------------------------------------------------
@@ -553,9 +570,16 @@ class ARIANovaSonicSession:
             text = event["textOutput"].get("content", "")
             role = event["textOutput"].get("role", self._role).upper()
 
-            if "interrupted" in text.lower() and "true" in text.lower():
-                self._aria_buf.clear()
-                return
+            # Detect barge-in interrupt signal: Nova Sonic sends
+            # textOutput role=ASSISTANT content='{"interrupted": true}'
+            if role == "ASSISTANT" and text.startswith("{"):
+                try:
+                    evt_data = json.loads(text)
+                    if evt_data.get("interrupted") is True:
+                        await self._handle_interrupt()
+                        return
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
             if role == "ASSISTANT" and self._display_assistant_text:
                 if text:
@@ -608,6 +632,32 @@ class ARIANovaSonicSession:
             self._aria_buf.clear()
             if text:
                 print(f"\nARIA: {text}\n")
+
+    async def _handle_interrupt(self) -> None:
+        """Handle a barge-in interrupt signal from Nova Sonic.
+
+        Nova Sonic sends ``textOutput`` with role=ASSISTANT and
+        content='{"interrupted": true}' when the user speaks over ARIA.
+        We mirror the React client's ``audioPlayer.bargeIn()`` call:
+        clear all queued audio immediately and reset the echo gate.
+        """
+        cleared = 0
+        while True:
+            try:
+                self._audio_output_queue.get_nowait()
+                cleared += 1
+            except asyncio.QueueEmpty:
+                break
+
+        # Clear any buffered ARIA display text for the interrupted turn
+        self._aria_buf.clear()
+
+        # Unblock the echo gate so the mic reopens immediately
+        with self._gate_lock:
+            self._silence_until = 0.0
+
+        logger.info("Barge-in: cleared %d queued audio chunks", cleared)
+        print("\n[Customer interrupted — listening...]\n")
 
     # ------------------------------------------------------------------
     # Tool execution
@@ -701,12 +751,20 @@ class ARIANovaSonicSession:
                     stream.read, _CHUNK_SIZE, False  # exception_on_overflow=False
                 )
 
-                # Echo gate: send silence while ARIA is playing
+                # Smart echo gate: during ARIA playback, mute low-energy audio
+                # (speaker echo) but pass through high-energy audio (user speech).
+                # If NOVA_BARGE_IN_THRESHOLD=0, always send real audio (headphones).
                 with self._gate_lock:
                     muted = time.monotonic() < self._silence_until
 
                 if muted:
-                    audio_data = b"\x00" * len(audio_data)
+                    rms = _compute_rms(audio_data)
+                    if _BARGE_IN_THRESHOLD == 0 or rms >= _BARGE_IN_THRESHOLD:
+                        # User is speaking over ARIA — pass through for barge-in
+                        pass
+                    else:
+                        # Low energy — likely speaker echo, suppress it
+                        audio_data = b"\x00" * len(audio_data)
 
                 if self.is_active:
                     blob = base64.b64encode(audio_data).decode("utf-8")
@@ -833,6 +891,8 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
     print(
         "\n[Voice session connected — speak now. "
         "Say 'goodbye' or press Ctrl-C to end]\n"
+        f"[Barge-in threshold: {_BARGE_IN_THRESHOLD} "
+        f"({'always on' if _BARGE_IN_THRESHOLD == 0 else 'set NOVA_BARGE_IN_THRESHOLD=0 for headphones'})]\n"
     )
 
     response_task = asyncio.create_task(nova._process_responses())
