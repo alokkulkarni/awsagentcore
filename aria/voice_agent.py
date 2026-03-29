@@ -33,6 +33,8 @@ from typing import Any
 
 import pyaudio
 
+from aria.audit_manager import audit as _audit
+
 logger = logging.getLogger("aria.voice")
 
 # ---------------------------------------------------------------------------
@@ -316,6 +318,15 @@ class ARIANovaSonicSession:
         from aria.tools import ALL_TOOLS
         self._tools    = ALL_TOOLS
         self._tool_map = {t.tool_name: t for t in ALL_TOOLS}
+
+        # Transcript manager — saves conversation to .md file on session end
+        from aria.transcript_manager import TranscriptManager
+        self._transcript = TranscriptManager(
+            session_id=session_id,
+            customer_id=customer_id,
+            channel="voice",
+            authenticated=authenticated,
+        )
 
     # ------------------------------------------------------------------
     # Client initialisation  (converts boto3 credentials → SDK Config)
@@ -667,6 +678,7 @@ class ARIANovaSonicSession:
                 self._flush_aria()
                 if text.strip():
                     print(f"\nCustomer: {text.strip()}\n")
+                    self._transcript.add_turn("Customer", text.strip())
                 # Detect farewell to trigger graceful session end
                 if not self._farewell_detected:
                     lower = text.lower()
@@ -713,6 +725,7 @@ class ARIANovaSonicSession:
             self._aria_buf.clear()
             if text:
                 print(f"\nARIA: {text}\n")
+                self._transcript.add_turn("ARIA", text)
 
     async def _handle_interrupt(self) -> None:
         """Handle a barge-in interrupt signal from Nova Sonic.
@@ -798,6 +811,12 @@ class ARIANovaSonicSession:
         tool = self._tool_map.get(name)
         if tool is None:
             logger.warning("Unknown tool requested: %s", name)
+            await _audit.async_record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="voice",
+                authenticated=self._authenticated, parameters=args,
+                outcome="FAILURE", error_message="Tool not found",
+            )
             return json.dumps({"error": f"Tool '{name}' not found."})
 
         # Inject session_id if the tool accepts it and the caller didn't pass it
@@ -808,8 +827,22 @@ class ARIANovaSonicSession:
         logger.info("Executing tool %s with args %s", name, {k: v for k, v in args.items() if k != "session_id"})
         try:
             result = await asyncio.to_thread(tool._tool_func, **args)
+            await _audit.async_record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="voice",
+                authenticated=self._authenticated,
+                parameters={k: v for k, v in args.items() if k != "session_id"},
+                outcome="SUCCESS",
+            )
             return json.dumps(result, default=str)
         except Exception as exc:
+            await _audit.async_record(
+                tool_name=name, customer_id=self._customer_id,
+                session_id=self.session_id, channel="voice",
+                authenticated=self._authenticated,
+                parameters={k: v for k, v in args.items() if k != "session_id"},
+                outcome="FAILURE", error_message=str(exc),
+            )
             logger.error("Tool %s failed: %s", name, exc, exc_info=True)
             return json.dumps({"error": str(exc)})
 
@@ -1023,5 +1056,6 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         except Exception:
             pass
 
+        nova._transcript.save()
         print("\n[Voice session ended]\n")
         logger.info("Voice session ended.")

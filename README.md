@@ -6,6 +6,7 @@
 |---------|-------|-----|
 | **Chat** (text REPL) | Amazon Bedrock · Claude Sonnet 4.6 | [Strands Agents](https://strandsagents.com) framework, streaming text |
 | **Voice** (speech‑to‑speech) | Amazon Bedrock · Nova Sonic 2 | Direct bidirectional stream API (`aws_sdk_bedrock_runtime`) |
+| **AgentCore** (cloud hosted) | Both Claude Sonnet 4.6 + Nova Sonic 2 | `aria/agentcore_app.py` — HTTPS chat + WSS voice via Amazon Bedrock AgentCore Runtime |
 
 Both channels share the same 20 modular banking tools, the same PII vault pipeline, the same knowledge-based authentication flow, and the same empathy/vulnerability-handling instructions. Only the I/O layer differs.
 
@@ -39,17 +40,34 @@ Both channels share the same 20 modular banking tools, the same PII vault pipeli
 
 ---
 
+### AgentCore Deployed Stack
+
+![AgentCore Deployed Stack](./docs/diagrams/05_agentcore_deployed_stack.png)
+
+Full production deployment on Amazon Bedrock AgentCore Runtime, showing authenticated and unauthenticated access from mobile and web clients, all AWS services, audit compliance storage, and transcript storage.
+
+---
+
+### Audit Event Flow
+
+![Audit Event Flow](./docs/diagrams/06_audit_event_flow.png)
+
+Non-blocking EventBridge fan-out from every banking tool call to three compliance storage tiers.
+
+---
+
 ## Prerequisites
 
 - **Python 3.11+**
 - **AWS credentials** configured (`~/.aws/credentials`, env vars, or IAM role)
 - **Bedrock access** — `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` in your target region
 - **Voice only** — `bedrock:InvokeModelWithBidirectionalStream` in a Nova Sonic 2 region (`us-east-1`, `eu-north-1`, or `ap-northeast-1`)
-- **Voice only** — `portaudio` system library for PyAudio:
+- **Voice only (local)** — `portaudio` system library for PyAudio:
   ```bash
   brew install portaudio          # macOS
   sudo apt-get install portaudio19-dev  # Debian/Ubuntu
   ```
+- **Cloud deploy only** — `agentcore` CLI: `pip install bedrock-agentcore-starter-toolkit`
 - `uv` (recommended) or `pip`
 
 ---
@@ -96,13 +114,35 @@ cp .env.example .env
 | `PII_VAULT_BACKEND` | `in_memory`                     | PII vault backend (`in_memory`, `aws_secrets_manager`)    |
 | `LOG_LEVEL`         | `INFO`                          | Python logging level                                      |
 
-### Voice-only settings
+### Voice settings
 
 | Variable                  | Default    | Description                                                                   |
 |---------------------------|------------|-------------------------------------------------------------------------------|
 | `NOVA_SONIC_REGION`       | —          | **Required for voice.** Must be `us-east-1`, `eu-north-1`, or `ap-northeast-1` |
 | `ECHO_GATE_TAIL_SECS`     | `0.8`      | Seconds to keep mic muted after ARIA finishes speaking                        |
 | `NOVA_BARGE_IN_THRESHOLD` | `800`      | RMS energy threshold for barge-in. Set `0` to disable gate (headphone users) |
+
+### Transcript settings
+
+| Variable                | Default       | Description                                        |
+|-------------------------|---------------|----------------------------------------------------|
+| `TRANSCRIPT_STORE`      | `local`       | `local` \| `s3` \| `both`                         |
+| `TRANSCRIPT_S3_BUCKET`  | —             | S3 bucket for cloud transcript storage             |
+| `TRANSCRIPT_S3_PREFIX`  | `transcripts` | S3 key prefix                                      |
+
+### Audit settings
+
+| Variable                  | Default      | Description                                                  |
+|---------------------------|--------------|--------------------------------------------------------------|
+| `AUDIT_STORE`             | `local`      | `local` \| `eventbridge` \| `both`                          |
+| `AUDIT_EVENTBRIDGE_BUS`   | —            | EventBridge bus name (e.g. `aria-audit`)                     |
+| `AUDIT_REGION`            | `eu-west-2`  | AWS region for EventBridge client                            |
+
+### AgentCore settings
+
+| Variable              | Default | Description                                                        |
+|-----------------------|---------|--------------------------------------------------------------------|
+| `AGENTCORE_MEMORY_ID` | —       | AgentCore Memory resource ID — enables persistent conversation history |
 
 ---
 
@@ -142,6 +182,32 @@ Speak naturally. Say **"stop conversation"** or press `Ctrl-C` to end the sessio
 ============================================================
 ```
 
+### AgentCore deployed mode
+
+Invoke the running AgentCore endpoint via the `agentcore` CLI:
+
+```bash
+agentcore invoke --payload '{"message": "What is my account balance?", "authenticated": true, "customer_id": "CUST-001"}'
+```
+
+Or call it directly with boto3:
+
+```python
+import boto3, json
+
+client = boto3.client("bedrock-agentcore-runtime", region_name="eu-west-2")
+response = client.invoke_agent(
+    agentId="<your-agent-id>",
+    sessionId="session-001",
+    inputText=json.dumps({
+        "message": "What is my account balance?",
+        "authenticated": True,
+        "customer_id": "CUST-001",
+    }),
+)
+print(response["output"]["text"])
+```
+
 ### CLI reference
 
 ```
@@ -155,17 +221,259 @@ options:
 
 ---
 
+## Deploying to AgentCore
+
+### Quick start
+
+```bash
+./scripts/deploy.sh deploy
+```
+
+The interactive deploy script handles every AWS resource end-to-end. It prompts for the AWS region and profile, creates all infrastructure, builds and pushes the Docker image via CodeBuild (no local Docker required), and launches the AgentCore Runtime.
+
+### What the deploy script creates
+
+| Resource | Purpose |
+|---|---|
+| S3 transcript bucket | Durable Markdown transcript storage |
+| S3 audit WORM bucket | Immutable audit log archive (Object Lock) |
+| DynamoDB table | Hot-path audit event index |
+| EventBridge bus | `aria-audit` — audit event routing |
+| CloudTrail Lake | Immutable queryable audit event store |
+| Lambda × 2 | `audit_cloudtrail_writer` + `audit_dynamodb_writer` |
+| Kinesis Firehose | EventBridge → S3 WORM delivery stream |
+| AgentCore Runtime | Managed HTTPS + WSS endpoint in `eu-west-2` |
+
+### Prerequisites for deploy
+
+- AWS CLI v2 with `ecr:*`, `bedrock-agentcore:*`, `bedrock:InvokeModel`, `s3:*`, `dynamodb:*`, `events:*`, `lambda:*`, and `cloudtrail:*` permissions
+- `agentcore` CLI: `pip install bedrock-agentcore-starter-toolkit`
+- Bedrock model access for `anthropic.claude-sonnet-4-6` (eu-west-2) and `amazon.nova-2-sonic-v1:0` (eu-north-1 or us-east-1)
+
+### Deploy options
+
+| Option | How | Notes |
+|---|---|---|
+| **CodeBuild** (default) | `./scripts/deploy.sh deploy` | AWS builds the image — no local Docker required |
+| **Local Docker build** | `agentcore launch` | Requires Docker Desktop; builds ARM64 image locally |
+
+### Teardown
+
+```bash
+./scripts/deploy.sh teardown
+```
+
+Removes all AWS resources created by the deploy script. Prompts for confirmation before destroying the AgentCore Runtime and any S3/DynamoDB data.
+
+### Status
+
+```bash
+./scripts/deploy.sh status
+```
+
+Lists the current state of all deployed resources.
+
+### Manual deploy commands (reference)
+
+```bash
+# Launch AgentCore Runtime from local Docker build
+agentcore launch
+
+# Destroy AgentCore Runtime
+agentcore destroy
+```
+
+For a full step-by-step guide including IAM permissions, ECR setup, environment variable injection, and troubleshooting, see [`docs/agentcore-deployment-guide.md`](docs/agentcore-deployment-guide.md).
+
+---
+
+## AgentCore API Reference
+
+### AgentCore Architecture
+
+| AgentCore service | ARIA maps to |
+|---|---|
+| **Runtime `/invocations`** | `aria/agentcore_app.py` → `@app.entrypoint` → Strands Agent (Claude Sonnet 4.6) |
+| **Runtime `/ws`** | `aria/agentcore_app.py` → `@app.websocket` → `ARIAWebSocketVoiceSession` → Nova Sonic 2 S2S |
+| **Memory** | `aria/memory_client.py` — conversation history saved/retrieved per session |
+| **Runtime `/ping`** | Automatic health check handled by `BedrockAgentCoreApp` |
+
+### Chat API (POST /invocations)
+
+```bash
+curl -X POST https://<agentcore-endpoint>/invocations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: <session-id>" \
+  -d '{"message": "What is my account balance?", "authenticated": true, "customer_id": "CUST-001"}'
+```
+
+**Payload fields:**
+
+| Field | Type | When | Description |
+|-------|------|------|-------------|
+| `message` | string | Every call | Customer's text message |
+| `authenticated` | bool | First call only | Whether the customer is already authenticated |
+| `customer_id` | string | First call only | Customer ID (e.g. `CUST-001`) — required when `authenticated: true` |
+
+On the **first call** in a session, ARIA automatically injects the `SESSION_START` trigger, fetches the customer profile via `get_customer_details`, and includes the greeting in its response.
+
+### Voice API (WebSocket /ws)
+
+```
+wss://<agentcore-endpoint>/ws
+```
+
+**Client → Server (text, first message):**
+```json
+{"type": "session.config", "authenticated": true, "customer_id": "CUST-001"}
+```
+
+**Client → Server (binary):** Raw 16 kHz 16-bit mono PCM audio chunks (mic input)
+
+**Server → Client (text):**
+```json
+{"type": "session.started"}
+{"type": "transcript.user",  "text": "What is my balance?"}
+{"type": "transcript.aria",  "text": "Your current balance is £5,240.00."}
+{"type": "interrupt"}
+{"type": "session.ended"}
+{"type": "error", "message": "..."}
+```
+
+**Server → Client (binary):** Raw 24 kHz 16-bit mono PCM audio (ARIA's voice)
+
+### Local Development Server
+
+```bash
+# Start the AgentCore app locally (no Docker required)
+uvicorn aria.agentcore_app:app --port 8080 --reload
+
+# Test health check
+curl http://localhost:8080/ping
+
+# Test a chat turn (no auth for quick smoke test)
+curl -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -H "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: test-session-1" \
+  -d '{"message": "Hello Aria"}'
+```
+
+The local server is fully functional — all tools execute and voice sessions work. Set `AGENTCORE_MEMORY_ID` to test memory integration, or leave it unset to use in-memory conversation history only.
+
+---
+
+## Audit Events
+
+### Overview
+
+Every banking tool call emits a structured JSON audit event via `aria/audit_manager.py`. The `AuditManager` runs non-blocking — events are dispatched in a background thread via `run_in_executor`, adding less than 1 ms of event-loop impact per tool call.
+
+### Tool tier classification
+
+| Tier | Classification | Examples |
+|---|---|---|
+| **Tier 1 — Critical** | High-risk or irreversible actions | `block_debit_card`, `escalate_to_human_agent`, `validate_customer_auth` (failure) |
+| **Tier 2 — Significant** | Sensitive data access | `get_account_details`, `get_credit_card_details`, `get_customer_details` |
+| **Tier 3 — Informational** | Low-risk reads | `search_knowledge_base`, `get_product_catalogue`, `get_feature_parity` |
+
+### Local mode
+
+Set `AUDIT_STORE=local` (default). Audit events are appended as newline-delimited JSON to files under `audit/`:
+
+```
+audit/
+  aria-audit-CUST-001-20260101T120000Z.jsonl
+```
+
+### Cloud mode
+
+Set `AUDIT_STORE=eventbridge` or `AUDIT_STORE=both`. Events are published to the EventBridge bus named by `AUDIT_EVENTBRIDGE_BUS` and fan out to three compliance storage tiers:
+
+| Tier | Storage | Retention |
+|---|---|---|
+| Hot | DynamoDB — queryable event index | 90 days (TTL) |
+| Warm | CloudTrail Lake — immutable SQL-queryable event store | 7 years |
+| Cold | S3 WORM bucket (Object Lock) — raw JSON archive | Configurable |
+
+### Audit environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUDIT_STORE` | `local` | `local` \| `eventbridge` \| `both` |
+| `AUDIT_EVENTBRIDGE_BUS` | — | EventBridge bus name (e.g. `aria-audit`) |
+| `AUDIT_REGION` | `eu-west-2` | AWS region for EventBridge client |
+
+See [`docs/audit-event-architecture.md`](docs/audit-event-architecture.md) for the full event schema and Lambda implementations.
+
+---
+
+## Transcripts
+
+ARIA saves every session as a Markdown transcript for compliance, debugging, and quality review.
+
+### Local mode
+
+Set `TRANSCRIPT_STORE=local` (default). Transcripts are saved to:
+
+```
+transcripts/
+  CUST-001/
+    2026-01-01T12-00-00Z.md
+    2026-01-01T13-30-00Z.md
+```
+
+Transcripts are written per-turn — if the agent crashes mid-session, everything up to the last completed turn is preserved.
+
+### Cloud mode
+
+Set `TRANSCRIPT_STORE=s3` or `TRANSCRIPT_STORE=both`. Transcripts are written to the S3 bucket and prefix defined by `TRANSCRIPT_S3_BUCKET` and `TRANSCRIPT_S3_PREFIX` (default: `transcripts`):
+
+```
+s3://<bucket>/transcripts/CUST-001/2026-01-01T12-00-00Z.md
+```
+
+### Transcript environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRANSCRIPT_STORE` | `local` | `local` \| `s3` \| `both` |
+| `TRANSCRIPT_S3_BUCKET` | — | S3 bucket for cloud transcript storage |
+| `TRANSCRIPT_S3_PREFIX` | `transcripts` | S3 key prefix |
+
+See [`docs/transcript-storage.md`](docs/transcript-storage.md) for the Markdown format specification.
+
+---
+
 ## Project Structure
 
 ```
 awsagentcore/
 ├── pyproject.toml              # Project metadata and build config
 ├── requirements.txt            # Direct dependencies
+├── Dockerfile                  # Container image for AgentCore Runtime (linux/arm64)
 ├── .env.example                # Environment variable template
 ├── main.py                     # Entry point — CLI router for chat and voice
+├── scripts/
+│   ├── deploy.sh               # Interactive full-stack deploy & teardown
+│   └── lambdas/
+│       ├── audit_cloudtrail_writer.py  # EventBridge → CloudTrail Lake Lambda
+│       └── audit_dynamodb_writer.py    # EventBridge → DynamoDB Lambda
+├── docs/
+│   ├── adr/                    # Architecture Decision Records (ADR-001 to ADR-010)
+│   ├── agentcore-deployment-guide.md   # Full AgentCore deployment guide
+│   ├── agentcore-tools-architecture.md # Tools architecture for AgentCore
+│   ├── audit-event-architecture.md     # Audit event storage architecture
+│   ├── domain-sub-agent-architecture.md # Future domain sub-agent design
+│   └── transcript-storage.md           # Transcript storage design
 └── aria/
     ├── __init__.py
     ├── agent.py                # create_aria_agent() — wires Claude + tools + prompt
+    ├── agentcore_app.py        # BedrockAgentCoreApp — chat (POST /invocations) + voice (WSS /ws)
+    ├── agentcore_voice.py      # Cloud WebSocket voice session (no PyAudio)
+    ├── audit_manager.py        # AuditManager — async EventBridge + local JSONL
+    ├── memory_client.py        # AgentCore Memory API client
+    ├── transcript_manager.py   # Markdown transcript writer (local + S3)
     ├── voice_agent.py          # ARIANovaSonicSession — Nova Sonic 2 S2S voice agent
     ├── system_prompt.py        # ARIA_SYSTEM_PROMPT (shared by both channels)
     ├── models/                 # Pydantic v2 request/response models
@@ -218,7 +526,7 @@ awsagentcore/
 
 ## Tool Inventory
 
-All 20 tools are shared identically between the chat and voice channels.
+All 20 tools are shared identically between the chat, voice, and AgentCore channels.
 
 | # | Tool Function                     | Group          | Description                                                              |
 |---|-----------------------------------|----------------|--------------------------------------------------------------------------|
@@ -317,20 +625,22 @@ This prevents the double-farewell loop that would otherwise occur when ARIA's sp
 
 ---
 
-## Future: Amazon Bedrock AgentCore Hosting
+## Architecture Decision Records
 
-Both agents are structured to deploy onto **Amazon Bedrock AgentCore** with minimal changes:
+All significant architectural decisions are documented as ADRs in `docs/adr/`. Each ADR records the context, the decision made, and the consequences.
 
-| AgentCore service | Maps to |
-|---|---|
-| **Runtime** | `aria/agent.py` (chat via `@app.entrypoint`) + `aria/voice_agent.py` (voice via `@app.websocket`) |
-| **Runtime WebSocket** | Nova Sonic 2 S2S voice session over `/ws` endpoint |
-| **Gateway** | Banking tools exposed as MCP-compatible endpoints — valuable once tools call real bank APIs |
-| **Memory** | Replacement for the in-memory `_VAULT` PII dict with session-scoped managed storage |
-| **Identity** | Inbound JWT/OAuth auth for the runtime endpoint (complements the internal KBA flow) |
-| **Observability** | CloudWatch dashboards + X-Ray traces replacing `aria.log` file |
-
-`bedrock-agentcore` and `bedrock-agentcore-starter-toolkit` are already in `requirements.txt`.
+| ADR | Title | Summary |
+|-----|-------|---------|
+| [ADR-001](docs/adr/ADR-001-audit-transcript-non-blocking.md) | Audit and Transcript Non-Blocking Design | Audit and transcript I/O run via `run_in_executor` so they never block the agent event loop |
+| [ADR-002](docs/adr/ADR-002-strands-agents-framework.md) | Strands Agents as the AI Agent Framework | Strands chosen over LangChain/LlamaIndex for native Bedrock integration and minimal overhead |
+| [ADR-003](docs/adr/ADR-003-modular-tool-architecture.md) | Modular One-File-Per-Tool Architecture | One Python file per tool for isolation, independent testing, and clean git history |
+| [ADR-004](docs/adr/ADR-004-pii-vault-in-memory.md) | PII Vault — In-Memory Session-Scoped Token Store | In-memory vault with TTL chosen over external store for latency; pluggable backend for prod |
+| [ADR-005](docs/adr/ADR-005-nova-sonic-direct-api.md) | Nova Sonic 2 S2S — Direct aws_sdk_bedrock_runtime API | Direct bidirectional stream API used instead of Strands Bidi SDK for full control and stability |
+| [ADR-006](docs/adr/ADR-006-echo-gate-barge-in.md) | PyAudio Echo Gate + NOVA_BARGE_IN Opt-In for Local Voice | RMS-based echo gate prevents mic feedback loop; threshold configurable or disabled for headphones |
+| [ADR-007](docs/adr/ADR-007-agentcore-docker-ecr.md) | AgentCore Runtime — Docker Container in ECR | Docker/ECR chosen over ZIP upload for reproducible builds, dependency control, and ARM64 support |
+| [ADR-008](docs/adr/ADR-008-in-process-tools-not-gateway.md) | In-Process Tool Execution (Not AgentCore Gateway Endpoints) | Tools execute in-process inside the container rather than via AgentCore Gateway for lower latency |
+| [ADR-009](docs/adr/ADR-009-cross-region-model-access.md) | Cross-Region Model Access — Claude in eu-west-2, Nova Sonic in eu-north-1 | Claude hosted in eu-west-2 (GDPR); Nova Sonic accessed cross-region to eu-north-1 (only available region) |
+| [ADR-010](docs/adr/ADR-010-audit-eventbridge-three-tier.md) | Audit Event Compliance Storage — EventBridge Fan-Out to Three-Tier Architecture | EventBridge routes audit events to DynamoDB (hot), CloudTrail Lake (warm), and S3 WORM (cold) |
 
 ---
 
