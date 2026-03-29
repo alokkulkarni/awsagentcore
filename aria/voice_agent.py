@@ -269,8 +269,8 @@ def create_aria_voice_agent(authenticated: bool = False, customer_id: str | None
                 "voice": _NOVA_VOICE,
             },
             "inference": {
-                "maxTokens": int(os.getenv("NOVA_SONIC_MAX_TOKENS", "2048")),
-                "topP": float(os.getenv("NOVA_SONIC_TOP_P", "0.9")),
+                "max_tokens": int(os.getenv("NOVA_SONIC_MAX_TOKENS", "2048")),
+                "top_p": float(os.getenv("NOVA_SONIC_TOP_P", "0.9")),
                 "temperature": float(os.getenv("NOVA_SONIC_TEMPERATURE", "0.7")),
             },
             "turn_detection": {
