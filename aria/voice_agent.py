@@ -154,10 +154,22 @@ def _build_voice_system_prompt(authenticated: bool, customer_id: str | None, ses
             "- The caller has already been verified. Do NOT ask them to re-authenticate.\n"
             f"- Call get_customer_details(\"{customer_id}\") immediately to fetch their profile,\n"
             "  then greet them by preferred_name.\n\n"
-            "MANDATORY RULES:\n"
+            "CARD QUERIES — VOICE OVERRIDE (MANDATORY):\n"
+            "After get_customer_details runs, you already know every card_last_four value from\n"
+            "the customer profile. Apply these rules EXACTLY:\n"
+            "  1. NEVER ask the customer to provide or confirm card digits you already have.\n"
+            "  2. NEVER call pii_vault_retrieve for card_last_four — use values from the profile.\n"
+            "  3. ONE card of the requested type → use its card_last_four directly. Tell the\n"
+            "     customer which card you are accessing, e.g. 'I'll check your Visa Debit ending\n"
+            "     in 4821' — then call the tool immediately without waiting for confirmation.\n"
+            "  4. MULTIPLE cards of the same type → read each card's scheme + last_four to the\n"
+            "     customer and ask which one they mean, then use the selected card_last_four.\n"
+            "  5. 'Confirm the card' in any instruction means TELL the customer which card you\n"
+            "     are using — NOT ask them to supply digits.\n\n"
+            "MANDATORY SESSION RULES:\n"
             "1. Fetch the customer profile first, then greet the caller by name.\n"
-            "2. This session STAYS OPEN. Never end it until the caller says goodbye.\n"
-            "3. You are on VOICE — speak naturally. Do not read out full URLs or card numbers.\n\n"
+            "2. This session STAYS OPEN. Never end it until the caller explicitly says goodbye.\n"
+            "3. You are on VOICE — speak naturally. Never read full URLs or full card numbers.\n\n"
             "=== END VOICE RULES — BANKING INSTRUCTIONS FOLLOW ===\n\n"
         )
     else:
@@ -751,20 +763,25 @@ class ARIANovaSonicSession:
                     stream.read, _CHUNK_SIZE, False  # exception_on_overflow=False
                 )
 
-                # Smart echo gate: during ARIA playback, mute low-energy audio
-                # (speaker echo) but pass through high-energy audio (user speech).
-                # If NOVA_BARGE_IN_THRESHOLD=0, always send real audio (headphones).
-                with self._gate_lock:
-                    muted = time.monotonic() < self._silence_until
+                # After farewell: always send silence so Nova Sonic cannot pick up
+                # ARIA's own echo or ambient noise and start a brand-new response.
+                if self._farewell_detected:
+                    audio_data = b"\x00" * len(audio_data)
+                else:
+                    # Smart echo gate: during ARIA playback, mute low-energy audio
+                    # (speaker echo) but pass through high-energy audio (user speech).
+                    # If NOVA_BARGE_IN_THRESHOLD=0, always send real audio (headphones).
+                    with self._gate_lock:
+                        muted = time.monotonic() < self._silence_until
 
-                if muted:
-                    rms = _compute_rms(audio_data)
-                    if _BARGE_IN_THRESHOLD == 0 or rms >= _BARGE_IN_THRESHOLD:
-                        # User is speaking over ARIA — pass through for barge-in
-                        pass
-                    else:
-                        # Low energy — likely speaker echo, suppress it
-                        audio_data = b"\x00" * len(audio_data)
+                    if muted:
+                        rms = _compute_rms(audio_data)
+                        if _BARGE_IN_THRESHOLD == 0 or rms >= _BARGE_IN_THRESHOLD:
+                            # User is speaking over ARIA — pass through for barge-in
+                            pass
+                        else:
+                            # Low energy — likely speaker echo, suppress it
+                            audio_data = b"\x00" * len(audio_data)
 
                 if self.is_active:
                     blob = base64.b64encode(audio_data).decode("utf-8")
@@ -907,6 +924,8 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         await response_task
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
+    except Exception as exc:
+        logger.error("Voice session error: %s", exc)
     finally:
         nova.is_active = False  # stop capture and any lingering loops
 
@@ -914,15 +933,26 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
         if not capture_task.done():
             capture_task.cancel()
 
-        # Let playback drain so the farewell audio finishes playing (up to 8 s).
+        # Let playback drain so farewell audio finishes (up to 8 s).
         try:
             await asyncio.wait_for(playback_task, timeout=8.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
             if not playback_task.done():
                 playback_task.cancel()
 
-        # Gather all tasks cleanly before closing the stream.
-        await asyncio.gather(capture_task, playback_task, response_task, return_exceptions=True)
-        await nova.end_session()
+        # Gather all tasks to suppress any remaining CancelledError noise.
+        try:
+            await asyncio.gather(
+                capture_task, playback_task, response_task,
+                return_exceptions=True,
+            )
+        except Exception:
+            pass
+
+        try:
+            await nova.end_session()
+        except Exception:
+            pass
+
         print("\n[Voice session ended]\n")
         logger.info("Voice session ended.")
