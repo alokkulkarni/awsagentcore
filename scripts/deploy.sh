@@ -546,6 +546,10 @@ deploy_lambda() {
             --zip-file "fileb://${zip_path}" \
             --region "$AGENTCORE_REGION" \
             --query "FunctionName" --output text > /dev/null
+        # Wait for code update to complete before updating configuration
+        aws lambda wait function-updated \
+            --function-name "$fn_name" \
+            --region "$AGENTCORE_REGION" 2>/dev/null || true
         aws lambda update-function-configuration \
             --function-name "$fn_name" \
             --environment "Variables=${env_vars}" \
@@ -729,27 +733,15 @@ create_eventbridge_rules() {
 patch_agentcore_yaml() {
     header "Patching .bedrock_agentcore.yaml"
 
-    patch_yaml_env "AWS_REGION"             "$CLAUDE_REGION"
-    patch_yaml_env "NOVA_SONIC_REGION"      "$NOVA_SONIC_REGION"
-    patch_yaml_env "TRANSCRIPT_S3_BUCKET"   "$TRANSCRIPT_BUCKET"
-    patch_yaml_env "AUDIT_EVENTBRIDGE_BUS"  "aria-audit"
-    patch_yaml_env "AUDIT_REGION"           "$AGENTCORE_REGION"
-    patch_yaml_env "AUDIT_STORE"            "eventbridge"
-    patch_yaml_env "TRANSCRIPT_STORE"       "s3"
-
-    # Update region in the agent block
-    python3 - "$YAML_FILE" "$AGENTCORE_REGION" <<'PYEOF'
+    # Only patch aws.region in the YAML — env vars are passed as --env flags to agentcore launch
+    python3 -c "
 import sys, re
 yaml_file, region = sys.argv[1], sys.argv[2]
 with open(yaml_file) as f: content = f.read()
-new_content = re.sub(
-    r'^(\s+region:\s+).*$',
-    rf'\g<1>{region}',
-    content, flags=re.MULTILINE
-)
-with open(yaml_file, "w") as f: f.write(new_content)
-print(f"  patched region = {region}")
-PYEOF
+new_content = re.sub(r'^(\s+region:\s+).*$', rf'\g<1>{region}', content, flags=re.MULTILINE)
+with open(yaml_file, 'w') as f: f.write(new_content)
+print(f'  patched aws.region = {region}')
+" "$YAML_FILE" "$AGENTCORE_REGION"
 
     ok ".bedrock_agentcore.yaml updated"
 }
@@ -763,12 +755,26 @@ launch_agentcore() {
 
     local launch_log="/tmp/agentcore-launch-$$.log"
 
+    # Build --env flags — env vars are injected into the AgentCore runtime container
+    local env_args=(
+        --env "NOVA_SONIC_REGION=${NOVA_SONIC_REGION}"
+        --env "TRANSCRIPT_S3_BUCKET=${TRANSCRIPT_BUCKET}"
+        --env "TRANSCRIPT_S3_PREFIX=transcripts"
+        --env "TRANSCRIPT_STORE=s3"
+        --env "AUDIT_STORE=eventbridge"
+        --env "AUDIT_EVENTBRIDGE_BUS=aria-audit"
+        --env "AUDIT_REGION=${AGENTCORE_REGION}"
+        --env "BANK_API_BASE_URL=${BANK_API_BASE_URL}"
+        --env "BANK_API_KEY=${BANK_API_KEY}"
+        --env "LOG_LEVEL=INFO"
+    )
+
     if [[ "$DEPLOY_MODE" == "2" ]]; then
         step "Running: agentcore launch --agent $AGENT_NAME --local-build (requires Docker)"
-        agentcore launch --agent "$AGENT_NAME" --local-build 2>&1 | tee "$launch_log"
+        agentcore launch --agent "$AGENT_NAME" --local-build "${env_args[@]}" 2>&1 | tee "$launch_log"
     else
         step "Running: agentcore launch --agent $AGENT_NAME (CodeBuild, no Docker needed)"
-        agentcore launch --agent "$AGENT_NAME" 2>&1 | tee "$launch_log"
+        agentcore launch --agent "$AGENT_NAME" "${env_args[@]}" 2>&1 | tee "$launch_log"
     fi
 
     # Extract Agent Runtime ARN from output

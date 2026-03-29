@@ -4,39 +4,27 @@
 # Channels: HTTP /invocations (chat) + WebSocket /ws (voice)
 #
 # Deploy commands:
-#   Build + push to ECR locally:  agentcore deploy --local-build
-#   Cloud CodeBuild (no Docker):  agentcore deploy
-#   Local dev server:             agentcore dev  (or: uvicorn aria.agentcore_app:app --port 8080 --reload)
+#   Cloud CodeBuild (no Docker):  agentcore launch --agent aria-banking-agent
+#   Local Docker build:           agentcore launch --agent aria-banking-agent --local-build
+#   Local dev server:             agentcore dev
 
-bedrock_agentcore:
-  agents:
-    aria-banking-agent:
-      entrypoint: aria/agentcore_app.py
-      deployment_type: container
-      requirements_file: requirements-docker.txt
-      ecr: auto
-      execution_role: null        # auto-created by agentcore launch
+default_agent: aria-banking-agent
+
+agents:
+  aria-banking-agent:
+    name: aria-banking-agent
+    entrypoint: aria/agentcore_app.py
+    deployment_type: container
+    aws:
       region: eu-west-2
-      idle_timeout: 1800          # 30 min idle before session terminates
-      max_lifetime: 28800         # 8 hours max lifetime
-      protocol: HTTP              # Handles both /invocations and /ws on port 8080
-      memory:
-        mode: STM_AND_LTM         # Short-term (session turns) + Long-term (cross-session preferences)
+      execution_role_auto_create: true
+      ecr_auto_create: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: 1800
+        max_lifetime: 28800
+      protocol_configuration:
+        server_protocol: HTTP
       observability:
-        enabled: true             # CloudWatch + X-Ray traces via OpenTelemetry
-      environment:
-        # ── Model regions ────────────────────────────────────────────────────────
-        AWS_REGION: eu-west-2
-        NOVA_SONIC_REGION: us-east-1
-        # ── Transcript storage ───────────────────────────────────────────────────
-        TRANSCRIPT_S3_BUCKET: meridian-aria-transcripts-32471b
-        TRANSCRIPT_S3_PREFIX: transcripts
-        TRANSCRIPT_STORE: s3
-        # ── Audit event storage ──────────────────────────────────────────────────
-        AUDIT_STORE: eventbridge
-        AUDIT_EVENTBRIDGE_BUS: aria-audit
-        AUDIT_REGION: eu-west-2
-        # ── AgentCore Memory ─────────────────────────────────────────────────────
-        AGENTCORE_MEMORY_ID: ""                      # Set after provisioning AgentCore Memory
-        # ── Logging ──────────────────────────────────────────────────────────────
-        LOG_LEVEL: INFO
+        enabled: true
+    memory:
+      mode: STM_AND_LTM
