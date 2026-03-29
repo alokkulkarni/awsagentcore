@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Dev / local-only
+main.py
+aria.log
+*.log
+.env
+.env.*
+*.env
+
+# Docs & diagrams (not needed at runtime)
+docs/
+README.md
+*.md
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Git
+.git/
+.gitignore
+
+# AgentCore config (for local CLI; not needed in container)
+.bedrock_agentcore.yaml
+
+# Node (mermaid-cli)
+node_modules/

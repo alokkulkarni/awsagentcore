@@ -317,20 +317,142 @@ This prevents the double-farewell loop that would otherwise occur when ARIA's sp
 
 ---
 
-## Future: Amazon Bedrock AgentCore Hosting
+## Amazon Bedrock AgentCore Hosting
 
-Both agents are structured to deploy onto **Amazon Bedrock AgentCore** with minimal changes:
+ARIA can run in two modes:
 
-| AgentCore service | Maps to |
+| Mode | How to start | When to use |
+|------|-------------|-------------|
+| **Local** | `python3 main.py` | Development & testing on your machine |
+| **AgentCore** | `agentcore deploy --local-build` | Production — Docker → ECR → managed runtime |
+
+Both modes use the same banking tools and system prompt. The AgentCore runtime adds managed session isolation, memory, and a secure HTTPS/WebSocket endpoint accessible from mobile apps and websites.
+
+---
+
+### AgentCore Architecture
+
+| AgentCore service | ARIA maps to |
 |---|---|
-| **Runtime** | `aria/agent.py` (chat via `@app.entrypoint`) + `aria/voice_agent.py` (voice via `@app.websocket`) |
-| **Runtime WebSocket** | Nova Sonic 2 S2S voice session over `/ws` endpoint |
-| **Gateway** | Banking tools exposed as MCP-compatible endpoints — valuable once tools call real bank APIs |
-| **Memory** | Replacement for the in-memory `_VAULT` PII dict with session-scoped managed storage |
-| **Identity** | Inbound JWT/OAuth auth for the runtime endpoint (complements the internal KBA flow) |
-| **Observability** | CloudWatch dashboards + X-Ray traces replacing `aria.log` file |
+| **Runtime `/invocations`** | `aria/agentcore_app.py` → `@app.entrypoint` → Strands Agent (Claude Sonnet 4.6) |
+| **Runtime `/ws`** | `aria/agentcore_app.py` → `@app.websocket` → `ARIAWebSocketVoiceSession` → Nova Sonic 2 S2S |
+| **Memory** | `aria/memory_client.py` — conversation history saved/retrieved per session |
+| **Runtime `/ping`** | Automatic health check handled by `BedrockAgentCoreApp` |
 
-`bedrock-agentcore` and `bedrock-agentcore-starter-toolkit` are already in `requirements.txt`.
+---
+
+### Prerequisites
+
+- Docker Desktop (for local builds)
+- AWS CLI v2 with credentials that have `ecr:*`, `bedrock-agentcore:*`, and `bedrock:InvokeModel` permissions
+- `bedrock-agentcore-starter-toolkit` CLI: `pip install bedrock-agentcore-starter-toolkit`
+
+---
+
+### Deploy with Docker → ECR (recommended)
+
+```bash
+# 1. Configure the deployment (already present in .bedrock_agentcore.yaml)
+cat .bedrock_agentcore.yaml
+
+# 2. Build the Docker image locally and push to Amazon ECR
+#    --local-build builds on your machine (ARM64) and pushes to ECR
+agentcore deploy --local-build
+
+# 3. (Optional) Test the image locally before deploying
+agentcore deploy --local
+```
+
+The `agentcore deploy --local-build` command:
+1. Builds `Dockerfile` for `linux/arm64` (required by AgentCore Runtime)
+2. Creates an ECR repository if it does not exist
+3. Pushes the image to ECR
+4. Deploys the AgentCore Runtime endpoint
+
+---
+
+### Environment Variables (AgentCore)
+
+All variables from the local `.env` file are needed in the cloud too. Set them as AgentCore Runtime environment variables or via AWS Secrets Manager:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_REGION` | Yes | Bedrock region for Claude (e.g. `eu-west-2`) |
+| `NOVA_SONIC_REGION` | Yes (voice) | Nova Sonic 2 region (`us-east-1`, `eu-north-1`, `ap-northeast-1`) |
+| `AGENTCORE_MEMORY_ID` | Optional | AgentCore Memory resource ID — enables conversation history |
+| `BEDROCK_MODEL_ID` | Optional | Override the Claude model ID |
+| `LOG_LEVEL` | Optional | `DEBUG` / `INFO` / `WARNING` (default: `INFO`) |
+
+When `AGENTCORE_MEMORY_ID` is not set the memory client becomes a no-op and the agent works without memory — useful for testing.
+
+---
+
+### Chat API (POST /invocations)
+
+```bash
+curl -X POST https://<agentcore-endpoint>/invocations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: <session-id>" \
+  -d '{"message": "What is my account balance?", "authenticated": true, "customer_id": "CUST-001"}'
+```
+
+**Payload fields:**
+
+| Field | Type | When | Description |
+|-------|------|------|-------------|
+| `message` | string | Every call | Customer's text message |
+| `authenticated` | bool | First call only | Whether the customer is already authenticated |
+| `customer_id` | string | First call only | Customer ID (e.g. `CUST-001`) — required when `authenticated: true` |
+
+On the **first call** in a session, ARIA automatically injects the `SESSION_START` trigger, fetches the customer profile via `get_customer_details`, and includes the greeting in its response.
+
+---
+
+### Voice API (WebSocket /ws)
+
+```
+wss://<agentcore-endpoint>/ws
+```
+
+**Client → Server (text, first message):**
+```json
+{"type": "session.config", "authenticated": true, "customer_id": "CUST-001"}
+```
+
+**Client → Server (binary):** Raw 16 kHz 16-bit mono PCM audio chunks (mic input)
+
+**Server → Client (text):**
+```json
+{"type": "session.started"}
+{"type": "transcript.user",  "text": "What is my balance?"}
+{"type": "transcript.aria",  "text": "Your current balance is £5,240.00."}
+{"type": "interrupt"}
+{"type": "session.ended"}
+{"type": "error", "message": "..."}
+```
+
+**Server → Client (binary):** Raw 24 kHz 16-bit mono PCM audio (ARIA's voice)
+
+---
+
+### Local Development Server
+
+```bash
+# Start the AgentCore app locally (no Docker required)
+uvicorn aria.agentcore_app:app --port 8080 --reload
+
+# Test health check
+curl http://localhost:8080/ping
+
+# Test a chat turn (no auth for quick smoke test)
+curl -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -H "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: test-session-1" \
+  -d '{"message": "Hello Aria"}'
+```
+
+The local server is fully functional — all tools execute and voice sessions work. Set `AGENTCORE_MEMORY_ID` to test memory integration, or leave it unset to use in-memory conversation history only.
 
 ---
 

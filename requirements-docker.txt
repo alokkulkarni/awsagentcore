@@ -1,0 +1,14 @@
+# Container requirements for Amazon Bedrock AgentCore Runtime deployment.
+# Identical to requirements.txt EXCEPT pyaudio is excluded because:
+#   - No microphone/speaker on the server — audio travels over WebSocket
+#   - portaudio system library is not installed in the container
+#   - Local voice mode (main.py --channel voice) uses the host requirements.txt
+strands-agents
+strands-agents[bidi]
+strands-agents-tools
+boto3
+bedrock-agentcore
+bedrock-agentcore-starter-toolkit
+pydantic>=2.0
+python-dotenv
+uvicorn[standard]

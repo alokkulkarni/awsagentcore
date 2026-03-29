@@ -7,6 +7,7 @@ bedrock-agentcore
 bedrock-agentcore-starter-toolkit
 pydantic>=2.0
 python-dotenv
+uvicorn[standard]
 # Voice mode (Nova Sonic 2 S2S bidirectional streaming)
 # aws_sdk_bedrock_runtime is installed transitively via strands-agents[bidi]
 pyaudio
