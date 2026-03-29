@@ -1,44 +1,52 @@
-import { SignatureV4 } from '@aws-sdk/signature-v4';
+import { fetchAuthSession } from '@aws-amplify/auth';
+import { SignatureV4 } from '@smithy/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
 
 /**
- * Sign an HTTP request using AWS SigV4.
+ * Get temporary AWS credentials from Cognito Identity Pool via Amplify.
+ * @returns {Promise<{accessKeyId: string, secretAccessKey: string, sessionToken?: string}>}
+ */
+export async function getAwsCredentials() {
+  const session = await fetchAuthSession();
+  const creds = session.credentials;
+  return {
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    sessionToken: creds.sessionToken,
+  };
+}
+
+/**
+ * Sign an HTTP request using SigV4 with Cognito Identity Pool credentials.
  * @param {string} url - Full request URL
  * @param {RequestInit} options - fetch options (method, headers, body)
- * @param {{ accessKeyId: string, secretAccessKey: string, sessionToken?: string }} credentials
- * @param {string} region - AWS region
- * @param {string} service - AWS service name
+ * @param {string} region - AWS region (default: eu-west-2)
+ * @param {string} service - AWS service name (default: bedrock-agentcore)
  * @returns {Promise<Response>}
  */
-export async function signedFetch(url, options = {}, credentials, region, service = 'bedrock-agentcore') {
-  const parsedUrl = new URL(url);
+export async function signedFetch(url, options = {}, region = 'eu-west-2', service = 'bedrock-agentcore') {
+  const creds = await getAwsCredentials();
+  const urlObj = new URL(url);
 
   const method = (options.method || 'POST').toUpperCase();
   const body = options.body;
 
-  const headers = {
-    'Content-Type': 'application/json',
-    host: parsedUrl.host,
-    ...(options.headers || {}),
-  };
-
-  // Build the request object expected by SignatureV4
   const request = {
     method,
-    headers,
-    hostname: parsedUrl.hostname,
-    port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : undefined,
-    path: parsedUrl.pathname + parsedUrl.search,
-    protocol: parsedUrl.protocol,
+    hostname: urlObj.hostname,
+    port: urlObj.port ? parseInt(urlObj.port, 10) : undefined,
+    path: urlObj.pathname + urlObj.search,
+    protocol: urlObj.protocol,
+    headers: {
+      'Content-Type': 'application/json',
+      host: urlObj.hostname,
+      ...(options.headers || {}),
+    },
     body: body || undefined,
   };
 
   const signer = new SignatureV4({
-    credentials: {
-      accessKeyId: credentials.accessKeyId,
-      secretAccessKey: credentials.secretAccessKey,
-      sessionToken: credentials.sessionToken || undefined,
-    },
+    credentials: creds,
     region,
     service,
     sha256: Sha256,
@@ -53,63 +61,3 @@ export async function signedFetch(url, options = {}, credentials, region, servic
   });
 }
 
-/**
- * Send a chat request to the ARIA backend.
- * Automatically applies SigV4 signing when in AgentCore authenticated mode.
- *
- * @param {string} chatUrl - Base URL (without /invocations)
- * @param {object} payload - { message, authenticated, customer_id }
- * @param {object} config - Full connection config from useConnection
- * @returns {Promise<string>} ARIA's plain-text response
- */
-export async function chatRequest(chatUrl, payload, config) {
-  if (!chatUrl) {
-    throw new Error('Chat URL is not configured. Please set it in Connection Settings.');
-  }
-
-  // Ensure the URL ends with /invocations
-  const invokeUrl = chatUrl.endsWith('/invocations')
-    ? chatUrl
-    : `${chatUrl.replace(/\/$/, '')}/invocations`;
-
-  const bodyStr = JSON.stringify(payload);
-
-  let response;
-
-  const useSignedRequest =
-    config.authenticated &&
-    config.mode === 'agentcore' &&
-    config.awsAccessKeyId &&
-    config.awsSecretAccessKey;
-
-  if (useSignedRequest) {
-    response = await signedFetch(
-      invokeUrl,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: bodyStr,
-      },
-      {
-        accessKeyId: config.awsAccessKeyId,
-        secretAccessKey: config.awsSecretAccessKey,
-        sessionToken: config.awsSessionToken || undefined,
-      },
-      config.awsRegion || 'us-east-1',
-      'bedrock-agentcore'
-    );
-  } else {
-    response = await fetch(invokeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: bodyStr,
-    });
-  }
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    throw new Error(`Server responded with ${response.status}: ${errText || response.statusText}`);
-  }
-
-  return response.text();
-}

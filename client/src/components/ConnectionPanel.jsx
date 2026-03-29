@@ -54,8 +54,8 @@ export default function ConnectionPanel({ connection }) {
             </FormField>
             <FormField label="WebSocket URL" constraintText="e.g. ws://localhost:8080/ws">
               <Input
-                value={draft.localWsUrl}
-                onChange={({ detail }) => update('localWsUrl', detail.value)}
+                value={draft.localVoiceUrl}
+                onChange={({ detail }) => update('localVoiceUrl', detail.value)}
                 placeholder="ws://localhost:8080/ws"
               />
             </FormField>
@@ -72,19 +72,19 @@ export default function ConnectionPanel({ connection }) {
                 placeholder="https://…bedrock-agentcore.amazonaws.com/…"
               />
             </FormField>
-            <FormField label="AgentCore WebSocket Endpoint">
+            <FormField label="Voice WebSocket URL (ALB)" constraintText="e.g. ws://aria-alb.eu-west-2.elb.amazonaws.com/ws">
               <Input
-                value={draft.agentcoreWsUrl}
-                onChange={({ detail }) => update('agentcoreWsUrl', detail.value)}
-                placeholder="wss://…bedrock-agentcore.amazonaws.com/…"
+                value={draft.agentcoreVoiceUrl}
+                onChange={({ detail }) => update('agentcoreVoiceUrl', detail.value)}
+                placeholder="ws://…elb.amazonaws.com/ws"
               />
             </FormField>
           </SpaceBetween>
         )}
 
-        {/* Authentication toggle + AWS credentials */}
+        {/* Authentication toggle + Cognito credentials */}
         <ExpandableSection
-          headerText="Authentication & AWS Credentials"
+          headerText="Authentication (Cognito Identity Pool)"
           expanded={draft.authenticated}
           onChange={({ detail }) => update('authenticated', detail.expanded)}
         >
@@ -93,42 +93,29 @@ export default function ConnectionPanel({ connection }) {
               checked={draft.authenticated}
               onChange={({ detail }) => update('authenticated', detail.checked)}
             >
-              Enable SigV4 signing (AgentCore authenticated mode)
+              Enable SigV4 signing via Cognito Identity Pool
             </Toggle>
 
+            <p style={{ margin: 0, color: '#5f6b7a', fontSize: '0.875rem' }}>
+              Cognito Identity Pool provides temporary AWS credentials automatically — no long-term keys needed.
+            </p>
+
             <SpaceBetween size="s" direction="horizontal">
+              <FormField
+                label="Cognito Identity Pool ID"
+                constraintText="e.g. eu-west-2:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              >
+                <Input
+                  value={draft.cognitoIdentityPoolId}
+                  onChange={({ detail }) => update('cognitoIdentityPoolId', detail.value)}
+                  placeholder="eu-west-2:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                />
+              </FormField>
               <FormField label="AWS Region">
                 <Input
                   value={draft.awsRegion}
                   onChange={({ detail }) => update('awsRegion', detail.value)}
-                  placeholder="us-east-1"
-                />
-              </FormField>
-              <FormField label="Access Key ID">
-                <Input
-                  value={draft.awsAccessKeyId}
-                  onChange={({ detail }) => update('awsAccessKeyId', detail.value)}
-                  placeholder="AKIA..."
-                  type="password"
-                />
-              </FormField>
-            </SpaceBetween>
-
-            <SpaceBetween size="s" direction="horizontal">
-              <FormField label="Secret Access Key">
-                <Input
-                  value={draft.awsSecretAccessKey}
-                  onChange={({ detail }) => update('awsSecretAccessKey', detail.value)}
-                  placeholder="Secret access key"
-                  type="password"
-                />
-              </FormField>
-              <FormField label="Session Token (optional)">
-                <Input
-                  value={draft.awsSessionToken}
-                  onChange={({ detail }) => update('awsSessionToken', detail.value)}
-                  placeholder="Temporary session token"
-                  type="password"
+                  placeholder="eu-west-2"
                 />
               </FormField>
             </SpaceBetween>

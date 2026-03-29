@@ -16,5 +16,7 @@
   "dynamodb_lambda_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-audit-dynamodb-writer",
   "firehose_arn": "arn:aws:firehose:eu-west-2:395402194296:deliverystream/aria-audit-firehose",
   "firehose_role_arn": "arn:aws:iam::395402194296:role/aria-firehose-audit-role",
-  "memory_id": "aria_bank_mem-LliwlT7L2X"
+  "memory_id": "aria_bank_mem-LliwlT7L2X",
+  "runtime_arn": "arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-RhdjurH3YC",
+  "execution_role_name": "AmazonBedrockAgentCoreSDKCodeBuild-eu-west-2-3aa478434d"
 }

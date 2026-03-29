@@ -1069,6 +1069,533 @@ launch_agentcore() {
     rm -f "$launch_log"
 }
 
+deploy_cognito_identity_pool() {
+    header "Cognito Identity Pool (React client auth)"
+
+    local COGNITO_POOL_ID POOL_NAME RUNTIME_ARN UNAUTH_TRUST UNAUTH_ROLE_NAME UNAUTH_ROLE_ARN
+    COGNITO_POOL_ID=$(state_get "cognito_identity_pool_id")
+
+    if [[ -n "$COGNITO_POOL_ID" ]]; then
+        if aws cognito-identity describe-identity-pool \
+                --identity-pool-id "$COGNITO_POOL_ID" \
+                --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null; then
+            ok "Cognito Identity Pool already exists — $COGNITO_POOL_ID"
+            return
+        else
+            warn "Cognito pool $COGNITO_POOL_ID no longer exists — recreating"
+            COGNITO_POOL_ID=""
+        fi
+    fi
+
+    step "Creating Cognito Identity Pool"
+    POOL_NAME="aria_banking_pool_${DEPLOY_ID}"
+    COGNITO_POOL_ID=$(aws cognito-identity create-identity-pool \
+        --identity-pool-name "$POOL_NAME" \
+        --allow-unauthenticated-identities \
+        --region "$AGENTCORE_REGION" \
+        --no-cli-pager \
+        --query 'IdentityPoolId' --output text)
+
+    state_set "cognito_identity_pool_id" "$COGNITO_POOL_ID"
+    ok "Cognito Identity Pool created: $COGNITO_POOL_ID"
+
+    step "Creating Cognito unauthenticated IAM role"
+    RUNTIME_ARN=$(state_get "runtime_arn")
+
+    UNAUTH_TRUST=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "cognito-identity.amazonaws.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {"cognito-identity.amazonaws.com:aud": "${COGNITO_POOL_ID}"},
+      "ForAnyValue:StringLike": {"cognito-identity.amazonaws.com:amr": "unauthenticated"}
+    }
+  }]
+}
+EOF
+)
+
+    UNAUTH_ROLE_NAME="aria-cognito-unauth-role-${DEPLOY_ID}"
+    UNAUTH_ROLE_ARN=$(aws iam create-role \
+        --role-name "$UNAUTH_ROLE_NAME" \
+        --assume-role-policy-document "$UNAUTH_TRUST" \
+        --no-cli-pager \
+        --query 'Role.Arn' --output text 2>/dev/null || \
+        aws iam get-role --role-name "$UNAUTH_ROLE_NAME" --no-cli-pager --query 'Role.Arn' --output text)
+
+    aws iam put-role-policy \
+        --role-name "$UNAUTH_ROLE_NAME" \
+        --policy-name "aria-cognito-unauth-policy" \
+        --policy-document "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [
+            {
+              \"Effect\": \"Allow\",
+              \"Action\": [\"bedrock-agentcore:InvokeAgentRuntime\", \"bedrock-agentcore:InvokeAgentRuntimeForUser\"],
+              \"Resource\": \"${RUNTIME_ARN}\"
+            }
+          ]
+        }" --no-cli-pager
+
+    aws cognito-identity set-identity-pool-roles \
+        --identity-pool-id "$COGNITO_POOL_ID" \
+        --roles "unauthenticated=${UNAUTH_ROLE_ARN}" \
+        --region "$AGENTCORE_REGION" \
+        --no-cli-pager
+
+    state_set "cognito_unauth_role_arn" "$UNAUTH_ROLE_ARN"
+    ok "Cognito unauthenticated role configured"
+}
+
+deploy_ecs_fargate_voice() {
+    header "ECS Fargate Voice Service (WebSocket /ws)"
+
+    local ECR_IMAGE ECR_IMAGE_URI LATEST_TAG
+    local DEFAULT_VPC SUBNETS SUBNET_LIST
+    local ALB_SG_NAME ECS_SG_NAME ALB_SG_ID ECS_SG_ID
+    local LOG_GROUP CLUSTER_NAME EXISTING_CLUSTER
+    local TASK_EXEC_ROLE_NAME TASK_EXEC_ROLE_ARN
+    local ECS_TASK_ROLE_NAME ECS_TASK_ROLE_ARN
+    local TASK_DEF_FAMILY TASK_DEF_ARN
+    local ALB_NAME ALB_ARN ALB_DNS
+    local TG_NAME TG_ARN LISTENER_ARN
+    local SERVICE_NAME EXISTING_SERVICE SUBNET_LIST_JSON
+    local MEMORY_ID EB_BUS_ARN EB_BUS_NAME
+    local wait_start dots elapsed running
+
+    ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AGENTCORE_REGION}.amazonaws.com/bedrock-agentcore-aria-banking-agent"
+
+    # Get latest image tag from ECR
+    LATEST_TAG=$(aws ecr describe-images \
+        --repository-name bedrock-agentcore-aria-banking-agent \
+        --region "$AGENTCORE_REGION" \
+        --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' \
+        --output text --no-cli-pager 2>/dev/null || echo "latest")
+    ECR_IMAGE_URI="${ECR_IMAGE}:${LATEST_TAG}"
+
+    # Get default VPC and subnets
+    step "Resolving default VPC and subnets"
+    DEFAULT_VPC=$(aws ec2 describe-vpcs \
+        --filters "Name=is-default,Values=true" \
+        --query 'Vpcs[0].VpcId' --output text \
+        --region "$AGENTCORE_REGION" --no-cli-pager)
+
+    SUBNETS=$(aws ec2 describe-subnets \
+        --filters "Name=vpc-id,Values=${DEFAULT_VPC}" \
+        --query 'Subnets[*].SubnetId' --output text \
+        --region "$AGENTCORE_REGION" --no-cli-pager | tr '\t' ',')
+
+    ok "VPC: $DEFAULT_VPC | Subnets: $SUBNETS"
+
+    # --- Security Groups ---
+    ALB_SG_NAME="aria-alb-sg-${DEPLOY_ID}"
+    ECS_SG_NAME="aria-ecs-sg-${DEPLOY_ID}"
+
+    ALB_SG_ID=$(aws ec2 describe-security-groups \
+        --filters "Name=group-name,Values=${ALB_SG_NAME}" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null | grep -v "None" || echo "")
+
+    if [[ -z "$ALB_SG_ID" ]]; then
+        step "Creating ALB security group"
+        ALB_SG_ID=$(aws ec2 create-security-group \
+            --group-name "$ALB_SG_NAME" \
+            --description "ARIA ALB security group" \
+            --vpc-id "$DEFAULT_VPC" \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'GroupId' --output text)
+
+        aws ec2 authorize-security-group-ingress \
+            --group-id "$ALB_SG_ID" \
+            --protocol tcp --port 80 --cidr "0.0.0.0/0" \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null || true
+        ok "ALB security group: $ALB_SG_ID"
+    else
+        ok "ALB security group already exists: $ALB_SG_ID"
+    fi
+
+    ECS_SG_ID=$(aws ec2 describe-security-groups \
+        --filters "Name=group-name,Values=${ECS_SG_NAME}" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null | grep -v "None" || echo "")
+
+    if [[ -z "$ECS_SG_ID" ]]; then
+        step "Creating ECS security group"
+        ECS_SG_ID=$(aws ec2 create-security-group \
+            --group-name "$ECS_SG_NAME" \
+            --description "ARIA ECS tasks security group" \
+            --vpc-id "$DEFAULT_VPC" \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'GroupId' --output text)
+
+        aws ec2 authorize-security-group-ingress \
+            --group-id "$ECS_SG_ID" \
+            --protocol tcp --port 8080 \
+            --source-group "$ALB_SG_ID" \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null || true
+
+        aws ec2 authorize-security-group-egress \
+            --group-id "$ECS_SG_ID" \
+            --ip-permissions 'IpProtocol=-1,IpRanges=[{CidrIp=0.0.0.0/0}]' \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null || true
+        ok "ECS security group: $ECS_SG_ID"
+    else
+        ok "ECS security group already exists: $ECS_SG_ID"
+    fi
+
+    state_set "alb_sg_id" "$ALB_SG_ID"
+    state_set "ecs_sg_id" "$ECS_SG_ID"
+
+    # --- CloudWatch Logs ---
+    LOG_GROUP="/ecs/aria-banking-${DEPLOY_ID}"
+    aws logs create-log-group --log-group-name "$LOG_GROUP" \
+        --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null || true
+
+    # --- ECS Cluster ---
+    CLUSTER_NAME="aria-banking-cluster-${DEPLOY_ID}"
+    EXISTING_CLUSTER=$(aws ecs describe-clusters \
+        --clusters "$CLUSTER_NAME" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'clusters[?status==`ACTIVE`].clusterName' \
+        --output text 2>/dev/null || true)
+
+    if [[ -z "$EXISTING_CLUSTER" ]]; then
+        step "Creating ECS cluster: $CLUSTER_NAME"
+        aws ecs create-cluster \
+            --cluster-name "$CLUSTER_NAME" \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null
+        ok "ECS cluster created"
+    else
+        ok "ECS cluster already exists: $CLUSTER_NAME"
+    fi
+
+    # --- ECS Task Execution Role ---
+    TASK_EXEC_ROLE_NAME="aria-ecs-task-exec-role-${DEPLOY_ID}"
+    TASK_EXEC_ROLE_ARN=$(aws iam get-role \
+        --role-name "$TASK_EXEC_ROLE_NAME" \
+        --no-cli-pager \
+        --query 'Role.Arn' --output text 2>/dev/null || echo "")
+
+    if [[ -z "$TASK_EXEC_ROLE_ARN" || "$TASK_EXEC_ROLE_ARN" == "None" ]]; then
+        step "Creating ECS task execution role"
+        TASK_EXEC_ROLE_ARN=$(aws iam create-role \
+            --role-name "$TASK_EXEC_ROLE_NAME" \
+            --assume-role-policy-document '{
+              "Version":"2012-10-17",
+              "Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]
+            }' \
+            --no-cli-pager \
+            --query 'Role.Arn' --output text)
+
+        aws iam attach-role-policy \
+            --role-name "$TASK_EXEC_ROLE_NAME" \
+            --policy-arn "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" \
+            --no-cli-pager
+
+        aws iam attach-role-policy \
+            --role-name "$TASK_EXEC_ROLE_NAME" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly" \
+            --no-cli-pager
+        ok "ECS task execution role: $TASK_EXEC_ROLE_ARN"
+        step "Waiting 10s for IAM propagation..."
+        sleep 10
+    else
+        ok "ECS task execution role already exists"
+    fi
+
+    # --- ECS Task Role (app permissions) ---
+    ECS_TASK_ROLE_NAME="aria-ecs-task-role-${DEPLOY_ID}"
+    ECS_TASK_ROLE_ARN=$(aws iam get-role \
+        --role-name "$ECS_TASK_ROLE_NAME" \
+        --no-cli-pager \
+        --query 'Role.Arn' --output text 2>/dev/null || echo "")
+
+    if [[ -z "$ECS_TASK_ROLE_ARN" || "$ECS_TASK_ROLE_ARN" == "None" ]]; then
+        step "Creating ECS task role"
+        ECS_TASK_ROLE_ARN=$(aws iam create-role \
+            --role-name "$ECS_TASK_ROLE_NAME" \
+            --assume-role-policy-document '{
+              "Version":"2012-10-17",
+              "Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]
+            }' \
+            --no-cli-pager \
+            --query 'Role.Arn' --output text)
+
+        MEMORY_ID=$(state_get "memory_id")
+        EB_BUS_ARN=$(state_get "eventbridge_bus_arn")
+
+        aws iam put-role-policy \
+            --role-name "$ECS_TASK_ROLE_NAME" \
+            --policy-name "aria-ecs-task-policy" \
+            --policy-document "{
+              \"Version\": \"2012-10-17\",
+              \"Statement\": [
+                {
+                  \"Effect\": \"Allow\",
+                  \"Action\": [
+                    \"bedrock:InvokeModel\",
+                    \"bedrock:InvokeModelWithResponseStream\",
+                    \"bedrock:InvokeModelWithBidirectionalStream\"
+                  ],
+                  \"Resource\": \"*\"
+                },
+                {
+                  \"Effect\": \"Allow\",
+                  \"Action\": [\"bedrock-agentcore:*\"],
+                  \"Resource\": \"*\"
+                },
+                {
+                  \"Effect\": \"Allow\",
+                  \"Action\": [\"s3:PutObject\", \"s3:GetObject\"],
+                  \"Resource\": [
+                    \"arn:aws:s3:::${TRANSCRIPT_BUCKET}/*\",
+                    \"arn:aws:s3:::${AUDIT_BUCKET}/*\"
+                  ]
+                },
+                {
+                  \"Effect\": \"Allow\",
+                  \"Action\": \"events:PutEvents\",
+                  \"Resource\": \"${EB_BUS_ARN}\"
+                },
+                {
+                  \"Effect\": \"Allow\",
+                  \"Action\": [\"logs:CreateLogStream\", \"logs:PutLogEvents\"],
+                  \"Resource\": \"arn:aws:logs:${AGENTCORE_REGION}:${ACCOUNT_ID}:log-group:/ecs/aria-banking-${DEPLOY_ID}:*\"
+                }
+              ]
+            }" --no-cli-pager
+
+        state_set "ecs_task_role_arn" "$ECS_TASK_ROLE_ARN"
+        ok "ECS task role: $ECS_TASK_ROLE_ARN"
+        step "Waiting 10s for IAM propagation..."
+        sleep 10
+    else
+        ok "ECS task role already exists"
+    fi
+
+    # --- ECS Task Definition ---
+    TASK_DEF_FAMILY="aria-banking-task-${DEPLOY_ID}"
+    MEMORY_ID=$(state_get "memory_id")
+    EB_BUS_ARN=$(state_get "eventbridge_bus_arn")
+    EB_BUS_NAME="${EB_BUS_ARN##*/}"
+    EB_BUS_NAME="${EB_BUS_NAME:-aria-audit}"
+
+    step "Registering ECS task definition: $TASK_DEF_FAMILY"
+    TASK_DEF_ARN=$(aws ecs register-task-definition \
+        --family "$TASK_DEF_FAMILY" \
+        --network-mode awsvpc \
+        --requires-compatibilities FARGATE \
+        --cpu "1024" \
+        --memory "2048" \
+        --execution-role-arn "$TASK_EXEC_ROLE_ARN" \
+        --task-role-arn "$ECS_TASK_ROLE_ARN" \
+        --container-definitions "[
+          {
+            \"name\": \"aria-banking\",
+            \"image\": \"${ECR_IMAGE_URI}\",
+            \"portMappings\": [{\"containerPort\": 8080, \"protocol\": \"tcp\"}],
+            \"essential\": true,
+            \"environment\": [
+              {\"name\": \"AWS_DEFAULT_REGION\", \"value\": \"${AGENTCORE_REGION}\"},
+              {\"name\": \"NOVA_SONIC_REGION\", \"value\": \"${NOVA_SONIC_REGION}\"},
+              {\"name\": \"BEDROCK_AGENTCORE_MEMORY_ID\", \"value\": \"${MEMORY_ID}\"},
+              {\"name\": \"BEDROCK_AGENTCORE_MEMORY_NAME\", \"value\": \"aria_banking_agent\"},
+              {\"name\": \"TRANSCRIPT_S3_BUCKET\", \"value\": \"${TRANSCRIPT_BUCKET}\"},
+              {\"name\": \"TRANSCRIPT_S3_PREFIX\", \"value\": \"transcripts\"},
+              {\"name\": \"TRANSCRIPT_STORE\", \"value\": \"s3\"},
+              {\"name\": \"AUDIT_EVENTBRIDGE_BUS\", \"value\": \"${EB_BUS_NAME}\"},
+              {\"name\": \"AUDIT_REGION\", \"value\": \"${AGENTCORE_REGION}\"},
+              {\"name\": \"AUDIT_STORE\", \"value\": \"eventbridge\"},
+              {\"name\": \"LOG_LEVEL\", \"value\": \"INFO\"}
+            ],
+            \"logConfiguration\": {
+              \"logDriver\": \"awslogs\",
+              \"options\": {
+                \"awslogs-group\": \"/ecs/aria-banking-${DEPLOY_ID}\",
+                \"awslogs-region\": \"${AGENTCORE_REGION}\",
+                \"awslogs-stream-prefix\": \"aria\"
+              }
+            },
+            \"healthCheck\": {
+              \"command\": [\"CMD-SHELL\", \"curl -f http://localhost:8080/ping || exit 1\"],
+              \"interval\": 30,
+              \"timeout\": 5,
+              \"retries\": 3,
+              \"startPeriod\": 60
+            }
+          }
+        ]" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'taskDefinition.taskDefinitionArn' --output text)
+
+    state_set "ecs_task_def_arn" "$TASK_DEF_ARN"
+    ok "Task definition registered"
+
+    # --- ALB ---
+    ALB_NAME="aria-banking-alb-${DEPLOY_ID}"
+    ALB_ARN=$(aws elbv2 describe-load-balancers \
+        --names "$ALB_NAME" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null | grep -v "None" || echo "")
+
+    if [[ -z "$ALB_ARN" ]]; then
+        step "Creating Application Load Balancer: $ALB_NAME"
+        SUBNET_LIST=$(echo "$SUBNETS" | tr ',' ' ')
+        ALB_ARN=$(aws elbv2 create-load-balancer \
+            --name "$ALB_NAME" \
+            --subnets $SUBNET_LIST \
+            --security-groups "$ALB_SG_ID" \
+            --scheme internet-facing \
+            --type application \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+        ok "ALB created: $ALB_ARN"
+    else
+        ok "ALB already exists: $ALB_ARN"
+    fi
+
+    ALB_DNS=$(aws elbv2 describe-load-balancers \
+        --load-balancer-arns "$ALB_ARN" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'LoadBalancers[0].DNSName' --output text)
+
+    state_set "alb_arn" "$ALB_ARN"
+    state_set "alb_dns" "$ALB_DNS"
+
+    # --- Target Group ---
+    TG_NAME="aria-banking-tg-${DEPLOY_ID}"
+    TG_ARN=$(aws elbv2 describe-target-groups \
+        --names "$TG_NAME" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null | grep -v "None" || echo "")
+
+    if [[ -z "$TG_ARN" ]]; then
+        step "Creating target group"
+        TG_ARN=$(aws elbv2 create-target-group \
+            --name "$TG_NAME" \
+            --protocol HTTP \
+            --port 8080 \
+            --vpc-id "$DEFAULT_VPC" \
+            --target-type ip \
+            --health-check-path "/ping" \
+            --health-check-interval-seconds 30 \
+            --health-check-timeout-seconds 5 \
+            --healthy-threshold-count 2 \
+            --unhealthy-threshold-count 3 \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)
+        ok "Target group: $TG_ARN"
+    else
+        ok "Target group already exists"
+    fi
+
+    aws elbv2 modify-target-group-attributes \
+        --target-group-arn "$TG_ARN" \
+        --attributes \
+            "Key=stickiness.enabled,Value=true" \
+            "Key=stickiness.type,Value=lb_cookie" \
+            "Key=stickiness.lb_cookie.duration_seconds,Value=86400" \
+        --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null || true
+
+    state_set "alb_target_group_arn" "$TG_ARN"
+
+    # --- ALB Listener ---
+    LISTENER_ARN=$(aws elbv2 describe-listeners \
+        --load-balancer-arn "$ALB_ARN" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'Listeners[?Port==`80`].ListenerArn' --output text 2>/dev/null | grep -v "None" || echo "")
+
+    if [[ -z "$LISTENER_ARN" ]]; then
+        step "Creating ALB listener (port 80)"
+        aws elbv2 create-listener \
+            --load-balancer-arn "$ALB_ARN" \
+            --protocol HTTP --port 80 \
+            --default-actions "Type=forward,TargetGroupArn=${TG_ARN}" \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'Listeners[0].ListenerArn' --output text > /dev/null
+        ok "Listener created"
+    else
+        ok "Listener already exists"
+    fi
+
+    # --- ECS Service ---
+    SERVICE_NAME="aria-banking-service-${DEPLOY_ID}"
+    EXISTING_SERVICE=$(aws ecs describe-services \
+        --cluster "$CLUSTER_NAME" \
+        --services "$SERVICE_NAME" \
+        --region "$AGENTCORE_REGION" --no-cli-pager \
+        --query 'services[?status==`ACTIVE`].serviceName' \
+        --output text 2>/dev/null || true)
+
+    SUBNET_LIST_JSON=$(echo "$SUBNETS" | python3 -c \
+        "import sys; s=sys.stdin.read().strip().split(','); print('[\"'+'\\\"','\\\"'.join(s)+'\"]')" \
+        2>/dev/null || echo "[\"${SUBNETS//,/\",\"}\"]")
+
+    if [[ -z "$EXISTING_SERVICE" ]]; then
+        step "Creating ECS Fargate service: $SERVICE_NAME"
+        aws ecs create-service \
+            --cluster "$CLUSTER_NAME" \
+            --service-name "$SERVICE_NAME" \
+            --task-definition "$TASK_DEF_ARN" \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${ECS_SG_ID}],assignPublicIp=ENABLED}" \
+            --load-balancers "targetGroupArn=${TG_ARN},containerName=aria-banking,containerPort=8080" \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null
+        ok "ECS service created"
+    else
+        step "Updating existing ECS service with new task definition"
+        aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --task-definition "$TASK_DEF_ARN" \
+            --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null
+        ok "ECS service updated"
+    fi
+
+    state_set "ecs_cluster_name" "$CLUSTER_NAME"
+    state_set "ecs_service_name" "$SERVICE_NAME"
+
+    # Wait for service stability with progress indicator
+    step "Waiting for ECS service to become stable (this may take 3-5 minutes)..."
+    wait_start=$SECONDS
+    dots=0
+    while true; do
+        elapsed=$(( SECONDS - wait_start ))
+        running=$(aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --region "$AGENTCORE_REGION" --no-cli-pager \
+            --query 'services[0].runningCount' --output text 2>/dev/null || echo "0")
+
+        if [[ "$running" == "1" ]]; then
+            echo "" >&2
+            ok "ECS service stable — 1 task running (${elapsed}s)"
+            break
+        fi
+
+        if (( elapsed > 600 )); then
+            echo "" >&2
+            warn "ECS service did not stabilize within 10 minutes — check ECS console"
+            break
+        fi
+
+        dots=$(( (dots + 1) % 4 ))
+        printf "\r  ⏳ Waiting for task to start... %ds %s" "$elapsed" "$(printf '%0.s.' $(seq 1 $((dots+1))))" >&2
+        sleep 10
+    done
+
+    echo "" >&2
+    echo "  ╔═══════════════════════════════════════════════════════════╗" >&2
+    echo "  ║  ARIA Voice WebSocket endpoint:                           ║" >&2
+    printf "  ║  ws://%-53s ║\n" "${ALB_DNS}/ws" >&2
+    printf "  ║  http://%-51s ║\n" "${ALB_DNS}/invocations" >&2
+    echo "  ╚═══════════════════════════════════════════════════════════╝" >&2
+}
+
 find_and_patch_execution_role() {
     header "Attaching additional IAM policies to execution role"
 
@@ -1175,6 +1702,11 @@ print_summary() {
   ${BOLD}Logs:${NC}
     aws logs tail /aws/bedrock-agentcore/runtimes --follow
 
+  ${BOLD}React client endpoints:${NC}
+    COGNITO_POOL_ID : $(state_get 'cognito_identity_pool_id')
+    ALB_DNS         : $(state_get 'alb_dns')
+    Voice WS URL    : ws://$(state_get 'alb_dns')/ws
+
   ${BOLD}Teardown:${NC}
     ./scripts/deploy.sh teardown
 "
@@ -1228,6 +1760,8 @@ cmd_deploy() {
     create_agentcore_memory
     launch_agentcore
     find_and_patch_execution_role
+    deploy_cognito_identity_pool
+    deploy_ecs_fargate_voice
     print_summary
 }
 
@@ -1367,6 +1901,104 @@ cmd_teardown() {
         warn "Audit bucket retained (expected for compliance): s3://${audit_bucket}"
     fi
 
+    # ── Step 10.5: Cognito Identity Pool ──────────────────────────────────────
+    local cognito_pool_id cognito_unauth_role deploy_id
+    cognito_pool_id=$(state_get "cognito_identity_pool_id")
+    cognito_unauth_role="aria-cognito-unauth-role-$(state_get 'deploy_id')"
+    if [[ -n "$cognito_pool_id" ]]; then
+        step "Deleting Cognito Identity Pool: $cognito_pool_id"
+        aws cognito-identity delete-identity-pool \
+            --identity-pool-id "$cognito_pool_id" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "Cognito pool deleted" || warn "Could not delete Cognito pool"
+        step "Deleting Cognito unauth IAM role: $cognito_unauth_role"
+        aws iam delete-role-policy --role-name "$cognito_unauth_role" \
+            --policy-name "aria-cognito-unauth-policy" 2>/dev/null || true
+        aws iam delete-role --role-name "$cognito_unauth_role" 2>/dev/null && \
+            ok "Cognito unauth role deleted" || warn "Cognito unauth role not found"
+    fi
+
+    # ── Step 10.6: ECS Fargate / ALB resources ────────────────────────────────
+    local ecs_service ecs_cluster alb_arn tg_arn alb_sg_id ecs_sg_id ecs_exec_role ecs_task_role
+    ecs_service=$(state_get "ecs_service_name")
+    ecs_cluster=$(state_get "ecs_cluster_name")
+    alb_arn=$(state_get "alb_arn")
+    tg_arn=$(state_get "alb_target_group_arn")
+    alb_sg_id=$(state_get "alb_sg_id")
+    ecs_sg_id=$(state_get "ecs_sg_id")
+    deploy_id=$(state_get "deploy_id")
+    ecs_exec_role="aria-ecs-task-exec-role-${deploy_id}"
+    ecs_task_role="aria-ecs-task-role-${deploy_id}"
+
+    if [[ -n "$ecs_service" && -n "$ecs_cluster" ]]; then
+        header "Deleting ECS Fargate service"
+        step "Scaling down and deleting ECS service: $ecs_service"
+        aws ecs update-service --cluster "$ecs_cluster" --service "$ecs_service" \
+            --desired-count 0 --region "$agentcore_region" --no-cli-pager &>/dev/null || true
+        aws ecs delete-service --cluster "$ecs_cluster" --service "$ecs_service" \
+            --force --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "ECS service deleted" || warn "ECS service not found"
+    fi
+
+    if [[ -n "$alb_arn" ]]; then
+        header "Deleting ALB and Target Group"
+        local listener_arn
+        listener_arn=$(aws elbv2 describe-listeners \
+            --load-balancer-arn "$alb_arn" \
+            --region "$agentcore_region" --no-cli-pager \
+            --query 'Listeners[0].ListenerArn' --output text 2>/dev/null || true)
+        [[ -n "$listener_arn" && "$listener_arn" != "None" ]] && \
+            aws elbv2 delete-listener --listener-arn "$listener_arn" \
+                --region "$agentcore_region" --no-cli-pager &>/dev/null || true
+        aws elbv2 delete-load-balancer --load-balancer-arn "$alb_arn" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "ALB deleted" || warn "ALB not found"
+        step "Waiting 15s for ALB deletion before removing target group..."
+        sleep 15
+        [[ -n "$tg_arn" ]] && \
+            aws elbv2 delete-target-group --target-group-arn "$tg_arn" \
+                --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "Target group deleted" || true
+    fi
+
+    if [[ -n "$ecs_cluster" ]]; then
+        aws ecs delete-cluster --cluster "$ecs_cluster" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "ECS cluster deleted" || warn "ECS cluster not found"
+    fi
+
+    # Delete ECS IAM roles
+    if [[ -n "$deploy_id" ]]; then
+        step "Deleting ECS IAM roles"
+        aws iam detach-role-policy --role-name "$ecs_exec_role" \
+            --policy-arn "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" 2>/dev/null || true
+        aws iam detach-role-policy --role-name "$ecs_exec_role" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly" 2>/dev/null || true
+        aws iam delete-role --role-name "$ecs_exec_role" 2>/dev/null && \
+            ok "ECS exec role deleted" || warn "ECS exec role not found"
+        aws iam delete-role-policy --role-name "$ecs_task_role" \
+            --policy-name "aria-ecs-task-policy" 2>/dev/null || true
+        aws iam delete-role --role-name "$ecs_task_role" 2>/dev/null && \
+            ok "ECS task role deleted" || warn "ECS task role not found"
+    fi
+
+    # Delete security groups (after ALB is gone)
+    if [[ -n "$ecs_sg_id" ]]; then
+        aws ec2 delete-security-group --group-id "$ecs_sg_id" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "ECS security group deleted" || warn "ECS security group not found"
+    fi
+    if [[ -n "$alb_sg_id" ]]; then
+        aws ec2 delete-security-group --group-id "$alb_sg_id" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "ALB security group deleted" || warn "ALB security group not found"
+    fi
+
+    # Delete CloudWatch log group
+    aws logs delete-log-group \
+        --log-group-name "/ecs/aria-banking-${deploy_id}" \
+        --region "$agentcore_region" --no-cli-pager &>/dev/null || true
+
     # ── Step 11: Clean up state file ─────────────────────────────────────────
     rm -f "$STATE_FILE"
     rm -f "${PROJECT_ROOT}/scripts/test_invoke.py"
@@ -1404,6 +2036,13 @@ keys_labels = [
     ("dynamodb_lambda_arn",   "DynamoDB Lambda"),
     ("firehose_arn",          "Firehose stream"),
     ("execution_role_name",   "Execution role"),
+    ("cognito_identity_pool_id", "Cognito Identity Pool"),
+    ("cognito_unauth_role_arn",  "Cognito unauth role"),
+    ("alb_dns",               "ALB DNS"),
+    ("alb_arn",               "ALB ARN"),
+    ("ecs_cluster_name",      "ECS cluster"),
+    ("ecs_service_name",      "ECS service"),
+    ("ecs_task_def_arn",      "ECS task definition"),
 ]
 for key, label in keys_labels:
     val = state.get(key, "(not set)")

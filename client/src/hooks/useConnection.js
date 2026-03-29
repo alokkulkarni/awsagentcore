@@ -4,16 +4,20 @@ const STORAGE_KEY = 'aria_connection_config';
 
 const DEFAULT_CONFIG = {
   mode: 'local',
-  localChatUrl: 'http://localhost:8080',
-  localWsUrl: 'ws://localhost:8080/ws',
-  agentcoreChatUrl: '',
-  agentcoreWsUrl: '',
   authenticated: false,
   customerId: 'CUST-001',
-  awsRegion: 'us-east-1',
-  awsAccessKeyId: '',
-  awsSecretAccessKey: '',
-  awsSessionToken: '',
+
+  // Local endpoints
+  localChatUrl: import.meta.env.VITE_LOCAL_CHAT_URL || 'http://localhost:8080/invocations',
+  localVoiceUrl: import.meta.env.VITE_LOCAL_WS_URL || 'ws://localhost:8080/ws',
+
+  // AgentCore endpoints
+  agentcoreChatUrl: import.meta.env.VITE_AGENTCORE_CHAT_URL || '',
+  agentcoreVoiceUrl: import.meta.env.VITE_AGENTCORE_VOICE_WS_URL || '',
+
+  // Cognito (for AgentCore auth — no long-term keys needed)
+  cognitoIdentityPoolId: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID || '',
+  awsRegion: import.meta.env.VITE_AWS_REGION || 'eu-west-2',
 };
 
 function loadConfig() {
@@ -48,8 +52,8 @@ export function useConnection() {
     : config.agentcoreChatUrl;
 
   const wsUrl = config.mode === 'local'
-    ? config.localWsUrl
-    : config.agentcoreWsUrl;
+    ? config.localVoiceUrl
+    : config.agentcoreVoiceUrl;
 
   const updateConfig = useCallback((updates) => {
     setConfig((prev) => {

@@ -16,9 +16,9 @@ Built to deploy, not just to demo. Here's what that actually takes. 🧵
 ---
 
 **The agent is called ARIA.**
-Meridian Bank's Automated Responsive Intelligence Agent.
+Bank's Automated Responsive Intelligence Agent.
 
-She can:
+It can:
 → Authenticate you with knowledge-based questions
 → Tell you your balance, transactions, statements
 → Block a lost or stolen debit or credit card — instantly
