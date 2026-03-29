@@ -1705,6 +1705,99 @@ PYEOF
 #  ENTRYPOINT
 # =============================================================================
 
+cmd_costs() {
+    header "ARIA AWS Cost Explorer"
+
+    # Compute current-month date range
+    local start end
+    start=$(date -u +"%Y-%m-01")
+    end=$(date -u +"%Y-%m-%d")
+    # If today is the 1st, look at last month to avoid empty range
+    if [[ "$start" == "$end" ]]; then
+        start=$(date -u -v-1m +"%Y-%m-01" 2>/dev/null || date -u --date="last month" +"%Y-%m-01")
+        end=$(date -u +"%Y-%m-%d")
+    fi
+
+    step "Querying Cost Explorer (${start} → ${end})"
+    echo ""
+
+    # Per-service breakdown
+    aws ce get-cost-and-usage \
+        --time-period "Start=${start},End=${end}" \
+        --granularity MONTHLY \
+        --metrics BlendedCost \
+        --group-by Type=SERVICE \
+        --no-cli-pager \
+        --output json 2>/dev/null | python3 - <<'PYEOF'
+import json, sys
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print("  Could not parse Cost Explorer response.")
+    sys.exit(1)
+
+results = data.get("ResultsByTime", [])
+if not results:
+    print("  No cost data found for this period.")
+    sys.exit(0)
+
+period = results[0].get("TimePeriod", {})
+print(f"  Period: {period.get('Start')} → {period.get('End')}\n")
+
+groups = results[0].get("Groups", [])
+total = 0.0
+
+# Sort by cost descending, filter out zero-cost services
+rows = []
+for g in groups:
+    svc  = g["Keys"][0]
+    amt  = float(g["Metrics"]["BlendedCost"]["Amount"])
+    unit = g["Metrics"]["BlendedCost"]["Unit"]
+    total += amt
+    if amt > 0.001:
+        rows.append((amt, svc, unit))
+
+rows.sort(reverse=True)
+
+print(f"  {'Service':<45} {'Cost (USD)':>12}")
+print(f"  {'-'*45} {'-'*12}")
+for amt, svc, unit in rows:
+    print(f"  {svc:<45} ${amt:>11.4f}")
+print(f"  {'─'*45} {'─'*12}")
+print(f"  {'TOTAL':<45} ${total:>11.4f}")
+print()
+
+# Cost warnings
+if total > 50:
+    print("  ⚠️  Spend exceeds $50 this month — consider ./scripts/deploy.sh teardown")
+elif total > 20:
+    print("  ℹ️  Spend above $20 — check for any open voice sessions or unused resources")
+else:
+    print("  ✅  Spend looks normal for a dev/demo stack")
+PYEOF
+
+    echo ""
+    # Show current-month forecast if available
+    step "Fetching monthly forecast..."
+    aws ce get-cost-forecast \
+        --time-period "Start=${end},End=$(date -u +"%Y-%m-28")" \
+        --metric BLENDED_COST \
+        --granularity MONTHLY \
+        --no-cli-pager \
+        --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    amt = float(d['Total']['Amount'])
+    print(f'  Forecasted month-end total:  \${amt:.2f} USD')
+except:
+    print('  (Forecast unavailable — needs 3+ days of data)')
+"
+    echo ""
+    ok "Tip: run \`./scripts/deploy.sh teardown\` to stop all charges"
+}
+
 usage() {
     echo -e "${BOLD}Usage:${NC}  $0 <command> [target]"
     echo ""
@@ -1712,6 +1805,7 @@ usage() {
     echo "    deploy [local|agentcore]  — deploy ARIA (prompts if target not given)"
     echo "    teardown                  — destroy all AWS resources created by deploy"
     echo "    status                    — print current deployment state"
+    echo "    costs                     — show AWS spend breakdown for current month"
     echo ""
     echo -e "  ${BOLD}Targets:${NC}"
     echo "    local      — set up for local development (no AWS required)"
@@ -1722,6 +1816,7 @@ usage() {
     echo "    $0 deploy local        # set up local development environment"
     echo "    $0 deploy agentcore    # full cloud deploy to AgentCore"
     echo "    $0 status              # show deployed resource ARNs + React URLs"
+    echo "    $0 costs               # show AWS cost breakdown for this month"
     echo "    $0 teardown            # destroy all AWS resources"
     echo ""
 }
@@ -1730,6 +1825,7 @@ case "${1:-}" in
     deploy)   cmd_deploy "$@"  ;;
     teardown) cmd_teardown     ;;
     status)   cmd_status       ;;
+    costs)    cmd_costs        ;;
     local)    TARGET="local"; cmd_local ;;   # shorthand: ./deploy.sh local
     *)        usage; exit 1    ;;
 esac
