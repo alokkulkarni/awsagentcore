@@ -337,28 +337,50 @@ create_eventbridge_bus() {
 create_cloudtrail_lake() {
     header "CloudTrail Lake (immutable audit store)"
 
-    # Channels can ONLY ingest into an event data store whose eventCategory is
-    # ActivityAuditLog — Management/Data event stores are rejected by CreateChannel.
+    # Channels require the destination event data store to have eventCategory =
+    # ActivityAuditLog in its advanced event selectors. This is a CREATION-TIME
+    # property — it cannot be changed via update-event-data-store. If an existing
+    # store has the wrong type it must be deleted and recreated.
     local ACTIVITY_SELECTORS='[{"Name":"ARIA custom audit events","FieldSelectors":[{"Field":"eventCategory","Equals":["ActivityAuditLog"]}]}]'
 
     step "Creating CloudTrail Lake event data store (ActivityAuditLog type)"
-    local eds_arn
+    local eds_arn stale_channel=false
+
+    # Only query ENABLED stores — PENDING_DELETION stores cannot be used
     eds_arn=$(aws cloudtrail list-event-data-stores \
         --region "$AGENTCORE_REGION" \
-        --query "EventDataStores[?Name=='aria-banking-audit'].EventDataStoreArn" \
+        --query "EventDataStores[?Name=='aria-banking-audit' && Status=='ENABLED'].EventDataStoreArn" \
         --output text 2>/dev/null || true)
 
     if [[ -n "$eds_arn" ]]; then
-        warn "Event data store already exists — patching selectors to ActivityAuditLog"
-        # Idempotent: update selectors to ActivityAuditLog in case the store was
-        # previously created without them (this fixes the InvalidEventDataStoreCategoryException).
-        aws cloudtrail update-event-data-store \
+        # Inspect the actual eventCategory — this property is immutable after creation
+        local category
+        category=$(aws cloudtrail get-event-data-store \
             --event-data-store "$eds_arn" \
-            --advanced-event-selectors "$ACTIVITY_SELECTORS" \
-            --region "$AGENTCORE_REGION" > /dev/null 2>&1 \
-            && ok "Selectors updated" \
-            || warn "Selector update returned non-zero — will attempt channel creation anyway"
-    else
+            --region "$AGENTCORE_REGION" \
+            --output json 2>/dev/null | \
+            python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for sel in data.get('AdvancedEventSelectors', []):
+    for fs in sel.get('FieldSelectors', []):
+        if fs.get('Field') == 'eventCategory':
+            print(','.join(fs.get('Equals', [])))
+" 2>/dev/null || true)
+
+        if echo "$category" | grep -q "ActivityAuditLog"; then
+            warn "Event data store already exists with correct ActivityAuditLog type — skipping"
+        else
+            warn "Existing data store has wrong event category ('${category:-Management}') — deleting and recreating"
+            aws cloudtrail delete-event-data-store \
+                --event-data-store "$eds_arn" \
+                --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
+            eds_arn=""
+            stale_channel=true  # any existing channel points to the old ARN — must recreate
+        fi
+    fi
+
+    if [[ -z "$eds_arn" ]]; then
         eds_arn=$(aws cloudtrail create-event-data-store \
             --name aria-banking-audit \
             --retention-period 2557 \
@@ -377,6 +399,14 @@ create_cloudtrail_lake() {
         --region "$AGENTCORE_REGION" \
         --query "Channels[?Name=='aria-audit-channel'].ChannelArn" \
         --output text 2>/dev/null || true)
+
+    # Delete stale channel if the data store was recreated (ARN changed)
+    if [[ -n "$channel_arn" && "$stale_channel" == "true" ]]; then
+        warn "Deleting stale channel (data store ARN changed)"
+        aws cloudtrail delete-channel --channel "$channel_arn" \
+            --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
+        channel_arn=""
+    fi
 
     if [[ -n "$channel_arn" ]]; then
         warn "Channel already exists — skipping"
