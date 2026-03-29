@@ -735,17 +735,117 @@ create_eventbridge_rules() {
 patch_agentcore_yaml() {
     header "Patching .bedrock_agentcore.yaml"
 
-    # Only patch aws.region in the YAML — env vars are passed as --env flags to agentcore launch
-    python3 -c "
-import sys, re
-yaml_file, region = sys.argv[1], sys.argv[2]
-with open(yaml_file) as f: content = f.read()
-new_content = re.sub(r'^(\s+region:\s+).*$', rf'\g<1>{region}', content, flags=re.MULTILINE)
-with open(yaml_file, 'w') as f: f.write(new_content)
-print(f'  patched aws.region = {region}')
-" "$YAML_FILE" "$AGENTCORE_REGION"
+    # Always regenerate from state — this self-heals if the SDK deleted the file
+    local mem_id; mem_id=$(state_get "memory_id" "" 2>/dev/null || echo "")
+    local exec_role; exec_role=$(state_get "execution_role_arn" "" 2>/dev/null || echo "null")
+    local ecr_repo; ecr_repo=$(state_get "ecr_repository" "" 2>/dev/null || echo "null")
+    local cb_project; cb_project=$(state_get "codebuild_project_name" "" 2>/dev/null || echo "null")
+    local cb_role; cb_role=$(state_get "codebuild_execution_role" "" 2>/dev/null || echo "null")
+    local cb_bucket; cb_bucket=$(state_get "codebuild_source_bucket" "" 2>/dev/null || echo "null")
 
-    ok ".bedrock_agentcore.yaml updated"
+    python3 - "$YAML_FILE" "$AGENT_NAME" "$AGENTCORE_REGION" "$ACCOUNT_ID" \
+              "$exec_role" "$ecr_repo" "$cb_project" "$cb_role" "$cb_bucket" "$mem_id" <<'PYEOF'
+import sys, yaml
+
+(yaml_file, agent_name, region, account,
+ exec_role, ecr_repo, cb_project, cb_role, cb_bucket, mem_id) = sys.argv[1:11]
+
+def _or_none(v): return None if v in ("", "null") else v
+
+# If the file exists and was written by the SDK (has bedrock_agentcore.agent_id set), preserve it
+# but update mutable fields. Otherwise regenerate from scratch.
+existing = {}
+try:
+    with open(yaml_file) as f:
+        existing = yaml.safe_load(f) or {}
+except Exception:
+    pass
+
+sdk_agent = (existing.get('agents') or {}).get(agent_name, {})
+sdk_aws   = sdk_agent.get('aws', {})
+sdk_cb    = sdk_agent.get('codebuild', {})
+sdk_bac   = sdk_agent.get('bedrock_agentcore', {})
+sdk_mem   = sdk_agent.get('memory', {})
+
+# Use SDK-populated values if present, else fall back to state
+resolved_exec_role   = sdk_aws.get('execution_role')   or _or_none(exec_role)
+resolved_account     = sdk_aws.get('account')          or _or_none(account)
+resolved_ecr         = sdk_aws.get('ecr_repository')   or _or_none(ecr_repo)
+resolved_cb_project  = sdk_cb.get('project_name')      or _or_none(cb_project)
+resolved_cb_role     = sdk_cb.get('execution_role')    or _or_none(cb_role)
+resolved_cb_bucket   = sdk_cb.get('source_bucket')     or _or_none(cb_bucket)
+resolved_mem_id      = sdk_mem.get('memory_id')        or _or_none(mem_id)
+resolved_mem_created = sdk_mem.get('was_created_by_toolkit', bool(_or_none(mem_id)))
+
+data = {
+    'default_agent': agent_name,
+    'agents': {
+        agent_name: {
+            'name': agent_name,
+            'language': 'python',
+            'node_version': None,
+            'entrypoint': 'aria/agentcore_app.py',
+            'deployment_type': 'container',
+            'runtime_type': None,
+            'platform': 'linux/amd64',
+            'container_runtime': None,
+            'source_path': None,
+            'aws': {
+                'execution_role': resolved_exec_role,
+                'execution_role_auto_create': resolved_exec_role is None,
+                'account': resolved_account,
+                'region': region,
+                'ecr_repository': resolved_ecr,
+                'ecr_auto_create': resolved_ecr is None,
+                's3_path': None,
+                's3_auto_create': False,
+                'network_configuration': {'network_mode': 'PUBLIC', 'network_mode_config': None},
+                'protocol_configuration': {'server_protocol': 'HTTP'},
+                'observability': {'enabled': True},
+                'lifecycle_configuration': {'idle_runtime_session_timeout': 1800, 'max_lifetime': 28800},
+            },
+            'bedrock_agentcore': {
+                'agent_id':         sdk_bac.get('agent_id'),
+                'agent_arn':        sdk_bac.get('agent_arn'),
+                'agent_session_id': sdk_bac.get('agent_session_id'),
+            },
+            'codebuild': {
+                'project_name':   resolved_cb_project,
+                'execution_role': resolved_cb_role,
+                'source_bucket':  resolved_cb_bucket,
+            },
+            'memory': {
+                'mode':                       'STM_AND_LTM' if resolved_mem_id else sdk_mem.get('mode', 'STM_ONLY'),
+                'memory_id':                  resolved_mem_id,
+                'memory_arn':                 sdk_mem.get('memory_arn'),
+                'memory_name':                agent_name,
+                'event_expiry_days':          30,
+                'first_invoke_memory_check_done': False,
+                'was_created_by_toolkit':     resolved_mem_created,
+            },
+            'identity':      sdk_agent.get('identity',      {'credential_providers': [], 'workload': None}),
+            'aws_jwt':        sdk_agent.get('aws_jwt',       {'enabled': False, 'audiences': [], 'signing_algorithm': 'ES384', 'issuer_url': None, 'duration_seconds': 300}),
+            'authorizer_configuration':      None,
+            'request_header_configuration':  None,
+            'oauth_configuration':           None,
+            'api_key_env_var_name':          None,
+            'api_key_credential_provider_name': None,
+            'is_generated_by_agentcore_create': False,
+        }
+    }
+}
+
+with open(yaml_file, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+print(f'  region           = {region}')
+print(f'  account          = {resolved_account}')
+print(f'  execution_role   = {resolved_exec_role or "(auto-create)"}')
+print(f'  ecr_repository   = {resolved_ecr or "(auto-create)"}')
+print(f'  memory_id        = {resolved_mem_id or "(none)"}')
+PYEOF
+
+    ok ".bedrock_agentcore.yaml regenerated"
 }
 
 create_agentcore_memory() {
