@@ -41,10 +41,10 @@ LAMBDA_DIR="${SCRIPT_DIR}/lambdas"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-header()  { echo -e "\n${BOLD}${BLUE}══ $* ══${NC}"; }
-step()    { echo -e "${CYAN}  ▶ $*${NC}"; }
-ok()      { echo -e "${GREEN}  ✔ $*${NC}"; }
-warn()    { echo -e "${YELLOW}  ⚠ $*${NC}"; }
+header()  { echo -e "\n${BOLD}${BLUE}══ $* ══${NC}" >&2; }
+step()    { echo -e "${CYAN}  ▶ $*${NC}" >&2; }
+ok()      { echo -e "${GREEN}  ✔ $*${NC}" >&2; }
+warn()    { echo -e "${YELLOW}  ⚠ $*${NC}" >&2; }
 error()   { echo -e "${RED}  ✖ $*${NC}" >&2; }
 die()     { error "$*"; exit 1; }
 
@@ -577,14 +577,14 @@ deploy_audit_lambdas() {
     CLOUDTRAIL_LAMBDA_ARN=$(deploy_lambda \
         "aria-audit-cloudtrail-writer" \
         "${LAMBDA_DIR}/audit_cloudtrail_writer.py" \
-        "{CLOUDTRAIL_CHANNEL_ARN=${CLOUDTRAIL_CHANNEL_ARN},AWS_REGION=${AGENTCORE_REGION}}"
+        "{CLOUDTRAIL_CHANNEL_ARN=${CLOUDTRAIL_CHANNEL_ARN}}"
     )
     state_set "cloudtrail_lambda_arn" "$CLOUDTRAIL_LAMBDA_ARN"
 
     DYNAMODB_LAMBDA_ARN=$(deploy_lambda \
         "aria-audit-dynamodb-writer" \
         "${LAMBDA_DIR}/audit_dynamodb_writer.py" \
-        "{DYNAMODB_TABLE=aria-audit-events,TTL_DAYS=90,AWS_REGION=${AGENTCORE_REGION}}"
+        "{DYNAMODB_TABLE=aria-audit-events,TTL_DAYS=90}"
     )
     state_set "dynamodb_lambda_arn" "$DYNAMODB_LAMBDA_ARN"
 
