@@ -764,11 +764,11 @@ launch_agentcore() {
     local launch_log="/tmp/agentcore-launch-$$.log"
 
     if [[ "$DEPLOY_MODE" == "2" ]]; then
-        step "Running: agentcore launch --local-build (requires Docker)"
-        agentcore launch --local-build 2>&1 | tee "$launch_log"
+        step "Running: agentcore launch --agent $AGENT_NAME --local-build (requires Docker)"
+        agentcore launch --agent "$AGENT_NAME" --local-build 2>&1 | tee "$launch_log"
     else
-        step "Running: agentcore launch (CodeBuild, no Docker needed)"
-        agentcore launch 2>&1 | tee "$launch_log"
+        step "Running: agentcore launch --agent $AGENT_NAME (CodeBuild, no Docker needed)"
+        agentcore launch --agent "$AGENT_NAME" 2>&1 | tee "$launch_log"
     fi
 
     # Extract Agent Runtime ARN from output
