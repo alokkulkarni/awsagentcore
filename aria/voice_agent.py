@@ -228,23 +228,36 @@ class ARIANovaSonicSession:
 
     def _initialize_client(self) -> None:
         from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient
-        from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
+        from aws_sdk_bedrock_runtime.config import Config
+        from smithy_aws_core.identity import AWSCredentialsIdentity
 
         creds = self._boto_session.get_credentials()
         if creds is None:
             raise RuntimeError("No AWS credentials available.")
-        resolved = creds.get_frozen_credentials()
+        frozen = creds.get_frozen_credentials()
+
+        # Build a resolver that wraps the boto3 frozen credentials.
+        # We do NOT override auth_scheme_resolver / auth_schemes — the SDK
+        # defaults already use ShapeID("aws.auth#sigv4") → SigV4AuthScheme
+        # which is what Nova Sonic requires.  Overriding with a plain-string
+        # key causes a silent auth failure (connection hangs indefinitely).
+        class _StaticResolver:
+            def __init__(self, identity: AWSCredentialsIdentity) -> None:
+                self._identity = identity
+
+            async def get_identity(self, *, properties: Any = None) -> AWSCredentialsIdentity:
+                return self._identity
+
+        identity = AWSCredentialsIdentity(
+            access_key_id=frozen.access_key,
+            secret_access_key=frozen.secret_key,
+            session_token=frozen.token,
+        )
 
         config = Config(
-            endpoint_uri=(
-                f"https://bedrock-runtime.{self.region}.amazonaws.com"
-            ),
+            endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
-            aws_access_key_id=resolved.access_key,
-            aws_secret_access_key=resolved.secret_key,
-            aws_session_token=resolved.token,
-            auth_scheme_resolver=HTTPAuthSchemeResolver(),
-            auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
+            aws_credentials_identity_resolver=_StaticResolver(identity),
         )
         self._client = BedrockRuntimeClient(config=config)
 
