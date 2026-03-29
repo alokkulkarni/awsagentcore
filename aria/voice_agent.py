@@ -129,34 +129,76 @@ def _build_boto_session(region: str):
 
 
 # ---------------------------------------------------------------------------
-# Session-start context message
+# Voice-specific system prompt
 # ---------------------------------------------------------------------------
 
-def _build_session_messages(authenticated: bool, customer_id: str | None) -> list[dict]:
-    """Return the initial Strands Messages list injected into the voice session.
+_VOICE_PREAMBLE_UNAUTH = """\
+=== VOICE SESSION — CRITICAL OPERATING RULES ===
 
-    Nova Sonic processes this USER text at connection time and generates an
-    audio greeting before waiting for mic input — identical to how the text
-    agent calls ``agent(session_start_msg)`` to force the opening turn.
+You are ARIA, Meridian Bank's voice banking assistant, on a LIVE phone call.
+
+SESSION CONTEXT:
+- Channel: voice (bidirectional audio stream)
+- Auth state: unauthenticated
+- The caller is waiting on the line right now.
+
+MANDATORY RULES FOR THIS SESSION:
+1. Greet the caller warmly as ARIA from Meridian Bank and begin identity verification.
+2. This session STAYS OPEN. Do NOT call stop_conversation or pii_vault_purge
+   unless the caller explicitly says goodbye or asks to end the call.
+3. After your greeting, listen — the caller will speak next.
+4. Never end the session based on a connection event or your own judgement.
+   Only end when the caller clearly says goodbye or ends the call.
+5. You are on VOICE — never read out URLs, account numbers in full, or long
+   reference numbers digit by digit mid-sentence. Speak naturally.
+
+=== END VOICE RULES — BANKING INSTRUCTIONS FOLLOW ===
+
+"""
+
+_VOICE_PREAMBLE_AUTH = """\
+=== VOICE SESSION — CRITICAL OPERATING RULES ===
+
+You are ARIA, Meridian Bank's voice banking assistant, on a LIVE phone call.
+
+SESSION CONTEXT:
+- Channel: voice (bidirectional audio stream)
+- Auth state: authenticated
+- Customer ID: {customer_id}
+- The caller has already been verified. Do NOT ask them to re-authenticate.
+- Call get_customer_details("{customer_id}") immediately to fetch their profile,
+  then greet them by preferred_name.
+
+MANDATORY RULES FOR THIS SESSION:
+1. Fetch the customer profile first, then greet the caller by name.
+2. This session STAYS OPEN. Do NOT call stop_conversation or pii_vault_purge
+   unless the caller explicitly says goodbye or asks to end the call.
+3. After your greeting, listen — the caller will speak next.
+4. Never end the session based on a connection event or your own judgement.
+   Only end when the caller clearly says goodbye or ends the call.
+5. You are on VOICE — never read out URLs, account numbers in full, or long
+   reference numbers digit by digit mid-sentence. Speak naturally.
+
+=== END VOICE RULES — BANKING INSTRUCTIONS FOLLOW ===
+
+"""
+
+
+def _build_voice_system_prompt(authenticated: bool, customer_id: str | None) -> str:
+    """Return ARIA_SYSTEM_PROMPT with a voice-mode preamble prepended.
+
+    Injecting session context into the system prompt (rather than the
+    messages list) prevents Nova Sonic from treating the greeting as a
+    completed exchange and calling stop_conversation prematurely.
     """
+    from aria.system_prompt import ARIA_SYSTEM_PROMPT
+
     if authenticated and customer_id:
-        text = (
-            f"SESSION_START: An authenticated customer has connected via voice. "
-            f"X-Channel-Auth: authenticated. "
-            f"X-Customer-ID: {customer_id}. "
-            "X-Channel: voice. "
-            "Call get_customer_details with this customer ID to fetch their profile, "
-            "then greet them by their preferred_name and ask how you can help today. "
-            "Do not ask them to re-verify their identity."
-        )
+        preamble = _VOICE_PREAMBLE_AUTH.format(customer_id=customer_id)
     else:
-        text = (
-            "SESSION_START: A new customer has connected via voice on an unauthenticated channel. "
-            "X-Channel-Auth: unauthenticated. "
-            "X-Channel: voice. "
-            "Greet them as ARIA from Meridian Bank and begin the identity verification flow."
-        )
-    return [{"role": "user", "content": [{"text": text}]}]
+        preamble = _VOICE_PREAMBLE_UNAUTH
+
+    return preamble + ARIA_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +210,20 @@ class _TerminalOutput:
 
     Implements the BidiOutput protocol so it can be passed directly to
     ``BidiAgent.run(outputs=[..., terminal_output])``.
+
+    Transcript strategy:
+    - BidiTranscriptStreamEvent arrives as streaming chunks; we accumulate
+      them per-turn and print the complete turn only when is_final=True.
+    - This avoids garbled output from \r overwriting partial chunks of
+      different lengths.
     """
 
+    def __init__(self) -> None:
+        self._aria_buf: str = ""
+        self._customer_buf: str = ""
+
     async def start(self, agent: Any) -> None:
-        print("\n[Voice session connected — speak now. Say 'stop' or press Ctrl-C to end]\n")
+        print("\n[Voice session connected — speak now. Say 'stop conversation' or press Ctrl-C to end]\n")
 
     async def stop(self) -> None:
         print("\n[Voice session ended]\n")
@@ -188,15 +240,18 @@ class _TerminalOutput:
         )
 
         if isinstance(event, BidiTranscriptStreamEvent):
-            role = getattr(event, "role", "").upper()
-            text = getattr(event, "text", "") or ""
-            if text:
-                label = "ARIA" if role == "ASSISTANT" else "Customer"
-                print(f"\r{label}: {text}", end="", flush=True)
+            role = event.role  # "user" or "assistant"
+            if event.is_final:
+                # current_transcript holds the full accumulated text for this turn
+                full_text = event.current_transcript or event.text
+                if full_text:
+                    if role == "assistant":
+                        print(f"\nARIA: {full_text}\n")
+                    else:
+                        print(f"\nCustomer: {full_text}\n")
 
         elif isinstance(event, BidiResponseCompleteEvent):
-            # End of an assistant turn — move to a new line
-            print()
+            logger.debug("Nova Sonic response complete | stop_reason=%s", getattr(event, "stop_reason", ""))
 
         elif isinstance(event, BidiConnectionCloseEvent):
             reason = getattr(event, "reason", "")
@@ -213,9 +268,6 @@ class _TerminalOutput:
         elif isinstance(event, ToolUseStreamEvent):
             tool = getattr(getattr(event, "tool_use", None), "name", "unknown")
             logger.debug("Nova Sonic tool invoked: %s", tool)
-
-        elif isinstance(event, ToolResultEvent):
-            logger.debug("Nova Sonic tool result received")
 
 
 # ---------------------------------------------------------------------------
@@ -251,11 +303,11 @@ def create_aria_voice_agent(authenticated: bool = False, customer_id: str | None
         ) from exc
 
     from aria.tools import ALL_TOOLS
-    from aria.system_prompt import ARIA_SYSTEM_PROMPT
 
     region = _resolve_nova_region()
     session = _build_boto_session(region)
     model_id = os.getenv("NOVA_SONIC_MODEL_ID", _NOVA_SONIC_MODEL_ID)
+    voice_system_prompt = _build_voice_system_prompt(authenticated, customer_id)
 
     logger.info(
         "Initialising BidiNovaSonicModel | model=%s region=%s voice=%s endpointing=%s",
@@ -280,13 +332,10 @@ def create_aria_voice_agent(authenticated: bool = False, customer_id: str | None
         client_config={"boto_session": session},
     )
 
-    initial_messages = _build_session_messages(authenticated, customer_id)
-
     agent = BidiAgent(
         model=model,
-        system_prompt=ARIA_SYSTEM_PROMPT,
+        system_prompt=voice_system_prompt,
         tools=[*ALL_TOOLS, stop_conversation],
-        messages=initial_messages,
     )
     logger.info(
         "BidiAgent (Nova Sonic) ready | tools=%d session=%s",
