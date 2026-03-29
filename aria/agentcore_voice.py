@@ -302,6 +302,9 @@ class ARIAWebSocketVoiceSession:
         # Hashes of recently-sent audio chunks — used to ignore AgentCore proxy echoes
         self._sent_audio_hashes: collections.deque = collections.deque(maxlen=20)
 
+        # Memory: last user utterance buffered until ARIA's response is flushed
+        self._last_user_text: Optional[str] = None
+
         # Transcript — populated during session, saved on close
         from aria.transcript_manager import TranscriptManager
         self._transcript: Optional[TranscriptManager] = None  # set after config received
@@ -349,6 +352,26 @@ class ARIAWebSocketVoiceSession:
         system_prompt = _build_voice_system_prompt(
             self._authenticated, self._customer_id, self.session_id
         )
+
+        # Inject prior conversation history from AgentCore Memory (no-op if not configured)
+        try:
+            from aria import memory_client as _mc
+            actor_id = self._customer_id or "anonymous"
+            history = _mc.get_recent_turns(actor_id, self.session_id, k=5)
+            if history:
+                lines = []
+                for msg in history:
+                    role_label = "Customer" if msg["role"] == "user" else "ARIA"
+                    lines.append(f"{role_label}: {msg['content']}")
+                history_block = (
+                    "\n=== RECENT CONVERSATION HISTORY (for context) ===\n"
+                    + "\n".join(lines)
+                    + "\n=== END HISTORY ===\n"
+                )
+                system_prompt = history_block + system_prompt
+                logger.debug("Injected %d memory messages into voice system prompt", len(history))
+        except Exception as _mem_exc:
+            logger.warning("Could not load voice session memory: %s", _mem_exc)
 
         try:
             await self._run_session(system_prompt)
@@ -592,6 +615,8 @@ class ARIAWebSocketVoiceSession:
                     await self._ws_send_text({"type": "transcript.user", "text": text})
                     if self._transcript:
                         self._transcript.add_turn("Customer", text)
+                    # Buffer for memory save when ARIA's response is complete
+                    self._last_user_text = text
                     low = text.lower()
                     if any(ph in low for ph in _FAREWELL_PHRASES):
                         self._farewell_detected = True
@@ -685,6 +710,17 @@ class ARIAWebSocketVoiceSession:
                 await self._ws_send_text({"type": "transcript.aria", "text": text})
                 if self._transcript:
                     self._transcript.add_turn("ARIA", text)
+                # Persist turn to AgentCore Memory (no-op if AGENTCORE_MEMORY_ID not set)
+                if self._last_user_text:
+                    try:
+                        from aria import memory_client as _mc
+                        actor_id = self._customer_id or "anonymous"
+                        _mc.save_turn(actor_id, self.session_id, self._last_user_text, text)
+                        logger.debug("Saved voice turn to memory (session=%s)", self.session_id)
+                    except Exception as _mem_exc:
+                        logger.warning("Could not save voice turn to memory: %s", _mem_exc)
+                    finally:
+                        self._last_user_text = None
 
     async def _handle_interrupt(self) -> None:
         """Handle barge-in: drain audio queue, clear ARIA buffer."""
