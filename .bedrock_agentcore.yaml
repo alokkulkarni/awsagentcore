@@ -17,6 +17,7 @@ agents:
     deployment_type: container
     aws:
       region: eu-west-2
+      account: null             # auto-filled by SDK at deploy time
       execution_role_auto_create: true
       ecr_auto_create: true
       lifecycle_configuration:
@@ -28,3 +29,4 @@ agents:
         enabled: true
     memory:
       mode: STM_AND_LTM
+      memory_name: aria_banking_agent
