@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { AudioCapture } from '../helpers/audioCapture.js';
 import { AudioPlayer } from '../helpers/audioPlayer.js';
+import { createPresignedWebSocketUrl } from '../helpers/agentcoreClient.js';
 
 /**
  * Voice WebSocket + audio logic for ARIA banking agent.
@@ -46,17 +47,46 @@ export function useVoice(connection) {
     }
   }
 
-  const connect = useCallback(() => {
-    if (!wsUrl) {
-      setError('WebSocket URL is not configured. Please set it in Connection Settings.');
-      setStatus('error');
-      return;
-    }
-
+  const connect = useCallback(async () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
     setStatus('connecting');
     setError(null);
+
+    let resolvedWsUrl;
+
+    if (config.mode === 'local') {
+      if (!wsUrl) {
+        setError('WebSocket URL is not configured. Please set it in Connection Settings.');
+        setStatus('error');
+        return;
+      }
+      resolvedWsUrl = wsUrl;
+    } else {
+      // AgentCore mode — generate a SigV4 presigned WSS URL
+      if (!config.authenticated) {
+        setError('AgentCore voice requires authentication. Enable "Authenticated" mode and configure Cognito Identity Pool ID.');
+        setStatus('error');
+        return;
+      }
+      if (!config.agentcoreRuntimeId) {
+        setError('AgentCore Runtime ID not configured. Add it in Connection Settings.');
+        setStatus('error');
+        return;
+      }
+      try {
+        resolvedWsUrl = await createPresignedWebSocketUrl({
+          runtimeId: config.agentcoreRuntimeId,
+          region: config.awsRegion,
+          qualifier: 'DEFAULT',
+          expiresIn: 3600,
+        });
+      } catch (err) {
+        setError(`Failed to create presigned URL: ${err.message}. Check Cognito Identity Pool configuration.`);
+        setStatus('error');
+        return;
+      }
+    }
 
     const player = new AudioPlayer({ sampleRate: 24000 });
     player.init();
@@ -64,7 +94,7 @@ export function useVoice(connection) {
 
     let ws;
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(resolvedWsUrl);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
     } catch (err) {

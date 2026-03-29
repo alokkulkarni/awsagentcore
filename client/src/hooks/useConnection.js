@@ -13,9 +13,10 @@ const DEFAULT_CONFIG = {
 
   // AgentCore endpoints
   agentcoreChatUrl: import.meta.env.VITE_AGENTCORE_CHAT_URL || '',
-  agentcoreVoiceUrl: import.meta.env.VITE_AGENTCORE_VOICE_WS_URL || '',
+  // agentcoreVoiceUrl is computed from runtimeId + region — not stored separately
+  agentcoreRuntimeId: import.meta.env.VITE_AGENTCORE_RUNTIME_ID || '',
 
-  // Cognito (for AgentCore auth — no long-term keys needed)
+  // Cognito (for AgentCore auth — provides temp credentials for SigV4)
   cognitoIdentityPoolId: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID || '',
   awsRegion: import.meta.env.VITE_AWS_REGION || 'eu-west-2',
 };
@@ -51,9 +52,10 @@ export function useConnection() {
     ? config.localChatUrl
     : config.agentcoreChatUrl;
 
+  // wsUrl is only meaningful for local mode — AgentCore mode uses presigned URL generated in useVoice
   const wsUrl = config.mode === 'local'
     ? config.localVoiceUrl
-    : config.agentcoreVoiceUrl;
+    : null;
 
   const updateConfig = useCallback((updates) => {
     setConfig((prev) => {
@@ -69,4 +71,13 @@ export function useConnection() {
   }, [config]);
 
   return { config, updateConfig, chatUrl, wsUrl };
+}
+
+/**
+ * Derive the AgentCore WebSocket base URL from runtimeId + region.
+ * Presigning happens later in useVoice — this just gives the base wss:// URL.
+ */
+export function getAgentcoreVoiceWssBase(config) {
+  if (!config.agentcoreRuntimeId || !config.awsRegion) return '';
+  return `wss://bedrock-agentcore.${config.awsRegion}.amazonaws.com/runtimes/${config.agentcoreRuntimeId}/ws?qualifier=DEFAULT`;
 }

@@ -6,6 +6,7 @@ import FormField from '@cloudscape-design/components/form-field';
 import RadioGroup from '@cloudscape-design/components/radio-group';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
 import Toggle from '@cloudscape-design/components/toggle';
+import { getAgentcoreVoiceWssBase } from '../hooks/useConnection';
 
 /**
  * Collapsible connection configuration panel.
@@ -26,6 +27,8 @@ export default function ConnectionPanel({ connection }) {
   const update = (key, value) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
   };
+
+  const computedWssBase = getAgentcoreVoiceWssBase(draft);
 
   return (
     <div className="connection-panel">
@@ -62,23 +65,34 @@ export default function ConnectionPanel({ connection }) {
           </SpaceBetween>
         )}
 
-        {/* AgentCore mode URLs */}
+        {/* AgentCore mode */}
         {draft.mode === 'agentcore' && (
-          <SpaceBetween size="s" direction="horizontal">
+          <SpaceBetween size="s">
             <FormField label="AgentCore Chat Endpoint" constraintText="Paste the /invocations URL from deploy output">
               <Input
                 value={draft.agentcoreChatUrl}
                 onChange={({ detail }) => update('agentcoreChatUrl', detail.value)}
-                placeholder="https://…bedrock-agentcore.amazonaws.com/…"
+                placeholder="https://bedrock-agentcore.eu-west-2.amazonaws.com/runtimes/…/invocations"
               />
             </FormField>
-            <FormField label="Voice WebSocket URL (ALB)" constraintText="e.g. ws://aria-alb.eu-west-2.elb.amazonaws.com/ws">
+            <FormField
+              label="AgentCore Runtime ID"
+              constraintText="e.g. aria_banking_agent-RhdjurH3YC — from deploy output or AgentCore console"
+            >
               <Input
-                value={draft.agentcoreVoiceUrl}
-                onChange={({ detail }) => update('agentcoreVoiceUrl', detail.value)}
-                placeholder="ws://…elb.amazonaws.com/ws"
+                value={draft.agentcoreRuntimeId}
+                onChange={({ detail }) => update('agentcoreRuntimeId', detail.value)}
+                placeholder="aria_banking_agent-RhdjurH3YC"
               />
             </FormField>
+            {computedWssBase && (
+              <FormField
+                label="Voice WebSocket URL (computed)"
+                constraintText="Read-only — generated from Runtime ID + region. Voice uses SigV4 presigned URL derived from your Cognito credentials."
+              >
+                <Input value={computedWssBase} readOnly />
+              </FormField>
+            )}
           </SpaceBetween>
         )}
 

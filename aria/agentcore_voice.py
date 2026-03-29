@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import collections
+import hashlib
 import inspect
 import json
 import logging
@@ -297,6 +299,9 @@ class ARIAWebSocketVoiceSession:
         # Audio output queue (Nova Sonic → client)
         self._audio_output_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
+        # Hashes of recently-sent audio chunks — used to ignore AgentCore proxy echoes
+        self._sent_audio_hashes: collections.deque = collections.deque(maxlen=20)
+
         # Transcript — populated during session, saved on close
         from aria.transcript_manager import TranscriptManager
         self._transcript: Optional[TranscriptManager] = None  # set after config received
@@ -504,8 +509,13 @@ class ARIAWebSocketVoiceSession:
                         except json.JSONDecodeError:
                             pass
                     elif "bytes" in msg and msg["bytes"] and not self._farewell_detected:
+                        # Ignore frames echoed back by the AgentCore WebSocket proxy
+                        frame = msg["bytes"]
+                        if hashlib.sha256(frame).digest() in self._sent_audio_hashes:
+                            logger.debug("Ignoring echoed audio frame (%d bytes)", len(frame))
+                            continue
                         # Forward raw PCM as base64 audio chunk to Nova Sonic
-                        blob = base64.b64encode(msg["bytes"]).decode("utf-8")
+                        blob = base64.b64encode(frame).decode("utf-8")
                         await self._send_event({
                             "event": {
                                 "audioInput": {
@@ -533,6 +543,8 @@ class ARIAWebSocketVoiceSession:
                         self._audio_output_queue.get(), timeout=0.2
                     )
                     await self.websocket.send_bytes(chunk)
+                    # Record hash so echoed-back frames can be ignored in _receive_client_audio
+                    self._sent_audio_hashes.append(hashlib.sha256(chunk).digest())
                 except asyncio.TimeoutError:
                     continue
         except asyncio.CancelledError:

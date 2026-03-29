@@ -3,8 +3,52 @@ import { SignatureV4 } from '@smithy/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
 
 /**
+ * Create a SigV4-presigned WebSocket URL for AgentCore Runtime.
+ * The signature is embedded in query parameters so the browser's
+ * native WebSocket API can authenticate without custom headers.
+ *
+ * URL format: wss://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtimeId}/ws?qualifier=DEFAULT
+ * Presigned:  wss://...?qualifier=DEFAULT&X-Amz-Algorithm=...&X-Amz-Credential=...&X-Amz-Signature=...
+ */
+export async function createPresignedWebSocketUrl({ runtimeId, region = 'eu-west-2', qualifier = 'DEFAULT', expiresIn = 3600 }) {
+  const session = await fetchAuthSession();
+  const creds = session.credentials;
+
+  const host = `bedrock-agentcore.${region}.amazonaws.com`;
+  const path = `/runtimes/${runtimeId}/ws`;
+
+  const signer = new SignatureV4({
+    credentials: {
+      accessKeyId: creds.accessKeyId,
+      secretAccessKey: creds.secretAccessKey,
+      sessionToken: creds.sessionToken,
+    },
+    region,
+    service: 'bedrock-agentcore',
+    sha256: Sha256,
+  });
+
+  const request = {
+    method: 'GET',
+    hostname: host,
+    path,
+    query: { qualifier },
+    headers: { host },
+    protocol: 'wss:',
+  };
+
+  // Presign: signature goes into query params, not Authorization header
+  const presigned = await signer.presign(request, { expiresIn });
+
+  const queryString = Object.entries(presigned.query || {})
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+
+  return `wss://${host}${path}?${queryString}`;
+}
+
+/**
  * Get temporary AWS credentials from Cognito Identity Pool via Amplify.
- * @returns {Promise<{accessKeyId: string, secretAccessKey: string, sessionToken?: string}>}
  */
 export async function getAwsCredentials() {
   const session = await fetchAuthSession();
