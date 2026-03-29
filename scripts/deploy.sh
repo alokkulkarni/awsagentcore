@@ -388,33 +388,29 @@ create_cloudtrail_lake() {
 
     # ── No healthy existing store — determine name and create ──────────────────
     if [[ -z "$eds_arn" ]]; then
-        # Use Python to query ALL statuses and decide the name to use
-        local name_to_use
-        name_to_use=$(aws cloudtrail list-event-data-stores \
+        # Capture store list once, then process with python3 -c (no pipe+heredoc conflict)
+        local store_list_json
+        store_list_json=$(aws cloudtrail list-event-data-stores \
             --region "$AGENTCORE_REGION" \
-            --output json 2>/dev/null | python3 - "$PRIMARY_NAME" "$FALLBACK_NAME" <<'PYEOF'
-import json, sys
+            --output json 2>/dev/null || echo '{"EventDataStores":[]}')
 
-primary, fallback = sys.argv[1], sys.argv[2]
+        local name_to_use
+        name_to_use=$(echo "$store_list_json" | python3 -c "
+import json, sys
+primary  = '${PRIMARY_NAME}'
+fallback = '${FALLBACK_NAME}'
 try:
-    stores = json.load(sys.stdin).get("EventDataStores", [])
+    stores = json.load(sys.stdin).get('EventDataStores', [])
 except Exception:
     stores = []
-
-taken = {s["Name"]: s["Status"] for s in stores if s.get("Name") in (primary, fallback)}
-
+taken = {s['Name']: s['Status'] for s in stores if s.get('Name') in (primary, fallback)}
 if primary not in taken:
-    print(primary)          # primary name is free
-elif taken[primary] == "ENABLED":
-    print("RECLAIM:" + primary)  # exists ENABLED — may need type check
+    print(primary)
+elif taken.get(primary) == 'ENABLED':
+    print('RECLAIM:' + primary)
 else:
-    # primary is PENDING_DELETION or other blocked state
-    if fallback not in taken:
-        print(fallback)
-    else:
-        print(fallback)     # fallback also taken — still try (different ARN)
-PYEOF
-        )
+    print(fallback)
+" 2>/dev/null || echo "$PRIMARY_NAME")
 
         if [[ "$name_to_use" == RECLAIM:* ]]; then
             # An ENABLED store with the primary name exists — check its category
