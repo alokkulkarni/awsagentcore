@@ -746,6 +746,92 @@ print(f'  patched aws.region = {region}')
     ok ".bedrock_agentcore.yaml updated"
 }
 
+create_agentcore_memory() {
+    header "AgentCore Memory Resource"
+
+    # Check if memory_id already stored from a previous run
+    local existing_id
+    existing_id=$(state_get "memory_id" "" 2>/dev/null || echo "")
+    if [[ -n "$existing_id" ]]; then
+        step "Reusing existing memory: $existing_id"
+        _patch_yaml_memory_id "$existing_id"
+        ok "Memory ready: $existing_id"
+        return
+    fi
+
+    # Memory name must match [a-zA-Z][a-zA-Z0-9_]{0,47} — no hyphens
+    local mem_name="aria_bank_mem"
+    step "Creating AgentCore memory resource (name: ${mem_name})..."
+
+    local mem_id
+    mem_id=$(
+        source "$PROJECT_ROOT/venv/bin/activate" 2>/dev/null || true
+        python3 - "$mem_name" "$AGENTCORE_REGION" <<'PYEOF'
+import sys
+name, region = sys.argv[1], sys.argv[2]
+try:
+    from bedrock_agentcore_starter_toolkit.operations.memory.manager import MemoryManager
+    mgr = MemoryManager(region_name=region)
+    # Check if a memory with this name already exists
+    try:
+        memories = mgr.list_memories()
+        for m in memories:
+            if getattr(m, "name", "") == name or str(getattr(m, "id", "")).startswith(name):
+                print(m.id)
+                sys.exit(0)
+    except Exception:
+        pass
+    # Create with semantic + user-preference strategies for LTM
+    strategies = [
+        {"semanticMemoryStrategy": {"name": "CustomerFacts", "description": "Key customer facts and preferences"}},
+        {"userPreferenceMemoryStrategy": {"name": "Preferences", "description": "Customer product and service preferences"}},
+    ]
+    memory = mgr.create_memory_and_wait(
+        name=name,
+        description="ARIA Banking Agent long-term memory",
+        strategies=strategies,
+        event_expiry_days=90,
+    )
+    print(memory.id)
+except Exception as e:
+    import sys as _sys
+    print(f"WARN: {e}", file=_sys.stderr)
+    sys.exit(1)
+PYEOF
+    ) || true
+
+    if [[ -z "$mem_id" ]]; then
+        warn "Memory creation failed — agent will run with STM only (in-session context only)"
+        # Switch YAML to STM_ONLY so SDK doesn't attempt (and fail) LTM creation
+        sed -i.bak 's/mode: STM_AND_LTM/mode: STM_ONLY/' "$YAML_FILE" && rm -f "${YAML_FILE}.bak"
+        return
+    fi
+
+    ok "Memory created: ${mem_id}"
+    state_set "memory_id" "$mem_id"
+    _patch_yaml_memory_id "$mem_id"
+}
+
+_patch_yaml_memory_id() {
+    local mem_id="$1"
+    python3 -c "
+import sys, re
+yaml_file, mem_id = sys.argv[1], sys.argv[2]
+with open(yaml_file) as f: content = f.read()
+# Patch memory_id under memory: block
+new_content = re.sub(r'^(\s+memory_id:\s*).*$', rf'\g<1>{mem_id}', content, flags=re.MULTILINE)
+if new_content == content:
+    # memory_id line not present — insert it after 'mode:' line
+    new_content = re.sub(
+        r'(^\s+mode:\s+STM_AND_LTM\s*$)',
+        rf'\g<1>\n      memory_id: {mem_id}',
+        content, flags=re.MULTILINE
+    )
+with open(yaml_file, 'w') as f: f.write(new_content)
+print(f'  patched memory_id = {mem_id}')
+" "$YAML_FILE" "$mem_id"
+}
+
 launch_agentcore() {
     header "Deploying ARIA to AgentCore Runtime"
     echo -e "  ${YELLOW}This step uses AWS CodeBuild to build an ARM64 container.${NC}"
@@ -948,6 +1034,7 @@ cmd_deploy() {
     create_firehose
     create_eventbridge_rules
     patch_agentcore_yaml
+    create_agentcore_memory
     launch_agentcore
     find_and_patch_execution_role
     print_summary
