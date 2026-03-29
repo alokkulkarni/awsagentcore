@@ -2,6 +2,7 @@
 ARIA — Automated Responsive Intelligence Agent
 Meridian Bank Voice Banking Agent
 """
+import asyncio
 import os
 import re
 import sys
@@ -159,8 +160,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 main.py                                # unauthenticated session\n"
-            "  python3 main.py --auth --customer-id CUST-001  # authenticated session\n"
+            "  python3 main.py                                   # unauthenticated chat session\n"
+            "  python3 main.py --auth --customer-id CUST-001      # authenticated chat session\n"
+            "  python3 main.py --channel voice                    # Nova Sonic 2 voice session\n"
+            "  python3 main.py --channel voice --auth --customer-id CUST-001  # authenticated voice\n"
         ),
     )
     parser.add_argument(
@@ -175,8 +178,12 @@ def main() -> None:
         "--channel",
         metavar="CHANNEL",
         choices=["voice", "chat"],
-        default="voice",
-        help="Session channel: 'voice' (default) or 'chat'. Affects out-of-scope handling.",
+        default="chat",
+        help=(
+            "Session channel: 'chat' (default, text REPL) or 'voice' "
+            "(Nova Sonic 2 S2S audio stream via Bedrock bidirectional API). "
+            "Voice mode requires: pip install 'strands-agents[bidi]' pyaudio"
+        ),
     )
     args = parser.parse_args()
 
@@ -184,6 +191,32 @@ def main() -> None:
         parser.error("--auth requires --customer-id")
     logger.info("Starting ARIA banking agent")
 
+    auth_label = "AUTHENTICATED" if args.auth else "UNAUTHENTICATED"
+    channel_label = args.channel.upper()
+    logger.info(
+        "Session mode: %s | channel: %s | customer_id=%s",
+        auth_label, channel_label, args.customer_id or "unknown",
+    )
+
+    # ------------------------------------------------------------------
+    # Voice mode — Nova Sonic 2 S2S (audio in / audio out)
+    # ------------------------------------------------------------------
+    if args.channel == "voice":
+        print("\n" + "=" * 60)
+        print("  ARIA — Meridian Bank Voice Banking Agent")
+        if args.auth:
+            print(f"  Mode: Authenticated  |  Customer: {args.customer_id}")
+        print("  Channel: VOICE (Nova Sonic 2 S2S)  |  Logs → aria.log")
+        print("  Say 'stop' or press Ctrl-C to end the session")
+        print("=" * 60 + "\n")
+
+        from aria.voice_agent import run_voice_session
+        asyncio.run(run_voice_session(args.auth, args.customer_id))
+        return
+
+    # ------------------------------------------------------------------
+    # Chat / text REPL mode (default)
+    # ------------------------------------------------------------------
     try:
         from aria.agent import create_aria_agent
         agent = create_aria_agent()
@@ -194,10 +227,6 @@ def main() -> None:
             "Ensure AWS credentials and BEDROCK_MODEL_ID are correctly configured."
         )
         sys.exit(1)
-
-    auth_label = "AUTHENTICATED" if args.auth else "UNAUTHENTICATED"
-    channel_label = args.channel.upper()
-    logger.info("Session mode: %s | channel: %s | customer_id=%s", auth_label, channel_label, args.customer_id or "unknown")
 
     print("\n" + "=" * 60)
     print("  ARIA — Meridian Bank Voice Banking Agent")
