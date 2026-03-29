@@ -9,9 +9,9 @@
 
 ## Post
 
-I built a production-ready AI banking agent that handles voice and chat — compliantly — on AWS.
+I built an AI banking agent that handles voice and chat — compliantly — on AWS.
 
-Here's what "production-ready" actually means when your industry is banking. 🧵
+Built to deploy, not just to demo. Here's what that actually takes. 🧵
 
 ---
 
