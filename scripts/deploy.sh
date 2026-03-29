@@ -26,7 +26,7 @@
 #    Firehose       aria-audit-firehose                   (S3 WORM delivery)
 #    IAM roles      aria-lambda-audit-role, aria-firehose-audit-role
 #    ECR repo       bedrock-agentcore-aria-banking-agent  (auto-created by agentcore)
-#    AgentCore      aria-banking-agent runtime            (eu-west-2)
+#    AgentCore      aria_banking_agent runtime            (eu-west-2)
 #
 # =============================================================================
 set -euo pipefail
@@ -212,7 +212,9 @@ collect_inputs() {
     ask NOVA_SONIC_REGION  "Nova Sonic (voice) region"      "eu-north-1"
     ask TRANSCRIPT_BUCKET  "Transcript S3 bucket name"      "meridian-aria-transcripts-${DEPLOY_ID}"
     ask AUDIT_BUCKET       "Audit archive S3 bucket name"   "meridian-aria-audit-${DEPLOY_ID}"
-    ask AGENT_NAME         "AgentCore agent name"           "aria-banking-agent"
+    ask AGENT_NAME         "AgentCore agent name"           "aria_banking_agent"
+    # AgentCore agentRuntimeName only allows [a-zA-Z][a-zA-Z0-9_]{0,47} — sanitize hyphens
+    AGENT_NAME="${AGENT_NAME//-/_}"
     ask BANK_API_BASE_URL  "Bank API base URL"              "https://api.meridianbank.internal"
     ask BANK_API_KEY       "Bank API key"                   "your-api-key-here"
 

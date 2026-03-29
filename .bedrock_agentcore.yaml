@@ -1,7 +1,8 @@
-default_agent: aria-banking-agent
+default_agent: aria_banking_agent
+
 agents:
-  aria-banking-agent:
-    name: aria-banking-agent
+  aria_banking_agent:
+    name: aria_banking_agent
     language: python
     node_version: null
     entrypoint: aria/agentcore_app.py
@@ -39,7 +40,7 @@ agents:
       source_bucket: bedrock-agentcore-codebuild-sources-395402194296-eu-west-2
     memory:
       mode: STM_AND_LTM
-      memory_id: null
+      memory_id: null             # filled by deploy script before agentcore launch
       memory_arn: null
       memory_name: aria_banking_agent
       event_expiry_days: 30
