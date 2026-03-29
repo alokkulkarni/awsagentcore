@@ -741,7 +741,7 @@ class ARIAWebSocketVoiceSession:
         tool = self._tool_map.get(name)
         if tool is None:
             logger.warning("Unknown tool requested: %s", name)
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="agentcore-voice",
                 authenticated=self._authenticated, parameters=args,
@@ -756,7 +756,7 @@ class ARIAWebSocketVoiceSession:
         logger.info("Executing tool %s", name)
         try:
             result = await asyncio.to_thread(tool._tool_func, **args)
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="agentcore-voice",
                 authenticated=self._authenticated,
@@ -765,7 +765,7 @@ class ARIAWebSocketVoiceSession:
             )
             return json.dumps(result, default=str)
         except Exception as exc:
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="agentcore-voice",
                 authenticated=self._authenticated,

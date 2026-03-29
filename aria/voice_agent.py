@@ -811,7 +811,7 @@ class ARIANovaSonicSession:
         tool = self._tool_map.get(name)
         if tool is None:
             logger.warning("Unknown tool requested: %s", name)
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="voice",
                 authenticated=self._authenticated, parameters=args,
@@ -827,7 +827,7 @@ class ARIANovaSonicSession:
         logger.info("Executing tool %s with args %s", name, {k: v for k, v in args.items() if k != "session_id"})
         try:
             result = await asyncio.to_thread(tool._tool_func, **args)
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="voice",
                 authenticated=self._authenticated,
@@ -836,7 +836,7 @@ class ARIANovaSonicSession:
             )
             return json.dumps(result, default=str)
         except Exception as exc:
-            _audit.record(
+            await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="voice",
                 authenticated=self._authenticated,

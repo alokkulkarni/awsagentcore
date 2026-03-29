@@ -189,6 +189,61 @@ class AuditManager:
             "authenticated":  authenticated,
         }
 
+        self._dispatch(event, tier, severity, tool_name, outcome, session_id, customer_id)
+
+    async def async_record(
+        self,
+        *,
+        tool_name:     str,
+        customer_id:   Optional[str],
+        session_id:    str,
+        channel:       str,
+        authenticated: bool,
+        parameters:    dict,
+        outcome:       str,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Fire-and-forget version for use inside ``async`` voice agent loops.
+
+        All I/O (local JSONL write, EventBridge PutEvents) is offloaded to a
+        thread-pool worker via :func:`asyncio.to_thread` so the asyncio event
+        loop is **never blocked**, preserving audio streaming latency.
+        """
+        import asyncio
+        # Build event on the calling coroutine (cheap, no I/O) then dispatch
+        # the I/O portion in a thread.
+        meta = _TOOL_META.get(tool_name, ("TOOL_INVOCATION", "UNKNOWN", 3, "LOW"))
+        event_type, category, tier, severity = meta
+        event: dict[str, Any] = {
+            "event_id":       str(uuid.uuid4()),
+            "event_type":     event_type,
+            "category":       category,
+            "tier":           tier,
+            "severity":       severity,
+            "timestamp":      datetime.now(timezone.utc).isoformat(),
+            "session_id":     session_id,
+            "customer_id":    customer_id or "anonymous",
+            "channel":        channel,
+            "actor":          "ARIA",
+            "actor_type":     "AI_AGENT",
+            "tool_name":      tool_name,
+            "parameters":     _sanitise_params(parameters),
+            "outcome":        outcome,
+            "error_message":  error_message,
+            "authenticated":  authenticated,
+        }
+        # Dispatch I/O in a background thread — never awaited, never blocks loop
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._dispatch(event, tier, severity, tool_name, outcome, session_id, customer_id),
+        )
+
+    def _dispatch(
+        self,
+        event: dict,
+        tier: int, severity: str, tool_name: str, outcome: str,
+        session_id: str, customer_id: Optional[str],
+    ) -> None:
         store = _STORE
         if store in ("local", "both"):
             self._write_local(event)
