@@ -1,0 +1,294 @@
+# =============================================================================
+# ARIA — Meridian Bank Banking Agent
+# Python / AWS / Strands Agents .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+MANIFEST
+
+# Distribution / packaging
+.Python
+wheels/
+*.whl
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-link
+.eggs/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest.ini
+nosetests.xml
+test-results/
+test-output/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# -----------------------------------------------------------------------------
+# Virtual environments
+# -----------------------------------------------------------------------------
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# -----------------------------------------------------------------------------
+# Environment & secrets
+# Never commit credentials, API keys, or AWS config
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.secret
+secrets/
+credentials/
+
+# AWS credentials and config (local overrides)
+.aws/
+aws_credentials.json
+aws_config.json
+
+# SSM / Secrets Manager exported values
+*.ssm.json
+*.secrets.json
+
+# -----------------------------------------------------------------------------
+# Application logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+aria.log
+aria.log.*
+
+# -----------------------------------------------------------------------------
+# IDE / Editor
+# -----------------------------------------------------------------------------
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+Session.vim
+
+# Emacs
+*#
+.#*
+\#*\#
+*.elc
+auto-save-list/
+tramp
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# -----------------------------------------------------------------------------
+# AWS / Cloud
+# -----------------------------------------------------------------------------
+
+# CDK
+cdk.out/
+cdk.context.json
+!cdk.context.json.example
+.cdk.staging/
+
+# SAM
+.aws-sam/
+samconfig.toml
+!samconfig.toml.example
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+crash.log
+crash.*.log
+
+# Serverless Framework
+.serverless/
+
+# Local AWS endpoints / mocks
+localstack-data/
+moto_server.log
+
+# -----------------------------------------------------------------------------
+# Jupyter Notebooks
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+profile_default/
+ipython_config.py
+
+# -----------------------------------------------------------------------------
+# Documentation builds
+# -----------------------------------------------------------------------------
+docs/_build/
+docs/site/
+site/
+.mkdocs_tmp/
+
+# -----------------------------------------------------------------------------
+# Docker
+# -----------------------------------------------------------------------------
+docker-compose.override.yml
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+
+# Byte-compiled / optimised cache
+*.pyc
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+
+# Archives
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Database files (local SQLite stubs / test data)
+*.db
+*.sqlite
+*.sqlite3
+
+# Profiling
+*.prof
+*.lprof
+
+# Rope project settings
+.ropeproject/
+
+# Spyder project settings
+.spyderproject.cfg
+.spyproject/
+
+# MkDocs
+/site
+
+# Celery beat schedule file
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Scrapy
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PEP 582 (local packages directory)
+__pypackages__/

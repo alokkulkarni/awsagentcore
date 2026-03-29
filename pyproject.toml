@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "aria-banking-agent"
+version = "0.1.0"
+description = "ARIA — Automated Responsive Intelligence Agent for Meridian Bank"
+requires-python = ">=3.11"
+dependencies = [
+    "strands-agents",
+    "strands-agents-tools",
+    "boto3",
+    "bedrock-agentcore",
+    "bedrock-agentcore-starter-toolkit",
+    "pydantic>=2.0",
+    "python-dotenv",
+]
