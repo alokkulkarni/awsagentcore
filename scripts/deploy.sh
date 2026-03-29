@@ -356,11 +356,9 @@ create_eventbridge_bus() {
 create_cloudtrail_lake() {
     header "CloudTrail Lake (immutable audit store)"
 
-    # Channels require the destination event data store to have eventCategory =
-    # ActivityAuditLog. This is set at CREATION TIME and is immutable — it cannot
-    # be changed via update-event-data-store. Wrong-type stores must be deleted.
-    # Deleted stores enter PENDING_DELETION (can take hours) and block name reuse,
-    # so we fall back to aria-banking-audit-${DEPLOY_ID} when the primary name is taken.
+    # eventCategory=ActivityAuditLog is required for channel ingestion and is
+    # IMMUTABLE after creation. Deleted stores enter PENDING_DELETION (hours/days)
+    # which blocks name reuse — fall back to a DEPLOY_ID-suffixed name when needed.
     local ACTIVITY_SELECTORS='[{"Name":"ARIA custom audit events","FieldSelectors":[{"Field":"eventCategory","Equals":["ActivityAuditLog"]}]}]'
     local PRIMARY_NAME="aria-banking-audit"
     local FALLBACK_NAME="aria-banking-audit-${DEPLOY_ID}"
@@ -368,72 +366,104 @@ create_cloudtrail_lake() {
     step "Creating CloudTrail Lake event data store (ActivityAuditLog type)"
     local eds_arn="" eds_name="" stale_channel=false
 
-    # ── look up ALL statuses (including PENDING_DELETION) ──────────────────────
-    local existing_json
-    existing_json=$(aws cloudtrail list-event-data-stores \
-        --region "$AGENTCORE_REGION" \
-        --output json 2>/dev/null | \
-        python3 -c "
+    # ── Check if a previously deployed store is still healthy ─────────────────
+    local saved_arn saved_name
+    saved_arn=$(state_get  "cloudtrail_eds_arn"  2>/dev/null || true)
+    saved_name=$(state_get "cloudtrail_eds_name" 2>/dev/null || true)
+
+    if [[ -n "$saved_arn" ]]; then
+        local saved_status
+        saved_status=$(aws cloudtrail get-event-data-store \
+            --event-data-store "$saved_arn" \
+            --region "$AGENTCORE_REGION" \
+            --query "Status" --output text 2>/dev/null || echo "NOT_FOUND")
+        if [[ "$saved_status" == "ENABLED" ]]; then
+            warn "Event data store '${saved_name}' already deployed and ENABLED — skipping"
+            eds_arn="$saved_arn"
+            eds_name="$saved_name"
+        else
+            warn "Previously deployed store is ${saved_status} — will create a new one"
+        fi
+    fi
+
+    # ── No healthy existing store — determine name and create ──────────────────
+    if [[ -z "$eds_arn" ]]; then
+        # Use Python to query ALL statuses and decide the name to use
+        local name_to_use
+        name_to_use=$(aws cloudtrail list-event-data-stores \
+            --region "$AGENTCORE_REGION" \
+            --output json 2>/dev/null | python3 - "$PRIMARY_NAME" "$FALLBACK_NAME" <<'PYEOF'
 import json, sys
-stores = json.load(sys.stdin).get('EventDataStores', [])
-for s in stores:
-    if s.get('Name') in ('${PRIMARY_NAME}', '${FALLBACK_NAME}'):
-        print(s.get('EventDataStoreArn',''), s.get('Status',''), s.get('Name',''))
-" 2>/dev/null || true)
 
-    if [[ -n "$existing_json" ]]; then
-        local found_arn found_status found_name
-        found_arn=$(echo "$existing_json"    | awk '{print $1}')
-        found_status=$(echo "$existing_json" | awk '{print $2}')
-        found_name=$(echo "$existing_json"   | awk '{print $3}')
+primary, fallback = sys.argv[1], sys.argv[2]
+try:
+    stores = json.load(sys.stdin).get("EventDataStores", [])
+except Exception:
+    stores = []
 
-        if [[ "$found_status" == "PENDING_DELETION" ]]; then
-            warn "Existing store '${found_name}' is PENDING_DELETION — using fallback name"
-            eds_name="$FALLBACK_NAME"
+taken = {s["Name"]: s["Status"] for s in stores if s.get("Name") in (primary, fallback)}
 
-        elif [[ "$found_status" == "ENABLED" ]]; then
-            # Check the actual eventCategory — immutable after creation
-            local category
-            category=$(aws cloudtrail get-event-data-store \
-                --event-data-store "$found_arn" \
+if primary not in taken:
+    print(primary)          # primary name is free
+elif taken[primary] == "ENABLED":
+    print("RECLAIM:" + primary)  # exists ENABLED — may need type check
+else:
+    # primary is PENDING_DELETION or other blocked state
+    if fallback not in taken:
+        print(fallback)
+    else:
+        print(fallback)     # fallback also taken — still try (different ARN)
+PYEOF
+        )
+
+        if [[ "$name_to_use" == RECLAIM:* ]]; then
+            # An ENABLED store with the primary name exists — check its category
+            local reclaim_name="${name_to_use#RECLAIM:}"
+            local existing_arn category
+            existing_arn=$(aws cloudtrail list-event-data-stores \
                 --region "$AGENTCORE_REGION" \
-                --output json 2>/dev/null | \
-                python3 -c "
+                --query "EventDataStores[?Name=='${reclaim_name}'].EventDataStoreArn" \
+                --output text 2>/dev/null || true)
+            category=$(aws cloudtrail get-event-data-store \
+                --event-data-store "$existing_arn" \
+                --region "$AGENTCORE_REGION" \
+                --output json 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-for sel in data.get('AdvancedEventSelectors', []):
-    for fs in sel.get('FieldSelectors', []):
-        if fs.get('Field') == 'eventCategory':
-            print(','.join(fs.get('Equals', [])))
-" 2>/dev/null || true)
+cats = [v for sel in data.get('AdvancedEventSelectors',[])
+          for fs in sel.get('FieldSelectors',[])
+          if fs.get('Field')=='eventCategory'
+          for v in fs.get('Equals',[])]
+print(','.join(cats))" 2>/dev/null || true)
 
             if echo "$category" | grep -q "ActivityAuditLog"; then
-                warn "Event data store '${found_name}' already correct — skipping creation"
-                eds_arn="$found_arn"
-                eds_name="$found_name"
+                warn "Store '${reclaim_name}' has correct type — reusing"
+                eds_arn="$existing_arn"
+                eds_name="$reclaim_name"
             else
-                warn "Store '${found_name}' has wrong category ('${category:-Management}') — deleting and using fallback name"
+                warn "Store '${reclaim_name}' has wrong category — deleting, will use fallback name"
                 aws cloudtrail delete-event-data-store \
-                    --event-data-store "$found_arn" \
+                    --event-data-store "$existing_arn" \
                     --region "$AGENTCORE_REGION" > /dev/null 2>&1 || true
-                eds_name="$FALLBACK_NAME"
+                name_to_use="$FALLBACK_NAME"
                 stale_channel=true
             fi
         fi
-    else
-        eds_name="$PRIMARY_NAME"
+
+        # Create if we still don't have a valid ARN
+        if [[ -z "$eds_arn" ]]; then
+            eds_name="${name_to_use}"
+            eds_arn=$(aws cloudtrail create-event-data-store \
+                --name "$eds_name" \
+                --retention-period 2557 \
+                --no-multi-region-enabled \
+                --advanced-event-selectors "$ACTIVITY_SELECTORS" \
+                --region "$AGENTCORE_REGION" \
+                --query "EventDataStoreArn" --output text)
+            ok "Event data store created: ${eds_name}"
+        fi
     fi
 
-    if [[ -z "$eds_arn" ]]; then
-        eds_arn=$(aws cloudtrail create-event-data-store \
-            --name "$eds_name" \
-            --retention-period 2557 \
-            --no-multi-region-enabled \
-            --advanced-event-selectors "$ACTIVITY_SELECTORS" \
-            --region "$AGENTCORE_REGION" \
-            --query "EventDataStoreArn" --output text)
-        ok "Event data store created: ${eds_name} (${eds_arn})"
-    fi
     state_set "cloudtrail_eds_arn"  "$eds_arn"
     state_set "cloudtrail_eds_name" "$eds_name"
 
@@ -445,7 +475,6 @@ for sel in data.get('AdvancedEventSelectors', []):
         --query "Channels[?Name=='aria-audit-channel'].ChannelArn" \
         --output text 2>/dev/null || true)
 
-    # Delete stale channel if the data store ARN changed
     if [[ -n "$channel_arn" && "$stale_channel" == "true" ]]; then
         warn "Deleting stale channel (data store ARN changed)"
         aws cloudtrail delete-channel --channel "$channel_arn" \
@@ -467,6 +496,7 @@ for sel in data.get('AdvancedEventSelectors', []):
     state_set "cloudtrail_channel_arn" "$channel_arn"
     CLOUDTRAIL_CHANNEL_ARN="$channel_arn"
 }
+
 
 create_lambda_iam_role() {
     header "Lambda IAM role for audit writers"
