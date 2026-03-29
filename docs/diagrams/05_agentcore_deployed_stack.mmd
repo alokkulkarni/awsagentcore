@@ -1,0 +1,103 @@
+graph TB
+    subgraph CLIENTS["📱🌐  Client Applications"]
+        MOBILE["📱 Mobile App\niOS / Android"]
+        WEB["🌐 Web Application\nReact / Next.js"]
+    end
+
+    subgraph AUTH_LAYER["🔐  Authentication"]
+        COGNITO["Amazon Cognito\nUser Pools + Identity Pools\nJWT token issuance"]
+        UNAUTH_NOTE["🔓 Unauthenticated\nProduct queries · KB search\nno customer_id required"]
+    end
+
+    subgraph AGENTCORE["☁️  Amazon Bedrock AgentCore Runtime · eu-west-2"]
+        HEALTH["GET /ping  Health check"]
+
+        subgraph CHAT_EP["💬  Chat Channel"]
+            CHAT_IN["POST /invocations\nJSON payload + session header"]
+            STRANDS["Strands Agent\nClaude Sonnet 4.6\ncreate_aria_agent()"]
+            CHAT_IN --> STRANDS
+        end
+
+        subgraph VOICE_EP["🎙️  Voice Channel"]
+            WS_IN["WSS /ws\nPCM audio stream"]
+            NOVA_CLIENT["ARIAWebSocketVoiceSession\nNova Sonic 2 bidirectional stream"]
+            WS_IN --> NOVA_CLIENT
+        end
+
+        subgraph SHARED["🔧  Shared In-Process Components"]
+            TOOLS["🛠️ 20 Banking Tools\nin-process — auth · account · cards\nmortgage · PII · analytics\nknowledge · escalation · products"]
+            PII_VAULT["🔒 PII Vault\nsession-scoped _VAULT dict\nTTL ≤ 900s · vault:// URI refs"]
+            MEMORY["💾 AgentCore Memory\nSTM short-term turns\nLTM cross-session preferences"]
+            AUDIT_MGR["📋 AuditManager\nasync EventBridge · PII-sanitised\n< 1ms event loop impact"]
+            TRANSCRIPT_MGR["📝 Transcript Manager\nper-turn S3 save · Markdown\ncustomer_id / timestamp key"]
+        end
+    end
+
+    subgraph BEDROCK_MODELS["🤖  Amazon Bedrock Foundation Models"]
+        CLAUDE["Claude Sonnet 4.6\neu-west-2\nChat · reasoning · tool calling"]
+        NOVA["Nova Sonic 2\neu-north-1\nSpeech-to-speech · barge-in"]
+    end
+
+    subgraph MEMORY_SVC["💾  AgentCore Memory Service · eu-west-2"]
+        MEM_API["Memory API\nconversation history\ncustomer preferences\ncross-session recall"]
+    end
+
+    subgraph AUDIT_STORE["📊  Compliance Audit Storage · eu-west-2"]
+        EB["EventBridge\naria-audit custom bus\ncom.meridianbank.aria"]
+        CTL["☁️ CloudTrail Lake\n7yr · cryptographic signing\nSQL queryable · immutable"]
+        DDB_AUD["DynamoDB aria-audit-events\n90-day TTL hot queries\ncustomer_id PK + timestamp SK"]
+        FIREHOSE["Kinesis Firehose\nbatch delivery 5MB / 300s"]
+        S3_WORM["S3 Object Lock WORM\nCOMPLIANCE mode · 7yr\nGlacier after 90d"]
+    end
+
+    subgraph TRANSCRIPT_STORE["📝  Transcript Storage · eu-west-2"]
+        S3_T["S3 meridian-aria-transcripts\ntranscripts/CUST-001/2026-03-29T.../\nMarkdown · per-turn saved"]
+    end
+
+    subgraph OBSERVE["🔭  Observability · eu-west-2"]
+        CW["CloudWatch Logs\n/aws/bedrock-agentcore/runtimes/..."]
+        XRAY["AWS X-Ray\ndistributed traces\nGenAI Observability dashboard"]
+    end
+
+    MOBILE -->|"HTTPS · JWT Bearer\n+ customer_id"| COGNITO
+    WEB   -->|"HTTPS · JWT Bearer\n+ customer_id"| COGNITO
+    COGNITO -->|"authenticated session\ncustomer_id verified"| CHAT_IN
+    COGNITO -->|"authenticated session\ncustomer_id verified"| WS_IN
+    MOBILE -.->|"unauthenticated\nHTTPS — public queries"| CHAT_IN
+    WEB   -.->|"unauthenticated\nHTTPS — public queries"| CHAT_IN
+
+    STRANDS    -->|"tool dispatch"| TOOLS
+    NOVA_CLIENT -->|"tool dispatch"| TOOLS
+    TOOLS <-->|"store / retrieve / purge"| PII_VAULT
+    STRANDS <-->|"session turns"| MEMORY
+    TOOLS -->|"async — non-blocking"| AUDIT_MGR
+    TOOLS -->|"per-turn save"| TRANSCRIPT_MGR
+
+    STRANDS     <-->|"InvokeModelWithResponseStream\neu-west-2"| CLAUDE
+    NOVA_CLIENT <-->|"InvokeModelWithBidirectionalStream\neu-north-1 cross-region ~50ms"| NOVA
+
+    MEMORY <--> MEM_API
+
+    AUDIT_MGR -->|"put_events()\nrun_in_executor"| EB
+    EB -->|"Rule A"| CTL
+    EB -->|"Rule B"| DDB_AUD
+    EB -->|"Rule C"| FIREHOSE
+    FIREHOSE --> S3_WORM
+
+    TRANSCRIPT_MGR -->|"PutObject\nMarkdown"| S3_T
+
+    STRANDS     --> CW
+    NOVA_CLIENT --> CW
+    CW --> XRAY
+
+    style CLIENTS       fill:#e8f4f8,stroke:#2980b9,color:#000
+    style AUTH_LAYER    fill:#fef9e7,stroke:#f39c12,color:#000
+    style AGENTCORE     fill:#eafaf1,stroke:#27ae60,color:#000
+    style CHAT_EP       fill:#ebf5fb,stroke:#2980b9,color:#000
+    style VOICE_EP      fill:#ebf5fb,stroke:#9b59b6,color:#000
+    style SHARED        fill:#fdf2f8,stroke:#8e44ad,color:#000
+    style BEDROCK_MODELS fill:#fef9e7,stroke:#e67e22,color:#000
+    style MEMORY_SVC    fill:#f0f4c3,stroke:#827717,color:#000
+    style AUDIT_STORE   fill:#fce4ec,stroke:#c0392b,color:#000
+    style TRANSCRIPT_STORE fill:#e8f5e9,stroke:#27ae60,color:#000
+    style OBSERVE       fill:#f3e5f5,stroke:#7b1fa2,color:#000

@@ -1,0 +1,48 @@
+flowchart LR
+    subgraph ARIA_PROC["ARIA Process · AgentCore Container (or main.py locally)"]
+        TOOL["🛠️ Banking Tool Call\nblock_debit_card · get_account_details\nverify_identity · escalate · etc."]
+        AM["AuditManager\n_TOOL_META: tier · severity\ncategory · event_type\n_sanitise_params: redact PIN / CVV / PAN"]
+        ASYNC["asyncio run_in_executor\nThreadPoolExecutor\nnon-blocking · < 1ms\nevent loop impact"]
+        TOOL --> AM
+        AM --> ASYNC
+    end
+
+    subgraph EB_BUS["EventBridge Custom Bus · eu-west-2"]
+        BUS["bus: aria-audit\nsource: com.meridianbank.aria\ndetail-type: BankingAuditEvent\n─────────────────────────────\nevent_id · customer_id · session_id\ntool_name · tier · severity\nparameters (sanitised) · outcome\nchannel · timestamp · actor"]
+    end
+
+    subgraph RULE_CT["Rule A → CloudTrail Lake"]
+        LCT["Lambda\naudit_cloudtrail_writer.py\ncloudtrail-data:PutAuditEvents"]
+        CTL["☁️ CloudTrail Lake\naria-banking-audit\n7yr retention\ncryptographic hash-chaining\nSQL queryable\nFCA / SOX compliant"]
+        LCT --> CTL
+    end
+
+    subgraph RULE_DDB["Rule B → DynamoDB"]
+        LDDB["Lambda\naudit_dynamodb_writer.py\ndynamodb:PutItem\nTTL = now + 90 days"]
+        DDB["DynamoDB\naria-audit-events\nPK: customer_id\nSK: timestamp\nGSI for fast lookup\nComplaint handling · Fraud"]
+        LDDB --> DDB
+    end
+
+    subgraph RULE_FH["Rule C → S3 WORM Archive"]
+        FH["Kinesis Firehose\naria-audit-firehose\nbatch 5 MB / 300s\nGZIP compressed"]
+        S3["S3 Object Lock\nWORM COMPLIANCE\n7yr retention\nGlacier Deep Archive after 90d\nPCI-DSS 10.5.2"]
+        FH --> S3
+    end
+
+    subgraph LOCAL["Local Dev Mode  (AUDIT_STORE=local)"]
+        JSONL["📄 JSONL File\naudit/CUST-001/2026-03-29/\naudit.jsonl\nappend-only · same schema\nexcluded from git"]
+    end
+
+    ASYNC -->|"put_events()\ncloud mode"| BUS
+    BUS   -->|"Rule A filter\nall BankingAuditEvents"| LCT
+    BUS   -->|"Rule B filter\nall BankingAuditEvents"| LDDB
+    BUS   -->|"Rule C filter\nall BankingAuditEvents"| FH
+
+    AM -.->|"AUDIT_STORE=local\nor both"| JSONL
+
+    style ARIA_PROC   fill:#eafaf1,stroke:#27ae60,color:#000
+    style EB_BUS      fill:#fef9e7,stroke:#f39c12,color:#000
+    style RULE_CT     fill:#e8f4f8,stroke:#2980b9,color:#000
+    style RULE_DDB    fill:#e8f4f8,stroke:#27ae60,color:#000
+    style RULE_FH     fill:#e8f4f8,stroke:#c0392b,color:#000
+    style LOCAL       fill:#f3e5f5,stroke:#8e44ad,color:#000

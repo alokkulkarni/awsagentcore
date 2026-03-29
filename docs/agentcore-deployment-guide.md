@@ -3,6 +3,15 @@
 How to deploy ARIA to Amazon Bedrock AgentCore Runtime (eu-west-2), including
 cross-region access to Nova Sonic 2 (eu-north-1) and Claude Sonnet 4.6 (eu-west-2).
 
+> **Recommended:** Use the automated deployment script — it handles all AWS resource
+> creation, YAML patching, and IAM policy attachment in one interactive flow:
+> ```bash
+> ./scripts/deploy.sh deploy    # full interactive deploy
+> ./scripts/deploy.sh teardown  # destroy all resources
+> ./scripts/deploy.sh status    # print deployment state
+> ```
+> The manual steps below are the reference for what the script does.
+
 ---
 
 ## Pre-deployment checklist
