@@ -211,7 +211,15 @@ def main() -> None:
         print("=" * 60 + "\n")
 
         from aria.voice_agent import run_voice_session
-        asyncio.run(run_voice_session(args.auth, args.customer_id))
+        try:
+            asyncio.run(run_voice_session(args.auth, args.customer_id))
+        except KeyboardInterrupt:
+            # asyncio.run() re-raises KeyboardInterrupt during executor
+            # shutdown (PyAudio threads block in C code and can't be
+            # joined quickly).  Suppress the traceback and exit cleanly.
+            print("\n[Voice session ended]\n")
+            import os as _os
+            _os._exit(0)
         return
 
     # ------------------------------------------------------------------

@@ -298,8 +298,9 @@ class ARIANovaSonicSession:
         self._aria_buf: list[str] = []
 
         # Session lifecycle flags
-        self._farewell_detected = False  # set when user says goodbye
-        self._session_ended     = False  # set once end_session() has run
+        self._farewell_detected  = False  # set when user says goodbye
+        self._session_ended      = False  # set once end_session() has run
+        self._audio_input_closed = False  # set once audio contentEnd is sent
 
         # Pending tool call
         self._tool_name    = ""
@@ -498,11 +499,16 @@ class ARIANovaSonicSession:
             }
         })
 
-    async def end_session(self) -> None:
-        if self._session_ended:
+    async def _close_audio_input(self) -> None:
+        """Send contentEnd for the mic audio content block.
+
+        Called immediately when farewell is detected so Nova Sonic stops
+        accepting audio input and cannot start another response turn from
+        ARIA's own echo or ambient noise.  Idempotent — safe to call twice.
+        """
+        if self._audio_input_closed:
             return
-        self._session_ended = True
-        self.is_active = False
+        self._audio_input_closed = True
         try:
             await self._send_event({
                 "event": {
@@ -512,6 +518,18 @@ class ARIANovaSonicSession:
                     }
                 }
             })
+            logger.info("Audio input closed (farewell detected).")
+        except Exception as exc:
+            logger.debug("Error closing audio input: %s", exc)
+
+    async def end_session(self) -> None:
+        if self._session_ended:
+            return
+        self._session_ended = True
+        self.is_active = False
+        try:
+            # Close audio input only if it wasn't already closed on farewell.
+            await self._close_audio_input()
             await self._send_event({
                 "event": {"promptEnd": {"promptName": self._prompt_name}}
             })
@@ -684,6 +702,10 @@ class ARIANovaSonicSession:
             if self._farewell_detected:
                 logger.info("Farewell response complete — ending session.")
                 self.is_active = False
+                # Close the audio input stream immediately so Nova Sonic stops
+                # accepting mic input.  Without this, ARIA's own farewell audio
+                # can echo back through the mic and trigger a second response.
+                await self._close_audio_input()
 
     def _flush_aria(self) -> None:
         if self._aria_buf:
