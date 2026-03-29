@@ -1,0 +1,62 @@
+graph TB
+    subgraph INPUT["Customer Interfaces"]
+        REPL["💬 Terminal REPL\n--channel chat"]
+        MIC["🎙️ Microphone + Speaker\n--channel voice"]
+    end
+
+    subgraph MAIN["main.py — CLI Router"]
+        ROUTER["--channel / --auth / --customer-id"]
+    end
+
+    subgraph CHAT["Chat Agent  ·  aria/agent.py"]
+        CA["Strands Agent\ncreate_aria_agent()"]
+        SP["ARIA_SYSTEM_PROMPT\nsystem_prompt.py"]
+        CA --- SP
+    end
+
+    subgraph VOICE["Voice Agent  ·  aria/voice_agent.py"]
+        VA["ARIANovaSonicSession\nBidirectional Stream Manager"]
+        VP["Voice System Prompt\n_build_voice_system_prompt()"]
+        ECHO["Echo Gate\nRMS-based half-duplex\nbarge-in support"]
+        VA --- VP
+        VA --- ECHO
+    end
+
+    subgraph BEDROCK["Amazon Bedrock"]
+        CS["☁️ Claude Sonnet 4.6\nanthropic.claude-sonnet-4-6\nus-east-1 / eu-west-* / etc."]
+        NS["☁️ Nova Sonic 2\namazon.nova-2-sonic-v1:0\nus-east-1 · eu-north-1 · ap-northeast-1"]
+    end
+
+    subgraph TOOLS["Tool Layer  ·  aria/tools/  ·  20 tools"]
+        TPII["PII Pipeline\n4 tools"]
+        TAUTH["Authentication\n4 tools"]
+        TBANK["Banking\n7 tools"]
+        TKNOW["Knowledge & Analytics\n3 tools"]
+        TESC["Escalation\n2 tools"]
+    end
+
+    subgraph VAULT["PII Vault  ·  in-memory _VAULT"]
+        V1["Session-scoped\nTTL ≤ 900s\nvault:// URI refs"]
+    end
+
+    REPL --> ROUTER
+    MIC  --> ROUTER
+    ROUTER -->|"--channel chat"| CA
+    ROUTER -->|"--channel voice"| VA
+
+    CA  <-->|"InvokeModelWithResponseStream\nstreaming text"| CS
+    VA  <-->|"InvokeModelWithBidirectionalStream\n16 kHz PCM in / 24 kHz PCM out"| NS
+
+    CS  -->|"tool_use events"| TOOLS
+    NS  -->|"toolUse events"| TOOLS
+    CA  --> TOOLS
+    VA  --> TOOLS
+
+    TPII <-->|"store / retrieve / purge"| VAULT
+
+    style INPUT fill:#e8f4f8,stroke:#2980b9
+    style BEDROCK fill:#fef9e7,stroke:#f39c12
+    style TOOLS fill:#eafaf1,stroke:#27ae60
+    style VAULT fill:#fdf2f8,stroke:#8e44ad
+    style CHAT fill:#ebf5fb,stroke:#2980b9
+    style VOICE fill:#ebf5fb,stroke:#2980b9

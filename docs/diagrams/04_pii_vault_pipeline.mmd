@@ -1,0 +1,38 @@
+flowchart LR
+    RAW["🗣️ Raw Customer Input\ncontains PII"]
+
+    subgraph DETECT["Stage 1 — Detect and Redact"]
+        D["pii_detect_and_redact\n15+ regex patterns\ntokenise PII fields\nreturn redacted text"]
+    end
+
+    subgraph STORE["Stage 2 — Vault Store"]
+        VS["pii_vault_store\nsession_id scoped\nTTL capped at 900s\nreturn vault:// URIs"]
+        VAULT[("_VAULT\nsession_id:\n  token:\n    value + expiry")]
+        VS --> VAULT
+    end
+
+    subgraph RETRIEVE["Stage 3 — Just-in-Time Retrieve"]
+        VR["pii_vault_retrieve\nlookup by vault:// URI\nexpiry enforced\npurpose-scoped"]
+        VR -. read .-> VAULT
+    end
+
+    subgraph USE["Stage 4a — Tool Use"]
+        TOOL["Banking Tool\nreceives raw value\nin-process only\nnever stored in context"]
+    end
+
+    subgraph PURGE["Stage 4b — Vault Purge"]
+        VP["pii_vault_purge\nsession end\ntimeout / inactivity\nescalation confirmed\nsecurity event (3x auth fail)"]
+        VP -- wipe --> VAULT
+    end
+
+    RAW --> DETECT
+    DETECT -->|"redacted_text\nvault refs" | STORE
+    STORE  -->|"vault:// URIs\nenter model context"| RETRIEVE
+    RETRIEVE --> USE
+
+    style DETECT fill:#fff3e0,stroke:#e67e22
+    style STORE fill:#fce4ec,stroke:#c0392b
+    style RETRIEVE fill:#e8f5e9,stroke:#27ae60
+    style USE fill:#e3f2fd,stroke:#2980b9
+    style PURGE fill:#f3e5f5,stroke:#8e44ad
+    style VAULT fill:#ffebee,stroke:#c0392b

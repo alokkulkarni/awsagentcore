@@ -1,0 +1,38 @@
+sequenceDiagram
+    actor MIC  as Microphone (16 kHz PCM)
+    participant VA  as ARIANovaSonicSession
+    participant NS  as Nova Sonic 2 (Bedrock)
+    participant SA  as Strands Agent
+    participant T   as Tools (×20)
+    actor SPK  as Speaker (24 kHz PCM)
+
+    VA  ->> NS : sessionStart + inferenceConfig
+    VA  ->> NS : promptStart + systemPrompt
+    VA  ->> NS : audioStart (contentBlock open)
+
+    loop Continuous audio capture
+        MIC ->> VA : PCM chunk (1024 frames)
+        VA  ->> VA : RMS echo gate — is ARIA speaking?
+        alt Gate open (silence / barge-in RMS above threshold)
+            VA  ->> NS : audioInput base64 PCM
+        else Gate closed (ARIA playback in progress)
+            VA  ->> NS : silence (zeroed PCM)
+        end
+    end
+
+    NS -->> VA : textOutput role=USER SPECULATIVE → print transcript
+    NS -->> VA : toolUse name + input
+    VA  ->> SA : invoke Strands tool
+    SA  ->> T  : tool call
+    T  -->> SA : structured result
+    SA -->> VA : serialised result
+    VA  ->> NS : toolResult content
+
+    NS -->> VA : textOutput role=ASSISTANT SPECULATIVE → print ARIA text
+    NS -->> VA : audioOutput base64 24 kHz PCM
+    VA  ->> SPK : play audio chunk
+
+    Note over VA,NS: Barge-in detected → interrupted:true<br/>VA drains audio queue, resets echo gate
+
+    Note over VA,NS: Farewell phrase detected<br/>VA silences mic + closes audio input (contentEnd)<br/>Prevents farewell echo loop
+    VA  ->> NS : promptEnd + sessionEnd

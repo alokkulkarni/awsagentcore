@@ -1,0 +1,36 @@
+sequenceDiagram
+    actor C as Customer (Terminal)
+    participant M as main.py
+    participant A as Strands Agent
+    participant B as Claude Sonnet 4.6
+    participant T as Tools (×20)
+    participant V as PII Vault
+
+    C  ->> M : types query
+    M  ->> A : agent(user_input)
+    A  ->> B : messages + system_prompt + tools schema
+
+    B -->> A : tool_use ▸ pii_detect_and_redact(raw_text)
+    A  ->> T : pii_detect_and_redact
+    T -->> A : pii_detected, redacted_text, pii_fields
+
+    A  ->> T : pii_vault_store(session_id, pii_map, ttl=900)
+    T  ->> V : _VAULT[session_id][token] = value + expiry
+    T -->> A : vault_refs: DOB → vault://sid/DOB ...
+
+    A  ->> B : tool results (vault refs only, no raw PII)
+    B -->> A : tool_use ▸ banking tool(vault_ref)
+
+    A  ->> T : pii_vault_retrieve(vault_ref)
+    T  ->> V : lookup + expiry check
+    T -->> A : raw value (just-in-time, in-process only)
+
+    A  ->> T : banking tool(account_id / card_ref / ...)
+    T -->> A : structured Pydantic response
+
+    A  ->> B : tool result
+    B -->> A : final text response
+    A -->> M : streamed answer
+    M  ->> C : ARIA: ...
+
+    Note over T,V: pii_vault_purge() on session end,<br/>timeout, escalation, or security event

@@ -15,189 +15,25 @@ Both channels share the same 20 modular banking tools, the same PII vault pipeli
 
 ### System Overview
 
-```mermaid
-graph TB
-    subgraph INPUT["Customer Interfaces"]
-        REPL["💬 Terminal REPL\n--channel chat"]
-        MIC["🎙️ Microphone + Speaker\n--channel voice"]
-    end
-
-    subgraph MAIN["main.py — CLI Router"]
-        ROUTER["--channel / --auth / --customer-id"]
-    end
-
-    subgraph CHAT["Chat Agent  ·  aria/agent.py"]
-        CA["Strands Agent\ncreate_aria_agent()"]
-        SP["ARIA_SYSTEM_PROMPT\nsystem_prompt.py"]
-        CA --- SP
-    end
-
-    subgraph VOICE["Voice Agent  ·  aria/voice_agent.py"]
-        VA["ARIANovaSonicSession\nBidirectional Stream Manager"]
-        VP["Voice System Prompt\n_build_voice_system_prompt()"]
-        ECHO["Echo Gate\nRMS-based half-duplex\nbarge-in support"]
-        VA --- VP
-        VA --- ECHO
-    end
-
-    subgraph BEDROCK["Amazon Bedrock"]
-        CS["☁️ Claude Sonnet 4.6\nanthropic.claude-sonnet-4-6\nus-east-1 / eu-west-* / etc."]
-        NS["☁️ Nova Sonic 2\namazon.nova-2-sonic-v1:0\nus-east-1 · eu-north-1 · ap-northeast-1"]
-    end
-
-    subgraph TOOLS["Tool Layer  ·  aria/tools/  ·  20 tools"]
-        TPII["PII Pipeline\n4 tools"]
-        TAUTH["Authentication\n4 tools"]
-        TBANK["Banking\n7 tools"]
-        TKNOW["Knowledge & Analytics\n3 tools"]
-        TESC["Escalation\n2 tools"]
-    end
-
-    subgraph VAULT["PII Vault  ·  in-memory (_VAULT)"]
-        V1["Session-scoped\nTTL ≤ 900s\nvault:// URI refs"]
-    end
-
-    REPL --> ROUTER
-    MIC  --> ROUTER
-    ROUTER -->|"--channel chat"| CA
-    ROUTER -->|"--channel voice"| VA
-
-    CA  <-->|"InvokeModelWithResponseStream\n(streaming text)"| CS
-    VA  <-->|"InvokeModelWithBidirectionalStream\n(16 kHz PCM in / 24 kHz PCM out)"| NS
-
-    CS  -->|tool_use events| TOOLS
-    NS  -->|toolUse events| TOOLS
-    CA  --> TOOLS
-    VA  --> TOOLS
-
-    TPII <-->|store / retrieve / purge| VAULT
-```
+![System Architecture](./docs/diagrams/01_system_architecture.png)
 
 ---
 
 ### Chat Agent — Request/Response Flow
 
-```mermaid
-sequenceDiagram
-    actor C as Customer (Terminal)
-    participant M as main.py
-    participant A as Strands Agent
-    participant B as Claude Sonnet 4.6
-    participant T as Tools (×20)
-    participant V as PII Vault
-
-    C  ->> M : types query
-    M  ->> A : agent(user_input)
-    A  ->> B : messages + system_prompt + tools schema
-
-    B -->> A : tool_use ▸ pii_detect_and_redact(raw_text)
-    A  ->> T : pii_detect_and_redact
-    T -->> A : {pii_detected, redacted_text, pii_fields}
-
-    A  ->> T : pii_vault_store(session_id, pii_map, ttl=900)
-    T  ->> V : _VAULT[session_id][token] = {value, expiry}
-    T -->> A : {vault_refs: {"DOB": "vault://sid/DOB", …}}
-
-    A  ->> B : tool results (vault refs only — no raw PII)
-    B -->> A : tool_use ▸ banking tool(vault_ref)
-
-    A  ->> T : pii_vault_retrieve(vault_ref)
-    T  ->> V : lookup + expiry check
-    T -->> A : raw value (just-in-time, in-process only)
-
-    A  ->> T : banking tool(account_id / card_ref / …)
-    T -->> A : structured response (Pydantic model)
-
-    A  ->> B : tool result
-    B -->> A : final text response
-    A -->> M : streamed answer
-    M  ->> C : ARIA: …
-
-    Note over T,V: pii_vault_purge() on session end,<br/>timeout, escalation, or security event
-```
+![Chat Agent Flow](./docs/diagrams/02_chat_agent_flow.png)
 
 ---
 
 ### Voice Agent — Nova Sonic 2 S2S Flow
 
-```mermaid
-sequenceDiagram
-    actor MIC  as 🎙️ Microphone (16 kHz PCM)
-    participant VA  as ARIANovaSonicSession
-    participant NS  as Nova Sonic 2 (Bedrock)
-    participant SA  as Strands Agent
-    participant T   as Tools (×20)
-    actor SPK  as 🔊 Speaker (24 kHz PCM)
-
-    VA  ->> NS : sessionStart { inferenceConfig }
-    VA  ->> NS : promptStart { systemPrompt }
-    VA  ->> NS : audioStart (contentBlock)
-
-    loop Continuous audio capture
-        MIC ->> VA : PCM chunk (1 024 frames)
-        VA  ->> VA : RMS echo gate — is ARIA speaking?
-        alt Gate open (silence / barge-in RMS > threshold)
-            VA  ->> NS : audioInput { base64 PCM }
-        else Gate closed (ARIA playback in progress)
-            VA  ->> NS : silence (zeroed PCM)
-        end
-    end
-
-    NS -->> VA : textOutput (role=USER, SPECULATIVE) → print transcript
-    NS -->> VA : toolUse { name, input }
-    VA  ->> SA : invoke Strands tool
-    SA  ->> T  : tool call
-    T  -->> SA : structured result
-    SA -->> VA : serialised result
-    VA  ->> NS : toolResult { content }
-
-    NS -->> VA : textOutput (role=ASSISTANT, SPECULATIVE) → print ARIA text
-    NS -->> VA : audioOutput { base64 24 kHz PCM }
-    VA  ->> SPK : play audio chunk
-
-    Note over VA,NS: Barge-in detected → interrupted:true<br/>VA drains audio queue, resets echo gate
-
-    Note over VA,NS: Farewell phrase detected<br/>VA closes audio input (contentEnd)<br/>→ prevents farewell echo loop
-    VA  ->> NS : promptEnd + sessionEnd
-```
+![Voice Agent Flow](./docs/diagrams/03_voice_agent_flow.png)
 
 ---
 
 ### PII Vault Pipeline
 
-```mermaid
-flowchart LR
-    RAW["🗣️ Raw Customer Input\ncontains PII"]
-
-    subgraph DETECT["Stage 1 — Detect & Redact"]
-        D["pii_detect_and_redact\n• 15+ regex patterns\n• tokenise PII fields\n• returns redacted text"]
-    end
-
-    subgraph STORE["Stage 2 — Vault Store"]
-        VS["pii_vault_store\n• session_id scoped\n• TTL capped at 900 s\n• returns vault:// URIs"]
-        VAULT[("_VAULT\n{session_id:\n  {token:\n    {value, expiry}}}")]
-        VS --> VAULT
-    end
-
-    subgraph RETRIEVE["Stage 3 — Just-in-Time Retrieve"]
-        VR["pii_vault_retrieve\n• lookup by vault:// URI\n• expiry enforced\n• purpose-scoped"]
-        VR -. read .-> VAULT
-    end
-
-    subgraph USE["Stage 4a — Tool Use"]
-        TOOL["Banking Tool\nreceives raw value\nin-process only\nnever stored in context"]
-    end
-
-    subgraph PURGE["Stage 4b — Vault Purge"]
-        VP["pii_vault_purge\n• session end\n• timeout / inactivity\n• escalation confirmed\n• security event (3× auth fail)"]
-        VP -- wipe --> VAULT
-    end
-
-    RAW --> DETECT
-    DETECT -->|"redacted_text\n(vault refs)"| STORE
-    STORE -->|"vault:// URIs\nenter model context"| RETRIEVE
-    RETRIEVE --> USE
-```
+![PII Vault Pipeline](./docs/diagrams/04_pii_vault_pipeline.png)
 
 > **Key guarantee:** Raw PII never enters the model's reasoning context. The LLM (Claude or Nova Sonic) sees only `vault://session_id/TOKEN_KEY` URIs at every step.
 
