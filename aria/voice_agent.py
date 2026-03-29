@@ -48,6 +48,16 @@ _CHUNK_SIZE = 1024             # frames per mic read
 # Seconds to keep mic muted *after* the last audio chunk finishes playing.
 _ECHO_TAIL_SECS = float(os.getenv("ECHO_GATE_TAIL_SECS", "0.8"))
 
+# Phrases that indicate the customer is ending the conversation.
+_FAREWELL_PHRASES = frozenset({
+    "goodbye", "good bye", "bye", "bye bye", "farewell",
+    "that's all", "that is all", "that's everything", "nothing else",
+    "thank you goodbye", "thanks goodbye", "thank you bye",
+    "good night", "goodnight", "have a good day",
+    "see you", "see ya", "take care", "no more help",
+    "done for today", "all done", "all good bye",
+})
+
 _NOVA_VOICE       = os.getenv("NOVA_SONIC_VOICE", "tiffany")
 _ENDPOINTING      = os.getenv("NOVA_SONIC_ENDPOINTING", "HIGH")
 if _ENDPOINTING not in {"HIGH", "MEDIUM", "LOW"}:
@@ -210,6 +220,10 @@ class ARIANovaSonicSession:
         self._display_assistant_text = False
         self._role: str = ""
         self._aria_buf: list[str] = []
+
+        # Session lifecycle flags
+        self._farewell_detected = False  # set when user says goodbye
+        self._session_ended     = False  # set once end_session() has run
 
         # Pending tool call
         self._tool_name    = ""
@@ -409,8 +423,10 @@ class ARIANovaSonicSession:
         })
 
     async def end_session(self) -> None:
-        if not self.is_active:
+        if self._session_ended:
             return
+        self._session_ended = True
+        self.is_active = False
         try:
             await self._send_event({
                 "event": {
@@ -550,6 +566,12 @@ class ARIANovaSonicSession:
                 self._flush_aria()
                 if text.strip():
                     print(f"\nCustomer: {text.strip()}\n")
+                # Detect farewell to trigger graceful session end
+                if not self._farewell_detected:
+                    lower = text.lower()
+                    if any(phrase in lower for phrase in _FAREWELL_PHRASES):
+                        self._farewell_detected = True
+                        logger.info("Farewell detected — will end session after ARIA's response")
 
         # --- audioOutput: queue for playback ---
         elif "audioOutput" in event:
@@ -573,9 +595,12 @@ class ARIANovaSonicSession:
                 # End of a non-tool content block — flush ARIA buffer
                 self._flush_aria()
 
-        # --- completionEnd: flush any remaining ARIA text ---
+        # --- completionEnd: flush any remaining ARIA text; end on farewell ---
         elif "completionEnd" in event:
             self._flush_aria()
+            if self._farewell_detected:
+                logger.info("Farewell response complete — ending session.")
+                self.is_active = False
 
     def _flush_aria(self) -> None:
         if self._aria_buf:
@@ -717,7 +742,7 @@ class ARIANovaSonicSession:
             output=True,
         )
         try:
-            while self.is_active:
+            while self.is_active or not self._audio_output_queue.empty():
                 try:
                     audio_bytes = await asyncio.wait_for(
                         self._audio_output_queue.get(), timeout=0.5
@@ -820,14 +845,24 @@ async def run_voice_session(authenticated: bool, customer_id: str | None) -> Non
 
     try:
         await response_task
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
-        nova.is_active = False
-        for task in (capture_task, playback_task, response_task):
-            if not task.done():
-                task.cancel()
+        nova.is_active = False  # stop capture and any lingering loops
+
+        # Cancel mic capture immediately — no more input needed.
+        if not capture_task.done():
+            capture_task.cancel()
+
+        # Let playback drain so the farewell audio finishes playing (up to 8 s).
+        try:
+            await asyncio.wait_for(playback_task, timeout=8.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            if not playback_task.done():
+                playback_task.cancel()
+
+        # Gather all tasks cleanly before closing the stream.
         await asyncio.gather(capture_task, playback_task, response_task, return_exceptions=True)
         await nova.end_session()
-        print("\nARIA: Thank you for calling Meridian Bank. Goodbye.\n")
+        print("\n[Voice session ended]\n")
         logger.info("Voice session ended.")
