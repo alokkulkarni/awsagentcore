@@ -3,7 +3,9 @@ import { useState, useEffect, useCallback } from 'react';
 const STORAGE_KEY = 'aria_connection_config';
 
 const DEFAULT_CONFIG = {
-  mode: 'local',
+  // Auto-detect: if AgentCore URL is baked into the build (CloudFront deploy),
+  // default to agentcore mode so the app works immediately without manual setup.
+  mode: import.meta.env.VITE_AGENTCORE_CHAT_URL ? 'agentcore' : 'local',
   authenticated: false,
   customerId: 'CUST-001',
 
