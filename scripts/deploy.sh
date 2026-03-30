@@ -1462,14 +1462,25 @@ build_and_deploy_react() {
     # Ensure npm is available
     command -v npm >/dev/null 2>&1 || die "npm not found — install Node.js 18+ and re-run."
 
-    step "Installing npm dependencies"
-    npm ci --prefix "$client_dir" --silent 2>/dev/null \
-        || npm install --prefix "$client_dir" --silent
-    ok "Dependencies installed"
+    step "Installing npm dependencies (first run may take a few minutes)"
+    # Use --no-audit --no-fund to skip slow network checks; show output so the
+    # terminal doesn't appear frozen.  Fall back from 'ci' to 'install' when
+    # there is no package-lock.json or it's out of date.
+    if npm ci --prefix "$client_dir" --no-audit --no-fund 2>&1; then
+        ok "Dependencies installed (npm ci)"
+    else
+        warn "npm ci failed — falling back to npm install"
+        npm install --prefix "$client_dir" --no-audit --no-fund 2>&1 \
+            || die "npm install failed — check the output above"
+        ok "Dependencies installed (npm install)"
+    fi
 
     step "Building React app (npm run build)"
-    npm run build --prefix "$client_dir" 2>&1 \
-        | grep -E "vite|✓|built in|error|warning|ERROR" || true
+    local build_out
+    build_out=$(npm run build --prefix "$client_dir" 2>&1)
+    local build_exit=$?
+    echo "$build_out" | grep -E "vite|✓|built in|error|warning|ERROR" || true
+    [[ $build_exit -eq 0 ]] || { echo "$build_out"; die "React build failed — see output above"; }
     [[ -d "${client_dir}/dist" ]] || die "React build failed — dist/ directory not found"
     ok "React app built"
 
