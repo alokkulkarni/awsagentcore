@@ -835,8 +835,10 @@ class ARIAWebSocketVoiceSession:
                                 self.is_active = False
                                 break
                             # Client-side barge-in fired: immediately stop sending audio
-                            # to the client and drain the queue. Nova Sonic will later
-                            # confirm with its own interrupt signal.
+                            # to the client and drain the queue. Confirm the interrupt
+                            # immediately so the client re-enables audio capture.
+                            # _barge_in_pending stays True until the user's next utterance
+                            # arrives, which suppresses any remaining Nova Sonic audio.
                             if ctrl.get("interrupted") is True:
                                 self._barge_in_pending = True
                                 cleared = 0
@@ -847,6 +849,9 @@ class ARIAWebSocketVoiceSession:
                                     except asyncio.QueueEmpty:
                                         break
                                 logger.info("Client barge-in: drained %d queued audio chunks", cleared)
+                                # Confirm immediately — do NOT wait for Nova Sonic since we
+                                # never send it an explicit interrupt signal.
+                                await self._ws_send_text({"type": "interrupt"})
                         except json.JSONDecodeError:
                             pass
                     elif "bytes" in msg and msg["bytes"] and not self._farewell_detected:
@@ -993,11 +998,15 @@ class ARIAWebSocketVoiceSession:
             text = event["textOutput"].get("content", "")
             role = event["textOutput"].get("role", self._role).upper()
 
-            # Barge-in interrupt signal: {"interrupted": true}
+            # Barge-in interrupt signal from Nova Sonic — only fires if Nova Sonic
+            # was explicitly asked to interrupt (currently unused; we handle barge-in
+            # directly from the client and reset via USER turn detection above).
             if role == "ASSISTANT" and text.startswith("{"):
                 try:
                     if json.loads(text).get("interrupted") is True:
-                        await self._handle_interrupt()
+                        # Belt-and-suspenders: if Nova Sonic ever does confirm an
+                        # interrupt, make sure the client state is consistent.
+                        self._barge_in_pending = False
                         return
                 except (json.JSONDecodeError, KeyError):
                     pass
@@ -1008,6 +1017,8 @@ class ARIAWebSocketVoiceSession:
 
             elif role == "USER":
                 await self._flush_aria()
+                # User is speaking — barge-in (if any) is fully resolved; re-enable audio
+                self._barge_in_pending = False
                 text = text.strip()
                 if text:
                     logger.info("Customer said: %s", text)

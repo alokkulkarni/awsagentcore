@@ -4,9 +4,13 @@ import { AudioCapture } from '../helpers/audioCapture.js';
 import { AudioPlayer } from '../helpers/audioPlayer.js';
 import { createPresignedWebSocketUrl } from '../helpers/agentcoreClient.js';
 
-const VAD_RMS_THRESHOLD = 600;   // RMS threshold for 16-bit PCM speech detection
+const VAD_RMS_THRESHOLD = 600;    // RMS threshold for 16-bit PCM speech detection
 const ARIA_DONE_TIMEOUT_MS = 600; // ms of audio silence before ARIA is "done speaking"
 const BARGEIN_COOLDOWN_MS = 1000; // ms between consecutive barge-ins
+// Grace period after ARIA starts speaking: browser echo-cancellation needs ~400ms
+// to lock on to the playback signal. During this window we ignore VAD to avoid
+// false barge-ins caused by the mic picking up ARIA's own audio.
+const ECHO_CANCEL_GRACE_MS = 450;
 
 /**
  * Voice WebSocket + always-on audio logic for ARIA banking agent.
@@ -34,6 +38,9 @@ export function useVoice(connection) {
   const ariaIsSpeakingRef = useRef(false);
   const ariaSpeakingTimerRef = useRef(null);
   const bargeinCooldownRef = useRef(0);
+  // Timestamp when ARIA first started playing audio in the current turn.
+  // Used to gate barge-in during the echo-cancellation warm-up window.
+  const ariaAudioStartedAtRef = useRef(0);
   // Set to true when a barge-in fires; suppresses incoming audio until the server
   // confirms the interrupt via {type:"interrupt"}. This prevents ARIA's in-flight
   // audio (already sent but not yet played) from playing after the user interrupts.
@@ -69,10 +76,15 @@ export function useVoice(connection) {
 
   /** Mark ARIA as speaking; reset the "done" debounce timer */
   function markAriaSpeaking() {
+    // Record when ARIA first starts a new speaking turn (for echo-cancel grace period)
+    if (!ariaIsSpeakingRef.current) {
+      ariaAudioStartedAtRef.current = Date.now();
+    }
     ariaIsSpeakingRef.current = true;
     clearTimeout(ariaSpeakingTimerRef.current);
     ariaSpeakingTimerRef.current = setTimeout(() => {
       ariaIsSpeakingRef.current = false;
+      ariaAudioStartedAtRef.current = 0;
       setStatus((prev) => (prev === 'aria-speaking' ? 'connected' : prev));
     }, ARIA_DONE_TIMEOUT_MS);
   }
@@ -96,10 +108,16 @@ export function useVoice(connection) {
             wsRef.current.send(int16Chunk.buffer);
           }
 
-          // Barge-in detection: if ARIA is speaking and user starts talking
+          // Barge-in detection: if ARIA is speaking and user starts talking.
+          // Skip the echo-cancel grace window to avoid false triggers from ARIA's
+          // own voice reaching the mic before the browser AEC has adapted.
           const now = Date.now();
+          const ariaSpeakingLongEnough =
+            ariaAudioStartedAtRef.current > 0 &&
+            now - ariaAudioStartedAtRef.current > ECHO_CANCEL_GRACE_MS;
           if (
             ariaIsSpeakingRef.current &&
+            ariaSpeakingLongEnough &&
             computeRMS(int16Chunk) > VAD_RMS_THRESHOLD &&
             now - bargeinCooldownRef.current > BARGEIN_COOLDOWN_MS
           ) {

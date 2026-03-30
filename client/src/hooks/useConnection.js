@@ -30,7 +30,23 @@ function loadConfig() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      const merged = { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      // Infrastructure endpoints baked in at build time always take precedence
+      // over stale values that may have been saved in localStorage from a prior
+      // deployment (e.g. old short-ID URL that causes 400 errors).
+      if (import.meta.env.VITE_AGENTCORE_CHAT_URL)
+        merged.agentcoreChatUrl = import.meta.env.VITE_AGENTCORE_CHAT_URL;
+      if (import.meta.env.VITE_AGENTCORE_RUNTIME_ARN)
+        merged.agentcoreRuntimeArn = import.meta.env.VITE_AGENTCORE_RUNTIME_ARN;
+      if (import.meta.env.VITE_AGENTCORE_RUNTIME_ID)
+        merged.agentcoreRuntimeId = import.meta.env.VITE_AGENTCORE_RUNTIME_ID;
+      if (import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID)
+        merged.cognitoIdentityPoolId = import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID;
+      if (import.meta.env.VITE_COGNITO_UNAUTH_ROLE_ARN)
+        merged.cognitoUnauthRoleArn = import.meta.env.VITE_COGNITO_UNAUTH_ROLE_ARN;
+      if (import.meta.env.VITE_AWS_REGION)
+        merged.awsRegion = import.meta.env.VITE_AWS_REGION;
+      return merged;
     }
   } catch {
     // ignore parse errors
