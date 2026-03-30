@@ -1,13 +1,18 @@
 /**
  * Real AudioPlayer implementation using Web Audio API.
  * Receives 24 kHz 16-bit mono PCM chunks and plays them gaplessly.
+ *
+ * Accepts an optional shared AudioContext. When the same context is used for
+ * both capture and playback, Chrome's AEC has full visibility of the playback
+ * signal as its echo reference — critical for speaker (non-headphone) use.
  */
 export class AudioPlayer {
   /**
-   * @param {{ sampleRate?: number }} opts
+   * @param {{ sampleRate?: number, audioContext?: AudioContext }} opts
    */
-  constructor({ sampleRate = 24000 } = {}) {
-    this.sampleRate = sampleRate;
+  constructor({ sampleRate = 24000, audioContext = null } = {}) {
+    this.sourceSampleRate = sampleRate; // rate of incoming PCM from Nova Sonic
+    this._externalContext = audioContext; // shared context passed in from useVoice
     this.context = null;
     this.nextPlayTime = 0;
     this.activeSources = [];
@@ -17,11 +22,16 @@ export class AudioPlayer {
   init() {
     if (this.isInitialized) return;
 
-    try {
-      this.context = new AudioContext({ sampleRate: this.sampleRate });
-    } catch {
-      // Fallback: create without specific sample rate; resampling handled by browser
-      this.context = new AudioContext();
+    if (this._externalContext) {
+      // Use the shared context (same as AudioCapture) — ensures AEC reference matches
+      this.context = this._externalContext;
+    } else {
+      try {
+        // Fallback: create at browser native rate (NOT 24000) so OS AEC can track it
+        this.context = new AudioContext();
+      } catch {
+        this.context = new AudioContext();
+      }
     }
 
     this.nextPlayTime = 0;
@@ -31,19 +41,26 @@ export class AudioPlayer {
 
   /**
    * Queue and play a chunk of 16-bit PCM audio.
-   * @param {Int16Array} int16Data - Raw 16-bit signed PCM samples at this.sampleRate
+   * Resamples from sourceSampleRate → context.sampleRate if they differ.
+   * @param {Int16Array} int16Data - Raw 16-bit signed PCM at this.sourceSampleRate
    */
   playChunk(int16Data) {
     if (!this.context) return;
 
-    // Resume AudioContext if suspended (browser autoplay policy)
     if (this.context.state === 'suspended') {
       this.context.resume().catch(() => {});
     }
 
     const float32 = int16ToFloat32(int16Data);
-    const buffer = this.context.createBuffer(1, float32.length, this.sampleRate);
-    buffer.copyToChannel(float32, 0);
+
+    // Resample if the context rate differs from the incoming PCM rate
+    const contextRate = this.context.sampleRate;
+    const resampled = contextRate !== this.sourceSampleRate
+      ? resampleLinear(float32, this.sourceSampleRate, contextRate)
+      : float32;
+
+    const buffer = this.context.createBuffer(1, resampled.length, contextRate);
+    buffer.copyToChannel(resampled, 0);
 
     const source = this.context.createBufferSource();
     source.buffer = buffer;
@@ -55,7 +72,6 @@ export class AudioPlayer {
     source.start(startTime);
     this.nextPlayTime = startTime + buffer.duration;
 
-    // Track active sources for cleanup
     this.activeSources.push(source);
     source.onended = () => {
       const idx = this.activeSources.indexOf(source);
@@ -64,7 +80,6 @@ export class AudioPlayer {
   }
 
   bargeIn() {
-    // Stop all queued audio immediately — user is interrupting ARIA
     for (const src of this.activeSources) {
       try { src.stop(); } catch {}
     }
@@ -75,23 +90,21 @@ export class AudioPlayer {
   }
 
   stop() {
-    // Stop all active sources immediately
     for (const src of this.activeSources) {
-      try {
-        src.stop();
-      } catch {
-        // Already stopped
-      }
+      try { src.stop(); } catch {}
     }
     this.activeSources = [];
     this.nextPlayTime = 0;
 
-    if (this.context) {
-      // Don't close the context; just reset playback state so it can be reused
+    // Only close the context if we own it (i.e. it wasn't passed in externally)
+    if (this.context && !this._externalContext) {
       const ctx = this.context;
       this.context = null;
       this.isInitialized = false;
       ctx.close().catch(() => {});
+    } else {
+      this.context = null;
+      this.isInitialized = false;
     }
   }
 
@@ -101,9 +114,26 @@ export class AudioPlayer {
 }
 
 /**
+ * Resample Float32 audio from inputRate to outputRate using linear interpolation.
+ */
+function resampleLinear(input, inputRate, outputRate) {
+  if (inputRate === outputRate) return input;
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.round(input.length / ratio);
+  const output = new Float32Array(outputLength);
+  for (let i = 0; i < outputLength; i++) {
+    const pos = i * ratio;
+    const idx = Math.floor(pos);
+    const frac = pos - idx;
+    const a = input[idx] ?? 0;
+    const b = input[idx + 1] ?? 0;
+    output[i] = a + frac * (b - a);
+  }
+  return output;
+}
+
+/**
  * Convert Int16Array PCM samples to Float32Array in [-1, 1] range.
- * @param {Int16Array} int16Array
- * @returns {Float32Array}
  */
 function int16ToFloat32(int16Array) {
   const float32 = new Float32Array(int16Array.length);

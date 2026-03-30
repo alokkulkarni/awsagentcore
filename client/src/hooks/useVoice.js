@@ -4,13 +4,7 @@ import { AudioCapture } from '../helpers/audioCapture.js';
 import { AudioPlayer } from '../helpers/audioPlayer.js';
 import { createPresignedWebSocketUrl } from '../helpers/agentcoreClient.js';
 
-const VAD_RMS_THRESHOLD = 600;    // RMS threshold for 16-bit PCM speech detection
 const ARIA_DONE_TIMEOUT_MS = 600; // ms of audio silence before ARIA is "done speaking"
-const BARGEIN_COOLDOWN_MS = 1000; // ms between consecutive barge-ins
-// Grace period after ARIA starts speaking: browser echo-cancellation needs ~400ms
-// to lock on to the playback signal. During this window we ignore VAD to avoid
-// false barge-ins caused by the mic picking up ARIA's own audio.
-const ECHO_CANCEL_GRACE_MS = 450;
 
 /**
  * Voice WebSocket + always-on audio logic for ARIA banking agent.
@@ -27,6 +21,10 @@ export function useVoice(connection) {
   const audioCaptureRef = useRef(null);
   const audioPlayerRef = useRef(null);
   const isCleaningUp = useRef(false);
+  // Single shared AudioContext for both capture and playback.
+  // Using one context ensures Chrome's AEC has the playback signal as its echo
+  // reference, which eliminates speaker echo reaching Nova Sonic's VAD.
+  const sharedAudioContextRef = useRef(null);
 
   // Always-current config ref — async callbacks (ws.onopen, ws.onmessage) must
   // read from this ref, not from the closure-captured `config`, to avoid stale
@@ -34,17 +32,9 @@ export function useVoice(connection) {
   const configRef = useRef(config);
   useEffect(() => { configRef.current = config; }, [config]);
 
-  // Barge-in / ARIA speaking state (refs for access inside callbacks)
+  // ARIA speaking state (refs for access inside async callbacks)
   const ariaIsSpeakingRef = useRef(false);
   const ariaSpeakingTimerRef = useRef(null);
-  const bargeinCooldownRef = useRef(0);
-  // Timestamp when ARIA first started playing audio in the current turn.
-  // Used to gate barge-in during the echo-cancellation warm-up window.
-  const ariaAudioStartedAtRef = useRef(0);
-  // Set to true when a barge-in fires; suppresses incoming audio until the server
-  // confirms the interrupt via {type:"interrupt"}. This prevents ARIA's in-flight
-  // audio (already sent but not yet played) from playing after the user interrupts.
-  const bargingInRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -55,7 +45,6 @@ export function useVoice(connection) {
 
   function cleanupAll() {
     clearTimeout(ariaSpeakingTimerRef.current);
-    bargingInRef.current = false;
     if (audioCaptureRef.current) {
       audioCaptureRef.current.stop();
       audioCaptureRef.current = null;
@@ -71,78 +60,59 @@ export function useVoice(connection) {
         ws.close();
       }
     }
+    // Close the shared AudioContext after capture and player have released it
+    if (sharedAudioContextRef.current) {
+      sharedAudioContextRef.current.close().catch(() => {});
+      sharedAudioContextRef.current = null;
+    }
     ariaIsSpeakingRef.current = false;
   }
 
   /** Mark ARIA as speaking; reset the "done" debounce timer */
   function markAriaSpeaking() {
-    // Record when ARIA first starts a new speaking turn (for echo-cancel grace period)
-    if (!ariaIsSpeakingRef.current) {
-      ariaAudioStartedAtRef.current = Date.now();
-    }
     ariaIsSpeakingRef.current = true;
     clearTimeout(ariaSpeakingTimerRef.current);
     ariaSpeakingTimerRef.current = setTimeout(() => {
       ariaIsSpeakingRef.current = false;
-      ariaAudioStartedAtRef.current = 0;
       setStatus((prev) => (prev === 'aria-speaking' ? 'connected' : prev));
     }, ARIA_DONE_TIMEOUT_MS);
-  }
-
-  /** Compute RMS energy of an Int16Array chunk */
-  function computeRMS(int16Chunk) {
-    let sum = 0;
-    for (let i = 0; i < int16Chunk.length; i++) {
-      sum += int16Chunk[i] * int16Chunk[i];
-    }
-    return Math.sqrt(sum / int16Chunk.length);
   }
 
   /** Start the microphone — called automatically after WS connect */
   async function startMic(ws) {
     try {
+      // Create (or reuse) the shared AudioContext at the browser's native rate.
+      // This MUST be at native rate (not forced 24000) so the OS/Chrome AEC can
+      // correctly track the playback signal as its echo reference.
+      if (!sharedAudioContextRef.current) {
+        sharedAudioContextRef.current = new AudioContext();
+      }
+      const sharedCtx = sharedAudioContextRef.current;
+      if (sharedCtx.state === 'suspended') {
+        await sharedCtx.resume().catch(() => {});
+      }
+
+      // Init the player on the shared context BEFORE capture starts, so the
+      // AEC reference is already established when the mic opens.
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.stop();
+      }
+      const player = new AudioPlayer({ sampleRate: 24000, audioContext: sharedCtx });
+      player.init();
+      audioPlayerRef.current = player;
+
       const capture = new AudioCapture({
         onChunk: (int16Chunk) => {
-          // Forward audio to server
+          // Forward audio to server — Nova Sonic handles all VAD and barge-in
+          // detection natively (endpointingSensitivity=HIGH). No client-side VAD.
           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(int16Chunk.buffer);
-          }
-
-          // Barge-in detection: if ARIA is speaking and user starts talking.
-          // Client-side barge-in fast-path: stop local audio immediately so the
-          // user doesn't hear stale ARIA speech. We do NOT send {interrupted:true}
-          // to the server — Nova Sonic detects user speech natively via its built-in
-          // VAD (turnDetectionConfiguration.endpointingSensitivity=HIGH) and signals
-          // the server with contentEnd.stopReason=="INTERRUPTED". The server then
-          // sends {type:"interrupt"} back, at which point bargingInRef resets.
-          // bargingInRef=true suppresses any audio chunks that arrive in the interim.
-          const now = Date.now();
-          const ariaSpeakingLongEnough =
-            ariaAudioStartedAtRef.current > 0 &&
-            now - ariaAudioStartedAtRef.current > ECHO_CANCEL_GRACE_MS;
-          if (
-            ariaIsSpeakingRef.current &&
-            ariaSpeakingLongEnough &&
-            computeRMS(int16Chunk) > VAD_RMS_THRESHOLD &&
-            now - bargeinCooldownRef.current > BARGEIN_COOLDOWN_MS
-          ) {
-            bargeinCooldownRef.current = now;
-            // Suppress incoming audio chunks until server confirms barge-in
-            bargingInRef.current = true;
-            // Stop local audio player immediately (fast-path — before server confirms)
-            audioPlayerRef.current?.bargeIn();
-            ariaIsSpeakingRef.current = false;
-            ariaAudioStartedAtRef.current = 0;
-            clearTimeout(ariaSpeakingTimerRef.current);
-            setStatus('connected');
-            // Auto-reset in case Nova Sonic doesn't detect speech (e.g. brief echo)
-            // so audio isn't suppressed indefinitely without a server confirmation.
-            setTimeout(() => { bargingInRef.current = false; }, 4000);
           }
         },
         onWaveform: () => {},
         targetSampleRate: 16000,
         chunkSize: 1024,
+        audioContext: sharedCtx, // share the same context → proper AEC reference
       });
 
       await capture.start();
@@ -199,9 +169,8 @@ export function useVoice(connection) {
       }
     }
 
-    const player = new AudioPlayer({ sampleRate: 24000 });
-    player.init();
-    audioPlayerRef.current = player;
+    // AudioPlayer is initialised inside startMic() using the shared AudioContext,
+    // so we don't create it here.
 
     if (config.mode === 'local') {
       const pingUrl = resolvedWsUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws(\?.*)?$/, '/ping');
@@ -266,9 +235,6 @@ export function useVoice(connection) {
       if (wsRef.current !== ws) return;
 
       if (evt.data instanceof ArrayBuffer) {
-        // Suppress audio while a barge-in is in-flight — server hasn't yet
-        // drained its queue, so chunks keep arriving even after bargeIn() fires.
-        if (bargingInRef.current) return;
         if (audioPlayerRef.current) {
           audioPlayerRef.current.playChunk(new Int16Array(evt.data));
         }
@@ -302,12 +268,9 @@ export function useVoice(connection) {
 
           case 'interrupt':
             // Nova Sonic detected user speech (contentEnd.stopReason=="INTERRUPTED").
-            // Server drained its audio queue — stop any remaining local playback and
-            // re-enable audio for ARIA's next response.
+            // Server drained its queue; stop any audio still playing locally.
             audioPlayerRef.current?.bargeIn();
-            bargingInRef.current = false;
             ariaIsSpeakingRef.current = false;
-            ariaAudioStartedAtRef.current = 0;
             clearTimeout(ariaSpeakingTimerRef.current);
             setStatus('connected');
             break;

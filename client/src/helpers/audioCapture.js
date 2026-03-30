@@ -1,16 +1,21 @@
 /**
  * Real AudioCapture implementation using Web Audio API.
  * Captures microphone input, resamples to 16 kHz, emits Int16Array chunks.
+ *
+ * Accepts an optional shared AudioContext. When the same context is used for
+ * both capture and playback (AudioPlayer), Chrome's AEC has full visibility of
+ * the playback signal as its echo reference — essential for speaker use.
  */
 export class AudioCapture {
   /**
-   * @param {{ onChunk: function, onWaveform: function, targetSampleRate?: number, chunkSize?: number }} opts
+   * @param {{ onChunk: function, onWaveform: function, targetSampleRate?: number, chunkSize?: number, audioContext?: AudioContext }} opts
    */
-  constructor({ onChunk, onWaveform, targetSampleRate = 16000, chunkSize = 1024 }) {
+  constructor({ onChunk, onWaveform, targetSampleRate = 16000, chunkSize = 1024, audioContext = null }) {
     this.onChunk = onChunk;
     this.onWaveform = onWaveform;
     this.targetSampleRate = targetSampleRate;
     this.chunkSize = chunkSize;
+    this._externalContext = audioContext; // shared context from useVoice
 
     this.audioContext = null;
     this.mediaStream = null;
@@ -19,7 +24,6 @@ export class AudioCapture {
     this.processorNode = null;
     this.isRunning = false;
 
-    // Buffer to accumulate samples before emitting full chunks
     this._sampleBuffer = [];
   }
 
@@ -30,11 +34,14 @@ export class AudioCapture {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        sampleRate: this.targetSampleRate,
+        autoGainControl: false,
       },
     });
 
-    this.audioContext = new AudioContext();
+    // Use the shared context if provided; otherwise create one at browser native rate.
+    // Do NOT specify a sample rate — let the browser use its native rate so the OS
+    // AEC reference aligns with the playback context sample rate.
+    this.audioContext = this._externalContext ?? new AudioContext();
     this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
     // Analyser for waveform visualisation
@@ -99,7 +106,10 @@ export class AudioCapture {
       this.mediaStream = null;
     }
     if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
+      // Only close the context if we created it (not if it was shared externally)
+      if (!this._externalContext) {
+        this.audioContext.close().catch(() => {});
+      }
       this.audioContext = null;
     }
   }
