@@ -140,13 +140,16 @@ export function useVoice(connection) {
       }
       resolvedWsUrl = wsUrl;
     } else {
-      if (!config.authenticated) {
-        setError('AgentCore voice requires authentication. Enable "Authenticated" mode and configure Cognito Identity Pool ID.');
+      // AgentCore mode: only need runtimeId + valid Cognito pool.
+      // The banking-level 'authenticated' flag is sent in session.config (ws.onopen)
+      // so ARIA can handle both authenticated and unauthenticated conversations.
+      if (!config.agentcoreRuntimeId) {
+        setError('AgentCore Runtime ID not configured. Add it in Connection Settings.');
         setStatus('error');
         return;
       }
-      if (!config.agentcoreRuntimeId) {
-        setError('AgentCore Runtime ID not configured. Add it in Connection Settings.');
+      if (!config.cognitoIdentityPoolId) {
+        setError('Cognito Identity Pool ID not configured. Add it in Connection Settings.');
         setStatus('error');
         return;
       }
@@ -290,7 +293,11 @@ export function useVoice(connection) {
     ws.onerror = () => {
       clearTimeout(connectTimeout);
       if (isCleaningUp.current) return;
-      setError('WebSocket connection error. Check that the server is running.');
+      setError(
+        config.mode === 'local'
+          ? 'WebSocket connection error. Check that the server is running.'
+          : 'AgentCore WebSocket connection failed. Check runtime status, IAM permissions (InvokeAgentRuntimeWithWebSocketStream), and Cognito pool configuration.'
+      );
       setStatus('error');
     };
 
