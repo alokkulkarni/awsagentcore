@@ -63,6 +63,17 @@ export class AudioPlayer {
     };
   }
 
+  bargeIn() {
+    // Stop all queued audio immediately — user is interrupting ARIA
+    for (const src of this.activeSources) {
+      try { src.stop(); } catch {}
+    }
+    this.activeSources = [];
+    if (this.context) {
+      this.nextPlayTime = this.context.currentTime;
+    }
+  }
+
   stop() {
     // Stop all active sources immediately
     for (const src of this.activeSources) {

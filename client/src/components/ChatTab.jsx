@@ -53,7 +53,13 @@ export default function ChatTab({ chat }) {
         {messages.map((msg) => (
           <div key={msg.id} className={`message-row ${msg.role === 'user' ? 'user' : 'assistant'}`}>
             <div className={`message-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-              {msg.content}
+              {msg.content.split('\n').map((line, i, arr) => (
+                line.trim() === '' ? (
+                  i < arr.length - 1 ? <br key={i} /> : null
+                ) : (
+                  <p key={i} style={{ margin: '0 0 4px 0' }}>{line}</p>
+                )
+              ))}
             </div>
             <div className="message-meta">
               {msg.role === 'user' ? 'You' : 'ARIA'} · {formatTime(msg.timestamp)}

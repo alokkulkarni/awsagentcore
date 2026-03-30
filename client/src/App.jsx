@@ -49,8 +49,10 @@ export default function App() {
 
       <main className="app-content">
         <Tabs
+          className="app-tabs"
           activeTabId={activeTab}
           onChange={({ detail }) => setActiveTab(detail.activeTabId)}
+          fitHeight
           tabs={[
             {
               id: 'chat',

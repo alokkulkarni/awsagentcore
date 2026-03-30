@@ -1,8 +1,17 @@
+/* ── Root height lock — prevents page-level scroll ── */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
 /* ── Global app layout ── */
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   background-color: #f0f2f5;
   font-family: 'Amazon Ember', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
@@ -86,6 +95,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
@@ -188,125 +198,6 @@
   flex: 1;
 }
 
-/* ── Voice tab ── */
-.voice-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 16px;
-  box-sizing: border-box;
-  gap: 16px;
-}
-
-.voice-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background: #ffffff;
-  border-radius: 8px;
-  padding: 16px;
-  border: 1px solid #e9ebed;
-  flex-shrink: 0;
-}
-
-.mic-button {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  flex-shrink: 0;
-}
-
-.mic-button.idle {
-  background-color: #d5dbdb;
-  color: #5f6b7a;
-}
-
-.mic-button.listening {
-  background-color: #1d8102;
-  color: #ffffff;
-  animation: micPulse 1.5s infinite;
-}
-
-.mic-button.disabled {
-  background-color: #aab7b8;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-@keyframes micPulse {
-  0%, 100% { box-shadow: 0 4px 12px rgba(29, 129, 2, 0.4); }
-  50% { box-shadow: 0 4px 24px rgba(29, 129, 2, 0.8), 0 0 0 8px rgba(29, 129, 2, 0.15); }
-}
-
-.waveform-canvas {
-  width: 100%;
-  height: 80px;
-  border-radius: 6px;
-  background: #0d1117;
-  flex: 1;
-}
-
-.voice-status-label {
-  font-size: 12px;
-  color: #5f6b7a;
-  text-align: center;
-  margin-top: 4px;
-}
-
-.voice-transcript-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e9ebed;
-  min-height: 0;
-}
-
-.transcript-row.user {
-  align-items: flex-end;
-  display: flex;
-  flex-direction: column;
-}
-
-.transcript-row.aria {
-  align-items: flex-start;
-  display: flex;
-  flex-direction: column;
-}
-
-.transcript-bubble {
-  max-width: 70%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.transcript-bubble.user {
-  background-color: #0097a7;
-  color: #ffffff;
-}
-
-.transcript-bubble.aria {
-  background-color: #1a365d;
-  color: #ffffff;
-}
-
 /* ── StatusBadge ── */
 .status-badge-wrapper {
   display: flex;
@@ -314,10 +205,36 @@
 }
 
 /* ── Tabs override ── */
+/* fitHeight is set on the Cloudscape <Tabs> component; these rules override its
+   defaults so that only the inner scroll area (voice-messages / chat-messages)
+   scrolls — the header bar + tab strip always stay visible. */
 .app-tabs {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Cloudscape fitHeight sets overflow:auto on the wrapper — we want hidden so
+   our inner containers (voice-messages, chat-messages) own the scrollbar. */
+.app-tabs [class*="tabs-content-wrapper"],
+.app-tabs [class*="tabs-container-content-wrapper"] {
+  flex: 1 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+.app-tabs [class*="tabs-content-active"],
+.app-tabs [class*="tabs-content_"] {
+  flex: 1 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  height: 100% !important;
 }
 
 /* ── Scrollbar ── */
@@ -363,4 +280,255 @@
 .empty-state-icon {
   font-size: 48px;
   opacity: 0.5;
+}
+
+/* ─── Voice: always-on redesign ──────────────────────────────────────── */
+
+.voice-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0a0f1a;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: hidden;
+}
+
+/* Header bar */
+.voice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #0d1421;
+  border-bottom: 1px solid #1e2d40;
+  flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.voice-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.voice-header-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+.voice-header-subtitle {
+  font-size: 12px;
+  color: #7d8590;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.voice-error-bar {
+  flex-shrink: 0;
+  padding: 8px 16px 0;
+}
+
+/* Waveform canvas */
+.voice-waveform {
+  width: 100%;
+  height: 48px;
+  flex-shrink: 0;
+  background: #0a0f1a;
+  display: block;
+}
+
+/* Messages scroll area */
+.voice-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* Empty state */
+.voice-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 1;
+  color: #7d8590;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.voice-empty strong { color: #e6edf3; }
+
+/* Chat bubbles */
+.voice-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 85%;
+}
+.voice-msg--user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.voice-msg--aria {
+  align-self: flex-start;
+}
+
+.voice-bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 100%;
+}
+.voice-bubble p {
+  margin: 0 0 6px;
+}
+.voice-bubble p:last-of-type {
+  margin-bottom: 0;
+}
+.voice-msg--aria .voice-bubble {
+  background: #161b22;
+  border: 1px solid #21262d;
+  color: #c9d1d9;
+  border-top-left-radius: 4px;
+}
+.voice-msg--user .voice-bubble {
+  background: #1f6feb;
+  color: #ffffff;
+  border-top-right-radius: 4px;
+}
+
+.voice-msg-time {
+  display: block;
+  font-size: 10px;
+  color: #7d8590;
+  margin-top: 4px;
+}
+.voice-msg--user .voice-msg-time {
+  text-align: right;
+  color: rgba(255,255,255,0.5);
+}
+
+/* Avatar circles */
+.voice-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.voice-avatar--aria {
+  background: linear-gradient(135deg, #00b4d8, #0077b6);
+  color: #fff;
+}
+.voice-avatar--user {
+  background: #21262d;
+  color: #7d8590;
+  font-size: 9px;
+}
+
+/* Voice orb — mini (header) */
+.voice-orb-mini {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #3d444d;
+  transition: background 0.3s;
+}
+.voice-orb-mini[data-status="connecting"] {
+  background: #f0a500;
+  animation: voice-pulse 1s ease-in-out infinite;
+}
+.voice-orb-mini[data-status="connected"] {
+  background: #3fb950;
+  animation: voice-pulse 2s ease-in-out infinite;
+}
+.voice-orb-mini[data-status="aria-speaking"] {
+  background: #00b4d8;
+  animation: voice-pulse 0.6s ease-in-out infinite;
+}
+.voice-orb-mini[data-status="error"] {
+  background: #f85149;
+}
+
+/* Voice orb — large (empty state) */
+.voice-orb-large {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #161b22;
+  border: 2px solid #21262d;
+  transition: all 0.3s;
+}
+.voice-orb-large[data-status="connecting"] {
+  border-color: #f0a500;
+  animation: voice-spin 1.2s linear infinite;
+}
+.voice-orb-large[data-status="connected"] {
+  border-color: #3fb950;
+  box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.4);
+  animation: voice-ripple 2s ease-out infinite;
+}
+.voice-orb-large[data-status="aria-speaking"] {
+  border-color: #00b4d8;
+  box-shadow: 0 0 0 0 rgba(0, 180, 216, 0.5);
+  animation: voice-ripple 0.8s ease-out infinite;
+}
+.voice-orb-large[data-status="idle"] {
+  border-color: #3d444d;
+}
+
+/* Bottom status bar */
+.voice-statusbar {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: #0d1421;
+  border-top: 1px solid #1e2d40;
+  font-size: 12px;
+}
+.voice-mic-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7d8590;
+}
+.voice-mic-indicator.active {
+  color: #3fb950;
+}
+.voice-mic-indicator.muted {
+  color: #00b4d8;
+}
+
+/* Keyframes */
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+@keyframes voice-ripple {
+  0% { box-shadow: 0 0 0 0 rgba(63,185,80,0.4); }
+  70% { box-shadow: 0 0 0 16px rgba(63,185,80,0); }
+  100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
+}
+@keyframes voice-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

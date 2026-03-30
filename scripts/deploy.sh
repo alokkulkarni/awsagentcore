@@ -1418,6 +1418,22 @@ VITE_AWS_REGION=eu-west-2
 ENVEOF
     ok "Wrote client/.env.local"
 
+    # ── AWS credentials check (needed for Nova Sonic) ────────────────────
+    header "AWS credentials"
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+        local acct
+        acct=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        ok "AWS credentials valid (account: ${acct})"
+    else
+        warn "AWS credentials NOT found or expired."
+        echo "  The ARIA backend needs valid AWS credentials to call Amazon Nova Sonic."
+        echo "  Fix with one of:"
+        echo "    aws sso login              (if using SSO)"
+        echo "    aws configure              (access key/secret)"
+        echo "    export AWS_PROFILE=myprof  (switch profile)"
+        echo ""
+    fi
+
     # ── Summary ───────────────────────────────────────────────────────────
     header "Local development ready"
     echo -e "${GREEN}${BOLD}
@@ -1425,25 +1441,28 @@ ENVEOF
   ║             ARIA Local Development — Ready                   ║
   ╚══════════════════════════════════════════════════════════════╝${NC}
 
-  ${BOLD}Start ARIA backend:${NC}
+  ${BOLD}1. Start ARIA backend (needs AWS credentials for Nova Sonic):${NC}
     source .venv/bin/activate
     uvicorn aria.agentcore_app:app --host 0.0.0.0 --port ${port} --workers 1
 
-  ${BOLD}Or with reload (development):${NC}
+  ${BOLD}   Or with hot-reload (development):${NC}
     source .venv/bin/activate
     uvicorn aria.agentcore_app:app --port ${port} --reload
 
-  ${BOLD}Start React client:${NC}
+  ${BOLD}2. Start React client:${NC}
     cd client && npm install && npm run dev
-    → Opens on http://localhost:5173 (toggle: Local mode)
+    → Opens on http://localhost:5173 (switch to Local mode in UI)
 
   ${BOLD}Local endpoints:${NC}
     Chat :  http://localhost:${port}/invocations
     Voice:  ws://localhost:${port}/ws
     Health: http://localhost:${port}/ping
 
-  ${BOLD}React client set to local mode — no AWS credentials needed.${NC}
-    Flip the toggle in the UI to switch to AgentCore when ready.
+  ${YELLOW}Note:${NC} The ARIA server calls Amazon Nova Sonic (us-east-1) — valid AWS
+  credentials must be present in the terminal where uvicorn runs.
+  The React client connects to localhost only (no AWS credentials in browser).
+
+  Flip the mode toggle in the UI to switch to AgentCore when ready.
 "
 }
 

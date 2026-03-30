@@ -28,9 +28,11 @@ For local development::
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import re
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from bedrock_agentcore import BedrockAgentCoreApp
@@ -40,6 +42,50 @@ from starlette.middleware.cors import CORSMiddleware
 
 from aria.agentcore_voice import ARIAWebSocketVoiceSession
 from aria.audit_manager import emit_chat_tool_audits as _emit_audit
+
+# ---------------------------------------------------------------------------
+# Logging — configure once at import time so all aria.* loggers get handlers.
+# When running via `uvicorn aria.agentcore_app:app`, uvicorn configures its own
+# logging for the uvicorn.* namespace only — our application loggers have no
+# handlers unless we add them explicitly here.
+# ---------------------------------------------------------------------------
+def _configure_logging() -> None:
+    _log_dir  = Path(os.getenv("LOG_DIR", "."))
+    _log_file = _log_dir / "aria_agentcore.log"
+    _level    = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+
+    root = logging.getLogger()
+    if root.handlers:
+        # Already configured (e.g., called twice via uvicorn reload) — skip
+        return
+
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    # File handler — rotating, 10 MB × 5 backups
+    fh = logging.handlers.RotatingFileHandler(
+        _log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    fh.setFormatter(fmt)
+
+    # Console handler — so logs also appear in uvicorn's terminal output
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+
+    root.setLevel(_level)
+    root.addHandler(fh)
+    root.addHandler(sh)
+
+    # Keep noisy third-party libs quiet
+    for _noisy in ("strands", "botocore", "boto3", "urllib3", "opentelemetry", "httpcore"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+    logging.getLogger("aria").info(
+        "ARIA logging configured → console + %s (level=%s)",
+        _log_file, logging.getLevelName(_level),
+    )
+
+
+_configure_logging()
 
 logger = logging.getLogger("aria.agentcore")
 
@@ -282,7 +328,10 @@ async def voice_handler(websocket, context: RequestContext) -> None:
         session_id=session_id,
         websocket=websocket,
     )
-    await session.run()
+    try:
+        await session.run()
+    except Exception as exc:
+        logger.error("Unhandled exception in voice_handler (session_id=%s): %s", session_id, exc, exc_info=True)
 
     logger.info("Voice WebSocket session ended: session_id=%s", session_id)
 
