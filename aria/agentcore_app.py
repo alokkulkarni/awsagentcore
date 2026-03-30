@@ -124,6 +124,14 @@ _TRANSCRIPTS: dict[str, object] = {}
 # Session IDs that have already received the SESSION_START injection
 _SESSION_STARTED: set[str] = set()
 
+# Sessions that have been closed via a farewell — will be purged on next contact
+_ENDED_SESSIONS: set[str] = set()
+
+_FAREWELL_RESPONSE_WORDS = frozenset({
+    "goodbye", "take care", "farewell", "pleasure helping", "all the best",
+    "have a great", "thank you for calling", "thanks for calling",
+})
+
 
 # ---------------------------------------------------------------------------
 # Helper: build SESSION_START trigger (mirrors main.py logic)
@@ -168,18 +176,25 @@ _FAREWELL_WORDS = frozenset({
 })
 
 
+def _is_farewell_response(text: str) -> bool:
+    lower = text.lower()
+    return any(w in lower for w in _FAREWELL_RESPONSE_WORDS)
+
+
+def _purge_session(session_id: str) -> None:
+    """Remove all server-side state for a session after it ends gracefully."""
+    _CHAT_AGENTS.pop(session_id, None)
+    _SESSION_META.pop(session_id, None)
+    _TRANSCRIPTS.pop(session_id, None)
+    _SESSION_STARTED.discard(session_id)
+    _ENDED_SESSIONS.discard(session_id)
+
+
 def _maybe_save_transcript(transcript, aria_text: str) -> None:
-    """Save the transcript to S3 after every turn (durable in case of crash)
-    and perform a final save when a farewell is detected in ARIA's response."""
-    lower = aria_text.lower()
-    if any(w in lower for w in ("goodbye", "take care", "farewell", "pleasure helping")):
-        transcript.save()
-    else:
-        # Incremental save: overwrite S3 object with latest content each turn.
-        # This ensures no transcript is lost if the microVM is recycled.
-        transcript._saved = False   # allow re-save
-        transcript.save()
-        transcript._saved = False   # keep open for future turns
+    """Save the transcript to S3 after every turn."""
+    transcript._saved = False
+    transcript.save()
+    transcript._saved = False
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +224,13 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     # Auth metadata only needed on first call; ignored silently thereafter
     authenticated: bool = bool(payload.get("authenticated", False))
     customer_id: Optional[str] = payload.get("customer_id") or None
+
+    # ------------------------------------------------------------------
+    # If the session ended cleanly (farewell), start a fresh one
+    # ------------------------------------------------------------------
+    if session_id in _ENDED_SESSIONS:
+        _purge_session(session_id)
+        logger.info("Restarting ended session %s", session_id)
 
     # ------------------------------------------------------------------
     # Get or create the Strands Agent for this session
@@ -274,6 +296,44 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     try:
         result = agent(prompt)
         aria_text = _clean_response(str(result))
+
+        # When the LLM only calls tools (PII detect/store, initiate_auth, etc.)
+        # without generating a text response in the same turn, str(result) is
+        # empty. Scan the new agent messages for the last assistant text block.
+        if not aria_text:
+            for msg in reversed(agent.messages[_msg_idx:]):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", [])
+                    # content may be a plain string (Strands inline format)
+                    if isinstance(content, str):
+                        candidate = _clean_response(content)
+                        if candidate:
+                            aria_text = candidate
+                    else:
+                        for block in content:
+                            if isinstance(block, str):
+                                candidate = _clean_response(block)
+                            elif isinstance(block, dict):
+                                candidate = _clean_response(
+                                    block.get("text", "") or block.get("content", "")
+                                )
+                            else:
+                                candidate = ""
+                            if candidate:
+                                aria_text = candidate
+                                break
+                if aria_text:
+                    break
+
+        # If still empty, ask the agent to continue explicitly
+        if not aria_text:
+            logger.info("Empty agent response for session %s — prompting continuation", session_id)
+            result2 = agent("Please continue and respond to the customer.")
+            aria_text = _clean_response(str(result2))
+
+        if not aria_text:
+            aria_text = "I'm sorry, I didn't catch that. Could you please try again?"
+
     except Exception as exc:
         logger.error("Agent error in session %s: %s", session_id, exc, exc_info=True)
         aria_text = (
@@ -299,10 +359,16 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     except Exception as exc:
         logger.warning("Memory save skipped: %s", exc)
 
-    # Save to transcript (appends turn; S3 upload on farewell/session end)
+    # Save to transcript and handle farewell / session teardown
     transcript.add_turn("Customer", user_message)
     transcript.add_turn("ARIA", aria_text)
     _maybe_save_transcript(transcript, aria_text)
+
+    # Mark session as ended if ARIA said a farewell — next message from this
+    # session_id will get a clean slate rather than a stale "session ended" reply.
+    if _is_farewell_response(aria_text):
+        logger.info("Farewell detected — marking session %s as ended", session_id)
+        _ENDED_SESSIONS.add(session_id)
 
     return aria_text
 
