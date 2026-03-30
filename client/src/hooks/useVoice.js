@@ -34,6 +34,10 @@ export function useVoice(connection) {
   const ariaIsSpeakingRef = useRef(false);
   const ariaSpeakingTimerRef = useRef(null);
   const bargeinCooldownRef = useRef(0);
+  // Set to true when a barge-in fires; suppresses incoming audio until the server
+  // confirms the interrupt via {type:"interrupt"}. This prevents ARIA's in-flight
+  // audio (already sent but not yet played) from playing after the user interrupts.
+  const bargingInRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -44,6 +48,7 @@ export function useVoice(connection) {
 
   function cleanupAll() {
     clearTimeout(ariaSpeakingTimerRef.current);
+    bargingInRef.current = false;
     if (audioCaptureRef.current) {
       audioCaptureRef.current.stop();
       audioCaptureRef.current = null;
@@ -99,6 +104,9 @@ export function useVoice(connection) {
             now - bargeinCooldownRef.current > BARGEIN_COOLDOWN_MS
           ) {
             bargeinCooldownRef.current = now;
+            // Suppress incoming audio immediately — chunks already in-flight
+            // from the server would otherwise keep playing after the barge-in
+            bargingInRef.current = true;
             // Stop ARIA audio immediately
             audioPlayerRef.current?.bargeIn();
             // Tell server to stop generating
@@ -236,6 +244,9 @@ export function useVoice(connection) {
       if (wsRef.current !== ws) return;
 
       if (evt.data instanceof ArrayBuffer) {
+        // Suppress audio while a barge-in is in-flight — server hasn't yet
+        // drained its queue, so chunks keep arriving even after bargeIn() fires.
+        if (bargingInRef.current) return;
         if (audioPlayerRef.current) {
           audioPlayerRef.current.playChunk(new Int16Array(evt.data));
         }
@@ -268,7 +279,9 @@ export function useVoice(connection) {
             break;
 
           case 'interrupt':
-            // Server confirmed barge-in — already handled client-side
+            // Server confirmed barge-in + drained its audio queue.
+            // Re-enable audio playback for the next ARIA response.
+            bargingInRef.current = false;
             ariaIsSpeakingRef.current = false;
             clearTimeout(ariaSpeakingTimerRef.current);
             setStatus('connected');

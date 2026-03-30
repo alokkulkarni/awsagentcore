@@ -322,6 +322,10 @@ class ARIAWebSocketVoiceSession:
         # Audio output queue (Nova Sonic → client)
         self._audio_output_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
+        # Set to True when a barge-in is in-flight: blocks new audio from being
+        # queued or sent to the client until Nova Sonic confirms the interrupt.
+        self._barge_in_pending: bool = False
+
         # Hashes of recently-sent audio chunks — used to ignore AgentCore proxy echoes
         self._sent_audio_hashes: collections.deque = collections.deque(maxlen=20)
 
@@ -830,6 +834,19 @@ class ARIAWebSocketVoiceSession:
                                 logger.info("Client requested session.end")
                                 self.is_active = False
                                 break
+                            # Client-side barge-in fired: immediately stop sending audio
+                            # to the client and drain the queue. Nova Sonic will later
+                            # confirm with its own interrupt signal.
+                            if ctrl.get("interrupted") is True:
+                                self._barge_in_pending = True
+                                cleared = 0
+                                while True:
+                                    try:
+                                        self._audio_output_queue.get_nowait()
+                                        cleared += 1
+                                    except asyncio.QueueEmpty:
+                                        break
+                                logger.info("Client barge-in: drained %d queued audio chunks", cleared)
                         except json.JSONDecodeError:
                             pass
                     elif "bytes" in msg and msg["bytes"] and not self._farewell_detected:
@@ -869,6 +886,10 @@ class ARIAWebSocketVoiceSession:
                     chunk = await asyncio.wait_for(
                         self._audio_output_queue.get(), timeout=0.2
                     )
+                    # Discard audio while a barge-in is pending — the client already
+                    # silenced itself; sending more audio would restart playback.
+                    if self._barge_in_pending:
+                        continue
                     await self.websocket.send_bytes(chunk)
                     # Record hash so echoed-back frames can be ignored in _receive_client_audio
                     self._sent_audio_hashes.append(hashlib.sha256(chunk).digest())
@@ -1000,10 +1021,10 @@ class ARIAWebSocketVoiceSession:
                         self._farewell_detected = True
                         logger.info("Farewell detected: '%s'", text)
 
-        # --- audioOutput: queue for client ---
+        # --- audioOutput: queue for client (skip if barge-in pending) ---
         elif "audioOutput" in event:
             audio_b64 = event["audioOutput"].get("content", "")
-            if audio_b64:
+            if audio_b64 and not self._barge_in_pending:
                 await self._audio_output_queue.put(base64.b64decode(audio_b64))
 
         # --- toolUse: accumulate tool call ---
@@ -1073,7 +1094,7 @@ class ARIAWebSocketVoiceSession:
             self._conversation_history.pop(0)
 
     async def _handle_interrupt(self) -> None:
-        """Handle barge-in: drain audio queue, clear ARIA buffer."""
+        """Handle barge-in: drain audio queue, clear ARIA buffer, notify client."""
         cleared = 0
         while True:
             try:
@@ -1082,7 +1103,9 @@ class ARIAWebSocketVoiceSession:
             except asyncio.QueueEmpty:
                 break
         self._aria_buf.clear()
-        logger.info("Barge-in: cleared %d queued audio chunks", cleared)
+        # Nova Sonic confirmed the interrupt — re-enable audio for next response
+        self._barge_in_pending = False
+        logger.info("Barge-in confirmed by Nova Sonic: cleared %d queued audio chunks", cleared)
         await self._ws_send_text({"type": "interrupt"})
 
     # ------------------------------------------------------------------
