@@ -1173,7 +1173,7 @@ EOF
           \"Statement\": [
             {
               \"Effect\": \"Allow\",
-              \"Action\": [\"bedrock-agentcore:InvokeAgentRuntime\", \"bedrock-agentcore:InvokeAgentRuntimeForUser\"],
+              \"Action\": [\"bedrock-agentcore:InvokeAgentRuntime\", \"bedrock-agentcore:InvokeAgentRuntimeForUser\", \"bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream\"],
               \"Resource\": \"${RUNTIME_ARN}\"
             }
           ]
