@@ -1,6 +1,38 @@
 import { fetchAuthSession } from '@aws-amplify/auth';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
+import { CognitoIdentityClient, GetIdCommand, GetOpenIdTokenCommand } from '@aws-sdk/client-cognito-identity';
+import { fromWebToken } from '@aws-sdk/credential-providers';
+
+/**
+ * Get credentials via the classic Cognito authflow (GetId → GetOpenIdToken →
+ * AssumeRoleWithWebIdentity). Unlike the enhanced flow used by Amplify's
+ * fetchAuthSession(), the classic flow does NOT attach an internal Cognito
+ * session policy, so the full IAM role policy applies — including
+ * bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream.
+ */
+async function getCognitoClassicCredentials({ identityPoolId, region, unauthRoleArn }) {
+  const cognitoClient = new CognitoIdentityClient({ region });
+
+  const { IdentityId } = await cognitoClient.send(
+    new GetIdCommand({ IdentityPoolId: identityPoolId })
+  );
+
+  const { Token } = await cognitoClient.send(
+    new GetOpenIdTokenCommand({ IdentityId })
+  );
+
+  // Assume the role directly with no session policy document.
+  // fromWebToken internally calls sts:AssumeRoleWithWebIdentity.
+  const credProvider = fromWebToken({
+    roleArn: unauthRoleArn,
+    webIdentityToken: Token,
+    roleSessionName: 'ARIABrowserSession',
+    clientConfig: { region },
+  });
+
+  return credProvider();
+}
 
 /**
  * Create a SigV4-presigned WebSocket URL for AgentCore Runtime.
@@ -13,10 +45,27 @@ import { Sha256 } from '@aws-crypto/sha256-js';
  * - URL-encode the full ARN with encodeURIComponent
  * - Add qualifier + session ID to query params before signing
  * - Sign the https:// URL (not wss://) then convert back to wss://
+ *
+ * NOTE: Uses classic Cognito authflow (not enhanced) so that no Cognito-managed
+ * session policy restricts the bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream action.
  */
-export async function createPresignedWebSocketUrl({ runtimeArn, region = 'eu-west-2', qualifier = 'DEFAULT', expiresIn = 300 }) {
-  const session = await fetchAuthSession();
-  const creds = session.credentials;
+export async function createPresignedWebSocketUrl({
+  runtimeArn,
+  region = 'eu-west-2',
+  qualifier = 'DEFAULT',
+  expiresIn = 300,
+  identityPoolId,
+  unauthRoleArn,
+}) {
+  let creds;
+  if (identityPoolId && unauthRoleArn) {
+    // Classic flow: no Cognito-managed session policy restrictions
+    creds = await getCognitoClassicCredentials({ identityPoolId, region, unauthRoleArn });
+  } else {
+    // Fallback to Amplify enhanced flow
+    const session = await fetchAuthSession();
+    creds = session.credentials;
+  }
 
   const host = `bedrock-agentcore.${region}.amazonaws.com`;
 

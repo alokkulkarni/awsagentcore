@@ -21,6 +21,8 @@ const DEFAULT_CONFIG = {
 
   // Cognito (for AgentCore auth — provides temp credentials for SigV4)
   cognitoIdentityPoolId: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID || '',
+  // Unauth role ARN needed for classic Cognito flow (WebSocket presigning)
+  cognitoUnauthRoleArn: import.meta.env.VITE_COGNITO_UNAUTH_ROLE_ARN || '',
   awsRegion: import.meta.env.VITE_AWS_REGION || 'eu-west-2',
 };
 

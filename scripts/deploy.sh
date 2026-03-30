@@ -872,7 +872,7 @@ data = {
                 's3_path': None,
                 's3_auto_create': False,
                 'network_configuration': {'network_mode': 'PUBLIC', 'network_mode_config': None},
-                'protocol_configuration': {'server_protocol': 'HTTP_AND_WEBSOCKET'},
+                'protocol_configuration': {'server_protocol': 'HTTP'},
                 'observability': {'enabled': True},
                 'lifecycle_configuration': {'idle_runtime_session_timeout': 1800, 'max_lifetime': 28800},
             },
@@ -1523,11 +1523,12 @@ build_and_deploy_react() {
 write_react_env() {
     header "React client environment"
 
-    local runtime_arn runtime_id region pool_id chat_url voice_ws_url cf_url env_file
+    local runtime_arn runtime_id region pool_id unauth_role_arn chat_url voice_ws_url cf_url env_file
     runtime_arn=$(state_get "runtime_arn")
     runtime_id="${runtime_arn##*/}"
     region="${AGENTCORE_REGION}"
     pool_id=$(state_get "cognito_identity_pool_id")
+    unauth_role_arn=$(state_get "cognito_unauth_role_arn")
     chat_url="https://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/invocations"
     voice_ws_url="wss://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/ws?qualifier=DEFAULT"
     cf_url="https://$(state_get 'cloudfront_domain' 2>/dev/null || echo '')"
@@ -1549,6 +1550,8 @@ VITE_AGENTCORE_RUNTIME_ARN=${runtime_arn}
 
 # ── Cognito Identity Pool (provides temp AWS creds for SigV4 signing) ─────────
 VITE_COGNITO_IDENTITY_POOL_ID=${pool_id}
+# Classic Cognito authflow role ARN (bypasses session-policy restriction on WebSocket)
+VITE_COGNITO_UNAUTH_ROLE_ARN=${unauth_role_arn}
 VITE_AWS_REGION=${region}
 
 # ── CloudFront (production React app URL) ─────────────────────────────────────
@@ -1563,6 +1566,7 @@ ENVEOF
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_RUNTIME_ARN"     "${runtime_arn}"
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_VOICE_WS (computed)" "${voice_ws_url}"
     printf "  │  %-38s %s\n" "VITE_COGNITO_IDENTITY_POOL_ID"  "${pool_id}"
+    printf "  │  %-38s %s\n" "VITE_COGNITO_UNAUTH_ROLE_ARN"   "${unauth_role_arn}"
     printf "  │  %-38s %s\n" "VITE_AWS_REGION"                 "${region}"
     printf "  │  %-38s %s\n" "VITE_CLOUDFRONT_URL"             "${cf_url}"
     echo "  └────────────────────────────────────────────────────────────────────────┘"
