@@ -872,7 +872,7 @@ data = {
                 's3_path': None,
                 's3_auto_create': False,
                 'network_configuration': {'network_mode': 'PUBLIC', 'network_mode_config': None},
-                'protocol_configuration': {'server_protocol': 'HTTP'},
+                'protocol_configuration': {'server_protocol': 'HTTP_AND_WEBSOCKET'},
                 'observability': {'enabled': True},
                 'lifecycle_configuration': {'idle_runtime_session_timeout': 1800, 'max_lifetime': 28800},
             },
