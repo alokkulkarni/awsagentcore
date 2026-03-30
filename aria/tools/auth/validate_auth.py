@@ -37,8 +37,11 @@ def validate_customer_auth(
             auth_level="none",
         ).model_dump()
 
-    # Stub: treat any non-empty dob + 4-digit mobile as success
-    if dob and mobile_last_four and len(mobile_last_four) == 4:
+    # Stub: accept if DOB is present and mobile_last_four is either valid or omitted.
+    # In a real integration this would call the bank's auth service.
+    dob_ok = bool(dob and dob.strip())
+    mobile_ok = not mobile_last_four or len(str(mobile_last_four).strip()) == 4
+    if dob_ok and mobile_ok:
         _auth_attempts.pop(session_id, None)
         return ValidateAuthResponse(
             auth_status="success",

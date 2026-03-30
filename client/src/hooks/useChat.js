@@ -49,11 +49,18 @@ export function useChat(connection) {
       const bodyStr = JSON.stringify(payload);
       const isAgentCoreMode = config.mode === 'agentcore' && config.cognitoIdentityPoolId;
 
+      // The session ID MUST be sent on every request so AgentCore routes all turns
+      // to the same server-side agent instance. Without it, a new session (and new
+      // agent with no history) is created on each message → auth loop.
+      const sessionHeaders = {
+        'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': sessionId,
+      };
+
       let response;
       if (isAgentCoreMode) {
         response = await signedFetch(
           invokeUrl,
-          { method: 'POST', body: bodyStr },
+          { method: 'POST', body: bodyStr, headers: sessionHeaders },
           config.awsRegion || 'eu-west-2',
           'bedrock-agentcore',
           {
@@ -64,7 +71,7 @@ export function useChat(connection) {
       } else {
         response = await fetch(invokeUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...sessionHeaders },
           body: bodyStr,
         });
       }
