@@ -17,16 +17,18 @@
 #        - Nova Sonic 2  in eu-north-1 (Bedrock console → Model access)
 #
 #  WHAT IT CREATES
-#    S3             meridian-aria-transcripts-<account>  (transcript storage)
-#    S3             meridian-aria-audit-<account>         (WORM audit archive)
-#    DynamoDB       aria-audit-events                     (hot audit queries, 90d TTL)
-#    EventBridge    aria-audit                            (custom audit bus)
+#    S3             meridian-aria-transcripts-<id>   (transcript storage)
+#    S3             meridian-aria-audit-<id>          (WORM audit archive)
+#    S3             meridian-aria-client-<id>         (React app static files, private)
+#    CloudFront     aria React client distribution    (HTTPS CDN → S3 client bucket)
+#    DynamoDB       aria-audit-events                 (hot audit queries, 90d TTL)
+#    EventBridge    aria-audit                        (custom audit bus)
 #    CloudTrail     aria-banking-audit (data store + channel, 7yr)
 #    Lambda ×2      audit_cloudtrail_writer, audit_dynamodb_writer
-#    Firehose       aria-audit-firehose                   (S3 WORM delivery)
+#    Firehose       aria-audit-firehose               (S3 WORM delivery)
 #    IAM roles      aria-lambda-audit-role, aria-firehose-audit-role
 #    ECR repo       bedrock-agentcore-aria-banking-agent  (auto-created by agentcore)
-#    AgentCore      aria_banking_agent runtime            (eu-west-2)
+#    AgentCore      aria_banking_agent runtime        (eu-west-2)
 #
 # =============================================================================
 set -euo pipefail
@@ -37,6 +39,11 @@ STATE_FILE="${SCRIPT_DIR}/.deploy-state.json"
 YAML_FILE="${PROJECT_ROOT}/.bedrock_agentcore.yaml"
 LAMBDA_DIR="${SCRIPT_DIR}/lambdas"
 TARGET=""          # set by cmd_deploy arg or interactive prompt: "local" | "agentcore"
+CLIENT_BUCKET=""   # S3 bucket for React static files (set in collect_inputs)
+ACCOUNT_ID=""      # AWS account ID (set in collect_inputs)
+AGENTCORE_REGION=""
+CF_DISTRIBUTION_ID=""
+CF_DOMAIN=""
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -241,6 +248,7 @@ collect_inputs() {
     ask NOVA_SONIC_REGION  "Nova Sonic (voice) region"      "eu-north-1"
     ask TRANSCRIPT_BUCKET  "Transcript S3 bucket name"      "meridian-aria-transcripts-${DEPLOY_ID}"
     ask AUDIT_BUCKET       "Audit archive S3 bucket name"   "meridian-aria-audit-${DEPLOY_ID}"
+    ask CLIENT_BUCKET      "React client S3 bucket name"    "meridian-aria-client-${DEPLOY_ID}"
     ask AGENT_NAME         "AgentCore agent name"           "aria_banking_agent"
     # AgentCore agentRuntimeName only allows [a-zA-Z][a-zA-Z0-9_]{0,47} — sanitize hyphens
     AGENT_NAME="${AGENT_NAME//-/_}"
@@ -257,6 +265,7 @@ collect_inputs() {
     echo "    Nova Sonic region:    ${NOVA_SONIC_REGION}"
     echo "    Transcript bucket:    ${TRANSCRIPT_BUCKET}"
     echo "    Audit bucket:         ${AUDIT_BUCKET}"
+    echo "    Client bucket:        ${CLIENT_BUCKET}"
     echo "    Agent name:           ${AGENT_NAME}"
     echo "    Build mode:           $([[ "$DEPLOY_MODE" == "1" ]] && echo 'CodeBuild (cloud)' || echo 'Local Docker')"
     echo ""
@@ -270,6 +279,7 @@ collect_inputs() {
     state_set "nova_sonic_region" "$NOVA_SONIC_REGION"
     state_set "transcript_bucket" "$TRANSCRIPT_BUCKET"
     state_set "audit_bucket"      "$AUDIT_BUCKET"
+    state_set "client_bucket"     "$CLIENT_BUCKET"
     state_set "agent_name"        "$AGENT_NAME"
 }
 
@@ -1253,16 +1263,263 @@ find_and_patch_execution_role() {
     ok "EventBridge policy attached"
 }
 
+# ------------------------------------------------------------------
+# React client S3 bucket (private, served via CloudFront)
+# ------------------------------------------------------------------
+
+create_react_client_bucket() {
+    header "React Client S3 Bucket"
+
+    CLIENT_BUCKET=$(state_get "client_bucket")
+    step "Creating React client bucket: ${CLIENT_BUCKET}"
+
+    if bucket_exists "$CLIENT_BUCKET"; then
+        ok "Bucket already exists — ${CLIENT_BUCKET}"
+        return
+    fi
+
+    if [[ "${AGENTCORE_REGION}" == "us-east-1" ]]; then
+        aws s3api create-bucket --bucket "$CLIENT_BUCKET" \
+            --region "${AGENTCORE_REGION}" --no-cli-pager >/dev/null
+    else
+        aws s3api create-bucket --bucket "$CLIENT_BUCKET" \
+            --region "${AGENTCORE_REGION}" \
+            --create-bucket-configuration LocationConstraint="${AGENTCORE_REGION}" \
+            --no-cli-pager >/dev/null
+    fi
+
+    # Block all public access — CloudFront OAC provides access, not public URLs
+    aws s3api put-public-access-block \
+        --bucket "$CLIENT_BUCKET" \
+        --public-access-block-configuration \
+        "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+        --no-cli-pager >/dev/null
+
+    ok "React client bucket created: s3://${CLIENT_BUCKET}"
+}
+
+# ------------------------------------------------------------------
+# CloudFront distribution — OAC → S3, HTTPS, SPA 404 → index.html
+# ------------------------------------------------------------------
+
+create_cloudfront_distribution() {
+    header "CloudFront Distribution"
+
+    CLIENT_BUCKET=$(state_get "client_bucket")
+    ACCOUNT_ID=$(state_get "account_id")
+
+    local cf_dist_id cf_domain oac_id
+    cf_dist_id=$(state_get "cloudfront_distribution_id" 2>/dev/null || echo "")
+
+    if [[ -n "$cf_dist_id" ]]; then
+        if aws cloudfront get-distribution --id "$cf_dist_id" --no-cli-pager >/dev/null 2>&1; then
+            cf_domain=$(aws cloudfront get-distribution --id "$cf_dist_id" \
+                --query 'Distribution.DomainName' --output text --no-cli-pager)
+            ok "CloudFront distribution already exists — https://${cf_domain}"
+            CF_DISTRIBUTION_ID="$cf_dist_id"
+            CF_DOMAIN="$cf_domain"
+            state_set "cloudfront_domain" "$cf_domain"
+            return
+        else
+            warn "Stored distribution ${cf_dist_id} no longer exists — recreating"
+            cf_dist_id=""
+        fi
+    fi
+
+    # ── Origin Access Control (OAC) ───────────────────────────────────────────
+    step "Creating Origin Access Control (OAC)"
+    local oac_name="aria-client-oac-${DEPLOY_ID}"
+
+    oac_id=$(aws cloudfront create-origin-access-control \
+        --origin-access-control-config \
+        "{\"Name\":\"${oac_name}\",\"Description\":\"ARIA React OAC\",\"SigningProtocol\":\"sigv4\",\"SigningBehavior\":\"always\",\"OriginAccessControlOriginType\":\"s3\"}" \
+        --query 'OriginAccessControl.Id' --output text --no-cli-pager 2>/dev/null || echo "")
+
+    # If the OAC already exists with that name, look it up
+    if [[ -z "$oac_id" || "$oac_id" == "None" ]]; then
+        oac_id=$(aws cloudfront list-origin-access-controls \
+            --query "OriginAccessControlList.Items[?Name=='${oac_name}'].Id | [0]" \
+            --output text --no-cli-pager 2>/dev/null || echo "")
+    fi
+    [[ -n "$oac_id" && "$oac_id" != "None" ]] || die "Failed to create/find Origin Access Control"
+    state_set "cloudfront_oac_id" "$oac_id"
+    ok "OAC ready: ${oac_id}"
+
+    # ── Distribution config ────────────────────────────────────────────────────
+    # S3 regional endpoint (required for OAC; virtual-hosted style)
+    local s3_origin_domain
+    if [[ "${AGENTCORE_REGION}" == "us-east-1" ]]; then
+        s3_origin_domain="${CLIENT_BUCKET}.s3.amazonaws.com"
+    else
+        s3_origin_domain="${CLIENT_BUCKET}.s3.${AGENTCORE_REGION}.amazonaws.com"
+    fi
+
+    step "Creating CloudFront distribution (this is global — takes 5–15 min to fully deploy)"
+    local dist_json
+    dist_json=$(python3 -c "
+import json, sys
+cfg = {
+    'CallerReference': 'aria-client-${DEPLOY_ID}',
+    'Comment': 'ARIA Banking Agent React client',
+    'DefaultRootObject': 'index.html',
+    'Origins': {
+        'Quantity': 1,
+        'Items': [{
+            'Id': 'S3-${CLIENT_BUCKET}',
+            'DomainName': '${s3_origin_domain}',
+            'S3OriginConfig': {'OriginAccessIdentity': ''},
+            'OriginAccessControlId': '${oac_id}'
+        }]
+    },
+    'DefaultCacheBehavior': {
+        'TargetOriginId': 'S3-${CLIENT_BUCKET}',
+        'ViewerProtocolPolicy': 'redirect-to-https',
+        'CachePolicyId': '658327ea-f89d-4fab-a63d-7e88639e58f6',
+        'AllowedMethods': {
+            'Quantity': 2,
+            'Items': ['GET', 'HEAD'],
+            'CachedMethods': {'Quantity': 2, 'Items': ['GET', 'HEAD']}
+        },
+        'Compress': True,
+        'FunctionAssociations': {'Quantity': 0},
+        'LambdaFunctionAssociations': {'Quantity': 0}
+    },
+    'CustomErrorResponses': {
+        'Quantity': 2,
+        'Items': [
+            {'ErrorCode': 403, 'ResponsePagePath': '/index.html', 'ResponseCode': '200', 'ErrorCachingMinTTL': 0},
+            {'ErrorCode': 404, 'ResponsePagePath': '/index.html', 'ResponseCode': '200', 'ErrorCachingMinTTL': 0}
+        ]
+    },
+    'Enabled': True,
+    'HttpVersion': 'http2and3',
+    'PriceClass': 'PriceClass_100',
+    'Restrictions': {'GeoRestriction': {'RestrictionType': 'none', 'Quantity': 0}},
+    'ViewerCertificate': {
+        'CloudFrontDefaultCertificate': True,
+        'MinimumProtocolVersion': 'TLSv1.2_2021',
+        'SSLSupportMethod': 'vip'
+    }
+}
+print(json.dumps(cfg))
+")
+
+    local create_out
+    create_out=$(aws cloudfront create-distribution \
+        --distribution-config "$dist_json" \
+        --no-cli-pager --output json 2>&1) \
+        || die "CloudFront distribution creation failed:\n${create_out}"
+
+    cf_dist_id=$(echo "$create_out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['Distribution']['Id'])")
+    cf_domain=$(echo  "$create_out" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['Distribution']['DomainName'])")
+
+    state_set "cloudfront_distribution_id" "$cf_dist_id"
+    state_set "cloudfront_domain"          "$cf_domain"
+    CF_DISTRIBUTION_ID="$cf_dist_id"
+    CF_DOMAIN="$cf_domain"
+    ok "Distribution created: ${cf_dist_id}"
+    step "Public URL: https://${cf_domain}"
+
+    # ── Bucket policy — allow CloudFront service principal via OAC ─────────────
+    step "Applying S3 bucket policy for CloudFront OAC"
+    local bucket_policy
+    bucket_policy=$(python3 -c "
+import json
+print(json.dumps({
+    'Version': '2012-10-17',
+    'Statement': [{
+        'Sid': 'AllowCloudFrontOAC',
+        'Effect': 'Allow',
+        'Principal': {'Service': 'cloudfront.amazonaws.com'},
+        'Action': 's3:GetObject',
+        'Resource': 'arn:aws:s3:::${CLIENT_BUCKET}/*',
+        'Condition': {
+            'StringEquals': {
+                'AWS:SourceArn': 'arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${cf_dist_id}'
+            }
+        }
+    }]
+}))
+")
+    aws s3api put-bucket-policy \
+        --bucket "$CLIENT_BUCKET" \
+        --policy "$bucket_policy" \
+        --no-cli-pager >/dev/null
+    ok "Bucket policy applied — CloudFront OAC can read from s3://${CLIENT_BUCKET}"
+}
+
+# ------------------------------------------------------------------
+# Build React app and sync to S3, then invalidate CloudFront
+# ------------------------------------------------------------------
+
+build_and_deploy_react() {
+    header "Building & Deploying React Client"
+
+    CLIENT_BUCKET=$(state_get "client_bucket")
+    CF_DISTRIBUTION_ID=$(state_get "cloudfront_distribution_id" 2>/dev/null || echo "")
+    local client_dir="${PROJECT_ROOT}/client"
+
+    # Ensure npm is available
+    command -v npm >/dev/null 2>&1 || die "npm not found — install Node.js 18+ and re-run."
+
+    step "Installing npm dependencies"
+    npm ci --prefix "$client_dir" --silent 2>/dev/null \
+        || npm install --prefix "$client_dir" --silent
+    ok "Dependencies installed"
+
+    step "Building React app (npm run build)"
+    npm run build --prefix "$client_dir" 2>&1 \
+        | grep -E "vite|✓|built in|error|warning|ERROR" || true
+    [[ -d "${client_dir}/dist" ]] || die "React build failed — dist/ directory not found"
+    ok "React app built"
+
+    # Sync hashed assets first with long-lived cache
+    step "Syncing assets to s3://${CLIENT_BUCKET}/"
+    aws s3 sync "${client_dir}/dist/" "s3://${CLIENT_BUCKET}/" \
+        --delete \
+        --region "${AGENTCORE_REGION}" \
+        --cache-control "max-age=31536000,immutable" \
+        --exclude "index.html" \
+        --no-cli-pager >/dev/null
+
+    # Upload index.html with no-cache (always fetches the latest shell)
+    aws s3 cp "${client_dir}/dist/index.html" "s3://${CLIENT_BUCKET}/index.html" \
+        --region "${AGENTCORE_REGION}" \
+        --cache-control "no-cache,no-store,must-revalidate" \
+        --content-type "text/html" \
+        --no-cli-pager >/dev/null
+    ok "React app synced to s3://${CLIENT_BUCKET}/"
+
+    # CloudFront invalidation to flush any stale cached files
+    if [[ -n "$CF_DISTRIBUTION_ID" ]]; then
+        step "Creating CloudFront invalidation (/*)"
+        local inv_id
+        inv_id=$(aws cloudfront create-invalidation \
+            --distribution-id "$CF_DISTRIBUTION_ID" \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text --no-cli-pager 2>/dev/null || echo "")
+        [[ -n "$inv_id" ]] \
+            && ok "Invalidation created: ${inv_id}" \
+            || warn "CloudFront invalidation failed (non-fatal)"
+    fi
+
+    local cf_domain
+    cf_domain=$(state_get "cloudfront_domain" 2>/dev/null || echo "")
+    ok "React app deployed → https://${cf_domain}"
+    warn "CloudFront may take 5–15 min to fully distribute on first deploy."
+}
+
 write_react_env() {
     header "React client environment"
 
-    local runtime_arn runtime_id region pool_id chat_url voice_ws_url env_file
+    local runtime_arn runtime_id region pool_id chat_url voice_ws_url cf_url env_file
     runtime_arn=$(state_get "runtime_arn")
     runtime_id="${runtime_arn##*/}"
     region="${AGENTCORE_REGION}"
     pool_id=$(state_get "cognito_identity_pool_id")
     chat_url="https://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/invocations"
     voice_ws_url="wss://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/ws?qualifier=DEFAULT"
+    cf_url="https://$(state_get 'cloudfront_domain' 2>/dev/null || echo '')"
     env_file="${PROJECT_ROOT}/client/.env.local"
 
     step "Writing ${env_file}"
@@ -1281,6 +1538,9 @@ VITE_AGENTCORE_RUNTIME_ID=${runtime_id}
 # ── Cognito Identity Pool (provides temp AWS creds for SigV4 signing) ─────────
 VITE_COGNITO_IDENTITY_POOL_ID=${pool_id}
 VITE_AWS_REGION=${region}
+
+# ── CloudFront (production React app URL) ─────────────────────────────────────
+VITE_CLOUDFRONT_URL=${cf_url}
 ENVEOF
 
     ok "Wrote client/.env.local"
@@ -1291,17 +1551,21 @@ ENVEOF
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_VOICE_WS (computed)" "${voice_ws_url}"
     printf "  │  %-38s %s\n" "VITE_COGNITO_IDENTITY_POOL_ID"  "${pool_id}"
     printf "  │  %-38s %s\n" "VITE_AWS_REGION"                 "${region}"
+    printf "  │  %-38s %s\n" "VITE_CLOUDFRONT_URL"             "${cf_url}"
     echo "  └────────────────────────────────────────────────────────────────────────┘"
     echo ""
-    step "Start the client:  cd client && npm install && npm run dev"
+    step "Or access the deployed app: ${cf_url}"
 }
 
 print_summary() {
     header "Deployment complete"
 
-    local runtime_arn account_id
+    local runtime_arn account_id cf_domain cf_dist_id client_bucket
     runtime_arn=$(state_get "runtime_arn")
     account_id=$(state_get "account_id")
+    cf_domain=$(state_get "cloudfront_domain" 2>/dev/null || echo "")
+    cf_dist_id=$(state_get "cloudfront_distribution_id" 2>/dev/null || echo "")
+    client_bucket=$(state_get "client_bucket" 2>/dev/null || echo "")
 
     echo -e "${GREEN}${BOLD}
   ╔══════════════════════════════════════════════════════════════╗
@@ -1310,6 +1574,12 @@ print_summary() {
 
   ${BOLD}Agent Runtime ARN:${NC}
     ${runtime_arn}
+
+  ${BOLD}🌐 React App (CloudFront):${NC}
+    https://${cf_domain}
+    Distribution ID: ${cf_dist_id}
+    S3 bucket:       s3://${client_bucket}/
+    ⚠️  New distributions may take 5–15 min to become globally accessible.
 
   ${BOLD}Quick test (chat):${NC}
     agentcore invoke '{\"message\": \"Hello Aria\", \"authenticated\": true, \"customer_id\": \"CUST-001\"}'
@@ -1320,6 +1590,8 @@ print_summary() {
   ${BOLD}Resources created:${NC}
     S3 transcripts:  s3://${TRANSCRIPT_BUCKET}/transcripts/
     S3 audit WORM:   s3://${AUDIT_BUCKET}/audit-events/
+    S3 client app:   s3://${client_bucket}/
+    CloudFront:      https://${cf_domain}  (dist: ${cf_dist_id})
     DynamoDB:        aria-audit-events (${AGENTCORE_REGION})
     EventBridge bus: aria-audit (${AGENTCORE_REGION})
     CloudTrail Lake: aria-banking-audit (7yr retention)
@@ -1329,11 +1601,18 @@ print_summary() {
     aws logs tail /aws/bedrock-agentcore/runtimes --follow
 
   ${BOLD}React client endpoints:${NC}
+    App URL  :  https://${cf_domain}
     Chat URL :  https://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${runtime_arn##*/}/invocations
     Voice WSS:  wss://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${runtime_arn##*/}/ws?qualifier=DEFAULT
     Cognito  :  $(state_get 'cognito_identity_pool_id')
     Region   :  ${AGENTCORE_REGION}
-    (Full env written to client/.env.local — run: cd client && npm run dev)
+    (Full env written to client/.env.local)
+
+  ${BOLD}Re-deploy client only (e.g. after code changes):${NC}
+    cd client && npm run build
+    aws s3 sync dist/ s3://${client_bucket}/ --delete --exclude index.html
+    aws s3 cp dist/index.html s3://${client_bucket}/index.html --cache-control no-cache
+    aws cloudfront create-invalidation --distribution-id ${cf_dist_id} --paths '/*'
 
   ${BOLD}Teardown:${NC}
     ./scripts/deploy.sh teardown
@@ -1502,7 +1781,10 @@ cmd_deploy() {
     launch_agentcore
     find_and_patch_execution_role
     deploy_cognito_identity_pool
+    create_react_client_bucket
+    create_cloudfront_distribution
     write_react_env
+    build_and_deploy_react
     print_summary
 }
 
@@ -1682,7 +1964,99 @@ cmd_teardown() {
         warn "Audit bucket retained (expected for compliance): s3://${audit_bucket}"
     fi
 
-    # ── Step 10.5: Cognito Identity Pool ──────────────────────────────────────
+    # ── Step 10.5: CloudFront + React client S3 bucket ────────────────────────
+    header "CloudFront & React client bucket"
+    local cf_dist_id cf_domain client_bucket
+    cf_dist_id=$(state_get "cloudfront_distribution_id" 2>/dev/null || echo "")
+    cf_domain=$(state_get "cloudfront_domain" 2>/dev/null || echo "")
+    client_bucket=$(state_get "client_bucket" 2>/dev/null || echo "")
+
+    if [[ -n "$cf_dist_id" ]]; then
+        step "Disabling CloudFront distribution ${cf_dist_id} (required before deletion)"
+        # Get current config + ETag
+        local cf_etag cf_config_file
+        cf_config_file=$(mktemp /tmp/aria-cf-config.XXXXXX.json)
+        aws cloudfront get-distribution-config --id "$cf_dist_id" \
+            --no-cli-pager --output json > "$cf_config_file" 2>/dev/null || { warn "Distribution not found — skipping"; cf_dist_id=""; }
+
+        if [[ -n "$cf_dist_id" ]]; then
+            cf_etag=$(python3 -c "import json,sys; d=json.load(open('${cf_config_file}')); print(d['ETag'])")
+            # Patch Enabled → false
+            python3 -c "
+import json, sys
+with open('${cf_config_file}') as f: d = json.load(f)
+d['DistributionConfig']['Enabled'] = False
+print(json.dumps(d['DistributionConfig']))
+" > "${cf_config_file}.new"
+            aws cloudfront update-distribution \
+                --id "$cf_dist_id" \
+                --distribution-config "file://${cf_config_file}.new" \
+                --if-match "$cf_etag" \
+                --no-cli-pager >/dev/null 2>&1 && ok "Distribution disabled" || warn "Could not disable distribution"
+            rm -f "$cf_config_file" "${cf_config_file}.new"
+
+            step "Waiting for distribution to reach Deployed state (may take 5–15 min)…"
+            local wait_secs=0
+            while [[ $wait_secs -lt 900 ]]; do
+                local dist_status
+                dist_status=$(aws cloudfront get-distribution --id "$cf_dist_id" \
+                    --query 'Distribution.Status' --output text --no-cli-pager 2>/dev/null || echo "Unknown")
+                if [[ "$dist_status" == "Deployed" ]]; then
+                    ok "Distribution is Deployed — proceeding with deletion"
+                    break
+                fi
+                echo -e "  ${CYAN}  Status: ${dist_status} — waiting…${NC}" >&2
+                sleep 20
+                wait_secs=$((wait_secs + 20))
+            done
+
+            # Delete the distribution
+            local del_etag
+            del_etag=$(aws cloudfront get-distribution --id "$cf_dist_id" \
+                --query 'ETag' --output text --no-cli-pager 2>/dev/null || echo "")
+            if [[ -n "$del_etag" ]]; then
+                aws cloudfront delete-distribution \
+                    --id "$cf_dist_id" --if-match "$del_etag" \
+                    --no-cli-pager >/dev/null 2>&1 \
+                    && ok "CloudFront distribution deleted: ${cf_dist_id}" \
+                    || warn "Could not delete distribution — delete manually: aws cloudfront delete-distribution --id ${cf_dist_id} --if-match <ETag>"
+            fi
+        fi
+    else
+        step "No CloudFront distribution in state — skipping"
+    fi
+
+    # Delete OAC
+    local oac_id
+    oac_id=$(state_get "cloudfront_oac_id" 2>/dev/null || echo "")
+    if [[ -n "$oac_id" ]]; then
+        local oac_etag
+        oac_etag=$(aws cloudfront get-origin-access-control --id "$oac_id" \
+            --query 'ETag' --output text --no-cli-pager 2>/dev/null || echo "")
+        if [[ -n "$oac_etag" ]]; then
+            aws cloudfront delete-origin-access-control \
+                --id "$oac_id" --if-match "$oac_etag" \
+                --no-cli-pager >/dev/null 2>&1 \
+                && ok "Origin Access Control deleted" \
+                || warn "Could not delete OAC ${oac_id}"
+        fi
+    fi
+
+    # Delete React client S3 bucket
+    if [[ -n "$client_bucket" ]]; then
+        if ask_yn "Delete React client S3 bucket ${client_bucket}?" "Y"; then
+            step "Emptying and deleting s3://${client_bucket}/"
+            aws s3 rm "s3://${client_bucket}" --recursive --region "$agentcore_region" 2>/dev/null || true
+            aws s3api delete-bucket --bucket "$client_bucket" \
+                --region "$agentcore_region" --no-cli-pager 2>/dev/null \
+                && ok "React client bucket deleted" \
+                || warn "Could not delete bucket ${client_bucket}"
+        else
+            warn "React client bucket retained: s3://${client_bucket}"
+        fi
+    fi
+
+    # ── Step 10.6: Cognito Identity Pool ──────────────────────────────────────
     local cognito_pool_id cognito_unauth_role deploy_id
     cognito_pool_id=$(state_get "cognito_identity_pool_id")
     cognito_unauth_role="aria-cognito-unauth-role-$(state_get 'deploy_id')"
@@ -1728,6 +2102,9 @@ keys_labels = [
     ("runtime_arn",           "Runtime ARN"),
     ("transcript_bucket",     "Transcript bucket"),
     ("audit_bucket",          "Audit WORM bucket"),
+    ("client_bucket",         "React client bucket"),
+    ("cloudfront_distribution_id", "CloudFront distribution"),
+    ("cloudfront_domain",     "CloudFront domain"),
     ("eventbridge_bus_arn",   "EventBridge bus"),
     ("cloudtrail_channel_arn","CloudTrail channel"),
     ("cloudtrail_eds_name",   "CloudTrail data store name"),
@@ -1741,21 +2118,31 @@ keys_labels = [
 ]
 for key, label in keys_labels:
     val = state.get(key, "(not set)")
-    print(f"  {label:<28} {val}")
+    print(f"  {label:<30} {val}")
 
 runtime_arn = state.get("runtime_arn", "")
 runtime_id  = runtime_arn.split("/")[-1] if runtime_arn else "(not deployed)"
 region      = state.get("agentcore_region", "eu-west-2")
 pool_id     = state.get("cognito_identity_pool_id", "(not set)")
+cf_domain   = state.get("cloudfront_domain", "(not deployed)")
+cf_dist_id  = state.get("cloudfront_distribution_id", "(not deployed)")
+client_bkt  = state.get("client_bucket", "(not set)")
 chat_url    = f"https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtime_id}/invocations"
 voice_wss   = f"wss://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtime_id}/ws?qualifier=DEFAULT"
+app_url     = f"https://{cf_domain}" if cf_domain != "(not deployed)" else "(not deployed)"
+print()
+print("  🌐 React App:")
+print(f"  {'  CloudFront URL':<30} {app_url}")
+print(f"  {'  Distribution ID':<30} {cf_dist_id}")
+print(f"  {'  S3 bucket':<30} s3://{client_bkt}/")
 print()
 print("  React client/.env.local values:")
-print(f"  {'VITE_AGENTCORE_CHAT_URL':<30} {chat_url}")
-print(f"  {'VITE_AGENTCORE_RUNTIME_ID':<30} {runtime_id}")
-print(f"  {'Voice WSS (computed by client)':<30} {voice_wss}")
-print(f"  {'VITE_COGNITO_IDENTITY_POOL_ID':<30} {pool_id}")
-print(f"  {'VITE_AWS_REGION':<30} {region}")
+print(f"  {'VITE_AGENTCORE_CHAT_URL':<32} {chat_url}")
+print(f"  {'VITE_AGENTCORE_RUNTIME_ID':<32} {runtime_id}")
+print(f"  {'Voice WSS (computed by client)':<32} {voice_wss}")
+print(f"  {'VITE_COGNITO_IDENTITY_POOL_ID':<32} {pool_id}")
+print(f"  {'VITE_AWS_REGION':<32} {region}")
+print(f"  {'VITE_CLOUDFRONT_URL':<32} {app_url}")
 PYEOF
     echo ""
 }
@@ -1863,20 +2250,20 @@ usage() {
     echo -e "  ${BOLD}Commands:${NC}"
     echo "    deploy [local|agentcore]  — deploy ARIA (prompts if target not given)"
     echo "    teardown                  — destroy all AWS resources created by deploy"
-    echo "    status                    — print current deployment state"
+    echo "    status                    — print current deployment state + CloudFront URL"
     echo "    costs                     — show AWS spend breakdown for current month"
     echo ""
     echo -e "  ${BOLD}Targets:${NC}"
     echo "    local      — set up for local development (no AWS required)"
-    echo "    agentcore  — deploy to Amazon Bedrock AgentCore (full cloud stack)"
+    echo "    agentcore  — full cloud deploy: AgentCore + S3 + CloudFront React app"
     echo ""
     echo -e "  ${BOLD}Examples:${NC}"
     echo "    $0 deploy              # interactive — prompts for target"
     echo "    $0 deploy local        # set up local development environment"
-    echo "    $0 deploy agentcore    # full cloud deploy to AgentCore"
-    echo "    $0 status              # show deployed resource ARNs + React URLs"
+    echo "    $0 deploy agentcore    # full cloud deploy (AgentCore + CloudFront)"
+    echo "    $0 status              # show deployed resource ARNs + CloudFront URL"
     echo "    $0 costs               # show AWS cost breakdown for this month"
-    echo "    $0 teardown            # destroy all AWS resources"
+    echo "    $0 teardown            # destroy all AWS resources incl. CloudFront"
     echo ""
 }
 
