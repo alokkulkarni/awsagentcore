@@ -36,6 +36,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 STATE_FILE="${SCRIPT_DIR}/.deploy-state.json"
 YAML_FILE="${PROJECT_ROOT}/.bedrock_agentcore.yaml"
 LAMBDA_DIR="${SCRIPT_DIR}/lambdas"
+TARGET=""          # set by cmd_deploy arg or interactive prompt: "local" | "agentcore"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -194,6 +195,34 @@ check_prerequisites() {
     fi
 
     [[ "$ok" == "true" ]] || die "Fix the above issues then re-run."
+}
+
+select_target() {
+    if [[ -n "$TARGET" ]]; then
+        return  # already set from CLI arg
+    fi
+
+    header "Deployment target"
+    echo ""
+    echo -e "  ${BOLD}[1] Local development${NC}  — run ARIA on this machine (no AWS required)"
+    echo    "       • Fastest option for development and testing"
+    echo    "       • Writes client/.env.local with localhost URLs"
+    echo    "       • Starts ARIA with uvicorn on port 8080"
+    echo ""
+    echo -e "  ${BOLD}[2] AgentCore (cloud)${NC}  — deploy to Amazon Bedrock AgentCore"
+    echo    "       • Full production stack: ECR, Lambda, EventBridge, CloudTrail, DynamoDB"
+    echo    "       • Requires AWS credentials with sufficient permissions"
+    echo    "       • Writes client/.env.local with AgentCore + Cognito URLs"
+    echo ""
+    local choice
+    ask choice "Select target [1=local, 2=agentcore]" "2"
+    case "$choice" in
+        1) TARGET="local"      ;;
+        2) TARGET="agentcore"  ;;
+        local)     TARGET="local"     ;;
+        agentcore) TARGET="agentcore" ;;
+        *) die "Invalid choice '${choice}'. Use 1 (local) or 2 (agentcore)." ;;
+    esac
 }
 
 collect_inputs() {
@@ -1069,6 +1098,87 @@ launch_agentcore() {
     rm -f "$launch_log"
 }
 
+deploy_cognito_identity_pool() {
+    header "Cognito Identity Pool (React client auth)"
+
+    local COGNITO_POOL_ID POOL_NAME RUNTIME_ARN UNAUTH_TRUST UNAUTH_ROLE_NAME UNAUTH_ROLE_ARN
+    COGNITO_POOL_ID=$(state_get "cognito_identity_pool_id")
+
+    if [[ -n "$COGNITO_POOL_ID" ]]; then
+        if aws cognito-identity describe-identity-pool \
+                --identity-pool-id "$COGNITO_POOL_ID" \
+                --region "$AGENTCORE_REGION" --no-cli-pager &>/dev/null; then
+            ok "Cognito Identity Pool already exists — $COGNITO_POOL_ID"
+            return
+        else
+            warn "Cognito pool $COGNITO_POOL_ID no longer exists — recreating"
+            COGNITO_POOL_ID=""
+        fi
+    fi
+
+    step "Creating Cognito Identity Pool"
+    POOL_NAME="aria_banking_pool_${DEPLOY_ID}"
+    COGNITO_POOL_ID=$(aws cognito-identity create-identity-pool \
+        --identity-pool-name "$POOL_NAME" \
+        --allow-unauthenticated-identities \
+        --region "$AGENTCORE_REGION" \
+        --no-cli-pager \
+        --query 'IdentityPoolId' --output text)
+
+    state_set "cognito_identity_pool_id" "$COGNITO_POOL_ID"
+    ok "Cognito Identity Pool created: $COGNITO_POOL_ID"
+
+    step "Creating Cognito unauthenticated IAM role"
+    RUNTIME_ARN=$(state_get "runtime_arn")
+
+    UNAUTH_TRUST=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "cognito-identity.amazonaws.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {"cognito-identity.amazonaws.com:aud": "${COGNITO_POOL_ID}"},
+      "ForAnyValue:StringLike": {"cognito-identity.amazonaws.com:amr": "unauthenticated"}
+    }
+  }]
+}
+EOF
+)
+
+    UNAUTH_ROLE_NAME="aria-cognito-unauth-role-${DEPLOY_ID}"
+    UNAUTH_ROLE_ARN=$(aws iam create-role \
+        --role-name "$UNAUTH_ROLE_NAME" \
+        --assume-role-policy-document "$UNAUTH_TRUST" \
+        --no-cli-pager \
+        --query 'Role.Arn' --output text 2>/dev/null || \
+        aws iam get-role --role-name "$UNAUTH_ROLE_NAME" --no-cli-pager --query 'Role.Arn' --output text)
+
+    aws iam put-role-policy \
+        --role-name "$UNAUTH_ROLE_NAME" \
+        --policy-name "aria-cognito-unauth-policy" \
+        --policy-document "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [
+            {
+              \"Effect\": \"Allow\",
+              \"Action\": [\"bedrock-agentcore:InvokeAgentRuntime\", \"bedrock-agentcore:InvokeAgentRuntimeForUser\"],
+              \"Resource\": \"${RUNTIME_ARN}\"
+            }
+          ]
+        }" --no-cli-pager
+
+    aws cognito-identity set-identity-pool-roles \
+        --identity-pool-id "$COGNITO_POOL_ID" \
+        --roles "unauthenticated=${UNAUTH_ROLE_ARN}" \
+        --region "$AGENTCORE_REGION" \
+        --no-cli-pager
+
+    state_set "cognito_unauth_role_arn" "$UNAUTH_ROLE_ARN"
+    ok "Cognito unauthenticated role configured"
+}
+
 find_and_patch_execution_role() {
     header "Attaching additional IAM policies to execution role"
 
@@ -1143,6 +1253,49 @@ find_and_patch_execution_role() {
     ok "EventBridge policy attached"
 }
 
+write_react_env() {
+    header "React client environment"
+
+    local runtime_arn runtime_id region pool_id chat_url voice_ws_url env_file
+    runtime_arn=$(state_get "runtime_arn")
+    runtime_id="${runtime_arn##*/}"
+    region="${AGENTCORE_REGION}"
+    pool_id=$(state_get "cognito_identity_pool_id")
+    chat_url="https://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/invocations"
+    voice_ws_url="wss://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/ws?qualifier=DEFAULT"
+    env_file="${PROJECT_ROOT}/client/.env.local"
+
+    step "Writing ${env_file}"
+    cat > "${env_file}" <<ENVEOF
+# Auto-generated by deploy.sh — do NOT commit (gitignored)
+# Regenerate anytime: ./scripts/deploy.sh deploy  (or run write_react_env step)
+
+# ── Local development (direct to aria container) ──────────────────────────────
+VITE_LOCAL_CHAT_URL=http://localhost:8080/invocations
+VITE_LOCAL_WS_URL=ws://localhost:8080/ws
+
+# ── AgentCore Runtime (production) ───────────────────────────────────────────
+VITE_AGENTCORE_CHAT_URL=${chat_url}
+VITE_AGENTCORE_RUNTIME_ID=${runtime_id}
+
+# ── Cognito Identity Pool (provides temp AWS creds for SigV4 signing) ─────────
+VITE_COGNITO_IDENTITY_POOL_ID=${pool_id}
+VITE_AWS_REGION=${region}
+ENVEOF
+
+    ok "Wrote client/.env.local"
+    echo ""
+    echo "  ┌─ React client environment (client/.env.local) ──────────────────────────┐"
+    printf "  │  %-38s %s\n" "VITE_AGENTCORE_CHAT_URL"        "${chat_url}"
+    printf "  │  %-38s %s\n" "VITE_AGENTCORE_RUNTIME_ID"      "${runtime_id}"
+    printf "  │  %-38s %s\n" "VITE_AGENTCORE_VOICE_WS (computed)" "${voice_ws_url}"
+    printf "  │  %-38s %s\n" "VITE_COGNITO_IDENTITY_POOL_ID"  "${pool_id}"
+    printf "  │  %-38s %s\n" "VITE_AWS_REGION"                 "${region}"
+    echo "  └────────────────────────────────────────────────────────────────────────┘"
+    echo ""
+    step "Start the client:  cd client && npm install && npm run dev"
+}
+
 print_summary() {
     header "Deployment complete"
 
@@ -1174,6 +1327,13 @@ print_summary() {
 
   ${BOLD}Logs:${NC}
     aws logs tail /aws/bedrock-agentcore/runtimes --follow
+
+  ${BOLD}React client endpoints:${NC}
+    Chat URL :  https://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${runtime_arn##*/}/invocations
+    Voice WSS:  wss://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${runtime_arn##*/}/ws?qualifier=DEFAULT
+    Cognito  :  $(state_get 'cognito_identity_pool_id')
+    Region   :  ${AGENTCORE_REGION}
+    (Full env written to client/.env.local — run: cd client && npm run dev)
 
   ${BOLD}Teardown:${NC}
     ./scripts/deploy.sh teardown
@@ -1211,7 +1371,120 @@ PYEOF
     ok "Test script written to scripts/test_invoke.py"
 }
 
+cmd_local() {
+    header "ARIA Local Development Setup"
+
+    local port="${LOCAL_PORT:-8080}"
+
+    # ── Python environment check ───────────────────────────────────────────
+    header "Python environment"
+    step "Checking Python 3.10+"
+    python3 --version >/dev/null 2>&1 || die "Python 3 not found. Install Python 3.10+ first."
+    local py_ver
+    py_ver=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    ok "Python ${py_ver} found"
+
+    # Create venv if missing
+    if [[ ! -d "${PROJECT_ROOT}/.venv" ]]; then
+        step "Creating virtual environment (.venv)"
+        python3 -m venv "${PROJECT_ROOT}/.venv"
+        ok "Virtual environment created"
+    else
+        ok "Virtual environment already exists (.venv)"
+    fi
+
+    # Install / upgrade dependencies
+    step "Installing Python dependencies"
+    "${PROJECT_ROOT}/.venv/bin/pip" install --quiet --upgrade pip
+    "${PROJECT_ROOT}/.venv/bin/pip" install --quiet -r "${PROJECT_ROOT}/requirements.txt"
+    ok "Dependencies installed"
+
+    # ── React client env ──────────────────────────────────────────────────
+    header "React client environment (local mode)"
+    local env_file="${PROJECT_ROOT}/client/.env.local"
+    step "Writing ${env_file}"
+    cat > "${env_file}" <<ENVEOF
+# Auto-generated by deploy.sh (local mode) — do NOT commit (gitignored)
+
+# ── Local ARIA backend ────────────────────────────────────────────────────────
+VITE_LOCAL_CHAT_URL=http://localhost:${port}/invocations
+VITE_LOCAL_WS_URL=ws://localhost:${port}/ws
+
+# ── AgentCore (leave blank in local mode — toggle in React UI) ───────────────
+VITE_AGENTCORE_CHAT_URL=
+VITE_AGENTCORE_RUNTIME_ID=
+VITE_COGNITO_IDENTITY_POOL_ID=
+VITE_AWS_REGION=eu-west-2
+ENVEOF
+    ok "Wrote client/.env.local"
+
+    # ── AWS credentials check (needed for Nova Sonic) ────────────────────
+    header "AWS credentials"
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+        local acct
+        acct=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        ok "AWS credentials valid (account: ${acct})"
+    else
+        warn "AWS credentials NOT found or expired."
+        echo "  The ARIA backend needs valid AWS credentials to call Amazon Nova Sonic."
+        echo "  Fix with one of:"
+        echo "    aws sso login              (if using SSO)"
+        echo "    aws configure              (access key/secret)"
+        echo "    export AWS_PROFILE=myprof  (switch profile)"
+        echo ""
+    fi
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    header "Local development ready"
+    echo -e "${GREEN}${BOLD}
+  ╔══════════════════════════════════════════════════════════════╗
+  ║             ARIA Local Development — Ready                   ║
+  ╚══════════════════════════════════════════════════════════════╝${NC}
+
+  ${BOLD}1. Start ARIA backend (needs AWS credentials for Nova Sonic):${NC}
+    source .venv/bin/activate
+    uvicorn aria.agentcore_app:app --host 0.0.0.0 --port ${port} --workers 1
+
+  ${BOLD}   Or with hot-reload (development):${NC}
+    source .venv/bin/activate
+    uvicorn aria.agentcore_app:app --port ${port} --reload
+
+  ${BOLD}2. Start React client:${NC}
+    cd client && npm install && npm run dev
+    → Opens on http://localhost:5173 (switch to Local mode in UI)
+
+  ${BOLD}Local endpoints:${NC}
+    Chat :  http://localhost:${port}/invocations
+    Voice:  ws://localhost:${port}/ws
+    Health: http://localhost:${port}/ping
+
+  ${YELLOW}Note:${NC} The ARIA server calls Amazon Nova Sonic (us-east-1) — valid AWS
+  credentials must be present in the terminal where uvicorn runs.
+  The React client connects to localhost only (no AWS credentials in browser).
+
+  Flip the mode toggle in the UI to switch to AgentCore when ready.
+"
+}
+
 cmd_deploy() {
+    # Parse optional target argument: deploy [local|agentcore]
+    case "${2:-}" in
+        local)     TARGET="local"     ;;
+        agentcore) TARGET="agentcore" ;;
+        1)         TARGET="local"     ;;
+        2)         TARGET="agentcore" ;;
+        "")        : ;;   # will prompt via select_target
+        *) die "Unknown target '${2}'. Use: deploy local  OR  deploy agentcore" ;;
+    esac
+
+    select_target
+
+    if [[ "$TARGET" == "local" ]]; then
+        cmd_local
+        return
+    fi
+
+    # ── AgentCore full deploy (existing sequence) ─────────────────────────
     header "ARIA AgentCore Full Stack Deployment"
     state_init
     check_prerequisites
@@ -1228,6 +1501,8 @@ cmd_deploy() {
     create_agentcore_memory
     launch_agentcore
     find_and_patch_execution_role
+    deploy_cognito_identity_pool
+    write_react_env
     print_summary
 }
 
@@ -1236,9 +1511,49 @@ cmd_deploy() {
 # =============================================================================
 
 cmd_teardown() {
-    header "ARIA AgentCore Teardown"
+    header "ARIA Teardown"
 
-    [[ -f "$STATE_FILE" ]] || die "No state file found at ${STATE_FILE}. Nothing to tear down."
+    # If no state file exists, this was likely a local-only deploy
+    if [[ ! -f "$STATE_FILE" ]]; then
+        warn "No AgentCore deployment state found — checking for local resources..."
+        echo ""
+
+        local cleaned=0
+
+        # Kill any uvicorn process running on port 8080
+        local pids
+        pids=$(lsof -ti tcp:8080 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            step "Stopping local ARIA server (port 8080, PID(s): ${pids})"
+            echo "$pids" | xargs kill 2>/dev/null || true
+            ok "Local server stopped"
+            cleaned=1
+        else
+            echo "  No local ARIA server running on port 8080."
+        fi
+
+        # Remove client/.env.local if it was written by local deploy
+        if [[ -f "${PROJECT_ROOT}/client/.env.local" ]]; then
+            step "Removing client/.env.local"
+            rm -f "${PROJECT_ROOT}/client/.env.local"
+            ok "Removed client/.env.local"
+            cleaned=1
+        fi
+
+        echo ""
+        if [[ $cleaned -eq 1 ]]; then
+            ok "Local teardown complete."
+        else
+            echo "  Nothing to clean up."
+        fi
+        echo ""
+        echo "  To tear down an AgentCore deployment, run:"
+        echo "    ./scripts/deploy.sh deploy agentcore   # deploy first"
+        echo "    ./scripts/deploy.sh teardown           # then teardown"
+        return 0
+    fi
+
+    header "ARIA AgentCore Teardown"
 
     echo -e "${RED}${BOLD}  This will permanently delete all ARIA AWS resources.${NC}"
     echo -e "  Reading state from: ${STATE_FILE}\n"
@@ -1367,6 +1682,23 @@ cmd_teardown() {
         warn "Audit bucket retained (expected for compliance): s3://${audit_bucket}"
     fi
 
+    # ── Step 10.5: Cognito Identity Pool ──────────────────────────────────────
+    local cognito_pool_id cognito_unauth_role deploy_id
+    cognito_pool_id=$(state_get "cognito_identity_pool_id")
+    cognito_unauth_role="aria-cognito-unauth-role-$(state_get 'deploy_id')"
+    if [[ -n "$cognito_pool_id" ]]; then
+        step "Deleting Cognito Identity Pool: $cognito_pool_id"
+        aws cognito-identity delete-identity-pool \
+            --identity-pool-id "$cognito_pool_id" \
+            --region "$agentcore_region" --no-cli-pager &>/dev/null && \
+            ok "Cognito pool deleted" || warn "Could not delete Cognito pool"
+        step "Deleting Cognito unauth IAM role: $cognito_unauth_role"
+        aws iam delete-role-policy --role-name "$cognito_unauth_role" \
+            --policy-name "aria-cognito-unauth-policy" 2>/dev/null || true
+        aws iam delete-role --role-name "$cognito_unauth_role" 2>/dev/null && \
+            ok "Cognito unauth role deleted" || warn "Cognito unauth role not found"
+    fi
+
     # ── Step 11: Clean up state file ─────────────────────────────────────────
     rm -f "$STATE_FILE"
     rm -f "${PROJECT_ROOT}/scripts/test_invoke.py"
@@ -1404,10 +1736,26 @@ keys_labels = [
     ("dynamodb_lambda_arn",   "DynamoDB Lambda"),
     ("firehose_arn",          "Firehose stream"),
     ("execution_role_name",   "Execution role"),
+    ("cognito_identity_pool_id", "Cognito Identity Pool"),
+    ("cognito_unauth_role_arn",  "Cognito unauth role"),
 ]
 for key, label in keys_labels:
     val = state.get(key, "(not set)")
     print(f"  {label:<28} {val}")
+
+runtime_arn = state.get("runtime_arn", "")
+runtime_id  = runtime_arn.split("/")[-1] if runtime_arn else "(not deployed)"
+region      = state.get("agentcore_region", "eu-west-2")
+pool_id     = state.get("cognito_identity_pool_id", "(not set)")
+chat_url    = f"https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtime_id}/invocations"
+voice_wss   = f"wss://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtime_id}/ws?qualifier=DEFAULT"
+print()
+print("  React client/.env.local values:")
+print(f"  {'VITE_AGENTCORE_CHAT_URL':<30} {chat_url}")
+print(f"  {'VITE_AGENTCORE_RUNTIME_ID':<30} {runtime_id}")
+print(f"  {'Voice WSS (computed by client)':<30} {voice_wss}")
+print(f"  {'VITE_COGNITO_IDENTITY_POOL_ID':<30} {pool_id}")
+print(f"  {'VITE_AWS_REGION':<30} {region}")
 PYEOF
     echo ""
 }
@@ -1416,18 +1764,127 @@ PYEOF
 #  ENTRYPOINT
 # =============================================================================
 
-usage() {
-    echo -e "${BOLD}Usage:${NC}  $0 <command>"
+cmd_costs() {
+    header "ARIA AWS Cost Explorer"
+
+    # Compute current-month date range
+    local start end
+    start=$(date -u +"%Y-%m-01")
+    end=$(date -u +"%Y-%m-%d")
+    # If today is the 1st, look at last month to avoid empty range
+    if [[ "$start" == "$end" ]]; then
+        start=$(date -u -v-1m +"%Y-%m-01" 2>/dev/null || date -u --date="last month" +"%Y-%m-01")
+        end=$(date -u +"%Y-%m-%d")
+    fi
+
+    step "Querying Cost Explorer (${start} → ${end})"
     echo ""
-    echo "  deploy    — deploy the full ARIA stack to AWS AgentCore"
-    echo "  teardown  — destroy all AWS resources created by deploy"
-    echo "  status    — print current deployment state"
+
+    # Per-service breakdown
+    aws ce get-cost-and-usage \
+        --time-period "Start=${start},End=${end}" \
+        --granularity MONTHLY \
+        --metrics BlendedCost \
+        --group-by Type=SERVICE \
+        --no-cli-pager \
+        --output json 2>/dev/null | python3 - <<'PYEOF'
+import json, sys
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print("  Could not parse Cost Explorer response.")
+    sys.exit(1)
+
+results = data.get("ResultsByTime", [])
+if not results:
+    print("  No cost data found for this period.")
+    sys.exit(0)
+
+period = results[0].get("TimePeriod", {})
+print(f"  Period: {period.get('Start')} → {period.get('End')}\n")
+
+groups = results[0].get("Groups", [])
+total = 0.0
+
+# Sort by cost descending, filter out zero-cost services
+rows = []
+for g in groups:
+    svc  = g["Keys"][0]
+    amt  = float(g["Metrics"]["BlendedCost"]["Amount"])
+    unit = g["Metrics"]["BlendedCost"]["Unit"]
+    total += amt
+    if amt > 0.001:
+        rows.append((amt, svc, unit))
+
+rows.sort(reverse=True)
+
+print(f"  {'Service':<45} {'Cost (USD)':>12}")
+print(f"  {'-'*45} {'-'*12}")
+for amt, svc, unit in rows:
+    print(f"  {svc:<45} ${amt:>11.4f}")
+print(f"  {'─'*45} {'─'*12}")
+print(f"  {'TOTAL':<45} ${total:>11.4f}")
+print()
+
+# Cost warnings
+if total > 50:
+    print("  ⚠️  Spend exceeds $50 this month — consider ./scripts/deploy.sh teardown")
+elif total > 20:
+    print("  ℹ️  Spend above $20 — check for any open voice sessions or unused resources")
+else:
+    print("  ✅  Spend looks normal for a dev/demo stack")
+PYEOF
+
+    echo ""
+    # Show current-month forecast if available
+    step "Fetching monthly forecast..."
+    aws ce get-cost-forecast \
+        --time-period "Start=${end},End=$(date -u +"%Y-%m-28")" \
+        --metric BLENDED_COST \
+        --granularity MONTHLY \
+        --no-cli-pager \
+        --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    amt = float(d['Total']['Amount'])
+    print(f'  Forecasted month-end total:  \${amt:.2f} USD')
+except:
+    print('  (Forecast unavailable — needs 3+ days of data)')
+"
+    echo ""
+    ok "Tip: run \`./scripts/deploy.sh teardown\` to stop all charges"
+}
+
+usage() {
+    echo -e "${BOLD}Usage:${NC}  $0 <command> [target]"
+    echo ""
+    echo -e "  ${BOLD}Commands:${NC}"
+    echo "    deploy [local|agentcore]  — deploy ARIA (prompts if target not given)"
+    echo "    teardown                  — destroy all AWS resources created by deploy"
+    echo "    status                    — print current deployment state"
+    echo "    costs                     — show AWS spend breakdown for current month"
+    echo ""
+    echo -e "  ${BOLD}Targets:${NC}"
+    echo "    local      — set up for local development (no AWS required)"
+    echo "    agentcore  — deploy to Amazon Bedrock AgentCore (full cloud stack)"
+    echo ""
+    echo -e "  ${BOLD}Examples:${NC}"
+    echo "    $0 deploy              # interactive — prompts for target"
+    echo "    $0 deploy local        # set up local development environment"
+    echo "    $0 deploy agentcore    # full cloud deploy to AgentCore"
+    echo "    $0 status              # show deployed resource ARNs + React URLs"
+    echo "    $0 costs               # show AWS cost breakdown for this month"
+    echo "    $0 teardown            # destroy all AWS resources"
     echo ""
 }
 
 case "${1:-}" in
-    deploy)   cmd_deploy   ;;
-    teardown) cmd_teardown ;;
-    status)   cmd_status   ;;
-    *)        usage; exit 1 ;;
+    deploy)   cmd_deploy "$@"  ;;
+    teardown) cmd_teardown     ;;
+    status)   cmd_status       ;;
+    costs)    cmd_costs        ;;
+    local)    TARGET="local"; cmd_local ;;   # shorthand: ./deploy.sh local
+    *)        usage; exit 1    ;;
 esac

@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import collections
+import hashlib
 import inspect
 import json
 import logging
@@ -69,10 +71,16 @@ _FAREWELL_PHRASES = frozenset({
     "stop conversation", "end the session",
 })
 
+_CHANNELS    = 1
 _NOVA_VOICE  = os.getenv("NOVA_SONIC_VOICE", "tiffany")
 _ENDPOINTING = os.getenv("NOVA_SONIC_ENDPOINTING", "HIGH")
 if _ENDPOINTING not in {"HIGH", "MEDIUM", "LOW"}:
     _ENDPOINTING = "HIGH"
+
+# Nova Sonic hard limit: 600 s of cumulative input audio per stream invocation.
+# The watchdog silently renews the stream at _SESSION_RENEW_S — the user never notices.
+_SESSION_MAX_S   = 600
+_SESSION_RENEW_S = 560   # 9 min 20 s — trigger silent renewal before the 600 s kill
 
 
 # ---------------------------------------------------------------------------
@@ -277,12 +285,29 @@ class ARIAWebSocketVoiceSession:
         self._display_assistant_text = False
         self._role: str = ""
         self._aria_buf: list[str] = []
+        self._generation_stage: str = ""   # SPECULATIVE | FINAL | "" (from contentStart)
 
         # Lifecycle flags
         self.is_active           = False
         self._farewell_detected  = False
         self._session_ended      = False
         self._audio_input_closed = False
+
+        # Stream renewal (transparent 600 s session renewal)
+        self._stream_renewing:    bool  = False
+        self._stream_generation:  int   = 0
+        self._session_warned:     bool  = False
+        self._session_start_time: float = 0.0
+        self._system_prompt:      str   = ""
+
+        # Conversation history — stored across renewals, injected into new streams.
+        # Only FINAL assistant text (not SPECULATIVE) is kept.
+        # Byte limits match the official AWS session-continuation sample.
+        self._conversation_history: list[dict] = []   # [{role, text}, ...]
+        _MAX_TURN_BYTES  = 1024    # max bytes per individual turn
+        _MAX_HIST_BYTES  = 40_960  # ~40 KB total history budget
+        self._max_turn_bytes = _MAX_TURN_BYTES
+        self._max_hist_bytes = _MAX_HIST_BYTES
 
         # Pending tool call
         self._tool_name    = ""
@@ -297,6 +322,12 @@ class ARIAWebSocketVoiceSession:
         # Audio output queue (Nova Sonic → client)
         self._audio_output_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
+        # Hashes of recently-sent audio chunks — used to ignore AgentCore proxy echoes
+        self._sent_audio_hashes: collections.deque = collections.deque(maxlen=20)
+
+        # Memory: last user utterance buffered until ARIA's response is flushed
+        self._last_user_text: Optional[str] = None
+
         # Transcript — populated during session, saved on close
         from aria.transcript_manager import TranscriptManager
         self._transcript: Optional[TranscriptManager] = None  # set after config received
@@ -307,20 +338,28 @@ class ARIAWebSocketVoiceSession:
 
     async def run(self) -> None:
         """Accept the WebSocket, read config, run the voice session."""
+        logger.info("WS run() entered — calling accept()")
         await self.websocket.accept()
+        logger.info("WS accepted — waiting for session.config")
 
         # Read the first text message — must be session.config
         try:
             raw = await asyncio.wait_for(self.websocket.receive_text(), timeout=10.0)
             config = json.loads(raw)
         except asyncio.TimeoutError:
+            logger.warning("session.config not received within 10 s (session_id=%s)", self.session_id)
             await self._ws_send_text({"type": "error", "message": "No session.config received within 10s."})
             return
         except Exception as exc:
-            await self._ws_send_text({"type": "error", "message": f"Invalid config: {exc}"})
+            logger.error("Error reading session.config (session_id=%s): %s", self.session_id, exc, exc_info=True)
+            try:
+                await self._ws_send_text({"type": "error", "message": f"Invalid config: {exc}"})
+            except Exception:
+                pass
             return
 
         if config.get("type") != "session.config":
+            logger.warning("First WS message was not session.config: %s (session_id=%s)", config.get("type"), self.session_id)
             await self._ws_send_text({"type": "error", "message": "First message must be type=session.config"})
             return
 
@@ -345,6 +384,26 @@ class ARIAWebSocketVoiceSession:
             self._authenticated, self._customer_id, self.session_id
         )
 
+        # Inject prior conversation history from AgentCore Memory (no-op if not configured)
+        try:
+            from aria import memory_client as _mc
+            actor_id = self._customer_id or "anonymous"
+            history = _mc.get_recent_turns(actor_id, self.session_id, k=5)
+            if history:
+                lines = []
+                for msg in history:
+                    role_label = "Customer" if msg["role"] == "user" else "ARIA"
+                    lines.append(f"{role_label}: {msg['content']}")
+                history_block = (
+                    "\n=== RECENT CONVERSATION HISTORY (for context) ===\n"
+                    + "\n".join(lines)
+                    + "\n=== END HISTORY ===\n"
+                )
+                system_prompt = history_block + system_prompt
+                logger.debug("Injected %d memory messages into voice system prompt", len(history))
+        except Exception as _mem_exc:
+            logger.warning("Could not load voice session memory: %s", _mem_exc)
+
         try:
             await self._run_session(system_prompt)
         except Exception as exc:
@@ -359,60 +418,141 @@ class ARIAWebSocketVoiceSession:
     # Nova Sonic session lifecycle
     # ------------------------------------------------------------------
 
+    def _build_tool_specs(self) -> list[dict]:
+        """Convert Strands tool specs to Nova Sonic toolSpec format."""
+        specs = []
+        for t in self._tools:
+            ts = t.tool_spec
+            schema: dict = json.loads(json.dumps(ts["inputSchema"]["json"]))
+            schema.get("properties", {}).pop("session_id", None)
+            if "required" in schema:
+                schema["required"] = [r for r in schema["required"] if r != "session_id"]
+            specs.append({
+                "toolSpec": {
+                    "name": ts["name"],
+                    "description": ts["description"],
+                    "inputSchema": {"json": json.dumps(schema)},
+                }
+            })
+        return specs
+
     async def _run_session(self, system_prompt: str) -> None:
-        from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient
-        from aws_sdk_bedrock_runtime.config import Config as SdkConfig, HTTPConfig, Endpoint
-        from aws_sdk_bedrock_runtime.models import (
+        self._system_prompt = system_prompt
+        self.is_active = True          # ← must be True before any task loop runs
+        await self._open_nova_sonic_stream(system_prompt)
+
+        await self._ws_send_text({"type": "session.started"})
+        logger.info("Nova Sonic session started (session_id=%s)", self.session_id)
+
+        # Run all tasks concurrently; kickoff is sent once _process_nova_sonic_events
+        # is already polling so it receives the resulting toolUse/textOutput events.
+        tasks = await asyncio.gather(
+            self._receive_client_audio(),
+            self._process_nova_sonic_events(),
+            self._send_audio_to_client(),
+            self._send_kickoff_after_delay(),
+            self._session_watchdog(),
+            return_exceptions=True,
+        )
+        for t in tasks:
+            if isinstance(t, Exception) and not isinstance(t, asyncio.CancelledError):
+                logger.warning("Voice session task ended with: %s", t)
+
+        await self._end_session()
+
+    # ------------------------------------------------------------------
+    # Nova Sonic stream open / renew helpers
+    # ------------------------------------------------------------------
+
+    async def _open_nova_sonic_stream(self, system_prompt: str, history_events: list[str] | None = None) -> None:
+        """Open a Nova Sonic bidirectional stream and send all init events.
+
+        Called both on first open (from _run_session) and on transparent renewal
+        (from _renew_nova_sonic_stream).  Generates fresh UUIDs for prompt/content
+        names so each renewed stream is an independent Nova Sonic session.
+        """
+        from aws_sdk_bedrock_runtime.client import (
+            BedrockRuntimeClient,
             InvokeModelWithBidirectionalStreamOperationInput,
         )
-        from smithy_aws_core.credentials_resolvers.environment import (
-            EnvironmentCredentialsResolver,
-        )
-        from smithy_core.aio.interfaces.retries import RetryErrorType
-        import smithy_aws_core.aio.auth.sigv4 as _sigv4
+        from aws_sdk_bedrock_runtime.config import Config as SdkConfig
+        from smithy_aws_core.identity import AWSCredentialsIdentity
+        from typing import Any
 
-        import boto3
-
-        # Build static credentials resolver from boto3 session
-        frozen = self._boto_session.get_credentials().get_frozen_credentials()
+        # Build credentials resolver the same way voice_agent.py does —
+        # do NOT override auth_scheme_resolver/auth_schemes; SDK defaults
+        # already map ShapeID("aws.auth#sigv4") → SigV4AuthScheme(service="bedrock").
+        # Overriding those causes a silent auth failure (stream hangs).
+        creds = self._boto_session.get_credentials()
+        if creds is None:
+            raise RuntimeError("No AWS credentials available.")
+        frozen = creds.get_frozen_credentials()
 
         class _StaticResolver:
-            async def get_identity(self, *, properties=None):
-                class _Id:
-                    access_key_id     = frozen.access_key
-                    secret_access_key = frozen.secret_key
-                    session_token     = frozen.token
-                return _Id()
+            def __init__(self, identity: AWSCredentialsIdentity) -> None:
+                self._identity = identity
+            async def get_identity(self, *, properties: Any = None) -> AWSCredentialsIdentity:
+                return self._identity
 
+        identity = AWSCredentialsIdentity(
+            access_key_id=frozen.access_key,
+            secret_access_key=frozen.secret_key,
+            session_token=frozen.token,
+        )
         cfg = SdkConfig(
-            endpoint=Endpoint(url=f"https://bedrock-runtime.{self._region}.amazonaws.com"),
-            http_config=HTTPConfig(connection_timeout=30, read_timeout=600),
+            endpoint_uri=f"https://bedrock-runtime.{self._region}.amazonaws.com",
             region=self._region,
-            credentials_resolver=_StaticResolver(),
-            auth_schemes=[_sigv4.SigV4AuthScheme()],
+            aws_credentials_identity_resolver=_StaticResolver(identity),
         )
 
-        self._client = BedrockRuntimeClient(config=cfg)
+        # Fresh UUIDs — each Nova Sonic stream is an independent session
+        self._prompt_name      = str(uuid.uuid4())
+        self._sys_content_name = str(uuid.uuid4())
+        self._audio_content    = str(uuid.uuid4())
+        self._audio_input_closed = False
+        self._session_ended      = False
 
+        self._client = BedrockRuntimeClient(config=cfg)
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self._model_id)
         )
+        self._session_start_time = time.monotonic()
 
-        self.is_active = True
-
-        # Send sessionStart
+        # 1. Session start
         await self._send_raw(self._SESSION_START_TMPL)
+        await asyncio.sleep(0.05)
 
-        # Prompt + system prompt
-        await self._send_event({"event": {"promptStart": {"promptName": self._prompt_name}}})
+        # 2. Prompt start — must include output configs + tool config
+        await self._send_event({
+            "event": {
+                "promptStart": {
+                    "promptName": self._prompt_name,
+                    "textOutputConfiguration": {"mediaType": "text/plain"},
+                    "audioOutputConfiguration": {
+                        "mediaType":        "audio/lpcm",
+                        "sampleRateHertz":  _OUTPUT_SAMPLE_RATE,
+                        "sampleSizeBits":   16,
+                        "channelCount":     _CHANNELS,
+                        "voiceId":          _NOVA_VOICE,
+                        "encoding":         "base64",
+                        "audioType":        "SPEECH",
+                    },
+                    "toolUseOutputConfiguration": {"mediaType": "application/json"},
+                    "toolConfiguration": {"tools": self._build_tool_specs()},
+                }
+            }
+        })
+        await asyncio.sleep(0.05)
+
+        # 3. System prompt content block — always just the system prompt, no history appended
         await self._send_event({
             "event": {
                 "contentStart": {
-                    "promptName":   self._prompt_name,
-                    "contentName":  self._sys_content_name,
-                    "type":         "TEXT",
-                    "interactive":  False,
-                    "role":         "SYSTEM",
+                    "promptName":  self._prompt_name,
+                    "contentName": self._sys_content_name,
+                    "type":        "TEXT",
+                    "interactive": True,
+                    "role":        "SYSTEM",
                     "textInputConfiguration": {"mediaType": "text/plain"},
                 }
             }
@@ -434,8 +574,17 @@ class ARIAWebSocketVoiceSession:
                 }
             }
         })
+        await asyncio.sleep(0.05)
 
-        # Audio input block
+        # 3b. If this is a renewal, inject conversation history as proper TEXT content blocks.
+        # AWS official pattern: role-tagged USER/ASSISTANT blocks with interactive=False, sent
+        # AFTER the system prompt and BEFORE the audio contentStart.
+        if history_events:
+            for raw_event in history_events:
+                await self._send_raw(raw_event)
+            await asyncio.sleep(0.05)
+
+        # 4. Open audio input content block (continuous mic stream)
         await self._send_event({
             "event": {
                 "contentStart": {
@@ -445,32 +594,212 @@ class ARIAWebSocketVoiceSession:
                     "interactive": True,
                     "role":        "USER",
                     "audioInputConfiguration": {
-                        "mediaType":    "audio/lpcm",
-                        "sampleRateHertz":    _INPUT_SAMPLE_RATE,
-                        "sampleSizeBits":     16,
-                        "channelCount":       1,
-                        "audioType":          "SPEECH",
-                        "encoding":           "base64",
+                        "mediaType":       "audio/lpcm",
+                        "sampleRateHertz": _INPUT_SAMPLE_RATE,
+                        "sampleSizeBits":  16,
+                        "channelCount":    _CHANNELS,
+                        "audioType":       "SPEECH",
+                        "encoding":        "base64",
                     },
                 }
             }
         })
 
-        await self._ws_send_text({"type": "session.started"})
-        logger.info("Nova Sonic session started (session_id=%s)", self.session_id)
+    async def _renew_nova_sonic_stream(self) -> None:
+        """Transparently replace the Nova Sonic stream — WebSocket to React stays open.
 
-        # Run all tasks concurrently
-        tasks = await asyncio.gather(
-            self._receive_client_audio(),
-            self._process_nova_sonic_events(),
-            self._send_audio_to_client(),
-            return_exceptions=True,
+        Called by _session_watchdog at _SESSION_RENEW_S seconds.  The event processor
+        loop detects _stream_renewing=True on StopAsyncIteration and waits here to get
+        the new stream, then continues processing without the client noticing.
+        """
+        logger.info("Renewing Nova Sonic stream (conversation turn %d)", self._stream_generation)
+        self._stream_renewing = True
+
+        # Build a concise context summary from recent conversation history
+        context_preamble = self._build_context_preamble()
+
+        # Gracefully close old stream (sends contentEnd → promptEnd → sessionEnd)
+        try:
+            await self._close_audio_input()
+            await self._send_event({
+                "event": {"promptEnd": {"promptName": self._prompt_name}}
+            })
+            await self._send_event({"event": {"sessionEnd": {}}})
+            if self._stream:
+                await self._stream.input_stream.close()
+        except Exception as exc:
+            logger.debug("Renewal — old stream close: %s", exc)
+
+        # Small gap so the old stream's StopAsyncIteration is delivered before
+        # _process_nova_sonic_events resumes on the new one
+        await asyncio.sleep(0.3)
+
+        # Build history as proper AWS-style role-tagged content blocks
+        history_events = self._build_history_events()
+
+        # Open fresh Nova Sonic stream with conversation context injected
+        await self._open_nova_sonic_stream(self._system_prompt, history_events)
+        self._stream_generation += 1
+        self._session_warned   = False
+        self._stream_renewing  = False
+
+        logger.info("Nova Sonic stream renewed (generation=%d, history_turns=%d)",
+                    self._stream_generation, len(self._conversation_history))
+
+    def _build_history_events(self) -> list[str]:
+        """Build AWS-style TEXT content blocks from conversation history.
+
+        Follows the official session-continuation sample pattern:
+        - Each turn becomes: contentStart (interactive=False) → textInput → contentEnd
+        - role is preserved as USER or ASSISTANT
+        - Individual messages capped at _max_turn_bytes; total capped at _max_hist_bytes
+        - Only the most recent turns fitting within the byte budget are used
+        """
+        if not self._conversation_history:
+            return []
+
+        # Trim history to fit byte budget (most recent turns have priority)
+        budget = self._max_hist_bytes
+        turns: list[dict] = []
+        for turn in reversed(self._conversation_history):
+            encoded = turn["text"].encode("utf-8")
+            size = len(encoded) + len(turn["role"])
+            if size > budget:
+                break
+            turns.insert(0, turn)
+            budget -= size
+
+        events: list[str] = []
+        for turn in turns:
+            role = "USER" if turn["role"] == "user" else "ASSISTANT"
+            text = turn["text"]
+            # Truncate individual turns to byte limit
+            text_bytes = text.encode("utf-8")
+            if len(text_bytes) > self._max_turn_bytes:
+                text = text_bytes[: self._max_turn_bytes].decode("utf-8", errors="ignore") + "…"
+
+            content_name = str(uuid.uuid4())
+            events.append(json.dumps({
+                "event": {
+                    "contentStart": {
+                        "promptName":  self._prompt_name,
+                        "contentName": content_name,
+                        "type":        "TEXT",
+                        "role":        role,
+                        "interactive": False,
+                        "textInputConfiguration": {"mediaType": "text/plain"},
+                    }
+                }
+            }))
+            events.append(json.dumps({
+                "event": {
+                    "textInput": {
+                        "promptName":  self._prompt_name,
+                        "contentName": content_name,
+                        "content":     text,
+                    }
+                }
+            }))
+            events.append(json.dumps({
+                "event": {
+                    "contentEnd": {
+                        "promptName":  self._prompt_name,
+                        "contentName": content_name,
+                    }
+                }
+            }))
+        return events
+
+    # ------------------------------------------------------------------
+    # Session watchdog — transparent renewal before Nova Sonic's 600 s limit
+    # ------------------------------------------------------------------
+
+    async def _session_watchdog(self) -> None:
+        """Silently renew the Nova Sonic stream before the 600 s hard limit.
+
+        The renewal is completely invisible to the user — no messages, no status
+        changes, no speech bubbles.  The React WebSocket stays open the whole time.
+        """
+        try:
+            while self.is_active:
+                elapsed = time.monotonic() - self._session_start_time
+                if elapsed >= _SESSION_RENEW_S and not self._stream_renewing:
+                    logger.info("Session watchdog: silent stream renewal at %.0f s", elapsed)
+                    await self._renew_nova_sonic_stream()
+                    # Loop continues with fresh _session_start_time for the new stream
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Session kickoff — triggers ARIA's opening greeting
+    # ------------------------------------------------------------------
+
+    async def _send_kickoff_after_delay(self) -> None:
+        """Wait briefly for the event-processing task to start, then send kickoff."""
+        await asyncio.sleep(0.3)
+        await self._send_kickoff()
+
+    async def _send_kickoff(self) -> None:
+        """Send a text input that instructs ARIA to greet the customer.
+
+        Must run AFTER _process_nova_sonic_events is already polling so that
+        the resulting toolUse / textOutput events are captured correctly.
+        """
+        kickoff_content = str(uuid.uuid4())
+        if self._authenticated and self._customer_id:
+            kickoff_text = (
+                f"SESSION_START: An authenticated customer has connected. "
+                f"X-Channel: voice. X-Channel-Auth: authenticated. "
+                f"X-Customer-ID: {self._customer_id}. "
+                f"X-Session-ID: {self.session_id}. "
+                f"Call get_customer_details with customer_id=\"{self._customer_id}\" "
+                f"to fetch their profile, then greet them by their preferred_name "
+                f"and ask how you can help today. "
+                f"Do not ask them to re-verify their identity."
+            )
+        else:
+            kickoff_text = (
+                f"SESSION_START: A new customer has connected on voice. "
+                f"X-Channel: voice. X-Channel-Auth: unauthenticated. "
+                f"X-Session-ID: {self.session_id}. "
+                f"Greet the caller warmly as ARIA from Meridian Bank and begin "
+                f"the identity verification flow."
+            )
+
+        logger.info(
+            "Sending session kickoff (auth=%s customer=%s)",
+            self._authenticated, self._customer_id,
         )
-        for t in tasks:
-            if isinstance(t, Exception) and not isinstance(t, asyncio.CancelledError):
-                logger.warning("Voice session task ended with: %s", t)
-
-        await self._end_session()
+        await self._send_event({
+            "event": {
+                "contentStart": {
+                    "promptName":  self._prompt_name,
+                    "contentName": kickoff_content,
+                    "type":        "TEXT",
+                    "interactive": False,
+                    "role":        "USER",
+                    "textInputConfiguration": {"mediaType": "text/plain"},
+                }
+            }
+        })
+        await self._send_event({
+            "event": {
+                "textInput": {
+                    "promptName":  self._prompt_name,
+                    "contentName": kickoff_content,
+                    "content":     kickoff_text,
+                }
+            }
+        })
+        await self._send_event({
+            "event": {
+                "contentEnd": {
+                    "promptName":  self._prompt_name,
+                    "contentName": kickoff_content,
+                }
+            }
+        })
 
     # ------------------------------------------------------------------
     # Audio bridge: client → Nova Sonic
@@ -504,8 +833,16 @@ class ARIAWebSocketVoiceSession:
                         except json.JSONDecodeError:
                             pass
                     elif "bytes" in msg and msg["bytes"] and not self._farewell_detected:
+                        # Drop frames during ~0.5 s stream renewal gap
+                        if self._stream_renewing:
+                            continue
+                        # Ignore frames echoed back by the AgentCore WebSocket proxy
+                        frame = msg["bytes"]
+                        if hashlib.sha256(frame).digest() in self._sent_audio_hashes:
+                            logger.debug("Ignoring echoed audio frame (%d bytes)", len(frame))
+                            continue
                         # Forward raw PCM as base64 audio chunk to Nova Sonic
-                        blob = base64.b64encode(msg["bytes"]).decode("utf-8")
+                        blob = base64.b64encode(frame).decode("utf-8")
                         await self._send_event({
                             "event": {
                                 "audioInput": {
@@ -533,6 +870,8 @@ class ARIAWebSocketVoiceSession:
                         self._audio_output_queue.get(), timeout=0.2
                     )
                     await self.websocket.send_bytes(chunk)
+                    # Record hash so echoed-back frames can be ignored in _receive_client_audio
+                    self._sent_audio_hashes.append(hashlib.sha256(chunk).digest())
                 except asyncio.TimeoutError:
                     continue
         except asyncio.CancelledError:
@@ -545,120 +884,151 @@ class ARIAWebSocketVoiceSession:
     # ------------------------------------------------------------------
 
     async def _process_nova_sonic_events(self) -> None:
-        try:
-            async for output in self._stream.await_output():
-                try:
+        """Continuously read events from the Nova Sonic stream, surviving transparent renewals."""
+        while self.is_active:
+            try:
+                # Inner loop: drain the current stream
+                while self.is_active and not self._stream_renewing:
+                    output = await self._stream.await_output()
                     result = await output[1].receive()
-                    if result and result.value and result.value.bytes_:
-                        event = json.loads(result.value.bytes_.decode("utf-8"))
-                        await self._handle_event(event)
-                except Exception as exc:
-                    logger.debug("Nova Sonic event receive error: %s", exc)
-                if not self.is_active:
+
+                    if not (result.value and result.value.bytes_):
+                        continue
+
+                    try:
+                        data = json.loads(result.value.bytes_.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        continue
+
+                    event = data.get("event", {})
+                    await self._handle_event(event)
+
+            except StopAsyncIteration:
+                # Stream ended — either the session is truly over or we triggered a renewal.
+                if self._stream_renewing:
+                    logger.info("Old Nova Sonic stream ended; waiting for renewal…")
+                    while self._stream_renewing and self.is_active:
+                        await asyncio.sleep(0.05)
+                    if self.is_active:
+                        logger.info("Nova Sonic stream renewed — resuming event processing")
+                        continue   # outer while — process the new stream
+                else:
+                    logger.info("Nova Sonic stream ended (session complete).")
                     break
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            logger.error("Nova Sonic event processing error: %s", exc, exc_info=True)
+
+            except asyncio.CancelledError:
+                break
+
+            except Exception as exc:
+                msg = str(exc)
+                _transient = (
+                    "cumulative audio stream length exceeded" in msg
+                    or "Max allowed Length: 600000" in msg
+                    or "System instability detected" in msg
+                    or "throttling" in msg.lower()
+                    or "ServiceUnavailableException" in msg
+                )
+                if _transient:
+                    logger.warning(
+                        "Nova Sonic transient error (%s) — attempting silent stream renewal…", msg
+                    )
+                    try:
+                        await self._renew_nova_sonic_stream()
+                        logger.info("Stream renewed after transient error — resuming.")
+                        continue  # restart outer while on the new stream
+                    except Exception as renew_exc:
+                        logger.error(
+                            "Stream renewal failed after transient error: %s", renew_exc, exc_info=True
+                        )
+                else:
+                    logger.error("Nova Sonic event processing error: %s", exc, exc_info=True)
+                break
+
+        self.is_active = False
 
     # ------------------------------------------------------------------
     # Event handler (mirrors ARIANovaSonicSession._handle_event)
     # ------------------------------------------------------------------
 
     async def _handle_event(self, event: dict) -> None:  # noqa: C901
-        # --- textOutput ---
-        if "textOutput" in event:
-            to = event["textOutput"]
-            role    = to.get("role", "")
-            content = to.get("content", "")
+        # --- contentStart: sets role & display flag (only SPECULATIVE shows text) ---
+        if "contentStart" in event:
+            cs = event["contentStart"]
+            self._role = cs.get("role", "")
+            self._display_assistant_text = False
+            self._generation_stage = ""
+            if "additionalModelFields" in cs:
+                try:
+                    extra = json.loads(cs["additionalModelFields"])
+                    stage = extra.get("generationStage", "")
+                    self._generation_stage = stage
+                    if stage == "SPECULATIVE":
+                        self._display_assistant_text = True
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
-            if role == "USER":
-                # User transcript (SPECULATIVE stage only)
-                text = content.strip()
+        # --- textOutput: transcripts ---
+        elif "textOutput" in event:
+            text = event["textOutput"].get("content", "")
+            role = event["textOutput"].get("role", self._role).upper()
+
+            # Barge-in interrupt signal: {"interrupted": true}
+            if role == "ASSISTANT" and text.startswith("{"):
+                try:
+                    if json.loads(text).get("interrupted") is True:
+                        await self._handle_interrupt()
+                        return
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+            if role == "ASSISTANT" and self._display_assistant_text:
+                if text:
+                    self._aria_buf.append(text)
+
+            elif role == "USER":
+                await self._flush_aria()
+                text = text.strip()
                 if text:
                     logger.info("Customer said: %s", text)
                     await self._ws_send_text({"type": "transcript.user", "text": text})
                     if self._transcript:
                         self._transcript.add_turn("Customer", text)
-                    low = text.lower()
-                    if any(ph in low for ph in _FAREWELL_PHRASES):
+                    self._last_user_text = text
+                    # Record in conversation history for session renewal
+                    self._add_to_history("user", text)
+                    if any(ph in text.lower() for ph in _FAREWELL_PHRASES):
                         self._farewell_detected = True
                         logger.info("Farewell detected: '%s'", text)
-                return
-
-            if role == "ASSISTANT":
-                # Barge-in?
-                try:
-                    parsed = json.loads(content)
-                    if parsed.get("interrupted"):
-                        await self._handle_interrupt()
-                        return
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-
-                # Show text from SPECULATIVE stage only
-                gen_stage = (
-                    event.get("textOutput", {})
-                    .get("additionalModelFields", {})
-                    .get("generationStage", "")
-                    if isinstance(event.get("textOutput"), dict) else ""
-                )
-                if not gen_stage:
-                    # Try nested additionalModelFields
-                    gen_stage = to.get("additionalModelFields", {}).get("generationStage", "")
-
-                if gen_stage == "SPECULATIVE" or not gen_stage:
-                    self._aria_buf.append(content)
-                return
-
-        # --- contentStart: track generation stage ---
-        if "contentStart" in event:
-            cs = event["contentStart"]
-            amf = cs.get("additionalModelFields", {})
-            if isinstance(amf, str):
-                try:
-                    amf = json.loads(amf)
-                except json.JSONDecodeError:
-                    amf = {}
-            gen_stage = amf.get("generationStage", "")
-            self._display_assistant_text = (gen_stage == "SPECULATIVE")
-            self._role = cs.get("role", "")
-            return
 
         # --- audioOutput: queue for client ---
-        if "audioOutput" in event:
+        elif "audioOutput" in event:
             audio_b64 = event["audioOutput"].get("content", "")
             if audio_b64:
-                audio_bytes = base64.b64decode(audio_b64)
-                await self._audio_output_queue.put(audio_bytes)
-            return
+                await self._audio_output_queue.put(base64.b64decode(audio_b64))
 
-        # --- toolUse: accumulate ---
-        if "toolUse" in event:
+        # --- toolUse: accumulate tool call ---
+        elif "toolUse" in event:
             tu = event["toolUse"]
             self._tool_name    = tu.get("toolName", "")
             self._tool_use_id  = tu.get("toolUseId", "")
             self._tool_content = tu.get("content", "{}")
             logger.info("Tool requested: %s (id=%s)", self._tool_name, self._tool_use_id)
-            return
 
         # --- contentEnd: flush text or execute tool ---
-        if "contentEnd" in event:
+        elif "contentEnd" in event:
             ce = event["contentEnd"]
             if ce.get("type") == "TOOL":
                 await self._dispatch_tool()
             else:
                 await self._flush_aria()
-            return
 
         # --- completionEnd: flush remaining, end on farewell ---
-        if "completionEnd" in event:
+        elif "completionEnd" in event:
             await self._flush_aria()
             if self._farewell_detected:
                 logger.info("Farewell response complete — ending session.")
                 self.is_active = False
                 await self._close_audio_input()
-            return
 
     # ------------------------------------------------------------------
     # Helpers
@@ -673,6 +1043,34 @@ class ARIAWebSocketVoiceSession:
                 await self._ws_send_text({"type": "transcript.aria", "text": text})
                 if self._transcript:
                     self._transcript.add_turn("ARIA", text)
+                # Only FINAL stage text goes into conversation history (not SPECULATIVE).
+                # Matches the official AWS session-continuation sample behaviour.
+                if self._generation_stage == "FINAL":
+                    self._add_to_history("assistant", text)
+                # Persist turn to AgentCore Memory (no-op if AGENTCORE_MEMORY_ID not set)
+                if self._last_user_text:
+                    try:
+                        from aria import memory_client as _mc
+                        actor_id = self._customer_id or "anonymous"
+                        _mc.save_turn(actor_id, self.session_id, self._last_user_text, text)
+                        logger.debug("Saved voice turn to memory (session=%s)", self.session_id)
+                    except Exception as _mem_exc:
+                        logger.warning("Could not save voice turn to memory: %s", _mem_exc)
+                    finally:
+                        self._last_user_text = None
+
+    def _add_to_history(self, role: str, text: str) -> None:
+        """Append a turn to the conversation history, respecting byte limits."""
+        self._conversation_history.append({"role": role, "text": text})
+        # Trim oldest turns until total byte usage is within budget
+        while self._conversation_history:
+            total = sum(
+                len(t["text"].encode("utf-8")) + len(t["role"])
+                for t in self._conversation_history
+            )
+            if total <= self._max_hist_bytes:
+                break
+            self._conversation_history.pop(0)
 
     async def _handle_interrupt(self) -> None:
         """Handle barge-in: drain audio queue, clear ARIA buffer."""
