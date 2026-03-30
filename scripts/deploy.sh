@@ -1523,14 +1523,17 @@ build_and_deploy_react() {
 write_react_env() {
     header "React client environment"
 
-    local runtime_arn runtime_id region pool_id unauth_role_arn chat_url voice_ws_url cf_url env_file
+    local runtime_arn runtime_id encoded_arn region pool_id unauth_role_arn chat_url voice_ws_url cf_url env_file
     runtime_arn=$(state_get "runtime_arn")
     runtime_id="${runtime_arn##*/}"
+    # URL-encode the full ARN for use in URL paths (same as encodeURIComponent in JS)
+    encoded_arn=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${runtime_arn}")
     region="${AGENTCORE_REGION}"
     pool_id=$(state_get "cognito_identity_pool_id")
     unauth_role_arn=$(state_get "cognito_unauth_role_arn")
-    chat_url="https://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/invocations"
-    voice_ws_url="wss://bedrock-agentcore.${region}.amazonaws.com/runtimes/${runtime_id}/ws?qualifier=DEFAULT"
+    # AgentCore requires the full URL-encoded ARN in the path (short ID returns 400)
+    chat_url="https://bedrock-agentcore.${region}.amazonaws.com/runtimes/${encoded_arn}/invocations"
+    voice_ws_url="wss://bedrock-agentcore.${region}.amazonaws.com/runtimes/${encoded_arn}/ws?qualifier=DEFAULT"
     cf_url="https://$(state_get 'cloudfront_domain' 2>/dev/null || echo '')"
     env_file="${PROJECT_ROOT}/client/.env.local"
 

@@ -112,9 +112,16 @@ export async function createPresignedWebSocketUrl({
 }
 
 /**
- * Get temporary AWS credentials from Cognito Identity Pool via Amplify.
+ * Get temporary AWS credentials from Cognito Identity Pool.
+ * Uses classic flow (GetId → GetOpenIdToken → AssumeRoleWithWebIdentity) when
+ * identityPoolId + unauthRoleArn are provided, bypassing the Cognito-managed
+ * session policy that blocks bedrock-agentcore actions.
+ * Falls back to Amplify enhanced flow when params are omitted.
  */
-export async function getAwsCredentials() {
+export async function getAwsCredentials({ identityPoolId, region, unauthRoleArn } = {}) {
+  if (identityPoolId && unauthRoleArn && region) {
+    return getCognitoClassicCredentials({ identityPoolId, region, unauthRoleArn });
+  }
   const session = await fetchAuthSession();
   const creds = session.credentials;
   return {
@@ -130,10 +137,11 @@ export async function getAwsCredentials() {
  * @param {RequestInit} options - fetch options (method, headers, body)
  * @param {string} region - AWS region (default: eu-west-2)
  * @param {string} service - AWS service name (default: bedrock-agentcore)
+ * @param {{ identityPoolId?: string, unauthRoleArn?: string }} cognitoOpts - classic flow params
  * @returns {Promise<Response>}
  */
-export async function signedFetch(url, options = {}, region = 'eu-west-2', service = 'bedrock-agentcore') {
-  const creds = await getAwsCredentials();
+export async function signedFetch(url, options = {}, region = 'eu-west-2', service = 'bedrock-agentcore', cognitoOpts = {}) {
+  const creds = await getAwsCredentials({ region, ...cognitoOpts });
   const urlObj = new URL(url);
 
   const method = (options.method || 'POST').toUpperCase();

@@ -39,6 +39,7 @@ export function useChat(connection) {
         ? chatUrl
         : `${chatUrl.replace(/\/$/, '')}/invocations`;
 
+      // AgentCore requires SigV4 signing for all requests (authenticated or not)
       const payload = {
         message: text.trim(),
         authenticated: config.authenticated,
@@ -46,17 +47,19 @@ export function useChat(connection) {
       };
 
       const bodyStr = JSON.stringify(payload);
-      const useSignedRequest =
-        config.mode === 'agentcore' &&
-        config.authenticated &&
-        config.cognitoIdentityPoolId;
+      const isAgentCoreMode = config.mode === 'agentcore' && config.cognitoIdentityPoolId;
 
       let response;
-      if (useSignedRequest) {
+      if (isAgentCoreMode) {
         response = await signedFetch(
           invokeUrl,
           { method: 'POST', body: bodyStr },
-          config.awsRegion || 'eu-west-2'
+          config.awsRegion || 'eu-west-2',
+          'bedrock-agentcore',
+          {
+            identityPoolId: config.cognitoIdentityPoolId,
+            unauthRoleArn: config.cognitoUnauthRoleArn,
+          }
         );
       } else {
         response = await fetch(invokeUrl, {
