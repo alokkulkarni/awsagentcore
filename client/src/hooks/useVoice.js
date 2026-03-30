@@ -109,8 +109,13 @@ export function useVoice(connection) {
           }
 
           // Barge-in detection: if ARIA is speaking and user starts talking.
-          // Skip the echo-cancel grace window to avoid false triggers from ARIA's
-          // own voice reaching the mic before the browser AEC has adapted.
+          // Client-side barge-in fast-path: stop local audio immediately so the
+          // user doesn't hear stale ARIA speech. We do NOT send {interrupted:true}
+          // to the server — Nova Sonic detects user speech natively via its built-in
+          // VAD (turnDetectionConfiguration.endpointingSensitivity=HIGH) and signals
+          // the server with contentEnd.stopReason=="INTERRUPTED". The server then
+          // sends {type:"interrupt"} back, at which point bargingInRef resets.
+          // bargingInRef=true suppresses any audio chunks that arrive in the interim.
           const now = Date.now();
           const ariaSpeakingLongEnough =
             ariaAudioStartedAtRef.current > 0 &&
@@ -122,18 +127,17 @@ export function useVoice(connection) {
             now - bargeinCooldownRef.current > BARGEIN_COOLDOWN_MS
           ) {
             bargeinCooldownRef.current = now;
-            // Suppress incoming audio immediately — chunks already in-flight
-            // from the server would otherwise keep playing after the barge-in
+            // Suppress incoming audio chunks until server confirms barge-in
             bargingInRef.current = true;
-            // Stop ARIA audio immediately
+            // Stop local audio player immediately (fast-path — before server confirms)
             audioPlayerRef.current?.bargeIn();
-            // Tell server to stop generating
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({ interrupted: true }));
-            }
             ariaIsSpeakingRef.current = false;
+            ariaAudioStartedAtRef.current = 0;
             clearTimeout(ariaSpeakingTimerRef.current);
             setStatus('connected');
+            // Auto-reset in case Nova Sonic doesn't detect speech (e.g. brief echo)
+            // so audio isn't suppressed indefinitely without a server confirmation.
+            setTimeout(() => { bargingInRef.current = false; }, 4000);
           }
         },
         onWaveform: () => {},
@@ -297,10 +301,13 @@ export function useVoice(connection) {
             break;
 
           case 'interrupt':
-            // Server confirmed barge-in + drained its audio queue.
-            // Re-enable audio playback for the next ARIA response.
+            // Nova Sonic detected user speech (contentEnd.stopReason=="INTERRUPTED").
+            // Server drained its audio queue — stop any remaining local playback and
+            // re-enable audio for ARIA's next response.
+            audioPlayerRef.current?.bargeIn();
             bargingInRef.current = false;
             ariaIsSpeakingRef.current = false;
+            ariaAudioStartedAtRef.current = 0;
             clearTimeout(ariaSpeakingTimerRef.current);
             setStatus('connected');
             break;

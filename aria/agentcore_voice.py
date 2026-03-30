@@ -834,24 +834,11 @@ class ARIAWebSocketVoiceSession:
                                 logger.info("Client requested session.end")
                                 self.is_active = False
                                 break
-                            # Client-side barge-in fired: immediately stop sending audio
-                            # to the client and drain the queue. Confirm the interrupt
-                            # immediately so the client re-enables audio capture.
-                            # _barge_in_pending stays True until the user's next utterance
-                            # arrives, which suppresses any remaining Nova Sonic audio.
-                            if ctrl.get("interrupted") is True:
-                                self._barge_in_pending = True
-                                cleared = 0
-                                while True:
-                                    try:
-                                        self._audio_output_queue.get_nowait()
-                                        cleared += 1
-                                    except asyncio.QueueEmpty:
-                                        break
-                                logger.info("Client barge-in: drained %d queued audio chunks", cleared)
-                                # Confirm immediately — do NOT wait for Nova Sonic since we
-                                # never send it an explicit interrupt signal.
-                                await self._ws_send_text({"type": "interrupt"})
+                            # {interrupted:true} was previously sent by client-side VAD
+                            # but is no longer used — barge-in is now handled via Nova
+                            # Sonic's native contentEnd.stopReason=="INTERRUPTED" signal.
+                            # Kept here as a no-op safety net in case an older client
+                            # sends it.
                         except json.JSONDecodeError:
                             pass
                     elif "bytes" in msg and msg["bytes"] and not self._farewell_detected:
@@ -1046,10 +1033,25 @@ class ARIAWebSocketVoiceSession:
             self._tool_content = tu.get("content", "{}")
             logger.info("Tool requested: %s (id=%s)", self._tool_name, self._tool_use_id)
 
-        # --- contentEnd: flush text or execute tool ---
+        # --- contentEnd: flush text, execute tool, or handle native barge-in ---
         elif "contentEnd" in event:
             ce = event["contentEnd"]
-            if ce.get("type") == "TOOL":
+            if ce.get("stopReason") == "INTERRUPTED":
+                # Nova Sonic detected user speech while generating — native barge-in.
+                # Drain the audio queue so stale audio isn't sent to the client,
+                # then notify the client to stop playback and re-enable the mic.
+                self._barge_in_pending = True
+                self._aria_buf.clear()
+                cleared = 0
+                while True:
+                    try:
+                        self._audio_output_queue.get_nowait()
+                        cleared += 1
+                    except asyncio.QueueEmpty:
+                        break
+                logger.info("Nova Sonic native barge-in (INTERRUPTED): cleared %d chunks", cleared)
+                await self._ws_send_text({"type": "interrupt"})
+            elif ce.get("type") == "TOOL":
                 await self._dispatch_tool()
             else:
                 await self._flush_aria()
