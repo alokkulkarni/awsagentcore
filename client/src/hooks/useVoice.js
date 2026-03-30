@@ -159,6 +159,8 @@ export function useVoice(connection) {
           region: config.awsRegion,
           qualifier: 'DEFAULT',
           expiresIn: 300,
+          identityPoolId: config.cognitoIdentityPoolId,
+          unauthRoleArn: config.cognitoUnauthRoleArn,
         });
       } catch (err) {
         setError(`Failed to create presigned URL: ${err.message}. Check Cognito Identity Pool configuration.`);
