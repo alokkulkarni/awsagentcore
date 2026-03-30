@@ -140,11 +140,11 @@ export function useVoice(connection) {
       }
       resolvedWsUrl = wsUrl;
     } else {
-      // AgentCore mode: only need runtimeId + valid Cognito pool.
+      // AgentCore mode: only need runtimeArn + valid Cognito pool.
       // The banking-level 'authenticated' flag is sent in session.config (ws.onopen)
       // so ARIA can handle both authenticated and unauthenticated conversations.
-      if (!config.agentcoreRuntimeId) {
-        setError('AgentCore Runtime ID not configured. Add it in Connection Settings.');
+      if (!config.agentcoreRuntimeArn) {
+        setError('AgentCore Runtime ARN not configured. Add it in Connection Settings.');
         setStatus('error');
         return;
       }
@@ -155,10 +155,10 @@ export function useVoice(connection) {
       }
       try {
         resolvedWsUrl = await createPresignedWebSocketUrl({
-          runtimeId: config.agentcoreRuntimeId,
+          runtimeArn: config.agentcoreRuntimeArn,
           region: config.awsRegion,
           qualifier: 'DEFAULT',
-          expiresIn: 3600,
+          expiresIn: 300,
         });
       } catch (err) {
         setError(`Failed to create presigned URL: ${err.message}. Check Cognito Identity Pool configuration.`);

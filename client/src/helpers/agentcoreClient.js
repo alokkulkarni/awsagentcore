@@ -4,18 +4,32 @@ import { Sha256 } from '@aws-crypto/sha256-js';
 
 /**
  * Create a SigV4-presigned WebSocket URL for AgentCore Runtime.
- * The signature is embedded in query parameters so the browser's
- * native WebSocket API can authenticate without custom headers.
  *
- * URL format: wss://bedrock-agentcore.{region}.amazonaws.com/runtimes/{runtimeId}/ws?qualifier=DEFAULT
- * Presigned:  wss://...?qualifier=DEFAULT&X-Amz-Algorithm=...&X-Amz-Credential=...&X-Amz-Signature=...
+ * IMPORTANT: The path must use the full URL-encoded runtime ARN, NOT the short ID.
+ * e.g. /runtimes/arn%3Aaws%3Abedrock-agentcore%3A.../ws
+ * Using the short ID returns HTTP 403 on WebSocket upgrade.
+ *
+ * This mirrors the AgentCore Python SDK's generate_presigned_url() exactly:
+ * - URL-encode the full ARN with encodeURIComponent
+ * - Add qualifier + session ID to query params before signing
+ * - Sign the https:// URL (not wss://) then convert back to wss://
  */
-export async function createPresignedWebSocketUrl({ runtimeId, region = 'eu-west-2', qualifier = 'DEFAULT', expiresIn = 3600 }) {
+export async function createPresignedWebSocketUrl({ runtimeArn, region = 'eu-west-2', qualifier = 'DEFAULT', expiresIn = 300 }) {
   const session = await fetchAuthSession();
   const creds = session.credentials;
 
   const host = `bedrock-agentcore.${region}.amazonaws.com`;
-  const path = `/runtimes/${runtimeId}/ws`;
+
+  // Full ARN must be URL-encoded in the path (matches SDK behaviour)
+  const encodedArn = encodeURIComponent(runtimeArn);
+  const path = `/runtimes/${encodedArn}/ws`;
+
+  // Build pre-signing query params (qualifier + unique session ID)
+  const sessionId = crypto.randomUUID();
+  const query = {
+    qualifier,
+    'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': sessionId,
+  };
 
   const signer = new SignatureV4({
     credentials: {
@@ -28,22 +42,23 @@ export async function createPresignedWebSocketUrl({ runtimeId, region = 'eu-west
     sha256: Sha256,
   });
 
+  // Sign as https:// (SDK converts wss→https before signing)
   const request = {
     method: 'GET',
     hostname: host,
     path,
-    query: { qualifier },
+    query,
     headers: { host },
-    protocol: 'wss:',
+    protocol: 'https:',
   };
 
-  // Presign: signature goes into query params, not Authorization header
   const presigned = await signer.presign(request, { expiresIn });
 
   const queryString = Object.entries(presigned.query || {})
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
 
+  // Return as wss:// for the browser WebSocket API
   return `wss://${host}${path}?${queryString}`;
 }
 
