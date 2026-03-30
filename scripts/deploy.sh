@@ -1545,6 +1545,7 @@ VITE_LOCAL_WS_URL=ws://localhost:8080/ws
 # ── AgentCore Runtime (production) ───────────────────────────────────────────
 VITE_AGENTCORE_CHAT_URL=${chat_url}
 VITE_AGENTCORE_RUNTIME_ID=${runtime_id}
+VITE_AGENTCORE_RUNTIME_ARN=${runtime_arn}
 
 # ── Cognito Identity Pool (provides temp AWS creds for SigV4 signing) ─────────
 VITE_COGNITO_IDENTITY_POOL_ID=${pool_id}
@@ -1559,6 +1560,7 @@ ENVEOF
     echo "  ┌─ React client environment (client/.env.local) ──────────────────────────┐"
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_CHAT_URL"        "${chat_url}"
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_RUNTIME_ID"      "${runtime_id}"
+    printf "  │  %-38s %s\n" "VITE_AGENTCORE_RUNTIME_ARN"     "${runtime_arn}"
     printf "  │  %-38s %s\n" "VITE_AGENTCORE_VOICE_WS (computed)" "${voice_ws_url}"
     printf "  │  %-38s %s\n" "VITE_COGNITO_IDENTITY_POOL_ID"  "${pool_id}"
     printf "  │  %-38s %s\n" "VITE_AWS_REGION"                 "${region}"

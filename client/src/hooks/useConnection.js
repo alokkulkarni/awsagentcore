@@ -15,7 +15,8 @@ const DEFAULT_CONFIG = {
 
   // AgentCore endpoints
   agentcoreChatUrl: import.meta.env.VITE_AGENTCORE_CHAT_URL || '',
-  // agentcoreVoiceUrl is computed from runtimeId + region — not stored separately
+  // Full ARN is required for WebSocket presigning — short ID is not accepted by /ws
+  agentcoreRuntimeArn: import.meta.env.VITE_AGENTCORE_RUNTIME_ARN || '',
   agentcoreRuntimeId: import.meta.env.VITE_AGENTCORE_RUNTIME_ID || '',
 
   // Cognito (for AgentCore auth — provides temp credentials for SigV4)
