@@ -191,7 +191,350 @@ aws bedrock-agent update-agent \
 
 ---
 
-## A2. Tool Migration — 20 Strands Tools → 7 Lambda Action Groups
+## A2. Runtime Injections — Complete Inventory and Migration
+
+The AgentCore implementation does not just send `ARIA_SYSTEM_PROMPT` to the model. Both channels construct a **layered prompt** at runtime by combining the static system prompt with several dynamically-built injections. Each injection must have a clear equivalent in the Bedrock Agent path — or a deliberate decision to drop it.
+
+### Inventory: All Runtime Injections in AgentCore
+
+There are **9 distinct injection points** across the two channels.
+
+---
+
+#### Voice Channel — `agentcore_voice.py`
+
+##### Injection V1 — Voice System Prompt Preamble (`_build_voice_system_prompt`)
+
+**What it is:** A function called once when a voice WebSocket session opens. It returns `preamble + ARIA_SYSTEM_PROMPT` — i.e., the preamble is prepended to (not replacing) the full static system prompt.
+
+**What the preamble contains (authenticated session):**
+```
+=== VOICE SESSION — CRITICAL OPERATING RULES ===
+
+You are ARIA, Meridian Bank's voice banking assistant, on a LIVE call.
+
+SESSION CONTEXT:
+- Channel: voice (WebSocket audio stream via AgentCore Runtime)
+- Auth state: authenticated
+- Customer ID: CUST-001             ← runtime value
+- Session ID: abc-123-xyz           ← runtime value (tools MUST use this for session_id params)
+- The caller is already verified. Do NOT ask them to re-authenticate.
+- Call get_customer_details("CUST-001") immediately, then greet by preferred_name.
+
+[EMPATHY BLOCK — see Injection V2]
+
+[CARD QUERIES — VOICE OVERRIDE — see Injection V3]
+
+MANDATORY SESSION RULES:
+1. Fetch customer profile first, then greet by name.
+2. Session stays open until the caller says goodbye.
+3. You are on VOICE — speak naturally. Never read full URLs or full card numbers.
+
+=== END VOICE RULES — BANKING INSTRUCTIONS FOLLOW ===
+
+[full ARIA_SYSTEM_PROMPT appended here]
+```
+
+**Why it exists:** Nova Sonic S2S is stateless per stream — it has no concept of session metadata. The only way to tell the model who the caller is, what their session ID is, and what channel they are on is by embedding it in the system prompt before the stream opens.
+
+---
+
+##### Injection V2 — `_EMPATHY_BLOCK` (voice-only, inside V1)
+
+**What it is:** A 300-word block embedded inside the preamble (Injection V1). Covers voice-specific empathy and vulnerability detection cues that cannot be handled by the customer's tone of voice in text.
+
+**Content summary:**
+- EMPATHY TRIGGERS: what to say first when customer mentions lost card, fraud, bereavement, financial hardship, or sounds distressed
+- VULNERABILITY DETECTION: spoken cues (distress/panic → slow pace; confusion/repetition → simplest language; third-party pressure → don't act, escalate; mid-call disclosure → adapt immediately)
+- WARM ACKNOWLEDGMENT RULE: say something warm and human BEFORE any tool call on distressing calls
+
+**Why voice-only:** On chat channels, tone cannot be heard. The empathy triggers are more about the absence of verbal warmth. Also, the static `ARIA_SYSTEM_PROMPT` already covers vulnerability detection at the profile-flag level (Section 4) — V2 extends it to real-time spoken signals.
+
+---
+
+##### Injection V3 — `CARD QUERIES — VOICE OVERRIDE` (voice-only, inside V1)
+
+**What it is:** 5 mandatory rules appended to the preamble, specific to card queries over voice.
+
+```
+CARD QUERIES — VOICE OVERRIDE (MANDATORY):
+After get_customer_details, you know every card_last_four from the profile.
+  1. NEVER ask the customer to provide or confirm digits you already have.
+  2. NEVER call pii_vault_retrieve for card_last_four — use profile values directly.
+  3. ONE card of requested type → use its card_last_four directly. Tell the customer.
+  4. MULTIPLE cards of same type → list scheme + last_four, ask which one.
+  5. 'Confirm the card' = TELL the customer which card you are using.
+```
+
+**Why voice-only:** On voice, asking the customer to say their card number out loud is a security and usability problem. On chat, a customer can type card digits without broadcasting them. This override prevents the model from asking the customer to re-state information the agent already holds in the profile.
+
+---
+
+##### Injection V4 — History Block (AgentCore Memory, prepended to system prompt)
+
+**What it is:** If `AGENTCORE_MEMORY_ID` is set and `memory_client.get_recent_turns()` returns prior conversation turns, a history block is prepended BEFORE the voice preamble:
+
+```
+=== RECENT CONVERSATION HISTORY (for context) ===
+Customer: I wanted to check my balance
+ARIA: Your current balance is £1,245.30. Is there anything else I can help with?
+=== END HISTORY ===
+```
+
+**Final assembled system prompt for voice (when memory is configured):**
+```
+{history_block}
+{voice_preamble}
+{ARIA_SYSTEM_PROMPT}
+```
+
+**Why it exists:** Nova Sonic streams are isolated — each stream opening is a fresh model context. Without this, the model has no memory of what was discussed earlier in the session (or in a prior call from the same customer).
+
+---
+
+##### Injection V5 — `SESSION_START` Kickoff (first user message to Nova Sonic)
+
+**What it is:** After the Nova Sonic stream opens but before the customer speaks, the voice handler sends a silent text `USER` turn (`interactive: False`) to trigger ARIA's opening greeting. This is a text event, not audio.
+
+```
+SESSION_START: An authenticated customer has connected.
+X-Channel: voice. X-Channel-Auth: authenticated.
+X-Customer-ID: CUST-001. X-Session-ID: abc-123-xyz.
+Call get_customer_details with customer_id="CUST-001" to fetch their profile,
+then greet them by their preferred_name and ask how you can help today.
+Do not ask them to re-verify their identity.
+```
+
+**Why it exists:** Nova Sonic needs something to respond to before the customer speaks. Without this kickoff, ARIA sits silent waiting for the customer to speak first — which is wrong for a banking agent (the agent should greet the customer first).
+
+---
+
+##### Injection V6 — Stream Renewal History (`_build_history_events`)
+
+**What it is:** Nova Sonic has a hard 600-second session limit. The voice handler renews the stream transparently at ~540 seconds. When opening the new stream, the last N turns of conversation (from `self._conversation_history`) are replayed as non-interactive AWS content blocks, so the new stream picks up where the old one left off.
+
+**Budget:** max 40 KB total history, max 1 KB per individual turn, most recent turns prioritised.
+
+**Note on `_build_context_preamble()`:** This method is called at line 623 of `agentcore_voice.py` (`context_preamble = self._build_context_preamble()`) but the method is never defined anywhere in the file, and the variable is never used after being assigned. This is dead/stub code — it has no effect and is not part of the actual renewal logic.
+
+---
+
+#### Chat Channel — `agentcore_app.py`
+
+##### Injection C1 — `SESSION_START` First-Turn Text Injection
+
+**What it is:** On the **first turn only** (`session_id not in _SESSION_STARTED`), the chat handler prepends a `SESSION_START` trigger to the customer's actual first message, combining both into a single LLM call:
+
+```
+SESSION_START: An authenticated customer has connected.
+X-Channel-Auth: authenticated.
+X-Customer-ID: CUST-001.
+X-Channel: agentcore-chat.
+Call get_customer_details with this customer ID to fetch their profile,
+then greet them by their preferred_name and ask how you can help today.
+Do not ask them to re-verify their identity.
+
+Customer's first message: What's my account balance?
+```
+
+**Critical difference from voice:** Chat does NOT use `_build_voice_system_prompt()`. The Strands agent is created with just `ARIA_SYSTEM_PROMPT` — no voice preamble, no empathy block, no card override. The system prompt alone governs chat behaviour.
+
+---
+
+##### Injection C2 — In-Process Session State (`_SESSION_META`, `_SESSION_STARTED`, `_ENDED_SESSIONS`)
+
+**What it is:** Three in-process dicts/sets maintained in `agentcore_app.py` per microVM lifetime:
+
+| Structure | Type | Content | Purpose |
+|---|---|---|---|
+| `_CHAT_AGENTS[session_id]` | `dict[str, StrandsAgent]` | One Strands agent per session | Holds the full conversation in `agent.messages` |
+| `_SESSION_META[session_id]` | `dict` | `{authenticated, customer_id, vulnerability}` | Carries auth + vulnerability state across turns |
+| `_SESSION_STARTED` | `set[str]` | Set of session IDs | Prevents SESSION_START from being injected twice |
+| `_ENDED_SESSIONS` | `set[str]` | Set of session IDs | Triggers clean slate when customer reconnects after farewell |
+
+**Why they exist:** AgentCore routes all turns within a `session_id` to the same microVM process. These dicts are the source of truth for session-scoped state (auth, vulnerability flag, conversation history via agent.messages).
+
+---
+
+##### Injection C3 — Vulnerability Flag Detection and Propagation
+
+**What it is:** After every turn, `_extract_vulnerability_from_messages()` scans the new entries in `agent.messages` for a `toolResult` from `get_customer_details` containing a non-null `vulnerability` field. Once detected, it is stored in `_SESSION_META[session_id]["vulnerability"]` and then passed to every subsequent `_emit_audit()` call — tagging all audit events for the session as vulnerable-customer interactions.
+
+This is not a prompt injection — it is a post-turn state extraction that drives audit tagging. But it functions like an implicit session attribute.
+
+---
+
+### Migration Mapping — What Each Injection Becomes
+
+| # | Injection | Current mechanism | Bedrock Agent equivalent | Action required |
+|---|---|---|---|---|
+| V1 | Voice preamble header + SESSION CONTEXT block | `_build_voice_system_prompt()` | Session attributes from Contact Flow + instruction conditional blocks | Embed channel-conditional sections in `instruction` field |
+| V1a | **Session ID in system prompt** (`- Session ID: {session_id}`) | Dynamic f-string in preamble | `event["sessionId"]` in every Lambda invocation | Remove from instruction; tell agent: "the session ID is provided to every tool automatically — do not repeat it in tool calls" |
+| V1b | **Customer ID in system prompt** (`- Customer ID: {customer_id}`) | Dynamic f-string in preamble | `sessionAttributes.customerId` set by Contact Flow | `instruction` rule: "If `sessionAttributes.customerId` is present at session start, call `get_customer_details` with that value immediately, then greet by preferred_name" |
+| V1c | **Auth state in system prompt** (`Auth state: authenticated`) | Dynamic f-string | `sessionAttributes.authenticated = 'true'` from Contact Flow | `instruction` rule: "If `sessionAttributes.authenticated = 'true'` and `customerId` is present, skip identity verification" |
+| V1d | **Channel in system prompt** (`Channel: voice`) | Dynamic f-string | `sessionAttributes.channel` set by Contact Flow | Already handled by Section 3 of ARIA_SYSTEM_PROMPT — no change needed |
+| V2 | `_EMPATHY_BLOCK` | Voice preamble only | Add to `instruction` as `[VOICE CHANNEL ONLY]` conditional block | Add to instruction (see section below) |
+| V3 | `CARD QUERIES — VOICE OVERRIDE` | Voice preamble only | Add to `instruction` as `[VOICE CHANNEL ONLY]` conditional block | Add to instruction (see section below) |
+| V4 | History block (AgentCore Memory) | Prepended to system prompt | Bedrock Agent native `SESSION_SUMMARY` memory | Enable `memoryConfiguration` on the agent — handled automatically |
+| V5 | `SESSION_START` kickoff text (voice) | `_send_kickoff()` — first Nova Sonic USER event | Contact Flow session attributes + `instruction` telling agent what to do on first turn | No explicit kickoff needed — agent reads session attributes on turn 1 |
+| V5a | `SESSION_START` first-message injection (chat) | `_build_session_start()` prepended to first message | Same as V5 — replaced by session attributes | No explicit injection needed |
+| V6 | Stream renewal history (`_build_history_events`) | Nova Sonic stream renewal only | Not applicable — Connect manages session; no 600s limit | Nothing to do |
+| — | `_build_context_preamble()` | Dead code (never executes) | Nothing | Nothing |
+| C1 | `SESSION_START` first-turn injection (chat) | `agentcore_app.py` per-session flag | Replaced by session attributes + instruction | Session attributes replace this entirely |
+| C2 | In-process session state dicts | `_SESSION_META`, `_CHAT_AGENTS` etc. | `sessionAttributes` (Bedrock Agent native, per-session key-value) | Use `sessionAttributes` in Lambdas; pass `vulnerability_flag` back as session attribute |
+| C3 | Vulnerability flag extraction | Post-turn scan of `agent.messages` | `get_customer_details` Lambda sets `sessionAttributes.vulnerability_flag` | Lambda-side: after returning customer profile, include vulnerability flag in `sessionAttributes` return |
+
+---
+
+### How Session Attributes Replace Runtime Injections
+
+Session attributes are the Bedrock Agent's equivalent of runtime injection. They are set by the Connect Contact Flow **before** the first customer utterance reaches the bot — so the Bedrock Agent has them from turn 1.
+
+**Contact Flow configuration (Set Contact Attributes block):**
+
+```
+channel         = voice          (or "chat")
+authenticated   = true           (or "false")
+customerId      = CUST-001       (from Connect customer profile lookup, or "" if unknown)
+contactId       = $.ContactId    (Connect Contact ID — used as session ID for tools)
+```
+
+**What Bedrock Agent Lambda sees on every invocation:**
+
+```json
+{
+  "sessionId": "abc-123-xyz",
+  "sessionAttributes": {
+    "channel":       "voice",
+    "authenticated": "true",
+    "customerId":    "CUST-001",
+    "contactId":     "abc-123-xyz"
+  }
+}
+```
+
+> **Note**: `event["sessionId"]` is the Bedrock Agent session ID — typically set to the Connect Contact ID by the Lex V2 integration. Tools should use `event["sessionId"]` as the `session_id` for PII vault calls. They do NOT need it in the system prompt.
+
+**Lambda sets vulnerability back as a session attribute after `get_customer_details`:**
+
+```python
+# Inside aria_customer_handler.py, after fetching profile
+vulnerability = customer_profile.get("vulnerability")  # e.g. {"flag_type": "financial_difficulty", ...}
+
+return {
+    "messageVersion": "1.0",
+    "response": { ... },
+    "sessionAttributes": {
+        **session_attrs,                          # preserve existing attributes
+        "vulnerability_flag": "true" if vulnerability else "false",
+        "vulnerability_type": vulnerability.get("flag_type", "") if vulnerability else "",
+    }
+}
+```
+
+On all subsequent turns, every Lambda action group will see `sessionAttributes.vulnerability_flag = "true"` and can use it for audit tagging — exactly replicating what `_SESSION_META[session_id]["vulnerability"]` does today.
+
+---
+
+### New Instruction Additions for Bedrock Agent
+
+Because voice-specific injections (V1, V2, V3) can no longer be dynamically prepended at session start, their content must live permanently in the `instruction` field, gated by `sessionAttributes.channel`. Add the following two blocks to the adapted ARIA instruction (after Section 8 Tone Guidelines):
+
+```
+## 8b. Voice Channel — Empathy and Tonal Rules
+(Apply only when sessionAttributes.channel is 'voice' or 'ivr')
+
+Voice is the most personal channel. Customers can hear warmth and care — use that.
+
+EMPATHY TRIGGERS — acknowledge the customer's feelings FIRST, then respond:
+- Lost or stolen card: "I'm really sorry to hear that — let me get that sorted right away."
+  Then proceed immediately to identify the card and initiate the block.
+- Suspected fraud: "That must be really worrying. Let me look into that straightaway."
+- Financial concern or missed payment: Acknowledge calmly, without judgement:
+  "I understand — let me pull up the details so we can go through this together."
+- Bereavement: Speak very gently. Offer the bereavement specialist team before anything else:
+  "I'm so sorry for your loss. I'd like to make sure you get the right support — would it be
+  alright if I connected you with our specialist team?"
+- Financial hardship: "I hear you, and we want to make sure you get the right support.
+  Let me see what options are available for you."
+- Customer sounds distressed or overwhelmed: Pause before responding. Speak more slowly.
+  Acknowledge: "Take your time — there's no rush at all." Do NOT rush to the task.
+
+VULNERABILITY DETECTION — listen for spoken cues, not just the profile flag:
+- Distress or panic → slow your pace, use very short sentences, acknowledge and reassure.
+- Confusion or repetition → use simplest possible language, confirm understanding after each step.
+- Third-party pressure → do NOT proceed with irreversible actions, escalate to specialist.
+- Mid-call disclosure → adapt immediately, offer specialist support before continuing.
+
+WARM ACKNOWLEDGMENT RULE:
+On any distressing call — say something warm and human BEFORE any task or tool call.
+
+## 8c. Voice Channel — Card Query Rules
+(Apply only when sessionAttributes.channel is 'voice' or 'ivr')
+
+After get_customer_details, you know every card_last_four from the customer profile.
+1. NEVER ask the customer to provide or confirm card digits you already have from the profile.
+2. NEVER call pii_vault_retrieve for card_last_four — use profile values directly.
+3. ONE card of the requested type → use its card_last_four directly. Tell the customer which card.
+4. MULTIPLE cards of the same type → list scheme and last four digits, ask which one.
+5. "Confirm the card" means TELL the customer which card you are using — not ask them to confirm digits.
+
+## 8d. Session Initialisation Rules
+
+On the FIRST turn of every session:
+- Read sessionAttributes.channel to know your channel context.
+- If sessionAttributes.authenticated = 'true' AND sessionAttributes.customerId is present:
+    Call get_customer_details with that customerId immediately.
+    Then greet the customer by their preferred_name and ask how you can help.
+    Do NOT ask them to re-verify their identity.
+- If sessionAttributes.authenticated = 'false' OR customerId is absent:
+    Greet the caller warmly as ARIA from Meridian Bank and begin the identity verification flow.
+- The session ID passed to all PII vault and authentication tools is provided automatically
+  in the tool event — you do not need to ask for it or track it yourself.
+```
+
+---
+
+### Vulnerability Flag — End-to-End Flow in Bedrock Agent
+
+```
+Contact Flow
+  └─ sessionAttributes: {authenticated: "true", customerId: "CUST-005"}
+       │
+       ▼
+Lex V2 → AMAZON.BedrockAgentIntent
+       │
+       ▼
+Bedrock Agent (turn 1)
+  └─ Reads session attributes
+  └─ Instruction 8d: authenticated + customerId present
+  └─ Calls get_customer_details("CUST-005")
+       │
+       ▼
+aria-banking-customer Lambda
+  └─ Fetches customer profile
+  └─ Detects vulnerability: {flag_type: "financial_difficulty", refer_to_specialist: true}
+  └─ Returns profile in responseBody
+  └─ Sets sessionAttributes:
+       vulnerability_flag = "true"
+       vulnerability_type = "financial_difficulty"
+       │
+       ▼
+Bedrock Agent (turn 1 continues)
+  └─ Profile returned: vulnerability present
+  └─ System prompt Section 4 applies: specialist referral, suppress promotion/collections
+  └─ Greets customer warmly — does NOT mention vulnerability flag
+       │
+       ▼
+All subsequent Lambda invocations for this session:
+  └─ event["sessionAttributes"]["vulnerability_flag"] = "true"
+  └─ event["sessionAttributes"]["vulnerability_type"] = "financial_difficulty"
+  └─ aria_audit.emit() tags all events as HIGH severity, vulnerable_customer=True
+```
+
+---
+
+## A3. Tool Migration — 20 Strands Tools → 7 Lambda Action Groups
 
 ### Official Lambda Event/Response Contract
 
@@ -385,7 +728,7 @@ Save this as `scripts/lambdas/bedrock_agent/aria_handler_base.py` and import in 
 
 ---
 
-## A3. PII Vault Migration — In-Process Dict → DynamoDB
+## A4. PII Vault Migration — In-Process Dict → DynamoDB
 
 ### The Problem
 
@@ -646,7 +989,7 @@ aws lambda create-function \
 
 ---
 
-## A4. Migrating the Auth Lambda
+## A5. Migrating the Auth Lambda
 
 The existing `aria-banking-auth` Lambda (`scripts/lambdas/mcp_tools/aria_auth_handler.py`) was written for the MCP Gateway event format (`event["toolName"]`). For Bedrock Agent action groups it must be updated to the **official Bedrock Agent Lambda event format** (`event["apiPath"]`).
 
@@ -750,7 +1093,7 @@ def _err(ag, path, method, msg):
 
 ---
 
-## A5. Audit Events from Lambda
+## A6. Audit Events from Lambda
 
 The Strands `audit_manager.py` emits audit events to EventBridge and local JSONL from within the AgentCore container. In the Lambda path, **each Lambda is responsible for emitting its own audit event** after executing a tool.
 
@@ -839,7 +1182,7 @@ emit("cross_validate", session_id, customer_id, "success",
 
 ---
 
-## A6. Session Memory Migration
+## A7. Session Memory Migration
 
 ### Current (AgentCore `memory_client.py`)
 `memory_client.py` wraps the AgentCore Memory Store API, saving conversation history across `/invocations` calls using `AGENTCORE_MEMORY_ID`.
@@ -882,7 +1225,7 @@ The `memory_client.py` module and the `AGENTCORE_MEMORY_ID` environment variable
 
 ---
 
-## A7. Complete Migration Checklist
+## A8. Complete Migration Checklist
 
 | Task | File/Resource | Status |
 |---|---|---|
