@@ -12,11 +12,13 @@ export function useChat(connection) {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [transferred, setTransferred] = useState(false);
 
   const sessionId = useRef(uuidv4()).current;
 
   const sendMessage = useCallback(async (text) => {
     if (!text || !text.trim()) return;
+    if (transferred) return; // session has been handed off — no further messages to ARIA
 
     if (!chatUrl) {
       setError('Chat URL is not configured. Please set it in Connection Settings.');
@@ -83,14 +85,48 @@ export function useChat(connection) {
 
       const responseText = await response.text();
 
+      // Backend returns a JSON object when a transfer/escalation occurred,
+      // plain text for all other turns.
+      let ariaContent = responseText;
+      let transferMeta = null;
+      try {
+        const parsed = JSON.parse(responseText);
+        if (parsed && typeof parsed.response === 'string') {
+          ariaContent = parsed.response;
+          if (parsed.transfer) {
+            transferMeta = {
+              handoffRef: parsed.handoff_ref,
+              estimatedWait: parsed.estimated_wait_seconds,
+            };
+          }
+        }
+      } catch {
+        // Plain text response — use as-is
+      }
+
       const assistantMsg = {
         id: uuidv4(),
         role: 'assistant',
-        content: responseText,
+        content: ariaContent,
         timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      if (transferMeta) {
+        // Add ARIA's transfer message, then a system handoff banner
+        const transferMsg = {
+          id: uuidv4(),
+          role: 'transfer',
+          content: transferMeta.handoffRef
+            ? `Your reference number is ${transferMeta.handoffRef}.${transferMeta.estimatedWait ? ` Estimated wait: ${transferMeta.estimatedWait}s.` : ''}`
+            : 'You are being connected to a specialist.',
+          timestamp: new Date().toISOString(),
+          transferMeta,
+        };
+        setMessages((prev) => [...prev, assistantMsg, transferMsg]);
+        setTransferred(true);
+      } else {
+        setMessages((prev) => [...prev, assistantMsg]);
+      }
     } catch (err) {
       const errMsg = err?.message || 'Failed to reach ARIA. Please check your connection settings.';
       setError(errMsg);
@@ -105,12 +141,13 @@ export function useChat(connection) {
     } finally {
       setIsLoading(false);
     }
-  }, [chatUrl, config]);
+  }, [chatUrl, config, transferred]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    setTransferred(false);
   }, []);
 
-  return { messages, isLoading, error, sessionId, sendMessage, clearMessages };
+  return { messages, isLoading, error, sessionId, transferred, sendMessage, clearMessages };
 }

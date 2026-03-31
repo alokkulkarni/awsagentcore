@@ -156,9 +156,34 @@ def _extract_vulnerability_from_messages(messages: list, from_index: int) -> Opt
     return None
 
 
-# ---------------------------------------------------------------------------
-# Helper: build SESSION_START trigger (mirrors main.py logic)
-# ---------------------------------------------------------------------------
+def _extract_escalation_from_messages(messages: list, from_index: int) -> Optional[dict]:
+    """Scan new agent messages for a successful escalate_to_human_agent tool result.
+
+    Returns the handoff metadata dict if the tool returned handoff_status
+    'accepted' or 'queued', otherwise None.
+    """
+    import json as _json
+    for msg in messages[from_index:]:
+        for block in (msg.get("content") or []):
+            if "toolResult" not in block:
+                continue
+            tr = block["toolResult"]
+            for content_item in (tr.get("content") or []):
+                raw = content_item.get("text", "") if isinstance(content_item, dict) else ""
+                if not raw:
+                    continue
+                try:
+                    data = _json.loads(raw)
+                except Exception:
+                    continue
+                if data.get("handoff_status") in ("accepted", "queued"):
+                    return {
+                        "handoff_status": data.get("handoff_status"),
+                        "handoff_ref": data.get("handoff_ref"),
+                        "estimated_wait_seconds": data.get("estimated_wait_seconds"),
+                        "agent_id": data.get("agent_id"),
+                    }
+    return None
 
 def _build_session_start(
     authenticated: bool, customer_id: Optional[str], channel: str
@@ -200,8 +225,11 @@ _FAREWELL_WORDS = frozenset({
 
 
 def _is_farewell_response(text: str) -> bool:
-    lower = text.lower()
-    return any(w in lower for w in _FAREWELL_RESPONSE_WORDS)
+    # Only inspect the final 150 characters — farewell phrases are always at the
+    # end of a response. Scanning the full text causes false-positives on phrases
+    # like "I can take care of that for you" or "pleasure helping" mid-sentence.
+    tail = text[-150:].lower() if len(text) > 150 else text.lower()
+    return any(w in tail for w in _FAREWELL_RESPONSE_WORDS)
 
 
 def _purge_session(session_id: str) -> None:
@@ -402,6 +430,15 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
         vulnerability=meta.get("vulnerability"),
     )
 
+    # Detect successful escalation — end the session and prepare transfer signal
+    escalation = _extract_escalation_from_messages(agent.messages, _msg_idx)
+    if escalation:
+        logger.info(
+            "Escalation completed for session %s — handoff_ref=%s status=%s",
+            session_id, escalation.get("handoff_ref"), escalation.get("handoff_status"),
+        )
+        _ENDED_SESSIONS.add(session_id)
+
     # ------------------------------------------------------------------
     # Save turn to AgentCore Memory (async-friendly: best-effort fire)
     # ------------------------------------------------------------------
@@ -418,9 +455,21 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
 
     # Mark session as ended if ARIA said a farewell — next message from this
     # session_id will get a clean slate rather than a stale "session ended" reply.
-    if _is_farewell_response(aria_text):
+    if not escalation and _is_farewell_response(aria_text):
         logger.info("Farewell detected — marking session %s as ended", session_id)
         _ENDED_SESSIONS.add(session_id)
+
+    # Return structured JSON when a transfer occurred so the frontend can
+    # show the handoff UI and disable the chat input. Plain text otherwise.
+    if escalation:
+        import json as _json
+        return _json.dumps({
+            "response": aria_text,
+            "transfer": True,
+            "handoff_ref": escalation.get("handoff_ref"),
+            "estimated_wait_seconds": escalation.get("estimated_wait_seconds"),
+            "session_ended": True,
+        })
 
     return aria_text
 
