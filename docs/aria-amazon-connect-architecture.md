@@ -117,9 +117,26 @@ Connect can stream raw PCM audio to **Kinesis Video Streams**:
 
 ---
 
-## 4. Integration Architecture — Three Approaches
+## 4. Integration Architecture — Four Approaches
 
-### 4.1 Path A: Native Connect Nova Sonic + Lambda → AgentCore HTTP (RECOMMENDED)
+> **Updated**: Path E has been added as the recommended new approach following discovery of `AMAZON.BedrockAgentIntent` support in Lex V2. See [§4.4](#44-path-e-lex-v2-nova-sonic--amazon-bedrockagentintent--managed-bedrock-agent-recommended) and the full guide `docs/amazon-connect-path-e-bedrock-agent-lex-guide.md`.
+
+### Approach Comparison at a Glance
+
+| | **Path A** | **Path E** ⭐ | **Option D** | **Path B** |
+|---|---|---|---|---|
+| Voice (Nova Sonic) | ✅ Lex V2 S2S | ✅ Lex V2 S2S | ✅ Connect native | ✅ AgentCore WS |
+| Reasoning engine | Lambda proxy → AgentCore | ✅ Managed Bedrock Agent | Connect built-in AI | ARIA AgentCore |
+| Multi-tool per voice turn | ❌ One turn = one proxy call | ✅ Agent calls N tools | ✅ Via MCP | ✅ |
+| Lambda bridge needed | Yes | **No** | No | No |
+| Lex V2 required | Yes | Yes | No | No |
+| MCP Gateway | No | No | ✅ Yes | No |
+| Complexity | Low | Low–Moderate | Moderate | High |
+| Best for | Preserve ARIA code as-is | Best voice + reasoning balance | Connect-native simplicity | Sub-200ms latency |
+
+---
+
+### 4.1 Path A: Native Connect Nova Sonic + Lambda → AgentCore HTTP
 
 This is the **cleanest and most production-ready approach**. Amazon Connect manages all telephony and Nova Sonic voice; our ARIA AgentCore handles all intelligence and tool execution.
 
@@ -309,6 +326,100 @@ Lambda → Lex fulfillment response → Connect Chat → Customer
 ```
 
 This is identical in structure to Path A but for the chat channel. The same Lambda function can serve both voice (transcript → text) and chat (message text) by detecting the channel type from contact attributes.
+
+---
+
+### 4.4 Path E: Lex V2 (Nova Sonic) + AMAZON.BedrockAgentIntent → Managed Bedrock Agent (RECOMMENDED FOR NEW DEPLOYMENTS)
+
+This is the **optimal PSTN voice architecture** when you want native Bedrock Agent reasoning without writing a Lambda proxy bridge. Discovered after `AMAZON.BedrockAgentIntent` was made generally available in Lex V2.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                    PSTN / Telephone Network                           │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ PSTN
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                   Amazon Connect (eu-west-2)                          │
+│                                                                       │
+│  Inbound Contact Flow: ARIA-PathE-Banking-Flow                       │
+│  [Set Voice: Amy, Generative (Nova Sonic S2S)]                       │
+│      ↓                                                                │
+│  [Set Recording + Contact Lens Real-time]                            │
+│      ↓                                                                │
+│  [Get Customer Input: ARIA-PathE-Bot (Lex V2)]                       │
+│      ↓ customer speaks                                                │
+│  Nova Sonic S2S: speech → text                                       │
+│      ↓                                                                │
+│  AMAZON.BedrockAgentIntent ← entire conversation delegated here      │
+│      ↓ on escalation_requested=true                                   │
+│  [Transfer to Queue: CustomerServiceQueue]                            │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ bedrock:InvokeAgent
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│      Managed Amazon Bedrock Agent: aria-banking-agent (eu-west-2)   │
+│                                                                       │
+│  Foundation model: Claude Sonnet 4.6                                 │
+│  System prompt: Full ARIA banking persona                            │
+│  User Input: ENABLED (allows multi-turn clarification)               │
+│  Session TTL: 900 s                                                  │
+│                                                                       │
+│  Action Groups (Lambda-backed):                                       │
+│  ├── auth-tools     → aria-banking-auth       (authenticate)         │
+│  ├── account-tools  → aria-banking-account    (balance, statement)   │
+│  ├── customer-tools → aria-banking-customer   (profile, vuln flag)   │
+│  ├── debit-card     → aria-banking-debit-card (block, replace)       │
+│  ├── credit-card    → aria-banking-credit-card (block, replace)      │
+│  ├── mortgage-tools → aria-banking-mortgage   (details, balance)     │
+│  └── escalation     → aria-banking-escalation (human handoff)        │
+└──────────────────────────────────────────────────────────────────────┘
+                               ↑
+                    Existing ARIA AgentCore Runtime
+                    (unchanged — continues to serve browser/mobile)
+```
+
+#### Why AMAZON.BedrockAgentIntent Changes Everything
+
+The `AMAZON.BedrockAgentIntent` is a Lex V2 built-in intent that, when triggered, **delegates the entire conversation to a managed Amazon Bedrock Agent**. The key differences from Path A's Lambda bridge:
+
+| Aspect | Path A (Lambda Bridge) | Path E (BedrockAgentIntent) |
+|---|---|---|
+| Per-turn Lambda | Yes — one proxy call per utterance | **No Lambda bridge** |
+| Reasoning | None (dumb proxy) | Full Claude reasoning |
+| Tools per turn | One sequential chain, must finish in ≤8 s | Agent calls N tools, manages state |
+| Multi-turn auth flow | Lambda reads/writes session attrs manually | Agent handles natively |
+| Session state | Lambda passes session attributes | Agent-native memory |
+| Escalation detection | String matching in Lambda | Agent calls `escalate_to_human` tool |
+
+#### Managed Agent vs Inline Agent vs AgentCore Runtime (Critical Distinction)
+
+| | Managed Bedrock Agent | Inline Agent SDK | AgentCore Runtime |
+|---|---|---|---|
+| Used with BedrockAgentIntent | ✅ Yes | ❌ No | ❌ No |
+| Tool mechanism | Lambda Action Groups | `mcp_clients=[]` | `@tool` decorators |
+| MCP Gateway natively | ❌ No | ✅ Yes | ✅ Yes |
+
+**`AMAZON.BedrockAgentIntent` requires a managed agent (Agent ID + Alias ID). It cannot be pointed at an AgentCore Runtime or an Inline Agent.**
+
+#### Why Not MCP Gateway in Path E?
+
+Since Path E uses Lambda Action Groups (not MCP), a question arises: could you add the AgentCore MCP Gateway instead?
+
+No — managed Bedrock Agents do not natively speak MCP. The `mcp_clients` feature in the AWS MCP blog is exclusively for the **Inline Agent SDK**, not console-managed agents. Adding MCP Gateway in Path E would require an extra Lambda proxy that calls the Gateway (Lambda → MCP Gateway → Lambda) — a redundant hop with no benefit.
+
+**Correct pairings:**
+- Path E → Lambda Action Groups directly
+- Option D (Connect Agentic) → AgentCore MCP Gateway
+- These are separate integration paths; each is optimal for its invocation mechanism.
+
+#### Limitations
+
+- Requires creation of a separate managed Bedrock Agent (ARIA's AgentCore Runtime code is not reused — the prompt and tool definitions are replicated as Lambda Action Groups)
+- Lambda Action Groups have individual timeouts (25 s recommended; 30 s hard limit from Bedrock Agent)
+- On cold starts, multi-tool turns may add 2–5 s over Path A's cached AgentCore response
+
+> **Full step-by-step setup**: `docs/amazon-connect-path-e-bedrock-agent-lex-guide.md`
 
 ---
 
@@ -728,7 +839,17 @@ Amazon QuickSight dashboards:
 
 ## 11. Implementation Roadmap
 
-### Phase 1 — Voice Channel (Path A)
+### Phase 1 — Voice Channel (Path E — Recommended for new deployments)
+1. Create Amazon Connect instance in eu-west-2
+2. Claim a UK phone number (+44)
+3. Deploy 7 Lambda Action Group functions (`aria-banking-*`)
+4. Create managed Bedrock Agent (`aria-banking-agent`) with ARIA system prompt and Lambda action groups
+5. Create Lex V2 bot (`ARIA-PathE-Bot`, en-GB, Nova Sonic S2S) with `AMAZON.BedrockAgentIntent`
+6. Build Inbound Contact Flow (SetVoice → ContactLens → GetCustomerInput → Escalation check)
+7. Assign flow to phone number
+8. Test: call the number, ARIA greets, auth works, multi-tool banking queries work, escalation routes to test queue
+
+### Phase 1 (Alternative) — Voice Channel (Path A — Use if preserving existing ARIA container code)
 1. Create Amazon Connect instance in eu-west-2
 2. Claim a UK phone number (+44)
 3. Create ARIA-Connect-Bot (Lex V2, en-GB locale, Nova Sonic S2S)
@@ -762,7 +883,8 @@ Amazon QuickSight dashboards:
 2. SMS channel via Pinpoint
 3. WhatsApp Business via Connect
 4. Amazon Q in Connect for real-time agent assist
-5. Evaluate Path B (KVS bridge) if sub-200ms latency becomes a hard requirement
+5. Evaluate Option D (Connect Agentic + MCP Gateway) as an A/B test against Path E
+6. Evaluate Path B (KVS bridge) if sub-200ms latency becomes a hard requirement
 
 ---
 
@@ -771,12 +893,17 @@ Amazon QuickSight dashboards:
 | Decision | Chosen Approach | Rationale |
 |---|---|---|
 | Voice AI engine | Native Connect Nova Sonic S2S | Officially supported; best audio quality; zero custom audio plumbing |
-| Agent intelligence | Existing AgentCore ARIA (unchanged) | Preserves all banking tools, auth logic, session management |
-| Bridge mechanism | Lambda fulfillment in Lex V2 | Standard AWS pattern; well-documented; ≤8s latency acceptable |
-| Session continuity | `ContactId` as AgentCore session ID | Stable for call lifetime; no additional session store needed |
-| Channel routing | Single Lambda, channel-aware | DRY; ARIA's text-based chat path works for both voice (transcript) and chat |
+| Agent intelligence (new deployments) | Managed Bedrock Agent via BedrockAgentIntent (Path E) | Native reasoning; no Lambda bridge; multi-tool per turn |
+| Agent intelligence (existing ARIA code) | Existing AgentCore ARIA via Lambda bridge (Path A) | Preserves all banking tools, auth logic, session management |
+| Bridge mechanism (Path A) | Lambda fulfillment in Lex V2 | Standard AWS pattern; well-documented; ≤8s latency acceptable |
+| Bridge mechanism (Path E) | AMAZON.BedrockAgentIntent (no bridge) | Lex delegates directly to Bedrock Agent; agent handles all reasoning |
+| Tools in Path E | Lambda Action Groups on Managed Bedrock Agent | Only mechanism compatible with BedrockAgentIntent |
+| Tools in Option D | AgentCore MCP Gateway → Lambda | Designed for Connect Agentic Self-Service native integration |
+| MCP Gateway in Path E | Not used | Managed agents don't natively speak MCP; Inline Agent SDK does, but can't be used with BedrockAgentIntent |
+| Session continuity | `ContactId` as AgentCore session ID (Path A) / Bedrock Agent native session (Path E) | Both stable for call lifetime |
+| Channel routing | Single Lambda, channel-aware (Path A/C) | DRY; ARIA's text-based chat path works for both voice and chat |
 | Escalation | Contact attribute + flow branch | Native Connect pattern; no custom state machine needed |
-| Auth in Connect | ARIA handles auth natively | No change to existing auth flow; auth state passed as contact attribute |
+| Auth in Connect | Agent handles auth natively (all paths) | No change to existing auth flow; auth state in session |
 | Recording | Native Connect S3 recording | PCI DSS compliant; no custom recording infrastructure |
 | PII | Contact Lens redaction | Regulatory requirement for banking |
 
@@ -784,6 +911,7 @@ Amazon QuickSight dashboards:
 
 ## 13. Integration Readiness Checklist
 
+### Path A (Lambda Bridge → AgentCore)
 Before going live on Connect:
 
 - [ ] Amazon Connect instance created (eu-west-2)
@@ -798,7 +926,32 @@ Before going live on Connect:
 - [ ] Call recording enabled (S3, KMS)
 - [ ] Contact Lens enabled (PII redaction)
 - [ ] CloudWatch alarms configured (Lambda errors, AgentCore latency)
-- [ ] Load tested (10+ concurrent calls; KVS quota checked if media streaming enabled)
+- [ ] Load tested (10+ concurrent calls)
+
+### Path E (BedrockAgentIntent → Managed Bedrock Agent) ⭐ Recommended
+- [ ] 7 Lambda Action Group functions deployed (`aria-banking-*`)
+- [ ] Bedrock Agent IAM role created (`aria-bedrock-agent-role`)
+- [ ] Managed Bedrock Agent created (`aria-banking-agent`) with ARIA system prompt
+- [ ] User Input set to ENABLED on the Agent (console: Additional Settings)
+- [ ] All 7 action groups added with OpenAPI schemas and Lambda targets
+- [ ] Agent prepared and production alias created
+- [ ] Lex bot created (`ARIA-PathE-Bot`, en-GB, Nova Sonic Generative voice)
+- [ ] Generative AI features enabled on the Lex locale
+- [ ] `AMAZON.BedrockAgentIntent` added with Agent ID + Alias ID, overriding FallbackIntent
+- [ ] Lex bot IAM role has `bedrock:InvokeAgent` permission on the Agent Alias ARN
+- [ ] Bot built, versioned, and alias published
+- [ ] Bot registered in Amazon Connect instance
+- [ ] Nova Sonic S2S confirmed enabled on en-GB locale
+- [ ] Contact Flow created with Set Voice (Amy, Generative) + Contact Lens enabled
+- [ ] Escalation branch tested (escalation_requested attribute → queue transfer)
+- [ ] Multi-tool turn tested (auth + balance + card in one utterance)
+- [ ] Authentication failure flow tested (3 failed → ID&V queue)
+- [ ] Call recording enabled (S3, KMS)
+- [ ] CloudWatch alarms: Lambda errors, Bedrock Agent latency
+- [ ] Load tested (10+ concurrent calls)
+
+### Option D (Connect Agentic + MCP Gateway)
+Refer to `docs/amazon-connect-agentic-mcp-setup-guide.md` for the full checklist.
 
 ---
 
