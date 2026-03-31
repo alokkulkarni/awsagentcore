@@ -1057,7 +1057,302 @@ Each pattern is purpose-built. Path E and Option D both result in the same phone
 
 ---
 
-## Reference Values (This Stack)
+## Part 11 — Supervisor Monitoring, Barge-In and Real-Time Oversight
+
+> **Official references used in this section:**
+> - [Monitor live conversations – Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-conversations.html)
+> - [Barge live conversations – Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-barge.html)
+> - [Set recording and analytics behavior – Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/set-recording-behavior.html)
+> - [Enable Contact Lens conversational analytics – Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/enable-analytics.html)
+> - [Alert supervisors in real time – Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/add-rules-for-alerts.html)
+> - [TransferContact – Amazon Connect API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_TransferContact.html)
+
+---
+
+### 11.1 The Fundamental Constraint — What the Docs Actually Say
+
+Amazon Connect's native CCP **Silent Monitor** and **Barge-In** capabilities are designed for calls where a **human agent** is present on the contact. Supervisors reach those calls via:
+
+> *Analytics and optimization → Real-time metrics → Agents → click the eye icon on a Voice channel*
+
+In Path E, during the ARIA bot phase, the contact is handled entirely by the **Lex V2 bot + Nova Sonic + Bedrock Agent** pipeline. There is **no human agent assigned to the contact**. The contact does not appear in any agent row in the Real-time metrics Agents table. The standard CCP monitor/barge workflow cannot reach the call while ARIA is handling it.
+
+This is a structural constraint, not a configuration gap. The official docs describe the barge feature as follows:
+
+> *"Supervisors and managers can barge into live voice and chat conversations **between agents and customers**."*
+> — [Barge live conversations, Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-barge.html)
+
+The key phrase is **between agents and customers**. A bot-only call is not that conversation.
+
+---
+
+### 11.2 What DOES Work Natively — Official AWS Capabilities
+
+The following table distinguishes what is confirmed by official AWS documentation from what requires custom implementation:
+
+| Capability | ARIA bot phase (Lex + Nova Sonic) | After transfer to human agent | Source |
+|---|---|---|---|
+| **Automated interaction call recording** | ✅ Native — enable in `Set recording and analytics behavior` block | ✅ Continuous | [Set recording behavior](https://docs.aws.amazon.com/connect/latest/adminguide/set-recording-behavior.html) |
+| **Lex bot transcripts in Contact Details** | ✅ Native — enable "Bot Analytics and Transcripts" on instance | ✅ Combined transcript | [Set recording behavior – Bot Analytics note](https://docs.aws.amazon.com/connect/latest/adminguide/set-recording-behavior.html) |
+| **Contact Lens real-time keyword/phrase alerts** | ✅ Native — fires on customer speech during bot phase | ✅ | [Alert supervisors in real time](https://docs.aws.amazon.com/connect/latest/adminguide/add-rules-for-alerts.html) |
+| **Contact Lens real-time transcript** | ✅ Supervisor sees live transcript when alert fires | ✅ | [Alert supervisors in real time](https://docs.aws.amazon.com/connect/latest/adminguide/add-rules-for-alerts.html) |
+| **Contact Lens sentiment scoring** | ✅ Customer sentiment tracked through bot phase | ✅ | [Enable Contact Lens](https://docs.aws.amazon.com/connect/latest/adminguide/enable-analytics.html) |
+| **Contact Lens post-call analytics** | ✅ Full bot + agent transcript, sentiment, categories | ✅ | [Enable Contact Lens](https://docs.aws.amazon.com/connect/latest/adminguide/enable-analytics.html) |
+| **CCP silent monitor (supervisor hears audio)** | ❌ Not supported — no agent on the call | ✅ Full CCP support | [Monitor live conversations](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-conversations.html) |
+| **CCP barge-in (supervisor speaks into call)** | ❌ Not supported — no agent on the call | ✅ Full CCP support | [Barge live conversations](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-barge.html) |
+| **Whisper coaching** | ❌ N/A — no agent to coach | ✅ Agent hears supervisor only | [Monitor live conversations](https://docs.aws.amazon.com/connect/latest/adminguide/monitor-conversations.html) |
+| **Force-transfer via TransferContact API** | ❌ Not for voice — TASK and EMAIL only | N/A | [TransferContact API](https://docs.aws.amazon.com/connect/latest/APIReference/API_TransferContact.html) |
+
+> **Contact Lens + multi-party calling limitation (official docs):**
+> Contact Lens supports calls with **up to 2 participants**. AWS recommends disabling Contact Lens in the `Set recording and analytics behavior` block for contacts expected to have 3 or more participants (e.g., conference transfers). Keep Contact Lens enabled only while the call has at most 2 participants.
+> — [Multi-party calls and conversational analytics](https://docs.aws.amazon.com/connect/latest/adminguide/enable-analytics.html#multiparty-calls-contactlens)
+
+---
+
+### 11.3 Enabling Bot-Phase Recording and Analytics — Step by Step
+
+#### Step 1 — Enable Bot Analytics on the Connect instance
+
+In the Amazon Connect console:
+
+1. Choose your instance alias
+2. Navigation pane → **Flows**
+3. Enable **"Bot Analytics and Transcripts in Amazon Connect"**
+
+This includes Lex bot turn-by-turn transcripts in the **Contact Details** page and in Amazon Connect analytics dashboards. Without this, the bot conversation is a black box to the supervisory layer.
+
+#### Step 2 — Configure the contact flow
+
+In your ARIA inbound contact flow, place a `Set recording and analytics behavior` block **before** the bot interaction. Configure it as follows:
+
+```
+Voice section:
+  ├── Agent and customer voice recording: ON (Agent and customer)
+  ├── Automated interaction call recording: ON          ← captures bot phase audio
+  └── Contact Lens speech analytics: Real-time analytics ← enables live alerts
+
+Analytics section:
+  ├── Language: en-GB
+  ├── Enable Contact Lens conversational analytics: ON
+  └── Enable sentiment analysis: ON
+```
+
+> **Important:** The `Set recording and analytics behavior` block must run **before** the `Get customer input` (Lex) block in the flow. If placed after, recording starts too late.
+
+If ARIA transfers to a human agent queue, add a **second** `Set recording and analytics behavior` block in the **Transfer to queue flow** to continue analytics on the second contact record generated by the transfer. This is required because a transfer creates a new `contactId` — Contact Lens must be explicitly re-enabled on that record.
+
+---
+
+### 11.4 Real-Time Supervisor Alerts — What Fires and How
+
+Contact Lens real-time rules fire on the customer's **speech** during the bot phase. When a rule triggers, the supervisor sees an alert on the real-time metrics dashboard with:
+- The keyword/phrase that matched
+- A live transcript of the conversation up to that point
+- Customer sentiment trend
+
+**Recommended keyword rules for the ARIA vulnerability and distress protocol:**
+
+| Rule name | Phrases (customer speech) | Priority |
+|---|---|---|
+| Distress — Financial hardship | `struggling to pay`, `can't afford`, `lost my job`, `in debt`, `behind on payments` | High |
+| Distress — Emotional | `really stressed`, `very worried`, `upset`, `frustrated`, `can't cope` | High |
+| Bereavement | `someone has died`, `passed away`, `bereavement`, `they've died` | High |
+| Transfer request | `speak to someone`, `speak to a person`, `speak to an agent`, `human`, `real person` | Medium |
+| Fraud concern | `didn't make this payment`, `wasn't me`, `stolen`, `fraud`, `unauthorised` | High |
+
+Configure these under: **Analytics and optimization → Rules → Create a rule → Conversational analytics → When: real-time analysis**
+
+When any of these fire during an ARIA call, the supervisor sees the alert immediately. From the alert, they can see the live transcript. The next step — intervening — is described in 11.5.
+
+---
+
+### 11.5 Supervisor Intervention on an ARIA Bot Call — Three Patterns
+
+Because CCP barge is not available during the bot phase, intervention requires one of the following patterns. These are ranked by complexity and latency.
+
+---
+
+#### Pattern A — ARIA escalates herself (preferred — already built)
+
+**How it works:** ARIA's vulnerability protocol and distress detection (`system_prompt.py`, Section 4) already triggers `escalate_to_human_agent` when specific conditions are met. This routes the contact out of the bot and into the specialist queue. Once connected to a human agent, the supervisor can use full CCP monitor/barge immediately.
+
+**Supervisor role:** Passive monitoring via Contact Lens alerts. If the alert shows ARIA has already responded appropriately (offering transfer), no action is required.
+
+**Latency to supervisor control:** ~30–60 seconds (ARIA completes the escalation tool sequence, queue routes to agent, supervisor clicks monitor).
+
+---
+
+#### Pattern B — Contact attribute flag → ARIA detects and self-escalates
+
+**How it works:** A supervisor dashboard calls `UpdateContactAttributes` to set a contact attribute on the live contact:
+
+```json
+{ "supervisor_override": "true" }
+```
+
+ARIA's escalation Lambda (or a check in the Bedrock Agent's session) reads contact attributes at each tool invocation turn via the Lambda event:
+
+```python
+# In any Lambda Action Group handler
+contact_attrs = event.get("sessionAttributes", {})
+if contact_attrs.get("supervisor_override") == "true":
+    # Return a special tool response that tells the agent to escalate immediately
+    return {"action": "escalate", "reason": "supervisor_override"}
+```
+
+The Bedrock Agent instruction includes a rule:
+
+```
+§ Supervisor override:
+If sessionAttributes.supervisor_override is "true", immediately call
+escalate_to_human_agent with escalation_reason: customer_request,
+priority: urgent. Do not ask the customer. Say: "I'm going to connect
+you with a colleague right away."
+```
+
+**Supervisor role:** Active — supervisor opens a custom dashboard, finds the live contact by contact ID, calls `UpdateContactAttributes` via API or a one-click button.
+
+```python
+import boto3
+connect = boto3.client('connect', region_name='eu-west-2')
+
+connect.update_contact_attributes(
+    InstanceId='<your-instance-id>',
+    InitialContactId='<contact-id-from-alert>',
+    Attributes={'supervisor_override': 'true'}
+)
+```
+
+**Latency to supervisor control:** ~10–15 seconds (attribute set → next ARIA turn detects it → escalation → queue → agent answers → supervisor monitors).
+
+---
+
+#### Pattern C — Contact Lens alert → EventBridge rule → Lambda → auto-escalate
+
+**How it works:** Contact Lens fires a real-time event to Amazon EventBridge when a keyword rule matches. An EventBridge rule catches it and invokes a Lambda that calls `UpdateContactAttributes` automatically — no supervisor manual action required.
+
+```
+Contact Lens alert fires (keyword: "struggling to pay")
+    ↓
+EventBridge rule: source=aws.connect, detail-type=Contact Lens Realtime Analysis
+    ↓
+Lambda: check flag_type on customer profile → if financial_difficulty → set supervisor_override
+    ↓
+ARIA detects attribute on next turn → escalates to specialist queue
+```
+
+EventBridge event structure for Contact Lens real-time alert:
+
+```json
+{
+  "source": "aws.connect",
+  "detail-type": "Contact Lens Realtime Analysis",
+  "detail": {
+    "instanceArn": "arn:aws:connect:eu-west-2:...",
+    "contactId": "abc-123",
+    "channel": "VOICE",
+    "matchedCategories": ["Distress-Financial-Hardship"],
+    "matchedDetails": {
+      "Distress-Financial-Hardship": {
+        "pointsOfInterest": [{ "beginOffsetMillis": 4200, "endOffsetMillis": 5800 }]
+      }
+    }
+  }
+}
+```
+
+**Supervisor role:** Passive — the automation handles it. Supervisor is informed via the dashboard alert but does not need to click anything.
+
+**Latency to supervisor control:** ~5–10 seconds to attribute set; ~20–30 seconds to human agent answered.
+
+---
+
+### 11.6 What the Supervisor Experience Looks Like End-to-End
+
+```
+1. ARIA is handling a live call (bot phase, no agent in CCP)
+       │
+       ├── Contact Lens: recording bot audio + generating live transcript
+       ├── Contact Lens: scoring customer sentiment turn by turn
+       └── Contact Lens: watching for keyword rule matches
+
+2. Customer says "I've been struggling to pay for months"
+       │
+       └── Contact Lens keyword rule fires → alert appears on supervisor dashboard
+             • Shows: customer sentiment (negative/declining)
+             • Shows: live transcript of the bot conversation so far
+             • Shows: which keyword matched and when
+
+3. Supervisor sees the alert
+       ├── Pattern A: ARIA's own vulnerability protocol already triggered → no action needed
+       ├── Pattern B: Supervisor clicks "Override to human" → API call sets attribute
+       └── Pattern C: EventBridge/Lambda already set the attribute automatically
+
+4. ARIA detects escalation trigger → calls escalate_to_human_agent tool
+       │
+       └── Contact flow routes to specialist vulnerable-customer queue
+
+5. Human agent answers
+       │
+       ├── Supervisor sees agent + customer in Real-time metrics Agents table
+       ├── Supervisor clicks eye icon → CCP opens in Monitor mode
+       └── Supervisor can toggle Monitor → Barge if they need to speak
+
+6. Full transcript (bot phase + agent phase) available in Contact Lens Contact Details
+       └── ARIA's handoff package (handoff_ref, transcript_summary) carried as
+           contact attributes into the agent contact record
+```
+
+---
+
+### 11.7 Contact Flow Changes Required
+
+Add these two blocks to the ARIA inbound contact flow:
+
+#### Block 1 — Before the Lex bot interaction
+
+```
+[Set contact attributes]
+  └── supervisor_override = ""   (initialise as empty string)
+
+[Set recording and analytics behavior]
+  ├── Automated interaction call recording: ON
+  ├── Agent and customer voice recording: ON
+  └── Contact Lens speech analytics: Real-time analytics
+        └── Language: en-GB
+
+[Get customer input]
+  └── Lex bot: ARIA-PathE-Bot
+```
+
+#### Block 2 — In the Transfer to queue flow (post-escalation)
+
+```
+[Set recording and analytics behavior]   ← second block on the transferred contact
+  ├── Agent and customer voice recording: ON
+  └── Contact Lens speech analytics: Real-time analytics OR Post-call analytics
+```
+
+> This second block is required because a queue transfer generates a new `contactId`. Contact Lens must be re-configured on the new contact record or the agent phase transcript will not be captured.
+
+---
+
+### 11.8 Security Profile Permissions Required
+
+For supervisors to perform the functions in this section:
+
+| Permission | Purpose | Where to assign |
+|---|---|---|
+| `Access metrics` | View real-time metrics dashboard and Contact Lens alerts | Security profile → Analytics |
+| `Real-time contact monitoring` | Listen to live calls (after transfer to agent) | Security profile → Contact Control Panel |
+| `Real-time contact barge-in` | Speak into live calls (after transfer to agent) | Security profile → Contact Control Panel |
+| `Access Contact Control Panel` | Open the CCP | Security profile → Contact Control Panel |
+| `Rules – Create/Edit` | Configure Contact Lens keyword alert rules | Security profile → Analytics |
+| Connect API `connect:UpdateContactAttributes` | Set `supervisor_override` attribute (Pattern B) | IAM policy on supervisor tool role |
+
+Assign supervisors the **CallCenterManager** security profile and the **Agent** security profile. The agent profile is required to open the CCP (which is the interface for live monitoring/barge once the call reaches an agent).
+
+---
 
 | Resource | Value |
 |---|---|
@@ -1075,4 +1370,4 @@ Each pattern is purpose-built. Path E and Option D both result in the same phone
 
 ---
 
-*Path E architecture derived from: AWS official documentation — AMAZON.BedrockAgentIntent (Amazon Lex V2 Developer Guide), Amazon Bedrock Agents User Guide (Action Groups), Configure Amazon Nova Sonic Speech-to-Speech (Amazon Connect Administrator Guide), AWS sample repository `aws-samples/sample-amazon-connect-bedrock-agent-voice-integration`. MCP Gateway architectural distinction documented from: AWS ML Blog "Harness the power of MCP servers with Amazon Bedrock Agents" (June 2025).*
+*Path E architecture derived from: AWS official documentation — AMAZON.BedrockAgentIntent (Amazon Lex V2 Developer Guide), Amazon Bedrock Agents User Guide (Action Groups), Configure Amazon Nova Sonic Speech-to-Speech (Amazon Connect Administrator Guide), AWS sample repository `aws-samples/sample-amazon-connect-bedrock-agent-voice-integration`. MCP Gateway architectural distinction documented from: AWS ML Blog "Harness the power of MCP servers with Amazon Bedrock Agents" (June 2025). Supervisor monitoring and Contact Lens section (Part 11) derived from: Monitor live conversations, Barge live conversations, Set recording and analytics behavior, Enable Contact Lens conversational analytics, Alert supervisors in real time, and TransferContact API Reference — all Amazon Connect Administrator Guide / API Reference (AWS official documentation).*
