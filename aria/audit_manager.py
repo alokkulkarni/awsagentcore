@@ -143,14 +143,15 @@ class AuditManager:
     def record(
         self,
         *,
-        tool_name:     str,
-        customer_id:   Optional[str],
-        session_id:    str,
-        channel:       str,
-        authenticated: bool,
-        parameters:    dict,
-        outcome:       str,          # "SUCCESS" | "FAILURE"
-        error_message: Optional[str] = None,
+        tool_name:        str,
+        customer_id:      Optional[str],
+        session_id:       str,
+        channel:          str,
+        authenticated:    bool,
+        parameters:       dict,
+        outcome:          str,          # "SUCCESS" | "FAILURE"
+        error_message:    Optional[str] = None,
+        vulnerability:    Optional[dict] = None,
     ) -> None:
         """Build and emit an audit event.
 
@@ -163,6 +164,8 @@ class AuditManager:
             parameters:    Tool input arguments (sensitive values auto-masked).
             outcome:       ``"SUCCESS"`` or ``"FAILURE"``.
             error_message: Human-readable error detail on failure.
+            vulnerability: If the session involves a vulnerable customer, a dict with
+                           ``flag_type`` and ``refer_to_specialist`` for regulatory audit tagging.
         """
         meta = _TOOL_META.get(
             tool_name,
@@ -170,23 +173,29 @@ class AuditManager:
         )
         event_type, category, tier, severity = meta
 
+        # Vulnerable-customer sessions are always escalated to severity HIGH for audit purposes
+        if vulnerability:
+            severity = "HIGH"
+
         event: dict[str, Any] = {
-            "event_id":       str(uuid.uuid4()),
-            "event_type":     event_type,
-            "category":       category,
-            "tier":           tier,
-            "severity":       severity,
-            "timestamp":      datetime.now(timezone.utc).isoformat(),
-            "session_id":     session_id,
-            "customer_id":    customer_id or "anonymous",
-            "channel":        channel,
-            "actor":          "ARIA",
-            "actor_type":     "AI_AGENT",
-            "tool_name":      tool_name,
-            "parameters":     _sanitise_params(parameters),
-            "outcome":        outcome,
-            "error_message":  error_message,
-            "authenticated":  authenticated,
+            "event_id":           str(uuid.uuid4()),
+            "event_type":         event_type,
+            "category":           category,
+            "tier":               tier,
+            "severity":           severity,
+            "timestamp":          datetime.now(timezone.utc).isoformat(),
+            "session_id":         session_id,
+            "customer_id":        customer_id or "anonymous",
+            "channel":            channel,
+            "actor":              "ARIA",
+            "actor_type":         "AI_AGENT",
+            "tool_name":          tool_name,
+            "parameters":         _sanitise_params(parameters),
+            "outcome":            outcome,
+            "error_message":      error_message,
+            "authenticated":      authenticated,
+            "vulnerable_customer": vulnerability is not None,
+            "vulnerability_type":  vulnerability.get("flag_type") if vulnerability else None,
         }
 
         self._dispatch(event, tier, severity, tool_name, outcome, session_id, customer_id)
@@ -202,6 +211,7 @@ class AuditManager:
         parameters:    dict,
         outcome:       str,
         error_message: Optional[str] = None,
+        vulnerability: Optional[dict] = None,
     ) -> None:
         """Fire-and-forget version for use inside ``async`` voice agent loops.
 
@@ -210,29 +220,30 @@ class AuditManager:
         loop is **never blocked**, preserving audio streaming latency.
         """
         import asyncio
-        # Build event on the calling coroutine (cheap, no I/O) then dispatch
-        # the I/O portion in a thread.
         meta = _TOOL_META.get(tool_name, ("TOOL_INVOCATION", "UNKNOWN", 3, "LOW"))
         event_type, category, tier, severity = meta
+        if vulnerability:
+            severity = "HIGH"
         event: dict[str, Any] = {
-            "event_id":       str(uuid.uuid4()),
-            "event_type":     event_type,
-            "category":       category,
-            "tier":           tier,
-            "severity":       severity,
-            "timestamp":      datetime.now(timezone.utc).isoformat(),
-            "session_id":     session_id,
-            "customer_id":    customer_id or "anonymous",
-            "channel":        channel,
-            "actor":          "ARIA",
-            "actor_type":     "AI_AGENT",
-            "tool_name":      tool_name,
-            "parameters":     _sanitise_params(parameters),
-            "outcome":        outcome,
-            "error_message":  error_message,
-            "authenticated":  authenticated,
+            "event_id":            str(uuid.uuid4()),
+            "event_type":          event_type,
+            "category":            category,
+            "tier":                tier,
+            "severity":            severity,
+            "timestamp":           datetime.now(timezone.utc).isoformat(),
+            "session_id":          session_id,
+            "customer_id":         customer_id or "anonymous",
+            "channel":             channel,
+            "actor":               "ARIA",
+            "actor_type":          "AI_AGENT",
+            "tool_name":           tool_name,
+            "parameters":          _sanitise_params(parameters),
+            "outcome":             outcome,
+            "error_message":       error_message,
+            "authenticated":       authenticated,
+            "vulnerable_customer": vulnerability is not None,
+            "vulnerability_type":  vulnerability.get("flag_type") if vulnerability else None,
         }
-        # Dispatch I/O in a background thread — never awaited, never blocks loop
         asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._dispatch(event, tier, severity, tool_name, outcome, session_id, customer_id),
@@ -314,6 +325,7 @@ def emit_chat_tool_audits(
     session_id:    str,
     channel:       str,
     authenticated: bool,
+    vulnerability: Optional[dict] = None,
 ) -> None:
     """Inspect Strands agent messages added since *from_index* and emit one
     audit event per tool call/result pair found.
@@ -341,6 +353,9 @@ def emit_chat_tool_audits(
         session_id:    ARIA session UUID.
         channel:       ``"chat"`` or ``"agentcore-chat"``.
         authenticated: Whether the session is authenticated.
+        vulnerability: Vulnerability flag dict from ``_SESSION_META`` if the
+                       customer is flagged as vulnerable. All events in the
+                       session are tagged accordingly for regulatory audit.
     """
     tool_uses:    dict[str, dict] = {}   # toolUseId → {name, input}
     tool_results: dict[str, dict] = {}   # toolUseId → {status, content}
@@ -378,4 +393,5 @@ def emit_chat_tool_audits(
             parameters=use_data.get("input") or {},
             outcome="SUCCESS" if status == "success" else "FAILURE",
             error_message=err_msg,
+            vulnerability=vulnerability,
         )

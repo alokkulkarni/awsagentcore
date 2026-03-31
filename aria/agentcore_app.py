@@ -133,6 +133,29 @@ _FAREWELL_RESPONSE_WORDS = frozenset({
 })
 
 
+def _extract_vulnerability_from_messages(messages: list, from_index: int) -> Optional[dict]:
+    """Scan new agent messages for a get_customer_details result that contains
+    a non-null vulnerability field, and return it as a plain dict for audit tagging."""
+    import json as _json
+    for msg in messages[from_index:]:
+        for block in (msg.get("content") or []):
+            if "toolResult" not in block:
+                continue
+            tr = block["toolResult"]
+            for content_item in (tr.get("content") or []):
+                raw = content_item.get("text", "") if isinstance(content_item, dict) else ""
+                if not raw:
+                    continue
+                try:
+                    data = _json.loads(raw)
+                except Exception:
+                    continue
+                vuln = data.get("vulnerability")
+                if vuln and isinstance(vuln, dict) and vuln.get("flag_type"):
+                    return vuln
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Helper: build SESSION_START trigger (mirrors main.py logic)
 # ---------------------------------------------------------------------------
@@ -242,6 +265,7 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
         _SESSION_META[session_id] = {
             "authenticated": authenticated,
             "customer_id":   customer_id,
+            "vulnerability": None,  # populated on first get_customer_details result
         }
         _TRANSCRIPTS[session_id] = TranscriptManager(
             session_id=session_id,
@@ -341,13 +365,25 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
             "Please try again or call our main line on 0161 900 9900."
         )
 
-    # Emit audit events for every tool call made during this turn
+    # Extract vulnerability flag from get_customer_details result (first time only)
+    if meta.get("vulnerability") is None:
+        detected = _extract_vulnerability_from_messages(agent.messages, _msg_idx)
+        if detected:
+            meta["vulnerability"] = detected
+            logger.info(
+                "Vulnerability flag detected for session %s: %s",
+                session_id, detected.get("flag_type"),
+            )
+
+    # Emit audit events for every tool call made during this turn,
+    # tagging all events if this is a vulnerable-customer session
     _emit_audit(
         agent.messages, _msg_idx,
         customer_id=meta.get("customer_id"),
         session_id=session_id,
         channel="agentcore-chat",
         authenticated=meta.get("authenticated", False),
+        vulnerability=meta.get("vulnerability"),
     )
 
     # ------------------------------------------------------------------

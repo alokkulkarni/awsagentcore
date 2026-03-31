@@ -89,7 +89,134 @@ _CUSTOMER_REGISTRY: dict[str, dict] = {
             flag_type="financial_difficulty",
             requires_extra_time=True,
             requires_simplified_language=True,
+            refer_to_specialist=True,
+            suppress_promotion=True,
+            suppress_collections=True,
+            debt_signpost=True,
+        ),
+    },
+    "CUST-003": {
+        "first_name": "Margaret",
+        "last_name": "Okonkwo",
+        "preferred_name": "Margaret",
+        "email_masked": "m***@email.com",
+        "mobile_last_four": "8812",
+        "registered_address_masked": "22 Elm Close, Birmingham",
+        "customer_since_year": 2008,
+        "status": "active",
+        "accounts": [
+            CustomerAccount(
+                account_number_masked="****6612",
+                account_type="current",
+                nickname="Main Account",
+                sort_code_masked="20-**-44",
+                is_primary=True,
+            ),
+        ],
+        "cards": [
+            CustomerCard(
+                card_last_four="6612",
+                card_type="debit",
+                card_scheme="Visa",
+                nickname="Everyday Debit",
+                status="active",
+                linked_account_masked="****6612",
+            ),
+        ],
+        "mortgage_refs_masked": ["MR-****-BM"],
+        "vulnerability": VulnerabilityFlag(
+            flag_type="bereavement",
+            requires_extra_time=True,
+            requires_simplified_language=True,
             refer_to_specialist=False,
+            suppress_promotion=True,
+            suppress_collections=False,
+            debt_signpost=False,
+        ),
+    },
+    "CUST-004": {
+        "first_name": "Daniel",
+        "last_name": "Walsh",
+        "preferred_name": "Daniel",
+        "email_masked": "d***@email.com",
+        "mobile_last_four": "5503",
+        "registered_address_masked": "5 Rosewood Avenue, Leeds",
+        "customer_since_year": 2019,
+        "status": "active",
+        "accounts": [
+            CustomerAccount(
+                account_number_masked="****7734",
+                account_type="current",
+                nickname="Main Account",
+                sort_code_masked="20-**-55",
+                is_primary=True,
+            ),
+        ],
+        "cards": [
+            CustomerCard(
+                card_last_four="7734",
+                card_type="debit",
+                card_scheme="Mastercard",
+                nickname="Everyday Debit",
+                status="active",
+                linked_account_masked="****7734",
+            ),
+        ],
+        "mortgage_refs_masked": [],
+        "vulnerability": VulnerabilityFlag(
+            flag_type="mental_health",
+            requires_extra_time=True,
+            requires_simplified_language=True,
+            refer_to_specialist=True,
+            suppress_promotion=True,
+            suppress_collections=True,
+            debt_signpost=False,
+        ),
+    },
+    "CUST-005": {
+        "first_name": "Ethel",
+        "last_name": "Parsons",
+        "preferred_name": "Ethel",
+        "email_masked": "e***@email.com",
+        "mobile_last_four": "2209",
+        "registered_address_masked": "3 Hawthorn Road, Bristol",
+        "customer_since_year": 2003,
+        "status": "active",
+        "accounts": [
+            CustomerAccount(
+                account_number_masked="****1155",
+                account_type="current",
+                nickname="Main Account",
+                sort_code_masked="20-**-77",
+                is_primary=True,
+            ),
+            CustomerAccount(
+                account_number_masked="****8820",
+                account_type="savings",
+                nickname="Savings Account",
+                sort_code_masked="20-**-77",
+                is_primary=False,
+            ),
+        ],
+        "cards": [
+            CustomerCard(
+                card_last_four="1155",
+                card_type="debit",
+                card_scheme="Visa",
+                nickname="Everyday Debit",
+                status="active",
+                linked_account_masked="****1155",
+            ),
+        ],
+        "mortgage_refs_masked": [],
+        "vulnerability": VulnerabilityFlag(
+            flag_type="elderly",
+            requires_extra_time=True,
+            requires_simplified_language=True,
+            refer_to_specialist=False,
+            suppress_promotion=True,
+            suppress_collections=False,
+            debt_signpost=False,
         ),
     },
 }
@@ -110,7 +237,10 @@ def get_customer_details(customer_id: str) -> dict:
     - vulnerability: if present, adjust communication style accordingly —
         requires_extra_time: allow more pauses, do not rush
         requires_simplified_language: use plain simple language, avoid jargon
-        refer_to_specialist: proactively offer to transfer to specialist support team
+        refer_to_specialist: warm-transfer directly to specialist team at session start (no asking)
+        suppress_promotion: never upsell, cross-sell, or mention rate switches
+        suppress_collections: never mention arrears, overdue balances, or request payments
+        debt_signpost: proactively mention StepChange, MoneyHelper, Citizens Advice once
 
     When the customer asks about a product (e.g. 'my account balance', 'my card'):
     - If they have exactly one matching product: use it directly without asking

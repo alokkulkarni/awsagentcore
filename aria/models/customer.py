@@ -32,7 +32,10 @@ class VulnerabilityFlag(BaseModel):
     flag_type: str               # financial_difficulty | bereavement | mental_health | elderly | disability | other
     requires_extra_time: bool = False
     requires_simplified_language: bool = False
-    refer_to_specialist: bool = False  # if True, offer to transfer to specialist team
+    refer_to_specialist: bool = False   # if True, warm-transfer directly to specialist team at start of session (no asking)
+    suppress_promotion: bool = True     # suppress all upsell, cross-sell, and rate-switch suggestions
+    suppress_collections: bool = False  # suppress all collections pressure, payment requests, arrears mentions
+    debt_signpost: bool = False         # proactively signpost free debt advice (StepChange, MoneyHelper, Citizens Advice)
 
 
 class CustomerDetailsResponse(BaseModel):
