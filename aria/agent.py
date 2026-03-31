@@ -108,8 +108,18 @@ def _build_boto_session(region: str):
     return session
 
 
-def create_aria_agent() -> Agent:
-    """Creates and returns the ARIA banking agent with all tools registered."""
+def create_aria_agent(prior_history_block: str = "") -> Agent:
+    """Creates and returns the ARIA banking agent with all tools registered.
+
+    Args:
+        prior_history_block: Optional cross-session memory block to prepend to
+            the system prompt. When provided it mirrors what agentcore_voice.py
+            does: injecting AgentCore Memory turns as ``=== RECENT CONVERSATION
+            HISTORY ===`` before the static ARIA_SYSTEM_PROMPT.  Should only be
+            set at agent creation (first turn of a new session), never on
+            subsequent turns — the Strands agent accumulates its own history in
+            agent.messages across turns.
+    """
     region = os.getenv("AWS_REGION", "eu-west-2")
     model_id = _resolve_model_id(region)
 
@@ -122,9 +132,15 @@ def create_aria_agent() -> Agent:
         boto_session=session,
     )
 
+    system_prompt = (
+        prior_history_block + ARIA_SYSTEM_PROMPT
+        if prior_history_block
+        else ARIA_SYSTEM_PROMPT
+    )
+
     agent = Agent(
         model=model,
-        system_prompt=ARIA_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tools=ALL_TOOLS,
         callback_handler=None,  # silence streaming — main.py controls all terminal output
     )

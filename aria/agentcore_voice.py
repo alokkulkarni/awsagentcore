@@ -332,6 +332,11 @@ class ARIAWebSocketVoiceSession:
         # Memory: last user utterance buffered until ARIA's response is flushed
         self._last_user_text: Optional[str] = None
 
+        # Vulnerability flag — populated on first get_customer_details result.
+        # Passed to all _audit.async_record() calls so every voice audit event is
+        # tagged for FCA/CONC compliance (mirrors _SESSION_META["vulnerability"] in chat).
+        self._vulnerability: Optional[dict] = None
+
         # Transcript — populated during session, saved on close
         from aria.transcript_manager import TranscriptManager
         self._transcript: Optional[TranscriptManager] = None  # set after config received
@@ -1190,12 +1195,30 @@ class ARIAWebSocketVoiceSession:
         logger.info("Executing tool %s", name)
         try:
             result = await asyncio.to_thread(tool._tool_func, **args)
+
+            # Extract vulnerability flag once — on the first get_customer_details result.
+            # This mirrors _extract_vulnerability_from_messages() in agentcore_app.py and
+            # ensures ALL subsequent audit events for this voice session are tagged.
+            if name == "get_customer_details" and self._vulnerability is None:
+                try:
+                    result_dict = json.loads(json.dumps(result, default=str))
+                    vuln = result_dict.get("vulnerability")
+                    if vuln and isinstance(vuln, dict) and vuln.get("flag_type"):
+                        self._vulnerability = vuln
+                        logger.info(
+                            "Vulnerability flag detected for voice session %s: type=%s",
+                            self.session_id, vuln.get("flag_type"),
+                        )
+                except Exception as _ve:
+                    logger.warning("Could not extract vulnerability from get_customer_details: %s", _ve)
+
             await _audit.async_record(
                 tool_name=name, customer_id=self._customer_id,
                 session_id=self.session_id, channel="agentcore-voice",
                 authenticated=self._authenticated,
                 parameters={k: v for k, v in args.items() if k != "session_id"},
                 outcome="SUCCESS",
+                vulnerability=self._vulnerability,
             )
             return json.dumps(result, default=str)
         except Exception as exc:
@@ -1205,6 +1228,7 @@ class ARIAWebSocketVoiceSession:
                 authenticated=self._authenticated,
                 parameters={k: v for k, v in args.items() if k != "session_id"},
                 outcome="FAILURE", error_message=str(exc),
+                vulnerability=self._vulnerability,
             )
             logger.error("Tool %s failed: %s", name, exc, exc_info=True)
             return json.dumps({"error": str(exc)})

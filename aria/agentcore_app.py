@@ -261,7 +261,35 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     if session_id not in _CHAT_AGENTS:
         from aria.agent import create_aria_agent
         from aria.transcript_manager import TranscriptManager
-        _CHAT_AGENTS[session_id] = create_aria_agent()
+
+        # Load cross-session memory BEFORE creating the agent so it can be injected
+        # into the system prompt — matching what agentcore_voice.py does.
+        # This must happen at agent creation, not per-turn: the Strands agent accumulates
+        # its own conversation in agent.messages across turns; the history block is only
+        # meaningful for restoring context from a prior session.
+        history_block = ""
+        _history_actor_id = customer_id or "anonymous"
+        try:
+            from aria import memory_client as _mc_init
+            prior_turns = _mc_init.get_recent_turns(_history_actor_id, session_id, k=5)
+            if prior_turns:
+                lines = [
+                    f"{'Customer' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
+                    for m in prior_turns
+                ]
+                history_block = (
+                    "\n=== RECENT CONVERSATION HISTORY (for context) ===\n"
+                    + "\n".join(lines)
+                    + "\n=== END HISTORY ===\n\n"
+                )
+                logger.info(
+                    "Injecting %d memory turns into chat agent (session=%s)",
+                    len(prior_turns), session_id,
+                )
+        except Exception as _mem_init_exc:
+            logger.warning("Memory load for new chat session skipped: %s", _mem_init_exc)
+
+        _CHAT_AGENTS[session_id] = create_aria_agent(prior_history_block=history_block)
         _SESSION_META[session_id] = {
             "authenticated": authenticated,
             "customer_id":   customer_id,
@@ -281,19 +309,7 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     agent = _CHAT_AGENTS[session_id]
     meta  = _SESSION_META[session_id]
     transcript = _TRANSCRIPTS[session_id]
-
-    # ------------------------------------------------------------------
-    # Retrieve conversation history from AgentCore Memory (if configured)
-    # ------------------------------------------------------------------
     actor_id = meta.get("customer_id") or "anonymous"
-    try:
-        from aria import memory_client
-        history = memory_client.get_recent_turns(actor_id, session_id, k=5)
-        if history:
-            logger.debug("Loaded %d memory messages for session %s", len(history), session_id)
-    except Exception as exc:
-        logger.warning("Memory retrieval skipped: %s", exc)
-        history = []
 
     # ------------------------------------------------------------------
     # Build prompt — inject SESSION_START on first turn only

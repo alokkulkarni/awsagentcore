@@ -339,6 +339,8 @@ Customer's first message: What's my account balance?
 
 **Critical difference from voice:** Chat does NOT use `_build_voice_system_prompt()`. The Strands agent is created with just `ARIA_SYSTEM_PROMPT` — no voice preamble, no empathy block, no card override. The system prompt alone governs chat behaviour.
 
+> **Note (post-fix):** Before the fixes applied alongside this document, the chat agent was created with `create_aria_agent()` (no history). AgentCore Memory was loaded per-turn but the result was discarded without ever being used — dead code. `create_aria_agent()` now accepts `prior_history_block` and `agentcore_app.py` loads and injects memory once at agent creation, matching what `agentcore_voice.py` already did.
+
 ---
 
 ##### Injection C2 — In-Process Session State (`_SESSION_META`, `_SESSION_STARTED`, `_ENDED_SESSIONS`)
@@ -361,6 +363,54 @@ Customer's first message: What's my account balance?
 **What it is:** After every turn, `_extract_vulnerability_from_messages()` scans the new entries in `agent.messages` for a `toolResult` from `get_customer_details` containing a non-null `vulnerability` field. Once detected, it is stored in `_SESSION_META[session_id]["vulnerability"]` and then passed to every subsequent `_emit_audit()` call — tagging all audit events for the session as vulnerable-customer interactions.
 
 This is not a prompt injection — it is a post-turn state extraction that drives audit tagging. But it functions like an implicit session attribute.
+
+> **Voice gap (now fixed):** `agentcore_voice.py` had no equivalent of this. `_execute_tool()` was calling `_audit.async_record()` for every voice tool call but never passing `vulnerability=`. This meant all voice audit records for vulnerable-customer sessions were missing the regulatory tag — a FCA/CONC compliance gap. Fixed: `agentcore_voice.py` now has `self._vulnerability` (initialised to `None`), populated in `_execute_tool()` on the first `get_customer_details` result, and passed to all subsequent `_audit.async_record()` calls.
+
+---
+
+### Key Divergences Between Voice and Chat Channels
+
+Before describing the migration mapping, it is important to understand where voice and chat diverge in the current Strands implementation — and why. This directly determines what changes in Bedrock Agent.
+
+| Feature | Voice (`agentcore_voice.py`) | Chat (`agentcore_app.py`) | Status |
+|---|---|---|---|
+| System prompt preamble | ✅ `_build_voice_system_prompt()` — preamble + ARIA_SYSTEM_PROMPT | ❌ `ARIA_SYSTEM_PROMPT` only | **Intentional** — voice needs session context before Nova Sonic stream |
+| Empathy triggers (`_EMPATHY_BLOCK`) | ✅ In preamble | ❌ Absent | **Intentional** — voice-specific tonal guidance; chat has no vocal cues |
+| Card query override | ✅ In preamble | ❌ Absent | **Intentional** — customers can safely type card digits on chat |
+| SESSION_START trigger | ✅ First silent kickoff event to Nova Sonic | ✅ Prepended to first customer message | **Equivalent** — different mechanisms, same purpose |
+| History injection (AgentCore Memory) | ✅ Injected into system prompt before stream | ✅ Now injected at agent creation (post-fix) | **Fixed** — was dead code in chat before fix |
+| Vulnerability flag extraction | ✅ `self._vulnerability` in `_execute_tool()` (post-fix) | ✅ `_extract_vulnerability_from_messages()` post-turn | **Fixed** — was entirely missing in voice before fix |
+| Audit approach | Per-tool, real-time (`_execute_tool` → `_audit.async_record`) | Per-turn, batch (`emit_chat_tool_audits` after each turn) | **Differs** — both correct; Bedrock Agent path uses per-Lambda (same as voice) |
+| Farewell detection source | Customer speech (`_FAREWELL_PHRASES`) | ARIA response text (`_is_farewell_response`) | **Intentional** — voice ends on caller goodbye; chat purges state on ARIA farewell |
+| Memory load timing | At stream open (session start only) | At agent creation (session start only, post-fix) | **Aligned post-fix** |
+| Markdown stripping | N/A (audio output) | `_clean_response()` on all responses | **Intentional** — voice outputs audio |
+| Empty response handling | Nova Sonic handles natively | Retry with "Please continue" | **Intentional** — different model infrastructure |
+
+---
+
+### Are Voice and Chat Merged or Kept Separate in Bedrock Agent?
+
+**They merge into ONE agent with channel-conditional behaviour.**
+
+In the Bedrock Agent path:
+- There is **one** managed Bedrock Agent (`aria-banking-agent`)
+- There is **one** `instruction` field — not two system prompts
+- There is **one** set of Lambda action groups — not two sets of tools
+- Channel differences are handled via `sessionAttributes.channel` and conditional sections in the instruction
+
+The Bedrock Agent path is **strictly better** than the current split implementation because:
+1. Voice and chat tool code is identical (one Lambda per action group, not two implementations)
+2. Vulnerability flag is guaranteed to flow correctly on BOTH channels (Lambda always sets `sessionAttributes.vulnerability_flag`) — the voice gap cannot recur
+3. Session memory is handled uniformly by Bedrock Agent's native memory — no separate `history_block` injection logic per channel
+4. The `SESSION_START` kickoff problem disappears — the Contact Flow sets session attributes before the first utterance so the agent always knows its context
+5. Audit events are emitted per-Lambda (consistent across channels, no batch vs real-time split)
+
+The **only** things that remain channel-specific in the instruction are:
+- `§8b Voice Channel — Empathy and Tonal Rules` (voice/ivr only)
+- `§8c Voice Channel — Card Query Rules` (voice/ivr only)
+- `§8d Session Initialisation Rules` — channel-conditional `get_customer_details` trigger
+
+Everything else — authentication, vulnerability protocol, query handling, escalation, PII, guardrails — is channel-agnostic and governs both voice and chat identically.
 
 ---
 
