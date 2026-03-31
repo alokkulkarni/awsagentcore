@@ -127,6 +127,11 @@ _SESSION_STARTED: set[str] = set()
 # Sessions that have been closed via a farewell — will be purged on next contact
 _ENDED_SESSIONS: set[str] = set()
 
+# Sessions that ended because of a transfer (subset of _ENDED_SESSIONS).
+# If the customer changes their mind and sends another message, we resume
+# the same agent instance rather than purging — all context is preserved.
+_TRANSFERRED_SESSIONS: set[str] = set()
+
 _FAREWELL_RESPONSE_WORDS = frozenset({
     "goodbye", "take care", "farewell", "pleasure helping", "all the best",
     "have a great", "thank you for calling", "thanks for calling",
@@ -239,6 +244,7 @@ def _purge_session(session_id: str) -> None:
     _TRANSCRIPTS.pop(session_id, None)
     _SESSION_STARTED.discard(session_id)
     _ENDED_SESSIONS.discard(session_id)
+    _TRANSFERRED_SESSIONS.discard(session_id)
 
 
 def _maybe_save_transcript(transcript, aria_text: str) -> None:
@@ -277,11 +283,23 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     customer_id: Optional[str] = payload.get("customer_id") or None
 
     # ------------------------------------------------------------------
-    # If the session ended cleanly (farewell), start a fresh one
+    # If the session ended, decide whether to resume or start fresh
     # ------------------------------------------------------------------
     if session_id in _ENDED_SESSIONS:
-        _purge_session(session_id)
-        logger.info("Restarting ended session %s", session_id)
+        if session_id in _TRANSFERRED_SESSIONS:
+            # Customer changed their mind after a transfer — resume the existing
+            # agent instance. All agent.messages (auth, query, transfer context)
+            # are intact so ARIA picks up exactly where the conversation left off.
+            _ENDED_SESSIONS.discard(session_id)
+            _TRANSFERRED_SESSIONS.discard(session_id)
+            logger.info(
+                "Resuming transferred session %s — customer changed mind, context preserved",
+                session_id,
+            )
+        else:
+            # Natural farewell — customer said goodbye; start completely fresh
+            _purge_session(session_id)
+            logger.info("Restarting ended session %s", session_id)
 
     # ------------------------------------------------------------------
     # Get or create the Strands Agent for this session
@@ -437,7 +455,11 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
             "Escalation completed for session %s — handoff_ref=%s status=%s",
             session_id, escalation.get("handoff_ref"), escalation.get("handoff_status"),
         )
+        # Mark as ended AND as transferred — if the customer changes their mind
+        # and sends another message, the agent is resumed with full context rather
+        # than being purged and restarted from scratch.
         _ENDED_SESSIONS.add(session_id)
+        _TRANSFERRED_SESSIONS.add(session_id)
 
     # ------------------------------------------------------------------
     # Save turn to AgentCore Memory (async-friendly: best-effort fire)
