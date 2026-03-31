@@ -19,10 +19,10 @@ export default function ChatTab({ chat }) {
 
   const handleSend = useCallback(() => {
     const text = inputValue.trim();
-    if (!text || isLoading || transferred) return;
+    if (!text || isLoading) return;
     setInputValue('');
     sendMessage(text);
-  }, [inputValue, isLoading, sendMessage, transferred]);
+  }, [inputValue, isLoading, sendMessage]);
 
   const handleKeyDown = (e) => {
     if (e.detail.key === 'Enter' && !e.detail.shiftKey) {
@@ -129,13 +129,7 @@ export default function ChatTab({ chat }) {
           <span style={{ fontSize: '16px' }}>🔒</span>
           <span>
             <strong>Session transferred.</strong> A specialist will continue this conversation.
-            You can <button
-              onClick={clearMessages}
-              style={{
-                background: 'none', border: 'none', color: '#0972d3',
-                cursor: 'pointer', textDecoration: 'underline', padding: 0, font: 'inherit',
-              }}
-            >start a new chat</button> if you need further help.
+            Changed your mind? Just type a message and ARIA will assist you.
           </span>
         </div>
       )}
@@ -147,8 +141,8 @@ export default function ChatTab({ chat }) {
             value={inputValue}
             onChange={({ detail }) => setInputValue(detail.value)}
             onKeyDown={handleKeyDown}
-            placeholder={transferred ? 'Session transferred to specialist — start a new chat to continue' : 'Message ARIA…'}
-            disabled={isLoading || transferred}
+            placeholder="Message ARIA…"
+            disabled={isLoading}
             autoFocus
           />
         </div>
@@ -156,7 +150,7 @@ export default function ChatTab({ chat }) {
           <Button
             variant="primary"
             onClick={handleSend}
-            disabled={!inputValue.trim() || isLoading || transferred}
+            disabled={!inputValue.trim() || isLoading}
             loading={isLoading}
           >
             Send

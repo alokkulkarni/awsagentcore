@@ -18,7 +18,13 @@ export function useChat(connection) {
 
   const sendMessage = useCallback(async (text) => {
     if (!text || !text.trim()) return;
-    if (transferred) return; // session has been handed off — no further messages to ARIA
+
+    // If session was transferred but customer sends a new message, they've
+    // changed their mind — reset transferred state and let the backend start
+    // a fresh session (it will purge the ended session automatically).
+    if (transferred) {
+      setTransferred(false);
+    }
 
     if (!chatUrl) {
       setError('Chat URL is not configured. Please set it in Connection Settings.');
