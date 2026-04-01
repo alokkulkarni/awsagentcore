@@ -9,9 +9,7 @@ from aria.tools import ALL_TOOLS
 
 logger = logging.getLogger("aria.agent")
 
-# anthropic.claude-sonnet-4-6 is available in all regions below.
-# Cross-region inference profile prefixes (us.* / eu.* / apac.*) route across
-# multiple regions but are NOT needed here — the direct model ID works fine.
+# anthropic.claude-sonnet-4-6 is available on-demand in all regions below.
 _REGION_MODEL_DEFAULTS: dict[str, str] = {
     "us-east-1":      "anthropic.claude-sonnet-4-6",
     "us-west-2":      "anthropic.claude-sonnet-4-6",

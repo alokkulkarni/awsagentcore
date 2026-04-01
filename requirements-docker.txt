@@ -3,9 +3,9 @@
 #   - No microphone/speaker on the server — audio travels over WebSocket
 #   - portaudio system library is not installed in the container
 #   - Local voice mode (main.py --channel voice) uses the host requirements.txt
-strands-agents
-strands-agents[bidi]
-strands-agents-tools
+strands-agents==1.33.0
+strands-agents[bidi]==1.33.0
+strands-agents-tools==1.33.0
 boto3
 bedrock-agentcore
 bedrock-agentcore-starter-toolkit
