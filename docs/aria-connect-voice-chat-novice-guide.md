@@ -46,9 +46,9 @@
 11. [Part H — Test Chat](#part-h--test-chat)
 13. [Nova Sonic: What It Is and How to Use It with Connect](#nova-sonic-what-it-is-and-how-to-use-it-with-connect)
     - [Three Paths to Voice AI](#three-paths-to-voice-ai-in-amazon-connect)
-    - [Step C.1 — Check Nova Sonic Availability](#step-c1--check-nova-sonic-availability-in-eu-west-2)
+    - [Step C.1 — Configure Cross-Region Access for Nova Sonic 2](#step-c1--configure-cross-region-access-for-nova-sonic-2-us-east-1)
     - [Step C.2 — Enable Unlimited AI Pricing](#step-c2--enable-unlimited-ai-pricing-on-your-instance)
-    - [Step C.3 — Enable Bedrock Model Access](#step-c3--enable-amazon-bedrock-model-access-for-nova-sonic)
+    - [Step C.3 — Enable Bedrock Model Access in us-east-1](#step-c3--enable-amazon-bedrock-model-access-for-nova-sonic-2-in-us-east-1)
     - [Step C.4 — Update the ARIA AI Prompt](#step-c4--update-the-aria-ai-prompt-to-use-nova-sonic)
     - [Step C.5 — Verify Prompt Model for eu-west-2](#step-c5--verify-the-aria-ai-prompt-model-for-eu-west-2)
     - [Step C.6 — Configure Voice Flow for Nova Sonic](#step-c6--configure-the-voice-flow-for-nova-sonic-path-c)
@@ -1184,7 +1184,7 @@ feels genuinely like speaking to a human agent.
 |---|---|---|---|---|
 | **Path A — Native Connect AI Agent** (this guide) | Contact Lens real-time → Connect AI Agent (LLM) → Polly TTS | Good (neural/generative Polly) | Lowest — no extra services | Fastest to deploy; eu-west-2 supported today |
 | **Path B — Lex V2 + Nova Sonic S2S** | Connect → Lex V2 bot → Nova Sonic → Lambda → ARIA AgentCore | Excellent — native S2S | Medium — requires Lex bot + bridge Lambda | Best voice quality; full speech-to-speech |
-| **Path C — Native AI Voice (Nova Sonic built-in)** | Connect native voice AI with Nova Sonic as the model | Excellent — native S2S | Low once enabled — no Lex needed | Future/current in supported regions; combines Path A ease with Path B quality |
+| **Path C — Native AI Voice (Nova Sonic 2 built-in)** | Connect native voice AI with Nova Sonic 2 as the model | Excellent — native S2S | Low once enabled — no Lex needed | Nova Sonic 2 is in `us-east-1` only; our eu-west-2 Connect instance accesses it via **cross-region inference profile** |
 
 This section covers **Path A in full** (already documented above), then covers **Path C** — using
 Nova Sonic natively within the Connect Conversational AI pipeline without Lex — in complete detail.
@@ -1228,38 +1228,105 @@ Before enabling Nova Sonic in the native Connect path, you need the following:
 | Requirement | Detail |
 |---|---|
 | **Amazon Connect Unlimited AI Pricing** | Must be enabled on your instance. This is the default for instances created after Nov 2023. It covers Nova Sonic voice costs. |
-| **Amazon Bedrock model access** | `amazon.nova-sonic-v1:0` must be enabled in your Bedrock console for `eu-west-2` (or your region). |
+| **Amazon Bedrock model access (us-east-1)** | `amazon.nova-sonic-v2:0` must be enabled in the **us-east-1** Bedrock console — not eu-west-2. Nova Sonic 2 is only available in `us-east-1`. Connect accesses it via the cross-region inference profile `us.amazon.nova-sonic-v2:0`. |
 | **Contact Lens enabled** | Even in the Nova Sonic path, Contact Lens must be enabled at the instance level for the Connect AI Agent to work with voice. |
 | **ARIA AI Agent published** | Your ARIA Orchestration AI agent must be published (not Draft). |
-| **eu-west-2 Nova Sonic availability** | Confirm Nova Sonic (`amazon.nova-sonic-v1:0`) is available as a model in your region in Bedrock. See [Supported regions](#step-c1-check-nova-sonic-availability). |
+| **Cross-region compliance review** | Customer voice audio is processed by Nova Sonic 2 in `us-east-1` (US). For UK/EU deployments, review GDPR / UK GDPR obligations and AWS Data Processing Addendum. See [Cross-Region Considerations](#cross-region-considerations-eu-west-2--us-east-1) below. |
 
 > Official docs: [Amazon Connect Unlimited AI Pricing](https://docs.aws.amazon.com/connect/latest/adminguide/enable-nextgeneration-amazonconnect.html)
 
 ---
 
-### Step C.1 — Check Nova Sonic Availability in eu-west-2
+### Step C.1 — Configure Cross-Region Access for Nova Sonic 2 (us-east-1)
 
-> Official docs: [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)
+> **Important**: Amazon Nova Sonic 2 (`amazon.nova-sonic-v2:0`) is **not available in
+> `eu-west-2`**. It is currently only available in `us-east-1`. Our Amazon Connect instance
+> runs in `eu-west-2`, so we use Amazon Bedrock's **cross-region inference profile** to reach
+> Nova Sonic 2 in us-east-1.
+>
+> The cross-region inference profile ID is: **`us.amazon.nova-sonic-v2:0`**
+>
+> When Connect sends audio to this profile, Bedrock automatically routes the request to
+> `us-east-1` where Nova Sonic 2 is hosted. You do not manage this routing — it is handled
+> transparently by the Bedrock inference profile mechanism.
+>
+> Official docs: [Cross-region inference in Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles.html)
 
-1. Go to [https://console.aws.amazon.com/bedrock/](https://console.aws.amazon.com/bedrock/)
-2. Set your region to **Europe (London) eu-west-2** (top right)
-3. Left menu → **Model access** (under **Bedrock configurations**)
-4. In the search box, type `Nova Sonic`
-5. Look for **Amazon Nova Sonic** in the list
+> **Verify the model ID**: Nova Sonic 2's exact model ID should be confirmed in the Bedrock
+> console. If `amazon.nova-sonic-v2:0` does not appear, check for `amazon.nova-sonic-v1:0`
+> (which may be the current release). The cross-region profile follows the same pattern:
+> `us.amazon.nova-sonic-v2:0` or `us.amazon.nova-sonic-v1:0`.
 
-**If Nova Sonic appears**:
-- Check whether it shows **Access granted** or **Available to request**
-- If **Available to request**: click **Modify model access** → tick **Amazon Nova Sonic** → **Request model access**
-- Approval is usually instant for Nova Sonic (it is a standard-tier model)
+---
 
-**If Nova Sonic does not appear**:
-- Nova Sonic is not yet available in `eu-west-2` at the time of your check
-- Use Path A (Polly neural TTS) for now and return to this step when AWS announces eu-west-2 availability
-- Alternatively, deploy a Connect instance in `us-east-1` specifically for voice to use Nova Sonic today
+### Cross-Region Considerations (eu-west-2 → us-east-1)
 
-> **Note**: As of 2025, Nova Sonic is available in `us-east-1` and `us-west-2` with expansion ongoing.
-> AWS regularly adds regions — always check the Bedrock console for your region's current status.
-> The official model ID is `amazon.nova-sonic-v1:0`.
+Before enabling Nova Sonic 2, understand these implications for a UK/EU deployment:
+
+#### Latency
+
+| Leg | Latency |
+|---|---|
+| Customer telephone → Connect (eu-west-2) | Standard PSTN / WebRTC |
+| Connect (eu-west-2) → Bedrock cross-region inference → Nova Sonic 2 (us-east-1) | ~100–150ms additional round-trip |
+| Total additional latency vs Path A (Polly in eu-west-2) | ~100–200ms |
+
+The additional latency from the cross-region hop is generally acceptable for conversational AI
+(speech already has natural pauses). However, if latency is critical, monitor it after
+deployment and compare against Path A.
+
+> **In practice**: Nova Sonic 2's native S2S processing is faster per token than the
+> Contact Lens ASR → LLM → Polly TTS chain used in Path A, so the cross-region hop may
+> not produce a perceivable difference in end-to-end response time.
+
+#### Data Residency and GDPR / UK GDPR
+
+> ⚠️ **This is the most important consideration for a UK banking deployment.**
+
+When a customer calls Meridian Bank using the Nova Sonic 2 path:
+- The customer's **voice audio** is streamed from Connect (eu-west-2) to Nova Sonic 2 (us-east-1)
+- This means **UK customer voice data is processed in the United States**
+- This constitutes a **transfer of personal data** outside the UK under UK GDPR (Article 46)
+
+**What you must do before enabling Nova Sonic 2 in production**:
+
+1. **Review AWS Data Processing Addendum (DPA)**: AWS's standard DPA covers cross-region
+   processing within the AWS global infrastructure. Sign or confirm the DPA is in place:
+   [AWS Data Processing Addendum](https://aws.amazon.com/agreement/data-processing-addendum/)
+
+2. **Apply Standard Contractual Clauses (SCCs)**: For UK → US transfers, the UK ICO's
+   International Data Transfer Agreement (IDTA) or the EU SCCs (UK addendum) are typically
+   the appropriate legal mechanism. AWS's DPA includes these.
+
+3. **Update your Privacy Notice**: Your customer-facing privacy notice must disclose that
+   voice data may be processed by third-party services based outside the UK/EU (AWS, us-east-1).
+
+4. **Seek legal/compliance review**: Have your Data Protection Officer (DPO) or legal team
+   review this configuration before going live with real customer calls.
+
+5. **Document the Transfer Impact Assessment (TIA)**: Record the legal basis, safeguards
+   applied, and risks assessed for the data transfer.
+
+> AWS participates in international data transfer frameworks. For more detail:
+> [AWS and the GDPR](https://aws.amazon.com/compliance/gdpr-center/) |
+> [AWS UK Data Protection](https://aws.amazon.com/compliance/uk-data-protection/)
+
+#### Cross-Region Data Transfer Costs
+
+Bedrock cross-region inference incurs data transfer costs between `eu-west-2` and `us-east-1`
+in addition to the Nova Sonic model usage costs. For a banking contact centre, budget
+approximately £0.09 per GB of audio data transferred (AWS standard inter-region pricing).
+The actual cost depends on call volume and average call length — monitor in AWS Cost Explorer
+under the `AmazonBedrock` service and `DataTransfer` usage type.
+
+#### Summary: Cross-Region Risk Register
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| Increased latency (~150ms) | Low | Monitor post-deployment; Nova Sonic S2S speed offsets this |
+| Customer voice data in us-east-1 | Medium | AWS DPA + IDTA/SCCs; update Privacy Notice; DPO sign-off |
+| Cross-region data transfer cost | Low | Budget for it; monitor in Cost Explorer |
+| us-east-1 service disruption affects voice | Low | Connect fails over to Path A (Polly) when Nova Sonic unavailable |
 
 ---
 
@@ -1288,23 +1355,46 @@ all-inclusive pricing.
 
 ---
 
-### Step C.3 — Enable Amazon Bedrock Model Access for Nova Sonic
+### Step C.3 — Enable Amazon Bedrock Model Access for Nova Sonic 2 in us-east-1
 
-Even though Nova Sonic is accessed through Connect, the underlying call goes through Amazon Bedrock.
-You must explicitly grant your Connect instance permission to use the model.
+Even though Nova Sonic 2 is accessed through Connect, the underlying call goes through Amazon
+Bedrock. You must explicitly grant model access — and critically, you must do this in **us-east-1**
+(where Nova Sonic 2 lives), **not** in `eu-west-2`.
 
 > Official docs: [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)
 
 1. Go to [https://console.aws.amazon.com/bedrock/](https://console.aws.amazon.com/bedrock/)
-2. Ensure you are in the same region as your Connect instance (eu-west-2)
-3. Left menu → **Model access**
+2. **Switch your region to `us-east-1`** (top right of the console — this is easy to miss)
+   > ⚠️ This step is in **us-east-1**, not eu-west-2. Nova Sonic 2 does not appear in the
+   > eu-west-2 model list. If you are looking in eu-west-2 and cannot find it, switch regions.
+3. Left menu → **Model access** (under **Bedrock configurations**)
 4. Click **Modify model access** (top right)
-5. Find **Amazon Nova Sonic** in the list and tick the checkbox
+5. Find **Amazon Nova Sonic 2** in the list and tick the checkbox
+   - If you see `amazon.nova-sonic-v2:0` — that is Nova Sonic 2; tick it
+   - If you see only `amazon.nova-sonic-v1:0` — tick that (verify with AWS if v2 is available)
 6. Click **Request model access**
 7. Wait for status to change to **Access granted** (usually within seconds to minutes)
+8. Note the Model ID: `amazon.nova-sonic-v2:0`
 
-**Verify the model ID**: After access is granted, note the Model ID: `amazon.nova-sonic-v1:0`
-This is what you will reference in the Connect AI prompt model configuration.
+**Verify the cross-region inference profile is available**
+
+After enabling model access in us-east-1, also check that the cross-region inference profile
+exists. In the Bedrock console (still in us-east-1):
+1. Left menu → **Cross-region inference** (under **Bedrock configurations**)
+2. Look for a profile with ID `us.amazon.nova-sonic-v2:0`
+3. Confirm its status is **Active**
+
+This profile ID (`us.amazon.nova-sonic-v2:0`) is what Amazon Connect in eu-west-2 uses to
+reach Nova Sonic 2. When you configure this in Connect's AI Agent settings, you enter this
+profile ID — not the raw model ID.
+
+> **Why a cross-region inference profile?** Direct model IDs (like `amazon.nova-sonic-v2:0`)
+> are region-specific. A cross-region inference profile (prefix `us.`) lets Connect in
+> eu-west-2 invoke the model as if it were local, with Bedrock managing the routing to
+> us-east-1 transparently. The profile also provides higher availability by routing to
+> multiple US regions if us-east-1 is degraded.
+>
+> Official docs: [Use cross-region inference in Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html)
 
 ---
 
@@ -1595,8 +1685,8 @@ Use these analytics to monitor and improve ARIA's Nova Sonic voice experience.
 | Tone/emotion | Static — same tone always | Dynamic — reflects content tone |
 | SSML support | Yes | No — uses natural language |
 | Multilingual | 60+ languages via Polly | Core languages (expanding) |
-| Cost (eu-west-2) | Included in Unlimited AI Pricing | Included in Unlimited AI Pricing |
-| Region availability (eu-west-2) | Available now | Check Bedrock console |
+| Cost (eu-west-2) | Included in Unlimited AI Pricing | Included in Unlimited AI Pricing + cross-region data transfer costs (eu-west-2 ↔ us-east-1) |
+| Region availability | Available now in eu-west-2 | Nova Sonic 2 available in `us-east-1` only; accessed from eu-west-2 via cross-region inference profile `us.amazon.nova-sonic-v2:0` |
 | Configuration required | Set voice block engine | Bedrock model access + enabled instance |
 | ARIA prompt changes needed | None | Add voice style guidance (recommended) |
 
@@ -1605,32 +1695,41 @@ Use these analytics to monitor and improve ARIA's Nova Sonic voice experience.
 ### Choosing Your Path: Decision Guide
 
 ```
-Are you deploying today in eu-west-2?
+Are you using ARIA in eu-west-2 (our deployment)?
     │
-    ├── Yes: Is Nova Sonic available in Bedrock for eu-west-2?
-    │           │
-    │           ├── Yes → Use Path C (Nova Sonic native)
-    │           │         Steps C.1–C.11 above
-    │           │
-    │           └── No → Use Path A (Polly neural Amy)
-    │                     Parts D–G of this guide
-    │                     Upgrade to Path C when Nova Sonic reaches eu-west-2
+    ├── Want Polly neural voice today (no cross-region, no data sovereignty risk)?
+    │   → Use Path A (Polly neural Amy)
+    │   Parts D–G of this guide. ARIA works fully today.
     │
-    └── No / deploying in us-east-1:
-            │
-            ├── Want best voice quality + speech-to-speech?
-            │   → Use Path C (Nova Sonic native) — available in us-east-1 today
-            │
-            └── Need Lex NLU features (slot filling, intents)?
-                → Use Path B (Lex V2 + Nova Sonic)
-                   See docs/amazon-connect-lex-nova-sonic-setup-guide.md
+    └── Want Native Speech-to-Speech (Nova Sonic 2)?
+        │
+        ├── Have DPO / legal sign-off for voice data processing in us-east-1?
+        │   └── Yes → Use Path C (Nova Sonic 2 cross-region)
+        │             Enable model access in us-east-1 (Step C.3)
+        │             Use inference profile us.amazon.nova-sonic-v2:0
+        │             Steps C.1–C.11 above
+        │
+        └── Not yet / still reviewing compliance?
+            → Use Path A now
+              Return to Path C after compliance review
+              No flow changes required to upgrade later
+
+Is us-east-1 acceptable and compliance is cleared?
+    └── Use Path C from the start.
+        Nova Sonic 2 is available in us-east-1 today.
+        Connect in eu-west-2 reaches it via cross-region inference.
 ```
 
 **Our recommendation for ARIA in production:**
-1. **Now** (eu-west-2): Deploy Path A with Amazon Polly neural Amy voice. ARIA works today.
-2. **When Nova Sonic reaches eu-west-2**: Enable Bedrock model access (Step C.1), enable Unlimited AI
-   Pricing (Step C.2), update prompt for voice style (Step C.8). No other changes needed.
-3. **For us-east-1 deployments today**: Use Path C from the start.
+1. **Now**: Deploy Path A with Amazon Polly neural Amy voice. ARIA works today with no
+   cross-region dependencies.
+2. **After compliance review**: Enable Bedrock model access in **us-east-1** (Step C.3),
+   enable Unlimited AI Pricing (Step C.2), configure the cross-region inference profile
+   `us.amazon.nova-sonic-v2:0` in the Connect AI Agent settings, and update the ARIA prompt
+   for natural voice style (Step C.8). The contact flow itself needs no changes.
+3. **Key difference from earlier versions of this guide**: Nova Sonic 2 is NOT available in
+   eu-west-2 — always use `us-east-1` model access and the `us.amazon.nova-sonic-v2:0`
+   cross-region inference profile ID.
 
 ---
 
@@ -1638,13 +1737,14 @@ Are you deploying today in eu-west-2?
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Voice still sounds like Polly after enabling | Nova Sonic not available in region | Check Bedrock model access console |
-| `AccessDeniedException` in Connect logs | Bedrock model access not granted | Step C.3 — request model access |
+| Voice still sounds like Polly after enabling | Nova Sonic 2 not enabled in us-east-1, or cross-region profile not configured | Check Bedrock model access in **us-east-1** (not eu-west-2); verify `us.amazon.nova-sonic-v2:0` inference profile is Active |
+| `AccessDeniedException` in Connect logs | Bedrock model access not granted in us-east-1 | Step C.3 — switch to us-east-1 in Bedrock console, request `amazon.nova-sonic-v2:0` access |
 | Contact drops after Connect assistant block | Unlimited AI Pricing not enabled | Step C.2 — enable unlimited pricing |
-| ARIA speaks SSML tags aloud (e.g. `<break>`) | Nova Sonic doesn't support SSML | Remove SSML from ARIA prompt responses |
+| ARIA speaks SSML tags aloud (e.g. `<break>`) | Nova Sonic 2 doesn't support SSML | Remove SSML from ARIA prompt responses |
 | Customer interruptions not working | Barge-in disabled | Check flow has no blocking Store customer input blocks |
 | Transcript shows garbled text | ASR misrecognition | Add domain vocabulary (banking terms) to Contact Lens settings |
-| Response latency is high | Prompt too long or model cross-region latency | Use `eu.*` model IDs, enable prompt caching (Step C.5) |
+| Response latency is noticeably higher than Path A | Cross-region RTT eu-west-2 ↔ us-east-1 (~150ms) | Expected — monitor and compare total end-to-end time; Nova Sonic S2S speed typically compensates. Use `eu.*` model IDs for the LLM layer (Step C.5) to avoid double cross-region. |
+| Legal / compliance concern about voice data in US | Customer audio goes to us-east-1 for Nova Sonic 2 | See Cross-Region Considerations (Step C.1) — AWS DPA, IDTA/SCCs, Privacy Notice update, DPO sign-off required |
 
 ---
 
