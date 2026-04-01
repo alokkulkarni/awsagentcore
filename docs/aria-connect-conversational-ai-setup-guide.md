@@ -719,12 +719,6 @@ In the **AI Guardrail** section:
 
 ---
 
-## Part 5 — Create the Session Data Injection Lambda
-
-This Lambda function runs at the start of every call or chat session. Its job is to:
-1. Use the Connect `DescribeContact` API to get the Contact Lens session ID.
-2. Call the Connect `UpdateSessionData` API (via the `qconnect` client) to inject customer context as custom variables into the AI Agent session.
-
 These variables become available in the AI Prompt as `{{$.Custom.sessionId}}`, `{{$.Custom.customerId}}`, etc.
 
 ### Step 5.1 — Create the Lambda IAM Role
@@ -770,96 +764,53 @@ aws iam put-role-policy \
 
 ### Step 5.2 — Write the Lambda Code
 
-Create a file `session_injector.py`:
+The full Lambda code is provided as a standalone, deployment-ready file:
 
-```python
-import boto3
-import json
-import logging
-from datetime import datetime, timezone
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-connect_client = boto3.client('connect', region_name='eu-west-2')
-qconnect_client = boto3.client('qconnect', region_name='eu-west-2')
-
-# Replace with your actual IDs from Step 1.2 and Step 4.6
-ASSISTANT_ID = 'YOUR_ASSISTANT_ID_HERE'
-
-
-def lambda_handler(event, context):
-    """
-    Injects ARIA session context into the Connect AI Agent session.
-    
-    Called from the contact flow via an AWS Lambda Function block,
-    placed AFTER the Connect assistant block.
-    
-    The contact flow passes:
-      - ContactId via system attribute
-      - Customer ID via contact attribute (set by CRM lookup or IVR)
-      - Auth status (pre-authenticated or unauthenticated)
-      - Channel (VOICE, CHAT, etc.)
-    """
-    logger.info(f"Session injector invoked: {json.dumps(event)}")
-
-    contact_id = event.get('ContactId') or event.get('Details', {}).get('ContactData', {}).get('ContactId')
-    instance_id = event.get('InstanceARN', '').split('instance/')[-1]
-
-    # Read contact attributes set earlier in the flow (by CRM lookup Lambda)
-    attributes = event.get('Details', {}).get('ContactData', {}).get('Attributes', {})
-    customer_id = attributes.get('customerId', '')
-    auth_status = attributes.get('authStatus', 'unauthenticated')
-    vulnerability_context = attributes.get('vulnerabilityContext', '')
-    prior_summary = attributes.get('priorSummary', '')
-
-    # Determine channel
-    channel = event.get('Details', {}).get('ContactData', {}).get('Channel', 'VOICE').lower()
-    channel_map = {'voice': 'voice', 'chat': 'chat', 'task': 'chat'}
-    aria_channel = channel_map.get(channel, 'voice')
-
-    # Get the Q Connect session ID — it's created by the Connect assistant block
-    # We retrieve it via DescribeContact
-    try:
-        contact_resp = connect_client.describe_contact(
-            InstanceId=instance_id,
-            ContactId=contact_id
-        )
-        # The session ID for qconnect is the Contact ID itself in most integrations
-        session_id = contact_id
-    except Exception as e:
-        logger.warning(f"Could not describe contact: {e}. Using ContactId as session_id.")
-        session_id = contact_id
-
-    # Build the session data payload
-    session_data = [
-        {'key': 'sessionId',            'value': {'stringValue': session_id}},
-        {'key': 'customerId',           'value': {'stringValue': customer_id}},
-        {'key': 'authStatus',           'value': {'stringValue': auth_status}},
-        {'key': 'channel',              'value': {'stringValue': aria_channel}},
-        {'key': 'dateTime',             'value': {'stringValue': datetime.now(timezone.utc).isoformat()}},
-        {'key': 'vulnerabilityContext', 'value': {'stringValue': vulnerability_context}},
-        {'key': 'priorSummary',         'value': {'stringValue': prior_summary}},
-    ]
-
-    # Inject into the AI Agent session
-    try:
-        qconnect_client.update_session_data(
-            assistantId=ASSISTANT_ID,
-            sessionId=session_id,
-            data=session_data
-        )
-        logger.info(f"Session data injected for session {session_id}")
-    except Exception as e:
-        logger.error(f"Failed to inject session data: {e}")
-        # Don't fail the contact flow — ARIA can still handle the call
-        # but without pre-injected context
-
-    return {
-        'sessionId': session_id,
-        'status': 'injected'
-    }
 ```
+scripts/lambdas/session_injector.py
+```
+
+This file is production-ready and includes:
+- Detailed module-level docstring explaining the Lambda's purpose, event format, and all environment variables
+- Stub customer registry that **exactly matches** the data in `aria/tools/customer/customer_details.py` — ensuring ARIA's session context is consistent with what it receives from tool calls
+- CRM lookup function with a clear `TODO` marker showing where to insert your real CRM API call
+- `_build_product_summary()` — generates a natural-language sentence like *"James has a current account ending 4821, a savings account, and a Mastercard credit card"* that ARIA can use to acknowledge products without a tool call
+- `_build_vulnerability_context()` — serialises vulnerability flags so ARIA silently adapts its communication style before it says a word
+- `_lookup_prior_summary()` — reads the customer's last session summary from DynamoDB (optional, controlled by the `MEMORY_TABLE_NAME` environment variable)
+- `_inject_session_data()` — calls `qconnect.update_session_data()` with full error classification (ResourceNotFoundException, AccessDeniedException) and clear remediation instructions in the logs
+
+**All session variables injected and their purpose:**
+
+| Variable | Injected value | Used in AI Prompt as |
+|---|---|---|
+| `sessionId` | ContactId | `{{$.Custom.sessionId}}` |
+| `customerId` | From contact attributes | `{{$.Custom.customerId}}` |
+| `authStatus` | `authenticated` or `unauthenticated` | `{{$.Custom.authStatus}}` |
+| `channel` | `voice`, `chat`, or `ivr` | `{{$.Custom.channel}}` |
+| `dateTime` | Current UTC ISO timestamp | `{{$.Custom.dateTime}}` |
+| `instanceId` | Connect instance ID | Used by escalation logic |
+| `locale` | `en-GB` (or from flow attributes) | `{{$.locale}}` |
+| `preferredName` | From CRM lookup | `{{$.Custom.preferredName}}` |
+| `productSummary` | Natural language product description | `{{$.Custom.productSummary}}` |
+| `productContext` | JSON: masked accounts, cards, mortgages | `{{$.Custom.productContext}}` |
+| `vulnerabilityContext` | JSON: vulnerability flags (SILENT) | `{{$.Custom.vulnerabilityContext}}` |
+| `priorSummary` | Last session summary from DynamoDB | `{{$.Custom.priorSummary}}` |
+
+> **Data consistency:** The session injector uses the same customer registry as the ARIA Strands
+> tools in `aria/tools/customer/customer_details.py`. When you replace the stubs with real API
+> calls, ensure **both** the session injector Lambda **and** the MCP gateway `customer` domain
+> Lambda call the **same CRM endpoint**. This guarantees that the pre-injected `productSummary`
+> in ARIA's session context matches the data ARIA later retrieves when it calls `get_customer_details`.
+
+**Configuring the Lambda (environment variables):**
+
+| Variable | Required | Description |
+|---|---|---|
+| `ASSISTANT_ID` | **Yes** | Q Connect assistant ID from Step 1.2 |
+| `INSTANCE_ID` | No | Connect instance ID; auto-derived from event if not set |
+| `AWS_REGION` | No | Defaults to `eu-west-2` |
+| `CRM_API_ENDPOINT` | No | HTTP URL of your CRM API. If unset, stub registry is used |
+| `MEMORY_TABLE_NAME` | No | DynamoDB table for prior session summaries. If unset, `priorSummary` is empty |
 
 ### Step 5.3 — Deploy the Lambda
 
@@ -942,12 +893,52 @@ Open the flow editor. You will drag blocks from the left panel and connect them.
 
 **Block 3: Set Contact Attributes (Locale)**
 
+> **Why this block is needed:**
+> The session injector Lambda (Block 5) reads contact attributes to build the session context for ARIA.
+> But the Connect assistant block (Block 4) — which creates the Q Connect session — must be placed
+> between this block and the session injector Lambda. That means we must set any known attributes
+> **before** Block 4 so the session injector can read them.
+>
+> Specifically:
+> - `locale` tells ARIA which language to respond in. The AI Prompt uses `{{$.locale}}` to
+>   enforce the configured locale. If this attribute is not set, the prompt falls back to `en-GB`.
+> - `authStatus` is the single most important security gate in the entire flow. Setting it to
+>   `unauthenticated` here is the **secure default** — ARIA will not access any customer data
+>   until it has verified the customer's identity. If you are building a **pre-authenticated**
+>   channel (e.g., the customer logged into the mobile app first and your backend has confirmed
+>   their identity), you can set `authStatus` to `authenticated` here, which tells ARIA to skip
+>   the KBA challenge and go straight to the greeting.
+> - `customerId` — if your IVR or a prior Lambda has already resolved the customer's ID (e.g.,
+>   they pressed digits to identify themselves, or a CRM lookup ran earlier in the flow), set
+>   it here. The session injector Lambda will use it to pre-fetch vulnerability flags, product
+>   summaries, and prior session context, injecting all of this into the Q Connect session before
+>   ARIA says a single word.
+
 1. Drag a **Set contact attributes** block.
 2. Connect the previous block's **Success** to it.
-3. Configure:
-   - Destination: `User-defined` / Key: `locale` / Value: `en-GB`
-   - Destination: `User-defined` / Key: `authStatus` / Value: `unauthenticated`
-   *(For pre-authenticated flows, you would set `authStatus` to `authenticated` here.)*
+3. Configure all of the following attributes:
+
+   | Attribute key | Value | Notes |
+   |---|---|---|
+   | `locale` | `en-GB` | Language for ARIA's responses. Change to `cy-GB` for Welsh, `en-US` for US English. |
+   | `authStatus` | `unauthenticated` | Secure default. ARIA will authenticate the customer using KBA. |
+   | `channel` | `voice` | Tells ARIA it is on a voice channel. Use `chat` for chat flows. |
+   | `customerId` | *(leave blank or set dynamically)* | Set this if your IVR or a prior Lambda has already resolved the customer ID. |
+
+   > **Setting `customerId` dynamically:** If you have a prior Lambda that looked up the
+   > customer's ID based on their CLI (calling line identity), the value can be set
+   > dynamically from the Lambda's return value:
+   > - Destination: `User-defined` / Key: `customerId`
+   > - Value type: **External** / Attribute: `customerId` (from the Lambda's return)
+   >
+   > If the customer has not yet identified themselves, leave `customerId` blank — ARIA
+   > will collect the customer ID during the authentication challenge.
+
+   *(For pre-authenticated flows — e.g., the customer is already logged into the mobile
+   app — set `authStatus` to `authenticated` and ensure `customerId` is populated. The
+   session injector will then pre-load the customer's profile and vulnerability flags so
+   ARIA can greet them by name immediately.)*
+
 4. Connect **Success** to the next block.
 
 ---
@@ -1048,15 +1039,135 @@ Play prompt ("High volumes...") → Disconnect
 
 ## Part 7 — Configure Chat for ARIA
 
-For the chat channel, the process is similar but simplified — Contact Lens real-time is not required.
+For the chat channel, the architecture is identical to voice but with some important differences:
+- Contact Lens **real-time** is **not** required for chat AI (it is mandatory only for voice)
+- Chat contacts do not have a telephone number — the customer endpoint is typically a web session ID
+- ARIA can provide URLs, links, and formatted text in chat, but the AI Prompt still enforces voice-safe
+  formatting (no bullet points, no markdown) because the same prompt is used for both channels
 
-### Step 7.1 — Create a Chat Flow
+### Step 7.1 — Create a Chat Inbound Flow
 
-Follow the same steps as Part 6 but:
-- **Omit** the Set recording and analytics block (not required for chat).
-- Set `channel` attribute to `chat` in the Set contact attributes block.
-- Use the same Connect assistant block with ARIA AI Agent.
-- Use the same session injector Lambda.
+> **Why a separate flow?** While the underlying AI Agent and AI Prompt are the same, the chat flow
+> differs from the voice flow in three ways: (1) no recording block, (2) the `channel` attribute is
+> set to `chat` instead of `voice`, and (3) there is no queue transfer at the end — chat uses a
+> different routing mechanism. Keeping the flows separate makes both easier to maintain.
+
+**Create the flow:**
+
+1. In the Connect admin website, choose **Routing** → **Contact flows**.
+2. Click **Create flow**.
+3. Name it `ARIA-Banking-Chat`.
+4. Ensure the flow type is **Inbound flow** (the default).
+
+**Block 1: Set Logging Behaviour**
+
+1. Drag a **Set logging behaviour** block.
+2. Set logging to **Enabled**.
+3. Connect to the next block.
+
+> This is especially important for chat flows. Chat interactions create detailed logs in
+> CloudWatch that help you trace ARIA's tool calls and session injector output.
+
+**Block 2: Set Contact Attributes**
+
+> This is the same purpose as Block 3 in the voice flow, but with `channel` set to `chat`.
+> The session injector Lambda reads `channel` from these attributes and sets `{{$.Custom.channel}}`
+> accordingly. ARIA's prompt uses `{{$.Custom.channel}}` to decide whether to provide URLs
+> and self-service links (allowed on `chat`) or keep the response verbal-only (required on `voice`).
+
+1. Drag a **Set contact attributes** block.
+2. Connect from Block 1 **Success**.
+3. Configure:
+
+   | Attribute key | Value | Notes |
+   |---|---|---|
+   | `locale` | `en-GB` | Matches the locale in the voice flow |
+   | `authStatus` | `unauthenticated` | Same secure default as voice |
+   | `channel` | `chat` | **Different from voice** — tells ARIA it can provide links and URLs |
+   | `customerId` | *(from prior Lambda or blank)* | Pre-populate if your chat widget passes a customer ID |
+
+4. Connect **Success** to the next block.
+
+**Block 3: Connect Assistant (ARIA AI Agent)**
+
+1. Drag a **Connect assistant** block.
+2. Configure:
+   - **Assistant ARN:** Same ARN as the voice flow (you use the same AI Agent for all channels)
+   - **Orchestration AI agent:** `ARIA-Banking-Agent`
+3. Connect **Success** to Block 4.
+4. Connect **Error** to an error handling block.
+
+> **Why the same AI Agent for voice and chat?**
+> The ARIA AI Prompt uses `{{$.Custom.channel}}` to adjust ARIA's behaviour per channel.
+> ARIA's guardrails apply equally to both. There is no need for a separate AI Agent —
+> you control channel-specific behaviour entirely through the session context and the prompt logic.
+
+**Block 4: Invoke AWS Lambda Function — Session Data Injector**
+
+1. Drag an **Invoke AWS Lambda function** block.
+2. Connect from the Connect assistant block **Success**.
+3. Configure:
+   - **Function ARN:** `aria-session-injector`
+   - **Send all contact attributes:** Yes
+   - **Timeout:** 8 seconds
+4. Connect **Success** and **Error** to Block 5.
+
+> **Note on Error branch:** The session injector Lambda is designed to never fail the contact flow
+> even when it cannot inject session data (see `scripts/lambdas/session_injector.py`).
+> Connecting both Success and Error to the same next block ensures the chat reaches ARIA regardless.
+
+**Block 5: Set Queue (Chat Queue)**
+
+1. Drag a **Set queue** block.
+2. Set queue to `ARIA-Banking-Chat-Queue` (create this queue if it does not exist):
+   - Navigate to **Routing** → **Queues** → **Add queue**
+   - Name: `ARIA-Banking-Chat-Queue`
+   - Hours: Same as voice queue
+   - Outbound caller ID: Not applicable for chat
+3. Connect **Success** to Block 6.
+
+**Block 6: Transfer to Queue**
+
+1. Drag a **Transfer to queue** block.
+2. Connect from Block 5 **Success**.
+3. Connect **At capacity** and **Error** to a **Disconnect** block.
+
+**Block 7: Disconnect**
+
+1. Drag a **Disconnect / hang up** block.
+2. Connect all error and overflow branches to it.
+
+**Complete chat flow layout:**
+
+```
+Entry
+  │
+  ▼
+Set Logging Behaviour (Enabled)
+  │ Success
+  ▼
+Set Contact Attributes (locale=en-GB, authStatus=unauthenticated, channel=chat)
+  │ Success
+  ▼
+Connect assistant (ARIA-Banking-Agent)
+  │ Success                              │ Error
+  ▼                                      ▼
+Invoke Lambda (session-injector)       Disconnect
+  │ Success/Error
+  ▼
+Set Queue (ARIA-Banking-Chat-Queue)
+  │ Success
+  ▼
+Transfer to Queue
+  │ At capacity / Error
+  ▼
+Disconnect
+```
+
+**Publish the flow:**
+
+1. Click **Save** then **Publish**.
+2. The chat flow is now ready to be assigned to a chat widget.
 
 ### Step 7.2 — Enable Chat in Connect
 
@@ -1172,9 +1283,111 @@ See the deployment script in the next section: `scripts/deploy_mcp_gateway.sh`.
 
 ### Tool calls fail silently
 
-1. The Connect AI Agent tool schema uses `type: string` for all parameters — confirm your Lambda handlers accept string inputs and parse JSON where needed.
-2. Check Lambda CloudWatch logs for the specific `aria-mcp-<domain>` function.
-3. Check the AgentCore MCP Gateway logs in CloudWatch.
+When a Connect AI Agent tool call fails or returns an unexpected result, the failure is often
+silent — ARIA either responds with generic language or ignores the tool output. This section
+explains the root cause and provides a validated checklist.
+
+#### Why tool parameters are always strings
+
+The Connect AI Prompt tool schema enforces `type: string` for **all** parameters. This is a
+hard constraint from the Amazon Q in Connect platform — it does not support integer, boolean,
+array, or object types in the MESSAGES format used by the AI Orchestration Agent.
+
+Official reference: https://docs.aws.amazon.com/connect/latest/adminguide/create-ai-prompts.html
+
+This means: even when a tool parameter is semantically an integer (e.g., `risk_score`) or a
+boolean (e.g., `request_replacement`), the Connect AI Agent passes it as a string. Your Lambda
+handlers **must** accept and handle string values for all parameters.
+
+#### Validated: all ARIA MCP gateway Lambda handlers handle string inputs
+
+The `scripts/deploy_mcp_gateway.sh` script generates 10 domain Lambda functions. All handlers
+have been audited against the string-only constraint. Here is what each domain does:
+
+| Domain | Handler | String handling confirmed |
+|---|---|---|
+| `auth` | `verify_customer_identity`, `initiate_customer_auth`, `validate_customer_auth`, `cross_validate_session_identity` | All parameters accessed via `inp.get("key", default)` — string safe ✅ |
+| `account` | `get_account_details` | `query_subtype` is a string comparison. `account_number` is used as a string (last 4 chars). ✅ |
+| `customer` | `get_customer_details` | `customer_id` is a string lookup. ✅ |
+| `debit-card` | `get_debit_card_details`, `block_debit_card` | `request_replacement` handled as: `inp.get("request_replacement", "true").lower() == "true"` — correctly converts string `"true"`/`"false"` to boolean ✅ |
+| `credit-card` | `get_credit_card_details` | All parameters are string comparisons. ✅ |
+| `mortgage` | `get_mortgage_details` | `query_subtype` is a string comparison. ✅ |
+| `products` | `get_product_catalogue`, `analyse_spending` | All parameters are string lookups. ✅ |
+| `pii` | `pii_detect_and_redact`, `pii_vault_store`, `pii_vault_retrieve`, `pii_vault_purge` | `pii_map` and `vault_refs` are explicitly handled: `if isinstance(pii_map, str): json.loads(pii_map)` — correctly parses JSON-encoded string when Connect passes an object as a string ✅ |
+| `escalation` | `generate_transcript_summary`, `escalate_to_human_agent` | All parameters are string operations. ✅ |
+| `knowledge` | `search_knowledge_base`, `get_feature_parity` | All parameters are string lookups. ✅ |
+
+**Top-level string safety in all handlers:**
+
+All domain handlers share this top-level parsing logic (generated by the deploy script):
+
+```python
+tool_input = event.get("tool_input", event.get("input", {}))
+if isinstance(tool_input, str):
+    try:
+        tool_input = json.loads(tool_input)
+    except json.JSONDecodeError:
+        pass
+```
+
+This handles the case where the MCP Gateway passes `tool_input` as a JSON-encoded string rather
+than a dict — which can occur depending on the gateway's serialisation mode.
+
+#### When you add new real banking API calls
+
+When you replace the stubs with real API calls, apply this pattern for any parameter that
+should be a number or boolean:
+
+```python
+# Integer parameter — Connect passes "5", you need 5
+max_items = int(inp.get("max_items", "5") or "5")
+
+# Boolean parameter — Connect passes "true"/"false"
+include_pending = (inp.get("include_pending", "false") or "false").lower() == "true"
+
+# Object/array parameter — Connect passes a JSON-encoded string
+filters_raw = inp.get("filters", "{}")
+filters = json.loads(filters_raw) if isinstance(filters_raw, str) else (filters_raw or {})
+```
+
+#### Troubleshooting checklist
+
+1. **Check the MCP gateway Lambda CloudWatch logs** — open the log group for the specific
+   domain Lambda:
+   ```
+   /aws/lambda/aria-mcp-<domain>-production
+   ```
+   Look for the `MCP invocation [domain]:` log line which prints the full incoming event.
+   Confirm `tool_name` is correct and `tool_input` contains the expected keys.
+
+2. **Check the AgentCore MCP Gateway logs** — the gateway logs are in:
+   ```
+   /aws/bedrock-agentcore/gateway/aria-mcp-gateway
+   ```
+   Confirm the tool request was forwarded to the Lambda and that the Lambda response was
+   received by the gateway.
+
+3. **Confirm the AI Prompt tool name matches the Lambda handler name** — the `name:` field
+   in the AI Prompt YAML must exactly match the key passed to `@_register("tool_name")` in
+   the Lambda handler. Tool names are case-sensitive.
+
+4. **Check the MCP target ARN** — in the AgentCore gateway configuration, each tool target
+   must point to the correct Lambda ARN. Use:
+   ```bash
+   aws bedrock-agentcore-control get-gateway \
+     --gateway-id <YOUR_GATEWAY_ID> \
+     --region eu-west-2 \
+     --query "gateway.targets[*].{name:name,arn:lambdaConfig.lambdaArn}"
+   ```
+   Confirm the ARN matches the deployed Lambda.
+
+5. **Confirm the Lambda is published and the ARN is not a `$LATEST` alias** — the MCP
+   gateway should point to the published version or a stable alias, not `$LATEST`, in
+   production.
+
+6. **Confirm the JSON shape of nested parameters** — the Connect AI Agent sends complex
+   parameters (objects and arrays) as JSON-encoded strings. The handler must parse them.
+   Verify your stub handles `json.loads(raw)` where `raw` may be a string `"{}"`.
 
 ---
 
