@@ -810,7 +810,8 @@ This file is production-ready and includes:
 | `INSTANCE_ID` | No | Connect instance ID; auto-derived from event if not set |
 | `AWS_REGION` | No | Defaults to `eu-west-2` |
 | `CRM_API_ENDPOINT` | No | HTTP URL of your CRM API. If unset, stub registry is used |
-| `MEMORY_TABLE_NAME` | No | DynamoDB table for prior session summaries. If unset, `priorSummary` is empty |
+| `MEMORY_TABLE_NAME` | No | DynamoDB table for prior session summaries (table: `aria-session-memory`). If unset, `priorSummary` is empty. See Step 5.4. |
+| `TRANSCRIPT_TABLE_NAME` | No | DynamoDB table for cross-channel transcripts (table: `aria-transcript-store`). Required only when using voice↔chat transfer. Defaults to `aria-transcript-store`. See Step 5.4. |
 
 ### Step 5.3 — Deploy the Lambda
 
@@ -841,6 +842,391 @@ aws lambda add-permission \
   --source-account 395402194296 \
   --region eu-west-2
 ```
+
+---
+
+### Step 5.4 — Create the DynamoDB Tables
+
+The session injector Lambda uses up to two DynamoDB tables. Both are optional but strongly
+recommended for production use — without them ARIA cannot greet customers by name using prior
+history, and voice↔chat transfers will not carry conversation context.
+
+> **Why DynamoDB?** DynamoDB is Amazon's managed NoSQL database. It requires no server
+> administration, scales automatically, and integrates natively with Lambda via IAM roles. You
+> do not need to install a database driver — the AWS SDK includes everything needed.
+>
+> Official docs: [DynamoDB Developer Guide](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Introduction.html)
+
+---
+
+#### Table 1 — `aria-session-memory` (Prior Session Summaries)
+
+**Purpose**: Stores a one-line summary of each customer's last interaction with ARIA. Populated
+by your post-call processing (a separate Lambda or Contact Lens post-contact summary). Read by
+the session injector to inject `{{$.Custom.priorSummary}}` into ARIA's prompt so ARIA can say
+*"Welcome back — last time we discussed your standing order."*
+
+**Schema**:
+
+| Attribute | Type | Role | Example value |
+|---|---|---|---|
+| `PK` | String | **Partition key** | `CUSTOMER#CUST-001` |
+| `SK` | String | **Sort key** | `LAST_SESSION_SUMMARY` |
+| `summary` | String | Session summary text | `"Customer asked about their balance and requested a paper statement."` |
+| `updatedAt` | String | ISO 8601 timestamp | `"2026-04-01T13:45:00Z"` |
+| `ttl` | Number | DynamoDB TTL (auto-delete) | Unix epoch + 90 days |
+
+> **Why a composite key (PK + SK)?** Using both a partition key and sort key future-proofs the
+> table. You can later add additional records per customer (e.g. `LAST_COMPLAINT`, `OPEN_CASES`)
+> without redesigning the table. For now, only `LAST_SESSION_SUMMARY` is used.
+
+**Step-by-step: Create via AWS Console**
+
+1. Go to the [AWS Console](https://console.aws.amazon.com) → search for **DynamoDB** → open it
+2. In the left menu, click **Tables** → click **Create table** (top right)
+3. Fill in the table settings:
+   - **Table name**: `aria-session-memory`
+   - **Partition key**: `PK` — type: **String**
+   - **Sort key**: check "Add sort key" → name: `SK` — type: **String**
+4. Under **Table settings**, choose **Customize settings** (so you can configure everything)
+5. Under **Table class**: leave as **DynamoDB Standard**
+6. Under **Read/write capacity settings**: choose **On-demand**
+   > *On-demand means you only pay per request — there is no minimum charge. This is ideal
+   > for ARIA because session memory reads are infrequent (one per conversation start).*
+7. Under **Encryption at rest**: leave as **Owned by Amazon DynamoDB** (default, free)
+8. Click **Create table**
+9. Wait about 30 seconds for the table status to show **Active**
+10. Open the newly created table → click the **Additional settings** tab
+11. Under **Time to Live (TTL)**:
+    - Click **Manage TTL**
+    - TTL attribute name: `ttl`
+    - Click **Save changes**
+    > *TTL tells DynamoDB to automatically delete items after their `ttl` timestamp expires.
+    > Setting it to 90 days means old session summaries are cleaned up without any manual work.*
+
+**Step-by-step: Create via AWS CLI**
+
+```bash
+# Create the table
+aws dynamodb create-table \
+  --table-name aria-session-memory \
+  --attribute-definitions \
+    AttributeName=PK,AttributeType=S \
+    AttributeName=SK,AttributeType=S \
+  --key-schema \
+    AttributeName=PK,KeyType=HASH \
+    AttributeName=SK,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST \
+  --region eu-west-2
+
+# Wait for it to become Active
+aws dynamodb wait table-exists \
+  --table-name aria-session-memory \
+  --region eu-west-2
+
+# Enable TTL on the 'ttl' attribute
+aws dynamodb update-time-to-live \
+  --table-name aria-session-memory \
+  --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+  --region eu-west-2
+
+echo "aria-session-memory is ready"
+```
+
+**Grant the session injector Lambda permission to access the table**
+
+Add this inline policy to the `aria-session-injector-role` IAM role:
+
+```bash
+aws iam put-role-policy \
+  --role-name aria-session-injector-role \
+  --policy-name aria-session-memory-access \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ],
+        "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-session-memory"
+      }
+    ]
+  }'
+```
+
+**Set the environment variable on the Lambda**
+
+```bash
+aws lambda update-function-configuration \
+  --function-name aria-session-injector \
+  --environment "Variables={
+    ASSISTANT_ID=<your-assistant-id>,
+    MEMORY_TABLE_NAME=aria-session-memory
+  }" \
+  --region eu-west-2
+```
+
+**Writing a session summary (how to populate the table)**
+
+After each contact ends, a post-call Lambda (or Contact Lens post-contact summary) writes a
+brief summary. Here is a minimal example of the write operation:
+
+```python
+import boto3
+import time
+
+dynamodb = boto3.resource('dynamodb', region_name='eu-west-2')
+table = dynamodb.Table('aria-session-memory')
+
+def save_session_summary(customer_id: str, summary_text: str) -> None:
+    """
+    Call this at the end of each conversation to store the summary.
+    The next time the customer calls, ARIA will read it and greet them
+    with prior context.
+    """
+    ttl_90_days = int(time.time()) + (90 * 24 * 60 * 60)
+
+    table.put_item(Item={
+        'PK':        f'CUSTOMER#{customer_id}',
+        'SK':        'LAST_SESSION_SUMMARY',
+        'summary':   summary_text,
+        'updatedAt': datetime.now(timezone.utc).isoformat(),
+        'ttl':       ttl_90_days,
+    })
+```
+
+**Verify the table works**
+
+After deploying, you can write a test record and then invoke the session injector to confirm
+`priorSummary` appears in the Lambda's response:
+
+```bash
+# Write a test record
+aws dynamodb put-item \
+  --table-name aria-session-memory \
+  --item '{
+    "PK":        {"S": "CUSTOMER#CUST-001"},
+    "SK":        {"S": "LAST_SESSION_SUMMARY"},
+    "summary":   {"S": "Customer asked about their current account balance and requested a statement."},
+    "updatedAt": {"S": "2026-04-01T09:00:00Z"},
+    "ttl":       {"N": "9999999999"}
+  }' \
+  --region eu-west-2
+
+# Verify it was written
+aws dynamodb get-item \
+  --table-name aria-session-memory \
+  --key '{"PK": {"S": "CUSTOMER#CUST-001"}, "SK": {"S": "LAST_SESSION_SUMMARY"}}' \
+  --region eu-west-2
+```
+
+Expected output:
+```json
+{
+    "Item": {
+        "PK":        {"S": "CUSTOMER#CUST-001"},
+        "SK":        {"S": "LAST_SESSION_SUMMARY"},
+        "summary":   {"S": "Customer asked about their current account balance..."},
+        "updatedAt": {"S": "2026-04-01T09:00:00Z"},
+        "ttl":       {"N": "9999999999"}
+    }
+}
+```
+
+---
+
+#### Table 2 — `aria-transcript-store` (Cross-Channel Transfer Transcripts)
+
+**Purpose**: Stores full conversation transcripts from voice or chat when a customer transfers
+to the other channel. The `voice_to_chat_transfer` and `chat_to_voice_transfer` Lambdas write
+to this table; the session injector reads from it. This is what gives ARIA (or a human agent)
+full conversation context after a channel transfer — without this table, the customer would
+have to repeat themselves.
+
+**When is this needed?**: Only if you implement voice↔chat channel transfers. If you are not
+using the transfer feature, you can skip this table.
+
+**Schema**:
+
+| Attribute | Type | Role | Example value |
+|---|---|---|---|
+| `contactId` | String | **Partition key** | `11111111-2222-3333-4444-555555555555` |
+| `customerId` | String | Secondary attribute (GSI key) | `CUST-001` |
+| `channel` | String | Origin channel of the transcript | `voice` or `chat` |
+| `transcript` | String | Full formatted transcript text | `"ARIA: Hello...\nCustomer: I need..."` |
+| `summary` | String | Brief last-6-turns summary | `"💬 Transferred from chat:\nARIA: ..."` |
+| `timestamp` | String | ISO 8601 write time | `"2026-04-01T13:45:22Z"` |
+| `ttl` | Number | DynamoDB TTL (auto-delete) | Unix epoch + 7 days |
+
+> **Why `contactId` as the key and not `customerId`?** Each transfer is tied to one specific
+> contact session. Multiple transfers by the same customer create separate records. Using
+> `contactId` ensures the session injector retrieves the correct transcript for the specific
+> transfer event, not a previous one.
+
+**Step-by-step: Create via AWS Console**
+
+1. AWS Console → **DynamoDB** → **Tables** → **Create table**
+2. Fill in:
+   - **Table name**: `aria-transcript-store`
+   - **Partition key**: `contactId` — type: **String**
+   - *(No sort key needed — one record per contact)*
+3. **Customize settings**
+4. **Read/write capacity**: On-demand
+5. Click **Create table** → wait for **Active** status
+6. Open the table → **Additional settings** tab → **Manage TTL**
+   - TTL attribute name: `ttl` → **Save changes**
+
+**Add a Global Secondary Index for customer-based lookups** (optional but useful for support tools):
+
+After the table is active:
+
+1. Open `aria-transcript-store` → click the **Indexes** tab
+2. Click **Create index**
+3. Configure:
+   - **Partition key**: `customerId` — type: **String**
+   - **Index name**: `customerId-index`
+   - **Projected attributes**: Include the following: `transcript`, `summary`, `timestamp`, `channel`
+     *(Only include what you need — projecting all attributes wastes read capacity)*
+4. Click **Create index** → wait for it to become **Active** (1–2 minutes)
+
+**Step-by-step: Create via AWS CLI**
+
+```bash
+# Create the table
+aws dynamodb create-table \
+  --table-name aria-transcript-store \
+  --attribute-definitions \
+    AttributeName=contactId,AttributeType=S \
+    AttributeName=customerId,AttributeType=S \
+  --key-schema \
+    AttributeName=contactId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --global-secondary-indexes '[
+    {
+      "IndexName": "customerId-index",
+      "KeySchema": [
+        {"AttributeName": "customerId", "KeyType": "HASH"}
+      ],
+      "Projection": {
+        "ProjectionType": "INCLUDE",
+        "NonKeyAttributes": ["transcript", "summary", "timestamp", "channel"]
+      }
+    }
+  ]' \
+  --region eu-west-2
+
+# Wait for Active
+aws dynamodb wait table-exists \
+  --table-name aria-transcript-store \
+  --region eu-west-2
+
+# Enable TTL
+aws dynamodb update-time-to-live \
+  --table-name aria-transcript-store \
+  --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+  --region eu-west-2
+
+echo "aria-transcript-store is ready"
+```
+
+**Grant the session injector Lambda permission to read from this table**
+
+```bash
+aws iam put-role-policy \
+  --role-name aria-session-injector-role \
+  --policy-name aria-transcript-store-read \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetItem",
+          "dynamodb:Query"
+        ],
+        "Resource": [
+          "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store",
+          "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store/index/*"
+        ]
+      }
+    ]
+  }'
+```
+
+**Grant the transfer Lambdas permission to write to this table**
+
+The `voice_to_chat_transfer` and `chat_to_voice_transfer` Lambdas need write access. Create a
+shared IAM policy and attach it to both Lambda execution roles:
+
+```bash
+# Create a shared policy document
+cat > /tmp/transcript-store-write.json << 'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:GetItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store",
+        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store/index/*"
+      ]
+    }
+  ]
+}
+EOF
+
+# Attach to voice_to_chat_transfer role
+aws iam put-role-policy \
+  --role-name aria-voice-to-chat-role \
+  --policy-name aria-transcript-store-write \
+  --policy-document file:///tmp/transcript-store-write.json
+
+# Attach to chat_to_voice_transfer role
+aws iam put-role-policy \
+  --role-name aria-chat-to-voice-role \
+  --policy-name aria-transcript-store-write \
+  --policy-document file:///tmp/transcript-store-write.json
+```
+
+**Set the environment variable on the session injector Lambda**
+
+```bash
+aws lambda update-function-configuration \
+  --function-name aria-session-injector \
+  --environment "Variables={
+    ASSISTANT_ID=<your-assistant-id>,
+    MEMORY_TABLE_NAME=aria-session-memory,
+    TRANSCRIPT_TABLE_NAME=aria-transcript-store
+  }" \
+  --region eu-west-2
+```
+
+---
+
+#### Table Summary and Checklist
+
+| Table | Required for | Created? | TTL enabled? | Lambda env var |
+|---|---|---|---|---|
+| `aria-session-memory` | Prior session summaries (`priorSummary`) | ☐ | ☐ (90 days) | `MEMORY_TABLE_NAME` |
+| `aria-transcript-store` | Voice↔chat channel transfers | ☐ | ☐ (7 days) | `TRANSCRIPT_TABLE_NAME` |
+
+Before moving to Part 6, confirm:
+- [ ] Both tables are in **Active** state in the DynamoDB console
+- [ ] TTL is enabled on both tables (the TTL column shows `ttl` in the console)
+- [ ] The session injector Lambda's environment variables include `MEMORY_TABLE_NAME` and `TRANSCRIPT_TABLE_NAME`
+- [ ] The IAM role for the session injector has `GetItem` permission on both tables
+- [ ] The IAM roles for the transfer Lambdas have `PutItem` permission on `aria-transcript-store`
+
+> **Tip — verify IAM with the Policy Simulator**: AWS Console → IAM → Policy Simulator. Select
+> the role, choose `dynamodb:GetItem`, set the resource ARN to the table ARN, and click
+> **Run Simulation**. If it says "allowed", the permissions are correct.
 
 ---
 

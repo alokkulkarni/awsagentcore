@@ -1220,104 +1220,154 @@ the Lambda must retrieve the transcript from DynamoDB rather than Contact Lens.
 > Official docs: [ListRealtimeContactAnalysisSegments](https://docs.aws.amazon.com/contact-lens/latest/APIReference/API_ListRealtimeContactAnalysisSegments.html)
 > — *"Voice data is retained for 24 hours. You must invoke this API during that time."*
 
-### Create the DynamoDB Table
+> **Full step-by-step creation instructions** (console + CLI + IAM permissions) are in:
+> [`docs/aria-connect-conversational-ai-setup-guide.md` — Step 5.4](aria-connect-conversational-ai-setup-guide.md#step-54--create-the-dynamodb-tables)
+>
+> This section provides a quick reference summary. Follow the setup guide for the full
+> walkthrough including IAM policy attachment and verification steps.
 
-1. AWS Console → **DynamoDB** → **Create table**
-2. Configure:
-   - **Table name**: `aria-transcript-store`
-   - **Partition key**: `contactId` (String)
-3. Under **Additional settings**:
-   - **Time to Live (TTL)**: Enable → attribute name: `ttl`
-     *(The Lambda sets TTL = current time + 7 days. Old transcripts are automatically deleted.)*
-4. **Capacity mode**: On-demand *(easier for variable workloads)*
-5. Click **Create table**
+### Table: `aria-transcript-store`
 
-**Add a Global Secondary Index (GSI) for customer-based lookups** (optional but useful):
-1. In the table → **Indexes** tab → **Create index**
-2. Partition key: `customerId` (String)
-3. Index name: `customerId-index`
-4. Projection: **Include** `transcript`, `summary`, `timestamp`, `channel`
+**Quick reference schema**:
 
-### Table Schema
+| Attribute | Type | Role | Example |
+|---|---|---|---|
+| `contactId` | String | **Partition key** | `11111111-2222-3333-...` |
+| `customerId` | String | GSI partition key | `CUST-001` |
+| `channel` | String | `voice` or `chat` | `voice` |
+| `transcript` | String | Full conversation text | `"ARIA: Hello...\nCustomer: ..."` |
+| `summary` | String | Last 6 turns (for prompt injection) | `"💬 Transferred from chat:..."` |
+| `timestamp` | String | ISO 8601 write time | `"2026-04-01T13:45:22Z"` |
+| `ttl` | Number | Auto-delete epoch (7 days) | `1746000000` |
 
+**Create via CLI (quick)**:
+
+```bash
+# Create table + GSI
+aws dynamodb create-table \
+  --table-name aria-transcript-store \
+  --attribute-definitions \
+    AttributeName=contactId,AttributeType=S \
+    AttributeName=customerId,AttributeType=S \
+  --key-schema \
+    AttributeName=contactId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --global-secondary-indexes '[
+    {
+      "IndexName": "customerId-index",
+      "KeySchema": [{"AttributeName": "customerId", "KeyType": "HASH"}],
+      "Projection": {
+        "ProjectionType": "INCLUDE",
+        "NonKeyAttributes": ["transcript", "summary", "timestamp", "channel"]
+      }
+    }
+  ]' \
+  --region eu-west-2
+
+# Wait for Active
+aws dynamodb wait table-exists \
+  --table-name aria-transcript-store \
+  --region eu-west-2
+
+# Enable 7-day TTL
+aws dynamodb update-time-to-live \
+  --table-name aria-transcript-store \
+  --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+  --region eu-west-2
 ```
-contactId (PK)      — The original voice or chat Contact ID
-customerId          — Customer ID (for customer-based retrieval)
-channel             — 'voice' or 'chat'
-transcript          — Full formatted transcript
-summary             — Brief summary (max ~1000 chars for contact attribute injection)
-timestamp           — ISO 8601 timestamp of when transcript was stored
-ttl                 — DynamoDB TTL attribute (Unix epoch — auto-deletes after 7 days)
-```
+
+**Console steps (summary)**:
+1. DynamoDB → **Create table**
+2. Table name: `aria-transcript-store` / Partition key: `contactId` (String)
+3. Capacity mode: **On-demand** → Create
+4. After Active: **Additional settings** → **Manage TTL** → attribute: `ttl` → Save
+5. **Indexes** tab → **Create index**: partition key `customerId`, index name `customerId-index`,
+   projected attributes: `transcript`, `summary`, `timestamp`, `channel`
+
+**Also needed — `aria-session-memory`** (for `priorSummary`):
+This table is fully documented in [Step 5.4 of the setup guide](aria-connect-conversational-ai-setup-guide.md#step-54--create-the-dynamodb-tables).
+It stores one summary per customer (schema: PK=`CUSTOMER#<id>`, SK=`LAST_SESSION_SUMMARY`,
+attribute: `summary` String). TTL: 90 days.
 
 ---
 
 ## Part E — Session Injector Updates for Cross-Channel Context
 
-The existing `session_injector.py` Lambda needs a small update to detect cross-channel transfers
-and inject the prior channel's transcript into ARIA's Q Connect session.
+> **These changes are already applied** to `scripts/lambdas/session_injector.py`.
+> This section explains what was added and why, so you can understand how it works
+> and verify the deployment is correct.
 
-**Add this function to `scripts/lambdas/session_injector.py`**:
+The session injector Lambda (`session_injector.py`) was updated with two additions:
 
-```python
-def get_cross_channel_transcript(contact_attributes: dict, dynamodb_table) -> dict:
-    """
-    Detects cross-channel transfers and retrieves the prior transcript.
-    Returns additional session variables to inject.
+**1. New environment variable `TRANSCRIPT_TABLE_NAME`**
 
-    Called by the main session injector before building the session data.
-    """
-    extra_session_vars = {}
+Set to `aria-transcript-store` (the table created in Part D). If not set, cross-channel
+transcript lookup is silently skipped (safe default — the call continues without prior context).
 
-    chat_transfer_source = contact_attributes.get('chatTransferSource', '')
-    voice_transfer_source = contact_attributes.get('voiceTransferSource', '')
-
-    if chat_transfer_source == 'voice':
-        # New CHAT that was transferred from a VOICE call
-        voice_contact_id = contact_attributes.get('voiceContactId', '')
-        if voice_contact_id:
-            transcript_item = dynamodb_table.get_item(
-                Key={'contactId': voice_contact_id}
-            ).get('Item', {})
-
-            if transcript_item:
-                extra_session_vars['priorTranscript'] = transcript_item.get('transcript', '')
-                extra_session_vars['priorSummary'] = transcript_item.get('summary', '')
-                extra_session_vars['priorChannel'] = 'voice'
-                extra_session_vars['priorContactId'] = voice_contact_id
-
-    elif voice_transfer_source == 'chat':
-        # New VOICE call that was transferred from a CHAT
-        chat_contact_id = contact_attributes.get('chatContactId', '')
-        if chat_contact_id:
-            transcript_item = dynamodb_table.get_item(
-                Key={'contactId': chat_contact_id}
-            ).get('Item', {})
-
-            if transcript_item:
-                extra_session_vars['priorTranscript'] = transcript_item.get('transcript', '')
-                extra_session_vars['priorSummary'] = transcript_item.get('summary', '')
-                extra_session_vars['priorChannel'] = 'chat'
-                extra_session_vars['priorContactId'] = chat_contact_id
-
-    return extra_session_vars
+Set it on the Lambda:
+```bash
+aws lambda update-function-configuration \
+  --function-name aria-session-injector \
+  --environment "Variables={
+    ASSISTANT_ID=<your-assistant-id>,
+    MEMORY_TABLE_NAME=aria-session-memory,
+    TRANSCRIPT_TABLE_NAME=aria-transcript-store
+  }" \
+  --region eu-west-2
 ```
 
-**In the main `lambda_handler` of session_injector.py**, add the cross-channel transcript lookup
-to the session data being injected:
+**2. New function `_get_cross_channel_transcript()`**
 
-```python
-# Inside lambda_handler, after building the base session_data dict:
+This function is called inside `lambda_handler` just before the Q Connect inject call.
+It checks for two contact attributes that the transfer Lambdas set:
 
-cross_channel_vars = get_cross_channel_transcript(contact_attributes, transcript_table)
-session_data.update(cross_channel_vars)
+| Attribute | Value | Meaning |
+|---|---|---|
+| `chatTransferSource` | `voice` | This is a new CHAT contact — the customer came from a voice call |
+| `voiceTransferSource` | `chat` | This is a new VOICE contact — the customer came from a chat session |
 
-# session_data now contains priorTranscript, priorSummary, priorChannel, priorContactId
-# These are injected into the Q Connect session and available in ARIA's prompt as:
-#   {{$.Custom.priorTranscript}}
-#   {{$.Custom.priorSummary}}
-#   {{$.Custom.priorChannel}}
+When either attribute is detected, the function reads the linked prior contact's transcript
+from `aria-transcript-store` and adds four new session variables:
+
+| Session variable | Content | Available in prompt as |
+|---|---|---|
+| `priorTranscript` | Full conversation text from prior channel | `{{$.Custom.priorTranscript}}` |
+| `priorSummary` | Brief last-6-turns summary | `{{$.Custom.priorSummary}}` |
+| `priorChannel` | `voice` or `chat` | `{{$.Custom.priorChannel}}` |
+| `priorContactId` | The original contact ID | `{{$.Custom.priorContactId}}` |
+
+**3. Update the ARIA system prompt** to use these variables
+
+In your AI Prompt (Connect admin → AI Prompts → your ARIA prompt), add this block inside the
+customer context section:
+
 ```
+{% if $.Custom.priorChannel %}
+CROSS-CHANNEL TRANSFER — IMPORTANT:
+This {{ $.Custom.channel }} session is a continuation of a prior {{ $.Custom.priorChannel }} conversation.
+Do NOT ask the customer to repeat information they already provided in that conversation.
+Acknowledge the transfer naturally.
+
+Prior conversation summary:
+{{ $.Custom.priorSummary }}
+
+Full prior transcript (for your reference only — do not read it verbatim to the customer):
+{{ $.Custom.priorTranscript }}
+{% endif %}
+```
+
+**Verify the update is working**
+
+After deploying, trigger a test transfer and check the session injector's CloudWatch logs:
+
+```
+[VoiceToChatTransfer] voiceContactId=... chatContactId=...
+[SessionInjector] Cross-channel context injected: priorChannel='voice' priorContactId='...'
+```
+
+If you see `Cross-channel context injected` in the logs, the integration is working correctly.
+If you see `Cross-channel transcript not found in DynamoDB`, the transfer Lambda may not have
+stored the transcript yet (check its CloudWatch logs for errors).
 
 **Update the ARIA system prompt** to use these new variables:
 
