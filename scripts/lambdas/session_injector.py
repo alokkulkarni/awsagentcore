@@ -125,6 +125,7 @@ ASSISTANT_ID: str = os.environ.get("ASSISTANT_ID", "")  # REQUIRED: Q Connect as
 AWS_REGION: str = os.environ.get("AWS_REGION", "eu-west-2")
 CRM_API_ENDPOINT: str = os.environ.get("CRM_API_ENDPOINT", "")  # Empty = use stub data
 MEMORY_TABLE_NAME: str = os.environ.get("MEMORY_TABLE_NAME", "")  # Empty = skip prior summary
+TRANSCRIPT_TABLE_NAME: str = os.environ.get("TRANSCRIPT_TABLE_NAME", "aria-transcript-store")  # Cross-channel transcripts
 
 # ---------------------------------------------------------------------------
 # AWS clients — initialised once per Lambda container lifecycle
@@ -485,6 +486,66 @@ def _inject_session_data(
 # Main Lambda handler
 # ---------------------------------------------------------------------------
 
+def _get_cross_channel_transcript(flow_attributes: dict) -> dict:
+    """
+    Detects cross-channel transfers and retrieves the prior channel's transcript
+    from DynamoDB (aria-transcript-store).
+
+    Called by lambda_handler when a contact has either:
+      - chatTransferSource = 'voice'  → new CHAT continued from VOICE call
+      - voiceTransferSource = 'chat'  → new VOICE call continued from CHAT session
+
+    The DynamoDB table is populated by voice_to_chat_transfer.py and
+    chat_to_voice_transfer.py when the transfer Lambda runs.
+
+    Returns a dict of additional session variables to inject (may be empty if
+    not a cross-channel transfer, or if the table lookup fails).
+    """
+    if not TRANSCRIPT_TABLE_NAME:
+        return {}
+
+    chat_transfer_source = flow_attributes.get("chatTransferSource", "")
+    voice_transfer_source = flow_attributes.get("voiceTransferSource", "")
+
+    prior_contact_id = ""
+    prior_channel = ""
+
+    if chat_transfer_source == "voice":
+        prior_contact_id = flow_attributes.get("voiceContactId", "")
+        prior_channel = "voice"
+    elif voice_transfer_source == "chat":
+        prior_contact_id = flow_attributes.get("chatContactId", "")
+        prior_channel = "chat"
+
+    if not prior_contact_id:
+        return {}
+
+    try:
+        response = _get_dynamodb().get_item(
+            TableName=TRANSCRIPT_TABLE_NAME,
+            Key={"contactId": {"S": prior_contact_id}},
+            ProjectionExpression="transcript, summary",
+        )
+        item = response.get("Item", {})
+        if not item:
+            logger.warning(
+                f"Cross-channel transcript not found in DynamoDB for contactId={prior_contact_id!r}. "
+                "The transfer Lambda may not have stored it yet, or it expired."
+            )
+            return {}
+
+        return {
+            "priorTranscript": item.get("transcript", {}).get("S", ""),
+            "priorSummary":    item.get("summary", {}).get("S", ""),
+            "priorChannel":    prior_channel,
+            "priorContactId":  prior_contact_id,
+        }
+
+    except Exception as exc:
+        logger.error(f"Failed to retrieve cross-channel transcript: {exc}")
+        return {}
+
+
 def lambda_handler(event: dict, context: Any) -> dict:
     """
     Entry point. Called by Amazon Connect via the "Invoke AWS Lambda function" block.
@@ -582,6 +643,19 @@ def lambda_handler(event: dict, context: Any) -> dict:
             session_vars["priorSummary"] = ""
     else:
         logger.info("No customerId in contact attributes — injecting base session variables only.")
+
+    # ----------------------------------------------------------------
+    # 3b. Cross-channel transfer context (voice→chat or chat→voice)
+    # If this contact is a continuation of a prior channel, inject the
+    # prior transcript so ARIA has full conversation continuity.
+    # ----------------------------------------------------------------
+    cross_channel_vars = _get_cross_channel_transcript(flow_attributes)
+    if cross_channel_vars:
+        session_vars.update(cross_channel_vars)
+        logger.info(
+            f"Cross-channel context injected: priorChannel={cross_channel_vars.get('priorChannel')!r} "
+            f"priorContactId={cross_channel_vars.get('priorContactId')!r}"
+        )
 
     # ----------------------------------------------------------------
     # 4. Inject into Q Connect session
