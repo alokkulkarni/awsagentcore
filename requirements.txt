@@ -1,6 +1,6 @@
 strands-agents==1.33.0
 strands-agents[bidi]==1.33.0
-strands-agents-tools==1.33.0
+strands-agents-tools==0.3.0
 uv
 boto3
 bedrock-agentcore
