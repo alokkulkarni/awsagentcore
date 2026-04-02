@@ -538,18 +538,22 @@ create_lambda_iam_role() {
             --role-name "$role_name" \
             --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
-        # CloudTrail Lake write
-        aws iam put-role-policy \
-            --role-name "$role_name" \
-            --policy-name "CloudTrailLakeWrite" \
-            --policy-document "{
-                \"Version\":\"2012-10-17\",
-                \"Statement\":[{
-                    \"Effect\":\"Allow\",
-                    \"Action\":[\"cloudtrail-data:PutAuditEvents\"],
-                    \"Resource\":\"${CLOUDTRAIL_CHANNEL_ARN}\"
-                }]
-            }"
+        # CloudTrail Lake write (only if channel was created; skip gracefully when at limit)
+        if [[ -n "${CLOUDTRAIL_CHANNEL_ARN:-}" ]]; then
+            aws iam put-role-policy \
+                --role-name "$role_name" \
+                --policy-name "CloudTrailLakeWrite" \
+                --policy-document "{
+                    \"Version\":\"2012-10-17\",
+                    \"Statement\":[{
+                        \"Effect\":\"Allow\",
+                        \"Action\":[\"cloudtrail-data:PutAuditEvents\"],
+                        \"Resource\":\"${CLOUDTRAIL_CHANNEL_ARN}\"
+                    }]
+                }"
+        else
+            warn "CloudTrail channel ARN not available — skipping CloudTrailLakeWrite policy (audit falls back to DynamoDB/S3)"
+        fi
 
         # DynamoDB write
         aws iam put-role-policy \
