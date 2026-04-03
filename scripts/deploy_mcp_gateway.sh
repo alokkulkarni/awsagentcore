@@ -63,11 +63,12 @@ die()    { error "$*"; exit 1; }
 
 check_prereqs() {
   log "Checking prerequisites..."
-  command -v aws  >/dev/null 2>&1 || die "aws CLI not found. Install from https://aws.amazon.com/cli/"
+  command -v aws    >/dev/null 2>&1 || die "aws CLI not found. Install from https://aws.amazon.com/cli/"
   command -v python3 >/dev/null 2>&1 || die "python3 not found"
-  command -v pip3 >/dev/null 2>&1 || die "pip3 not found"
-  command -v jq  >/dev/null 2>&1 || die "jq not found. Install with: brew install jq"
-  command -v zip >/dev/null 2>&1 || die "zip not found"
+  command -v pip3   >/dev/null 2>&1 || die "pip3 not found"
+  command -v jq     >/dev/null 2>&1 || die "jq not found. Install with: brew install jq"
+  command -v zip    >/dev/null 2>&1 || die "zip not found"
+  python3 -c "import boto3" 2>/dev/null || die "boto3 not installed. Run: pip3 install boto3"
 
   # Verify AWS credentials
   aws sts get-caller-identity --region "${AWS_REGION}" >/dev/null 2>&1 \
@@ -782,33 +783,60 @@ EOF
 create_mcp_gateway() {
   log "Creating AgentCore MCP Gateway: ${GATEWAY_NAME}..."
 
-  # Check if gateway already exists
-  EXISTING=$(aws bedrock-agentcore-control list-gateways \
-    --region "${AWS_REGION}" 2>/dev/null \
-    | jq -r --arg name "${GATEWAY_NAME}" '.items[] | select(.name == $name) | .gatewayId' 2>/dev/null || echo "")
+  # Check if gateway already exists (AWS CLI doesn't support bedrock-agentcore-control
+  # in v2.24.x — use boto3 directly for all AgentCore control-plane operations)
+  local existing=""
+  existing=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    paginator = c.get_paginator('list_gateways')
+    for page in paginator.paginate():
+        for gw in page.get('items', []):
+            if gw['name'] == '${GATEWAY_NAME}':
+                print(gw['gatewayId'])
+                sys.exit(0)
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
 
-  if [[ -n "${EXISTING}" ]]; then
-    ok "Gateway already exists with ID: ${EXISTING}"
-    GATEWAY_ID="${EXISTING}"
-    GATEWAY_ARN=$(aws bedrock-agentcore-control get-gateway \
-      --gateway-id "${GATEWAY_ID}" \
-      --region "${AWS_REGION}" \
-      --query 'gatewayUrl' --output text 2>/dev/null || echo "")
+  if [[ -n "${existing}" ]]; then
+    ok "Gateway already exists with ID: ${existing}"
+    GATEWAY_ID="${existing}"
+    GATEWAY_URL=$(python3 - <<PYEOF
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+r = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
+print(r.get('gatewayUrl', ''))
+PYEOF
+)
     return 0
   fi
 
-  # Create the gateway with IAM authorization
-  RESPONSE=$(aws bedrock-agentcore-control create-gateway \
-    --name "${GATEWAY_NAME}" \
-    --role-arn "${GATEWAY_ROLE_ARN}" \
-    --authorizer-type IAM \
-    --protocol-type MCP \
-    --description "AgentCore MCP Gateway for ARIA Banking Agent — ${ENV} environment" \
-    --region "${AWS_REGION}" \
-    --output json)
+  # Create the gateway — authorizerType must be 'AWS_IAM' (not 'IAM')
+  local result=""
+  result=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    r = c.create_gateway(
+        name='${GATEWAY_NAME}',
+        roleArn='${GATEWAY_ROLE_ARN}',
+        protocolType='MCP',
+        authorizerType='AWS_IAM',
+        description='AgentCore MCP Gateway for ARIA Banking Agent - ${ENV}'
+    )
+    print(r['gatewayId'] + '|' + r.get('gatewayUrl', ''))
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
 
-  GATEWAY_ID=$(echo "${RESPONSE}" | jq -r '.gatewayId')
-  GATEWAY_URL=$(echo "${RESPONSE}" | jq -r '.gatewayUrl // .mcp.url // empty')
+  GATEWAY_ID="${result%%|*}"
+  GATEWAY_URL="${result##*|}"
 
   ok "MCP Gateway created: ${GATEWAY_ID}"
   log "Gateway URL: ${GATEWAY_URL}"
@@ -824,47 +852,52 @@ add_gateway_target() {
 
   log "Adding MCP target: ${target_name} → ${lambda_arn}..."
 
-  # Build JSON schema of tools for this domain (used for semantic search / docs)
-  TARGET_CONFIG=$(cat <<EOF
-{
-  "lambda": {
-    "lambdaArn": "${lambda_arn}",
-    "toolSchema": {
-      "inlinePayload": [
-        {
-          "name": "${target_name}",
-          "description": "ARIA banking tools for the ${domain} domain",
-          "inputSchema": {
-            "json": {
-              "type": "object",
-              "properties": {
-                "tool_name": {
-                  "type": "string",
-                  "description": "Name of the ARIA tool to invoke"
-                },
-                "tool_input": {
-                  "type": "object",
-                  "description": "Input parameters for the tool"
+  # inputSchema takes type/properties/required directly — no 'json' wrapper
+  python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    c.create_gateway_target(
+        gatewayIdentifier='${GATEWAY_ID}',
+        name='${target_name}',
+        description='ARIA ${domain} domain tools',
+        targetConfiguration={
+            'mcp': {
+                'lambda': {
+                    'lambdaArn': '${lambda_arn}',
+                    'toolSchema': {
+                        'inlinePayload': [
+                            {
+                                'name': '${target_name}',
+                                'description': 'ARIA banking tools for the ${domain} domain',
+                                'inputSchema': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'tool_name': {
+                                            'type': 'string',
+                                            'description': 'Name of the ARIA tool to invoke'
+                                        },
+                                        'tool_input': {
+                                            'type': 'object',
+                                            'description': 'Input parameters for the tool'
+                                        }
+                                    },
+                                    'required': ['tool_name']
+                                }
+                            }
+                        ]
+                    }
                 }
-              },
-              "required": ["tool_name"]
             }
-          }
-        }
-      ]
-    }
-  }
-}
-EOF
-)
-
-  aws bedrock-agentcore-control create-gateway-target \
-    --gateway-id "${GATEWAY_ID}" \
-    --name "${target_name}" \
-    --description "ARIA ${domain} domain tools" \
-    --target-configuration "${TARGET_CONFIG}" \
-    --credential-provider-configurations '[{"credentialProviderType": "GATEWAY_IAM_ROLE"}]' \
-    --region "${AWS_REGION}" >/dev/null
+        },
+        credentialProviderConfigurations=[
+            {'credentialProviderType': 'GATEWAY_IAM_ROLE'}
+        ]
+    )
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
 
   ok "Target added: ${target_name}"
 }
@@ -966,9 +999,9 @@ cmd_teardown() {
   echo -e "${BLUE}======================================================${NC}"
   echo ""
 
-  # Just need AWS CLI + creds — no python/jq build deps needed
-  command -v aws >/dev/null 2>&1 || die "aws CLI not found."
-  command -v jq  >/dev/null 2>&1 || die "jq not found."
+  # Just need AWS CLI + creds + boto3 for AgentCore control-plane operations
+  command -v aws  >/dev/null 2>&1 || die "aws CLI not found."
+  python3 -c "import boto3" 2>/dev/null || die "boto3 not installed. Run: pip3 install boto3"
   aws sts get-caller-identity --region "${AWS_REGION}" >/dev/null 2>&1 \
     || die "AWS credentials not configured."
 
@@ -986,30 +1019,55 @@ cmd_teardown() {
 
   # ------------------------------------------------------------------
   # Step 1 — Delete MCP Gateway targets, then the gateway itself
+  # (uses boto3 — bedrock-agentcore-control is not in AWS CLI v2.24.x)
   # ------------------------------------------------------------------
   log "Looking up MCP Gateway: ${GATEWAY_NAME}..."
   local gateway_id=""
-  gateway_id=$(aws bedrock-agentcore-control list-gateways \
-    --region "${AWS_REGION}" 2>/dev/null \
-    | jq -r --arg name "${GATEWAY_NAME}" \
-        '.items[] | select(.name == $name) | .gatewayId' 2>/dev/null \
-    || echo "")
+  gateway_id=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    paginator = c.get_paginator('list_gateways')
+    for page in paginator.paginate():
+        for gw in page.get('items', []):
+            if gw['name'] == '${GATEWAY_NAME}':
+                print(gw['gatewayId'])
+                sys.exit(0)
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
 
   if [[ -n "${gateway_id}" ]]; then
     log "Deleting MCP Gateway targets for gateway: ${gateway_id}..."
     local target_ids=""
-    target_ids=$(aws bedrock-agentcore-control list-gateway-targets \
-      --gateway-id "${gateway_id}" \
-      --region "${AWS_REGION}" 2>/dev/null \
-      | jq -r '.items[].targetId' 2>/dev/null \
-      || echo "")
+    target_ids=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    paginator = c.get_paginator('list_gateway_targets')
+    for page in paginator.paginate(gatewayIdentifier='${gateway_id}'):
+        for t in page.get('items', []):
+            print(t['targetId'])
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
 
     while IFS= read -r target_id; do
       [[ -z "${target_id}" ]] && continue
-      if aws bedrock-agentcore-control delete-gateway-target \
-          --gateway-id "${gateway_id}" \
-          --target-id "${target_id}" \
-          --region "${AWS_REGION}" >/dev/null 2>&1; then
+      if python3 - <<PYEOF >/dev/null 2>&1
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    c.delete_gateway_target(gatewayIdentifier='${gateway_id}', targetId='${target_id}')
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+      then
         ok "Target deleted: ${target_id}"
       else
         warn "Could not delete target: ${target_id} (may already be gone)"
@@ -1017,9 +1075,16 @@ cmd_teardown() {
     done <<< "${target_ids}"
 
     log "Deleting MCP Gateway: ${gateway_id}..."
-    if aws bedrock-agentcore-control delete-gateway \
-        --gateway-id "${gateway_id}" \
-        --region "${AWS_REGION}" >/dev/null 2>&1; then
+    if python3 - <<PYEOF >/dev/null 2>&1
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    c.delete_gateway(gatewayIdentifier='${gateway_id}')
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+    then
       ok "Gateway deleted: ${GATEWAY_NAME} (${gateway_id})"
     else
       warn "Could not delete gateway — check AWS console"
