@@ -872,29 +872,10 @@ EOF
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-main() {
-  # Parse arguments FIRST so ENV/AWS_REGION are correct for the banner
-  # and for every function call that follows (role names, function names, etc.)
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      --env)     ENV="$2";        shift 2 ;;
-      --region)  AWS_REGION="$2"; shift 2 ;;
-      --help)
-        echo "Usage: $0 [--env prod|dev] [--region eu-west-2]"
-        exit 0
-        ;;
-      *)
-        warn "Unknown argument: $1"
-        shift
-        ;;
-    esac
-  done
-
-  # Recompute names that depend on ENV/AWS_REGION after arg parsing
-  GATEWAY_NAME="${PROJECT}-mcp-gateway-${ENV}"
-  LAMBDA_ROLE_NAME="${PROJECT}-mcp-lambda-role-${ENV}"
-  GATEWAY_ROLE_NAME="${PROJECT}-mcp-gateway-role-${ENV}"
-
+# ---------------------------------------------------------------------------
+# cmd_deploy — Steps 1–6: build and deploy everything
+# ---------------------------------------------------------------------------
+cmd_deploy() {
   echo ""
   echo -e "${BLUE}======================================================${NC}"
   echo -e "${BLUE}  ARIA AgentCore MCP Gateway Deployment${NC}"
@@ -909,7 +890,7 @@ main() {
 
   # Step 2+3 — Build and deploy each domain Lambda
   declare -A LAMBDA_ARNS
-  DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
+  local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
 
   for domain in "${DOMAINS[@]}"; do
     zip_path=$(build_lambda_package "${domain}")
@@ -931,9 +912,6 @@ main() {
     add_gateway_target "${domain}" "${LAMBDA_ARNS[${domain}]}"
   done
 
-  # ---------------------------------------------------------------------------
-  # Done — print summary
-  # ---------------------------------------------------------------------------
   echo ""
   echo -e "${GREEN}======================================================${NC}"
   echo -e "${GREEN}  Deployment Complete!${NC}"
@@ -966,6 +944,209 @@ main() {
   echo -e "      --region ${AWS_REGION} \\"
   echo -e "      --query 'gatewayUrl' --output text${NC}"
   echo ""
+}
+
+# ---------------------------------------------------------------------------
+# cmd_teardown — delete every resource created by cmd_deploy, in reverse order
+#
+# Deletion order (reverse of creation):
+#   1. MCP Gateway targets  (must be removed before the gateway can be deleted)
+#   2. MCP Gateway
+#   3. Lambda functions     (10 domain functions)
+#   4. Lambda IAM role      (detach managed policy, delete inline policy, delete role)
+#   5. Gateway IAM role     (delete inline policy, delete role)
+# ---------------------------------------------------------------------------
+cmd_teardown() {
+  local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
+
+  echo ""
+  echo -e "${BLUE}======================================================${NC}"
+  echo -e "${BLUE}  ARIA AgentCore MCP Gateway Teardown${NC}"
+  echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
+  echo -e "${BLUE}======================================================${NC}"
+  echo ""
+
+  # Just need AWS CLI + creds — no python/jq build deps needed
+  command -v aws >/dev/null 2>&1 || die "aws CLI not found."
+  command -v jq  >/dev/null 2>&1 || die "jq not found."
+  aws sts get-caller-identity --region "${AWS_REGION}" >/dev/null 2>&1 \
+    || die "AWS credentials not configured."
+
+  echo -e "${RED}  The following resources will be permanently deleted:${NC}"
+  echo "    • MCP Gateway:      ${GATEWAY_NAME}"
+  echo "    • MCP targets:      ${PROJECT}-{domain}  (${#DOMAINS[@]} targets)"
+  echo "    • Lambda functions: ${PROJECT}-mcp-{domain}-${ENV}  (${#DOMAINS[@]} functions)"
+  echo "    • IAM roles:        ${LAMBDA_ROLE_NAME}"
+  echo "                        ${GATEWAY_ROLE_NAME}"
+  echo ""
+  printf "  Are you sure? [y/N]: "
+  read -r confirm
+  [[ "${confirm,,}" == "y" ]] || { echo "  Cancelled."; exit 0; }
+  echo ""
+
+  # ------------------------------------------------------------------
+  # Step 1 — Delete MCP Gateway targets, then the gateway itself
+  # ------------------------------------------------------------------
+  log "Looking up MCP Gateway: ${GATEWAY_NAME}..."
+  local gateway_id=""
+  gateway_id=$(aws bedrock-agentcore-control list-gateways \
+    --region "${AWS_REGION}" 2>/dev/null \
+    | jq -r --arg name "${GATEWAY_NAME}" \
+        '.items[] | select(.name == $name) | .gatewayId' 2>/dev/null \
+    || echo "")
+
+  if [[ -n "${gateway_id}" ]]; then
+    log "Deleting MCP Gateway targets for gateway: ${gateway_id}..."
+    local target_ids=""
+    target_ids=$(aws bedrock-agentcore-control list-gateway-targets \
+      --gateway-id "${gateway_id}" \
+      --region "${AWS_REGION}" 2>/dev/null \
+      | jq -r '.items[].targetId' 2>/dev/null \
+      || echo "")
+
+    while IFS= read -r target_id; do
+      [[ -z "${target_id}" ]] && continue
+      if aws bedrock-agentcore-control delete-gateway-target \
+          --gateway-id "${gateway_id}" \
+          --target-id "${target_id}" \
+          --region "${AWS_REGION}" >/dev/null 2>&1; then
+        ok "Target deleted: ${target_id}"
+      else
+        warn "Could not delete target: ${target_id} (may already be gone)"
+      fi
+    done <<< "${target_ids}"
+
+    log "Deleting MCP Gateway: ${gateway_id}..."
+    if aws bedrock-agentcore-control delete-gateway \
+        --gateway-id "${gateway_id}" \
+        --region "${AWS_REGION}" >/dev/null 2>&1; then
+      ok "Gateway deleted: ${GATEWAY_NAME} (${gateway_id})"
+    else
+      warn "Could not delete gateway — check AWS console"
+    fi
+  else
+    warn "MCP Gateway '${GATEWAY_NAME}' not found — skipping"
+  fi
+
+  # ------------------------------------------------------------------
+  # Step 2 — Delete Lambda functions
+  # ------------------------------------------------------------------
+  log "Deleting ${#DOMAINS[@]} Lambda functions..."
+  for domain in "${DOMAINS[@]}"; do
+    local fn="${PROJECT}-mcp-${domain}-${ENV}"
+    if aws lambda delete-function \
+        --function-name "${fn}" \
+        --region "${AWS_REGION}" >/dev/null 2>&1; then
+      ok "Lambda deleted: ${fn}"
+    else
+      warn "Lambda not found (already deleted?): ${fn}"
+    fi
+  done
+
+  # ------------------------------------------------------------------
+  # Step 3 — Delete Lambda IAM role
+  # ------------------------------------------------------------------
+  log "Deleting Lambda IAM role: ${LAMBDA_ROLE_NAME}..."
+  # Detach AWS managed policy first (required before role deletion)
+  aws iam detach-role-policy \
+    --role-name "${LAMBDA_ROLE_NAME}" \
+    --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" \
+    >/dev/null 2>&1 || true
+  # Delete inline policy
+  aws iam delete-role-policy \
+    --role-name "${LAMBDA_ROLE_NAME}" \
+    --policy-name "aria-mcp-lambda-policy" \
+    >/dev/null 2>&1 || true
+  # Delete the role itself
+  if aws iam delete-role \
+      --role-name "${LAMBDA_ROLE_NAME}" \
+      >/dev/null 2>&1; then
+    ok "Lambda role deleted: ${LAMBDA_ROLE_NAME}"
+  else
+    warn "Lambda role not found (already deleted?): ${LAMBDA_ROLE_NAME}"
+  fi
+
+  # ------------------------------------------------------------------
+  # Step 4 — Delete Gateway IAM role
+  # ------------------------------------------------------------------
+  log "Deleting Gateway IAM role: ${GATEWAY_ROLE_NAME}..."
+  aws iam delete-role-policy \
+    --role-name "${GATEWAY_ROLE_NAME}" \
+    --policy-name "aria-mcp-gateway-policy" \
+    >/dev/null 2>&1 || true
+  if aws iam delete-role \
+      --role-name "${GATEWAY_ROLE_NAME}" \
+      >/dev/null 2>&1; then
+    ok "Gateway role deleted: ${GATEWAY_ROLE_NAME}"
+  else
+    warn "Gateway role not found (already deleted?): ${GATEWAY_ROLE_NAME}"
+  fi
+
+  echo ""
+  echo -e "${GREEN}======================================================${NC}"
+  echo -e "${GREEN}  Teardown Complete${NC}"
+  echo -e "${GREEN}======================================================${NC}"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# usage
+# ---------------------------------------------------------------------------
+usage() {
+  echo ""
+  echo "  Usage: $0 [deploy|teardown] [--env prod|dev] [--region <region>]"
+  echo ""
+  echo "  Subcommands:"
+  echo "    deploy   — (default) deploy Lambda functions + MCP Gateway"
+  echo "    teardown — delete all resources created by deploy"
+  echo ""
+  echo "  Options:"
+  echo "    --env <env>         Environment tag  (default: prod)"
+  echo "    --region <region>   AWS region       (default: eu-west-2)"
+  echo "    --help              Show this help"
+  echo ""
+  echo "  Examples:"
+  echo "    $0 deploy   --env dev  --region eu-west-2"
+  echo "    $0 teardown --env dev  --region eu-west-2"
+  echo "    $0          --env prod                     # deploy is the default"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# main — parse optional subcommand + flags, dispatch
+# ---------------------------------------------------------------------------
+main() {
+  local subcmd="deploy"
+
+  # Optional positional subcommand (first arg, if not a flag)
+  case "${1:-}" in
+    deploy|teardown) subcmd="$1"; shift ;;
+    --*|"")          ;;  # no subcommand given — default to deploy
+    *)
+      error "Unknown subcommand: $1"
+      usage; exit 1
+      ;;
+  esac
+
+  # Parse --env / --region / --help flags
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --env)    ENV="$2";        shift 2 ;;
+      --region) AWS_REGION="$2"; shift 2 ;;
+      --help)   usage; exit 0 ;;
+      *)        warn "Unknown argument: $1"; shift ;;
+    esac
+  done
+
+  # Recompute env-dependent resource names after arg parsing
+  GATEWAY_NAME="${PROJECT}-mcp-gateway-${ENV}"
+  LAMBDA_ROLE_NAME="${PROJECT}-mcp-lambda-role-${ENV}"
+  GATEWAY_ROLE_NAME="${PROJECT}-mcp-gateway-role-${ENV}"
+
+  case "${subcmd}" in
+    deploy)   cmd_deploy   ;;
+    teardown) cmd_teardown ;;
+  esac
 }
 
 main "$@"
