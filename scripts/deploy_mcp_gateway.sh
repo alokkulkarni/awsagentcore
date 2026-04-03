@@ -55,9 +55,9 @@ NC='\033[0m' # No Colour
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-log()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
-ok()     { echo -e "${GREEN}[OK]${NC}    $*"; }
-warn()   { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+log()    { echo -e "${BLUE}[INFO]${NC}  $*" >&2; }
+ok()     { echo -e "${GREEN}[OK]${NC}    $*" >&2; }
+warn()   { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
 error()  { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()    { error "$*"; exit 1; }
 
@@ -87,7 +87,7 @@ create_lambda_role() {
   log "Creating Lambda IAM role: ${LAMBDA_ROLE_NAME}..."
 
   # Check if role already exists
-  if aws iam get-role --role-name "${LAMBDA_ROLE_NAME}" 2>/dev/null; then
+  if aws iam get-role --role-name "${LAMBDA_ROLE_NAME}" >/dev/null 2>&1; then
     ok "Lambda role already exists — skipping creation"
     LAMBDA_ROLE_ARN=$(aws iam get-role --role-name "${LAMBDA_ROLE_NAME}" \
       --query 'Role.Arn' --output text)
@@ -678,7 +678,7 @@ deploy_lambda() {
   log "Deploying Lambda: ${function_name}..."
 
   if aws lambda get-function --function-name "${function_name}" \
-      --region "${AWS_REGION}" 2>/dev/null; then
+      --region "${AWS_REGION}" >/dev/null 2>&1; then
     # Update existing function
     aws lambda update-function-code \
       --function-name "${function_name}" \
@@ -714,7 +714,7 @@ deploy_lambda() {
 create_gateway_role() {
   log "Creating AgentCore MCP Gateway IAM role: ${GATEWAY_ROLE_NAME}..."
 
-  if aws iam get-role --role-name "${GATEWAY_ROLE_NAME}" 2>/dev/null; then
+  if aws iam get-role --role-name "${GATEWAY_ROLE_NAME}" >/dev/null 2>&1; then
     ok "Gateway role already exists — skipping"
     GATEWAY_ROLE_ARN=$(aws iam get-role --role-name "${GATEWAY_ROLE_NAME}" \
       --query 'Role.Arn' --output text)
@@ -873,14 +873,8 @@ EOF
 # Main
 # ---------------------------------------------------------------------------
 main() {
-  echo ""
-  echo -e "${BLUE}======================================================${NC}"
-  echo -e "${BLUE}  ARIA AgentCore MCP Gateway Deployment${NC}"
-  echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
-  echo -e "${BLUE}======================================================${NC}"
-  echo ""
-
-  # Parse arguments
+  # Parse arguments FIRST so ENV/AWS_REGION are correct for the banner
+  # and for every function call that follows (role names, function names, etc.)
   while [[ $# -gt 0 ]]; do
     case $1 in
       --env)     ENV="$2";        shift 2 ;;
@@ -895,6 +889,18 @@ main() {
         ;;
     esac
   done
+
+  # Recompute names that depend on ENV/AWS_REGION after arg parsing
+  GATEWAY_NAME="${PROJECT}-mcp-gateway-${ENV}"
+  LAMBDA_ROLE_NAME="${PROJECT}-mcp-lambda-role-${ENV}"
+  GATEWAY_ROLE_NAME="${PROJECT}-mcp-gateway-role-${ENV}"
+
+  echo ""
+  echo -e "${BLUE}======================================================${NC}"
+  echo -e "${BLUE}  ARIA AgentCore MCP Gateway Deployment${NC}"
+  echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
+  echo -e "${BLUE}======================================================${NC}"
+  echo ""
 
   check_prereqs
 
