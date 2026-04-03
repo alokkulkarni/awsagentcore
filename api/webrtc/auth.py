@@ -1,293 +1,342 @@
 """
-api/webrtc/auth.py — Authentication middleware for the WebRTC Contact API.
+api/webrtc/auth.py — AWS IAM / SigV4 authentication for the WebRTC Contact API.
 
-Why authentication matters here
---------------------------------
-The StartWebRTCContact API returns a ``ParticipantToken`` — a bearer token
-that grants a caller full participant-level access to a live Amazon Connect
-contact session.  The AWS security guidance states:
+Authentication model
+--------------------
+The only supported authentication mode is **AWS IAM SigV4** via
+``AssumeRoleWithWebIdentity``.  No API keys or Cognito JWTs are used.
 
-  "Authenticate users before token issuance. Ensure that robust authentication
-   and authorization checks are performed before vending a participant token to
-   any client or external service."
+Why SigV4 + AssumeRoleWithWebIdentity?
+---------------------------------------
+• No long-term secrets ever leave AWS.
+• The ParticipantToken returned by StartWebRTCContact is a bearer credential;
+  AWS guidance mandates authentication before token issuance.
+• SigV4 signature verification is performed by the **infrastructure layer**
+  (Lambda Function URL authType=AWS_IAM or API Gateway authorizationType=AWS_IAM),
+  not by application code.  The application reads the verified caller identity
+  that the infrastructure injects into each request.
 
-  Source: https://docs.aws.amazon.com/connect/latest/adminguide/
-          security-best-practices.html#bp-webrtc-security
+End-to-end call flow
+--------------------
+1. Client authenticates with an OIDC/OAuth2 identity provider (Cognito User
+   Pool, Google, Auth0, …) and receives an **ID token**.
 
-This module implements two pluggable authentication strategies:
+2. Client exchanges the ID token for temporary AWS credentials by calling
+   ``sts:AssumeRoleWithWebIdentity``:
 
-1. API-key   (AUTH_MODE=api_key)
-   A static secret stored in AWS Secrets Manager.  Callers supply:
-       X-API-Key: <secret>
-   Best for server-to-server or mobile-app scenarios where you control
-   the client and can store the key securely.
+     # AWS CLI
+     aws sts assume-role-with-web-identity \
+       --role-arn arn:aws:iam::<account>:role/aria-webrtc-client-role \
+       --role-session-name <user-id> \
+       --web-identity-token <id-token>
 
-2. Cognito JWT  (AUTH_MODE=cognito)
-   Validates a Bearer JWT issued by an Amazon Cognito User Pool.
-   Callers supply:
-       Authorization: Bearer <id_token_or_access_token>
-   Best for web / mobile apps where end-users authenticate with Cognito.
-   Public keys are fetched once from the Cognito JWKS endpoint and cached.
+     # Python (boto3)
+     sts = boto3.client("sts")
+     resp = sts.assume_role_with_web_identity(
+         RoleArn="arn:aws:iam::<account>:role/aria-webrtc-client-role",
+         RoleSessionName="<user-id>",
+         WebIdentityToken="<id-token>",
+     )
+     creds = resp["Credentials"]
+     # creds = { AccessKeyId, SecretAccessKey, SessionToken, Expiration }
 
-3. None  (AUTH_MODE=none)
-   No authentication.  Suitable only for private VPC deployments where
-   network-level controls already restrict access.  Never use in production
-   without network-layer protection.
+   Alternatively, a **Cognito Identity Pool** calls AssumeRoleWithWebIdentity
+   internally — the client uses ``fetchAuthSession()`` (Amplify) or the
+   Cognito Identity SDK to get the same temporary credentials.
 
-Reference
----------
-• IAM permissions needed for the execution role:
-  - secretsmanager:GetSecretValue  (if using api_key mode)
-  No Cognito IAM permission needed — JWKS validation is done via public HTTPS.
+   Ref: https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html
+
+3. Client signs every HTTP request with SigV4 using the temporary credentials:
+
+     # Python (requests-aws4auth)
+     from requests_aws4auth import AWS4Auth
+     auth = AWS4Auth(
+         creds["AccessKeyId"], creds["SecretAccessKey"],
+         region, "execute-api",
+         session_token=creds["SessionToken"],
+     )
+     requests.post(url, auth=auth, json=body)
+
+     # JavaScript (@aws-sdk/signature-v4)
+     import { SignatureV4 } from "@smithy/signature-v4";
+     import { Sha256 } from "@aws-crypto/sha256-browser";
+     const signer = new SignatureV4({ credentials, region, service: "execute-api", sha256: Sha256 });
+     const signed = await signer.sign(httpRequest);
+
+4. **Lambda Function URL** (authType=AWS_IAM) or **API Gateway HTTP API**
+   (authorizationType=AWS_IAM) validates the SigV4 signature.
+   On success, the verified caller identity is injected into the Lambda event:
+
+     # Lambda Function URL event
+     event["requestContext"]["authorizer"]["iam"] == {
+         "accessKey": "ASIA...",
+         "accountId": "395402194296",
+         "callerId": "AROA...:session-name",
+         "cognitoIdentity": null,          # present when via Cognito Identity Pool
+         "principalOrgId": null,
+         "userArn": "arn:aws:sts::395402194296:assumed-role/aria-webrtc-client-role/session-name",
+         "userId": "AROA...:session-name",
+     }
+
+   Ref: https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html
+   Ref: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-access-control-iam.html
+
+5. **This module** reads the injected identity from the ASGI scope (Mangum
+   places the raw Lambda event at ``request.scope["aws.event"]``) and
+   optionally enforces an ``ALLOWED_PRINCIPAL_ARNS`` allowlist.
+
+   In local / Docker dev (``DEV_MODE=true``), the infrastructure layer is
+   absent.  The dependency returns a synthetic ``CallerIdentity`` with
+   ``dev_mode=True`` so routes can distinguish the deployment context.
+
+Infrastructure setup
+--------------------
+# Lambda Function URL — AWS_IAM auth:
+aws lambda create-function-url-config \
+  --function-name aria-webrtc-api \
+  --auth-type AWS_IAM \
+  --cors '{"AllowOrigins":["https://app.meridianbank.com"],"AllowMethods":["POST","DELETE","GET"],"AllowHeaders":["*"]}'
+
+# Grant the client IAM role permission to call the Function URL:
+aws lambda add-permission \
+  --function-name aria-webrtc-api \
+  --statement-id AllowWebRTCClientRole \
+  --action lambda:InvokeFunctionUrl \
+  --principal arn:aws:iam::<account>:role/aria-webrtc-client-role \
+  --function-url-auth-type AWS_IAM
+
+# API Gateway HTTP API alternative:
+aws apigatewayv2 update-route \
+  --api-id <api-id> --route-id <route-id> \
+  --authorization-type AWS_IAM
+
+Client IAM role:  see scripts/iam/webrtc_client_role_policy.json
+                      scripts/iam/webrtc_client_trust_policy.json
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-from functools import lru_cache
+from dataclasses import dataclass, field
 from typing import Optional
 
-import boto3
-from fastapi import Header, HTTPException, Security, status
-from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request, status
 
 from api.webrtc.config import settings
 
 log = logging.getLogger(__name__)
 
-# ─── API-key auth ─────────────────────────────────────────────────────────────
 
-_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+# ─── Caller identity dataclass ────────────────────────────────────────────────
 
-
-@lru_cache(maxsize=1)
-def _get_api_key_from_secrets_manager() -> str:
+@dataclass(frozen=True)
+class CallerIdentity:
     """
-    Fetch the API key from Secrets Manager and cache it for the process
-    lifetime (Lambda container reuse / uvicorn worker).
+    Verified AWS IAM identity of the request caller.
 
-    The secret must be a JSON string:  {"api_key": "<value>"}
+    Populated from the Lambda event context injected by:
+      • Lambda Function URL (authType=AWS_IAM)
+      • API Gateway HTTP API (authorizationType=AWS_IAM)
 
-    We cache with lru_cache instead of a module-level variable so that the
-    cold-start penalty is paid only once per worker, and tests can clear it
-    with _get_api_key_from_secrets_manager.cache_clear().
+    Fields mirror the ``requestContext.authorizer.iam`` block of the Lambda
+    event.  See:
+    https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html
+
+    Attributes
+    ----------
+    user_arn        Full assumed-role ARN, e.g.
+                    ``arn:aws:sts::123456789012:assumed-role/aria-webrtc-client-role/alice``
+    user_id         Caller ID in the form ``AROAID:session-name``.
+    account_id      12-digit AWS account number of the caller.
+    access_key      Temporary access key ID (ASIA…).
+    dev_mode        True when running locally / in Docker without the
+                    Lambda infrastructure layer (DEV_MODE=true env var).
+                    Routes may use this to skip per-caller logging.
     """
-    client = boto3.client("secretsmanager", region_name=settings.AWS_REGION)
-    response = client.get_secret_value(SecretId=settings.API_KEY_SECRET_NAME)
-    secret = json.loads(response["SecretString"])
-    return secret["api_key"]
+    user_arn: str
+    user_id: str
+    account_id: str
+    access_key: str
+    dev_mode: bool = False
 
 
-async def verify_api_key(x_api_key: Optional[str] = Security(_api_key_header)) -> None:
+# ─── Identity extraction helpers ─────────────────────────────────────────────
+
+def _extract_iam_context_from_scope(scope: dict) -> Optional[dict]:
     """
-    FastAPI dependency — raises 401 if the X-API-Key header is missing or wrong.
+    Pull the ``requestContext.authorizer.iam`` block from the raw Lambda event
+    that Mangum injects into the ASGI scope under the key ``"aws.event"``.
 
-    Usage::
+    Returns None when the key is absent (local uvicorn, Docker without a proxy,
+    or API Gateway integrations that use a different context shape).
 
-        @router.post("/start-contact")
-        async def start_contact(
-            _: None = Depends(verify_api_key), ...
-        ): ...
+    Mangum docs: https://mangum.fastapiexpert.com/
+    Lambda URL event shape:
+      https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html
     """
-    if not x_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing X-API-Key header.",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-    try:
-        expected = _get_api_key_from_secrets_manager()
-    except Exception as exc:
-        log.error("Failed to retrieve API key from Secrets Manager: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication service temporarily unavailable.",
-        ) from exc
-
-    # Constant-time comparison to prevent timing attacks
-    import hmac
-    if not hmac.compare_digest(x_api_key, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key.",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-
-# ─── Cognito JWT auth ─────────────────────────────────────────────────────────
-
-_bearer_scheme = HTTPBearer(auto_error=False)
-
-# Simple in-process JWKS cache: {kid: public_key_object}
-_jwks_cache: dict = {}
-_jwks_cache_expiry: float = 0.0
-_JWKS_TTL_SECONDS = 3600  # refresh public keys once per hour
-
-
-def _get_cognito_jwks() -> dict:
-    """
-    Download and cache the Cognito User Pool public keys (JWKS).
-
-    Cognito exposes its JWKS at a well-known URL:
-      https://cognito-idp.<region>.amazonaws.com/<pool_id>/.well-known/jwks.json
-
-    Keys rotate infrequently; we cache for 1 hour.
-
-    Reference:
-    https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html
-    """
-    global _jwks_cache, _jwks_cache_expiry
-    now = time.monotonic()
-
-    if _jwks_cache and now < _jwks_cache_expiry:
-        return _jwks_cache
-
-    import urllib.request
-    jwks_url = (
-        f"https://cognito-idp.{settings.AWS_REGION}.amazonaws.com"
-        f"/{settings.COGNITO_USER_POOL_ID}/.well-known/jwks.json"
-    )
-    with urllib.request.urlopen(jwks_url, timeout=5) as resp:  # noqa: S310
-        keys = json.loads(resp.read())["keys"]
-
-    _jwks_cache = {k["kid"]: k for k in keys}
-    _jwks_cache_expiry = now + _JWKS_TTL_SECONDS
-    return _jwks_cache
-
-
-def _verify_cognito_token(token: str) -> dict:
-    """
-    Validate a Cognito JWT and return its decoded claims.
-
-    Validation steps (per AWS docs):
-      1. Decode the token header to get ``kid``.
-      2. Find the matching public key in the JWKS.
-      3. Verify the signature using the RS256 public key.
-      4. Verify ``exp`` (not expired).
-      5. Verify ``iss`` matches our User Pool URL.
-      6. Verify ``aud`` (id token) or ``client_id`` (access token) matches
-         our App Client ID.
-
-    Raises jwt.JWTError on any validation failure.
-
-    Reference:
-    https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html
-    """
-    try:
-        from jose import jwt, jwk, JWTError  # python-jose
-        from jose.utils import base64url_decode
-    except ImportError as exc:
-        raise RuntimeError(
-            "python-jose is required for Cognito auth. "
-            "Add 'python-jose[cryptography]' to requirements."
-        ) from exc
-
-    # Step 1 — decode header without verifying to get kid
-    header = jwt.get_unverified_header(token)
-    kid = header.get("kid")
-
-    # Step 2 — find matching public key
-    jwks = _get_cognito_jwks()
-    if kid not in jwks:
-        raise JWTError(f"Public key '{kid}' not found in JWKS.")
-
-    # Step 3 & 4 — verify signature + expiry
-    issuer = (
-        f"https://cognito-idp.{settings.AWS_REGION}.amazonaws.com"
-        f"/{settings.COGNITO_USER_POOL_ID}"
-    )
-    claims = jwt.decode(
-        token,
-        jwks[kid],
-        algorithms=["RS256"],
-        issuer=issuer,
-        # audience check: id tokens use 'aud', access tokens use 'client_id'
-        options={"verify_aud": False},  # we check manually below
+    event: Optional[dict] = scope.get("aws.event")
+    if not event:
+        return None
+    return (
+        event.get("requestContext", {})
+             .get("authorizer", {})
+             .get("iam")
     )
 
-    # Steps 5 & 6 — iss and audience
-    if claims.get("iss") != issuer:
-        raise JWTError("Token issuer does not match User Pool.")
 
-    aud = claims.get("aud") or claims.get("client_id")
-    if settings.COGNITO_APP_CLIENT_ID and aud != settings.COGNITO_APP_CLIENT_ID:
-        raise JWTError("Token audience does not match App Client ID.")
-
-    return claims
-
-
-async def verify_cognito_jwt(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer_scheme),
-) -> dict:
+def _extract_iam_context_from_apigw(scope: dict) -> Optional[dict]:
     """
-    FastAPI dependency — validates a Cognito Bearer JWT.
+    API Gateway HTTP API v2 payload format injects the caller identity at
+    ``requestContext.authorizer.iam`` identically to the Function URL shape,
+    but some integrations use ``requestContext.identity`` (REST API / v1).
 
-    Returns the decoded claims dict so routes can access the user's ``sub``,
-    email, custom attributes etc. if needed.
-
-    Usage::
-
-        @router.post("/start-contact")
-        async def start_contact(
-            claims: dict = Depends(verify_cognito_jwt), ...
-        ): ...
+    This helper tries the v1 REST API shape as a fallback.
     """
-    if credentials is None or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization: Bearer <token> header.",
-            headers={"WWW-Authenticate": "Bearer"},
+    event: Optional[dict] = scope.get("aws.event")
+    if not event:
+        return None
+    identity = event.get("requestContext", {}).get("identity")
+    if not identity:
+        return None
+    # REST API shape uses userArn / userAgent instead of the iam sub-object.
+    user_arn = identity.get("userArn", "")
+    if not user_arn:
+        return None
+    return {
+        "userArn": user_arn,
+        "userId": identity.get("caller", ""),
+        "accountId": identity.get("accountId", ""),
+        "accessKey": identity.get("accessKey", ""),
+    }
+
+
+# ─── FastAPI dependency ───────────────────────────────────────────────────────
+
+async def verify_aws_iam(request: Request) -> CallerIdentity:
+    """
+    FastAPI dependency — extract and validate the AWS IAM caller identity.
+
+    Behaviour per deployment context
+    ---------------------------------
+    Lambda Function URL / API Gateway (production)
+        The infrastructure has already validated the SigV4 signature.
+        This function reads the verified identity from the Mangum-injected
+        Lambda event scope.  An optional ALLOWED_PRINCIPAL_ARNS allowlist is
+        enforced if configured.
+
+    Local uvicorn / Docker (DEV_MODE=true)
+        No Lambda infrastructure layer is present.  Returns a synthetic
+        ``CallerIdentity`` with ``dev_mode=True`` so callers are clearly
+        identifiable as unauthenticated dev sessions.
+        ⚠ Never set DEV_MODE=true in production.
+
+    Parameters
+    ----------
+    request     FastAPI Request — used to access ``request.scope``.
+
+    Returns
+    -------
+    CallerIdentity
+        The verified caller.  Routes receive this as their dependency result
+        and may log ``caller.user_arn`` for audit purposes.
+
+    Raises
+    ------
+    HTTP 401    If the Lambda event context is absent (infrastructure
+                misconfiguration) and DEV_MODE is not enabled.
+    HTTP 403    If ALLOWED_PRINCIPAL_ARNS is configured and the caller's
+                ARN does not match any allowed pattern.
+    """
+    # ── DEV_MODE bypass (local / Docker only) ────────────────────────────────
+    if settings.DEV_MODE:
+        log.warning(
+            "WebRTC API: DEV_MODE=true — skipping SigV4 verification. "
+            "This MUST NOT be used in production."
         )
-    try:
-        from jose import JWTError
-    except ImportError:
-        JWTError = Exception  # type: ignore[misc,assignment]
+        return CallerIdentity(
+            user_arn="arn:aws:iam::000000000000:user/dev-local",
+            user_id="dev-local",
+            account_id="000000000000",
+            access_key="AKIAIOSFODNN7EXAMPLE",
+            dev_mode=True,
+        )
 
-    try:
-        claims = _verify_cognito_token(credentials.credentials)
-        return claims
-    except Exception as exc:
-        log.warning("JWT validation failed: %s", exc)
+    # ── Extract IAM context from Mangum-injected Lambda event ────────────────
+    iam_ctx = (
+        _extract_iam_context_from_scope(request.scope)
+        or _extract_iam_context_from_apigw(request.scope)
+    )
+
+    if not iam_ctx:
+        # The request arrived without a Lambda event context, meaning:
+        #   a) The Function URL / API Gateway is not configured for AWS_IAM auth.
+        #   b) The service is running without a proxy (set DEV_MODE=true for local).
+        log.error(
+            "WebRTC API: IAM context missing from request scope. "
+            "Ensure Lambda Function URL authType=AWS_IAM (or set DEV_MODE=true locally)."
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+            detail=(
+                "Request must be signed with AWS SigV4 credentials obtained via "
+                "sts:AssumeRoleWithWebIdentity. "
+                "See scripts/iam/webrtc_client_role_policy.json."
+            ),
+        )
+
+    user_arn = iam_ctx.get("userArn", "")
+    user_id = iam_ctx.get("userId", "") or iam_ctx.get("callerId", "")
+    account_id = iam_ctx.get("accountId", "")
+    access_key = iam_ctx.get("accessKey", "")
+
+    identity = CallerIdentity(
+        user_arn=user_arn,
+        user_id=user_id,
+        account_id=account_id,
+        access_key=access_key,
+    )
+
+    # ── Optional principal ARN allowlist ─────────────────────────────────────
+    if settings.ALLOWED_PRINCIPAL_ARNS:
+        if not _is_principal_allowed(user_arn, settings.ALLOWED_PRINCIPAL_ARNS):
+            log.warning(
+                "WebRTC API: caller %s not in ALLOWED_PRINCIPAL_ARNS", user_arn
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Caller principal is not authorised to access this API.",
+            )
+
+    log.debug("WebRTC API: authenticated caller arn=%s account=%s", user_arn, account_id)
+    return identity
 
 
-# ─── No-op auth (AUTH_MODE=none) ──────────────────────────────────────────────
+def _is_principal_allowed(caller_arn: str, allowed: list[str]) -> bool:
+    """
+    Check whether ``caller_arn`` matches any pattern in ``allowed``.
 
-async def verify_none() -> None:
-    """No-op dependency used when AUTH_MODE=none (private deployments)."""
-    return None
+    Supports exact matches and prefix wildcards ending with ``/*``, e.g.:
+      "arn:aws:sts::395402194296:assumed-role/aria-webrtc-client-role/*"
+
+    The trailing ``/*`` is replaced with a prefix check so that any session
+    name under the role is accepted.
+    """
+    for pattern in allowed:
+        if pattern.endswith("/*"):
+            if caller_arn.startswith(pattern[:-2]):
+                return True
+        elif caller_arn == pattern:
+            return True
+    return False
 
 
-# ─── Dynamic auth selector ────────────────────────────────────────────────────
+# ─── Selector (kept for backward-compat import in app.py) ────────────────────
 
 def get_auth_dependency():
-    """
-    Return the appropriate FastAPI dependency callable based on AUTH_MODE.
-
-    Called once at app startup so all routes share the same dependency.
-
-    Returns one of:
-      verify_api_key     — validates X-API-Key header via Secrets Manager
-      verify_cognito_jwt — validates Bearer JWT via Cognito JWKS
-      verify_none        — no-op (private deployments only)
-    """
-    mode = settings.AUTH_MODE
-    if mode == "api_key":
-        log.info("WebRTC API: using API-key authentication (Secrets Manager: %s)",
-                 settings.API_KEY_SECRET_NAME)
-        return verify_api_key
-    if mode == "cognito":
-        log.info("WebRTC API: using Cognito JWT authentication (pool: %s)",
-                 settings.COGNITO_USER_POOL_ID)
-        return verify_cognito_jwt
-    log.warning(
-        "WebRTC API: AUTH_MODE=none — no authentication. "
-        "Ensure network-layer controls restrict access."
+    """Return the SigV4 IAM auth dependency (the only supported mode)."""
+    log.info(
+        "WebRTC API: auth=aws_iam | dev_mode=%s | allowed_principals=%d",
+        settings.DEV_MODE,
+        len(settings.ALLOWED_PRINCIPAL_ARNS),
     )
-    return verify_none
+    return verify_aws_iam

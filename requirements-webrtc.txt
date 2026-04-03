@@ -1,0 +1,25 @@
+# requirements-webrtc.txt — dependencies for the WebRTC Contact API only.
+#
+# Used by:
+#   • api/webrtc/Dockerfile              (Docker / ECS deployment)
+#   • scripts/deploy_webrtc_api.sh       (Lambda zip packaging)
+#   • Local dev:  pip install -r requirements-webrtc.txt
+#
+# Intentionally minimal — no ARIA agent deps (strands-agents, pyaudio, etc.).
+# The WebRTC API is a thin FastAPI → Amazon Connect mediator.
+
+# Web framework
+fastapi>=0.111.0
+
+# ASGI server (uvicorn for container/local; mangum for Lambda)
+uvicorn[standard]>=0.29.0
+mangum>=0.17.0
+
+# AWS SDK
+boto3>=1.34.0
+
+# Data validation
+pydantic>=2.0
+
+# Environment variable loading (local dev / Docker)
+python-dotenv>=1.0.0

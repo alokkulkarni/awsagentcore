@@ -2,28 +2,28 @@
   "_comment": [
     "IAM Execution Role Policy — Amazon Connect WebRTC Contact API",
     "",
-    "Attach this inline policy to the IAM role assumed by the service",
-    "(Lambda execution role, ECS task role, or EC2 instance profile).",
+    "Attach this inline policy to the IAM role assumed by the service:",
+    "  • Lambda execution role   (aria-webrtc-api-exec-role)",
+    "  • ECS task role           (aria-webrtc-api-task-role)",
     "",
-    "Principle of least privilege:",
-    "  • connect:StartWebRTCContact  — create in-app WebRTC contacts",
-    "  • connect:StopContact         — end contacts when the customer hangs up",
-    "  • connect:GetContactAttributes — (optional) read attributes mid-call",
-    "  • secretsmanager:GetSecretValue — fetch API key (api_key auth mode only)",
-    "",
-    "NOT included (not needed):",
-    "  • connectparticipant:*  — Participant Service calls use the bearer",
-    "    ParticipantToken from StartWebRTCContact, NOT IAM credentials.",
-    "  • connect:* (broad)     — grant only the actions above.",
-    "",
-    "Replace the placeholder values before deploying:",
+    "Replace placeholder values before deploying:",
     "  <REGION>       e.g. eu-west-2",
     "  <ACCOUNT_ID>   12-digit AWS account ID",
     "  <INSTANCE_ID>  Amazon Connect instance ID (UUID)",
-    "  <SECRET_ARN>   Secrets Manager ARN of the API key secret",
     "",
-    "Reference:",
+    "Authentication note:",
+    "  This API uses AWS IAM SigV4 via AssumeRoleWithWebIdentity.",
+    "  No Secrets Manager or Cognito permissions are required.",
+    "  The Lambda Function URL (authType=AWS_IAM) or API Gateway",
+    "  (authorizationType=AWS_IAM) validates the SigV4 signature;",
+    "  this execution role only needs the Connect + CloudWatch actions.",
+    "",
+    "  connectparticipant:* is intentionally ABSENT — participant service",
+    "  calls use the bearer ParticipantToken, not IAM credentials.",
+    "",
+    "References:",
     "  https://docs.aws.amazon.com/connect/latest/APIReference/API_StartWebRTCContact.html",
+    "  https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html",
     "  https://docs.aws.amazon.com/connect/latest/adminguide/security-iam-amazon-connect-permissions.html"
   ],
   "Version": "2012-10-17",
@@ -38,8 +38,7 @@
       ],
       "Resource": [
         "arn:aws:connect:<REGION>:<ACCOUNT_ID>:instance/<INSTANCE_ID>/contact/*"
-      ],
-      "_comment": "Scope to contacts only — not queues, flows, or users."
+      ]
     },
     {
       "Sid": "ConnectInstanceDescribe",
@@ -49,22 +48,6 @@
       ],
       "Resource": [
         "arn:aws:connect:<REGION>:<ACCOUNT_ID>:instance/<INSTANCE_ID>"
-      ],
-      "_comment": "Needed for SDK-level health / validation calls. Remove if not required."
-    },
-    {
-      "Sid": "SecretsManagerAPIKey",
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue"
-      ],
-      "Resource": [
-        "<SECRET_ARN>"
-      ],
-      "_comment": [
-        "Only required when AUTH_MODE=api_key.",
-        "Remove this statement if using Cognito (AUTH_MODE=cognito) or",
-        "no authentication (AUTH_MODE=none, private VPC only)."
       ]
     },
     {
@@ -78,8 +61,7 @@
       "Resource": [
         "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/lambda/aria-webrtc-api:*",
         "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/ecs/aria-webrtc-api:*"
-      ],
-      "_comment": "Lambda / ECS log groups. Adjust log group names to match your deployment."
+      ]
     }
   ]
 }

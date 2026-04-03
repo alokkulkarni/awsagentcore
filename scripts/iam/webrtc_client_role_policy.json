@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "IAM Permission Policy — WebRTC API Client Role",
+    "",
+    "Attach to the role assumed by callers of the WebRTC Contact API",
+    "(aria-webrtc-client-role).",
+    "",
+    "Callers obtain this role via sts:AssumeRoleWithWebIdentity using an",
+    "OIDC ID token (Cognito User Pool, Google, Auth0, etc.) or via a",
+    "Cognito Identity Pool (which calls AssumeRoleWithWebIdentity internally).",
+    "",
+    "After assuming this role the client signs every HTTP request with SigV4.",
+    "The Lambda Function URL (authType=AWS_IAM) validates the signature.",
+    "",
+    "Replace placeholder values before deploying:",
+    "  <ACCOUNT_ID>         12-digit AWS account ID",
+    "  <FUNCTION_NAME>      Lambda function name, e.g. aria-webrtc-api",
+    "  <FUNCTION_URL_FQID>  Lambda Function URL FQID (shown in aws lambda",
+    "                       get-function-url-config output as FunctionArn)",
+    "",
+    "For ECS / App Runner (not Lambda), replace the lambda:InvokeFunctionUrl",
+    "statement with execute-api:Invoke on the API Gateway ARN.",
+    "",
+    "References:",
+    "  https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html",
+    "  https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html"
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeWebRTCLambdaFunctionURL",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunctionUrl"
+      ],
+      "Resource": [
+        "arn:aws:lambda:<REGION>:<ACCOUNT_ID>:function:<FUNCTION_NAME>"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "lambda:FunctionUrlAuthType": "AWS_IAM"
+        }
+      }
+    }
+  ]
+}

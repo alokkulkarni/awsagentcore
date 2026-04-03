@@ -4,49 +4,71 @@ api/webrtc/lambda_handler.py — AWS Lambda entry point for the WebRTC Contact A
 This module wraps the FastAPI ``app`` with Mangum so it can be deployed as an
 AWS Lambda function fronted by either:
 
-  • API Gateway (HTTP API or REST API)
-  • Lambda Function URL
+  • Lambda Function URL  (recommended — simplest, no extra API Gateway cost)
+  • API Gateway HTTP API v2
 
-Mangum translates the API Gateway / Function URL event format into an ASGI
-request that FastAPI can handle, and converts the FastAPI response back into
-the event-response format that Lambda / API Gateway expects.
+Mangum translates the Lambda event into an ASGI request that FastAPI handles,
+and converts the response back into the format Lambda / API Gateway expects.
 
 Deployment
 ----------
 Lambda handler setting:  api.webrtc.lambda_handler.handler
 
+Authentication
+--------------
+This API uses AWS IAM SigV4 exclusively.  Configure the Lambda Function URL
+with authType=AWS_IAM before exposing it to clients:
+
+  aws lambda create-function-url-config \\
+    --function-name aria-webrtc-api \\
+    --auth-type AWS_IAM \\
+    --cors '{"AllowOrigins":["https://app.meridianbank.com"],
+             "AllowMethods":["POST","DELETE","GET"],
+             "AllowHeaders":["*"],
+             "AllowCredentials":true}'
+
+  # Grant the client role permission to invoke the Function URL:
+  aws lambda add-permission \\
+    --function-name aria-webrtc-api \\
+    --statement-id AllowWebRTCClientRole \\
+    --action lambda:InvokeFunctionUrl \\
+    --principal arn:aws:iam::<account>:role/aria-webrtc-client-role \\
+    --function-url-auth-type AWS_IAM
+
+Clients authenticate by calling sts:AssumeRoleWithWebIdentity (or using a
+Cognito Identity Pool) to obtain temporary credentials, then signing requests
+with SigV4 (service "lambda").  See scripts/iam/webrtc_client_role_policy.json.
+
 Required Lambda environment variables
 --------------------------------------
   CONNECT_INSTANCE_ID      Amazon Connect instance ID
   CONNECT_CONTACT_FLOW_ID  Inbound WebRTC contact flow ID
-  AWS_REGION               AWS region (set automatically by Lambda runtime)
-  AUTH_MODE                "api_key" | "cognito" | "none"
-  API_KEY_SECRET_NAME      (if AUTH_MODE=api_key) Secrets Manager secret name
-  COGNITO_USER_POOL_ID     (if AUTH_MODE=cognito) Cognito User Pool ID
-  COGNITO_APP_CLIENT_ID    (if AUTH_MODE=cognito) App Client ID
-  ALLOWED_ORIGINS          Comma-separated CORS origins
+  AWS_REGION               Set automatically by the Lambda runtime
+
+Optional Lambda environment variables
+--------------------------------------
+  ALLOWED_ORIGINS          Comma-separated CORS origins (default: "*")
+  ALLOWED_PRINCIPAL_ARNS   Comma-separated IAM ARN patterns to allowlist
+  LOG_LEVEL                DEBUG | INFO | WARNING | ERROR (default: INFO)
+  DEV_MODE                 "true" only for local testing — NEVER in production
 
 Required Lambda execution role permissions
 -------------------------------------------
 Attach the policy in scripts/iam/webrtc_api_iam_policy.json.
 Minimum required actions:
-  connect:StartWebRTCContact        on instance/*/contact/*
-  connect:StopContact               on instance/*/contact/*
-  secretsmanager:GetSecretValue     on the API key secret  (api_key mode only)
+  connect:StartWebRTCContact  on instance/*/contact/*
+  connect:StopContact         on instance/*/contact/*
+  connect:GetContactAttributes on instance/*/contact/*  (optional)
+  logs:CreateLogGroup / CreateLogStream / PutLogEvents   (CloudWatch)
 
 Lambda sizing recommendations
 ------------------------------
-Memory:   256 MB  (boto3 + FastAPI + python-jose fit comfortably)
-Timeout:  10 s    (StartWebRTCContact typically < 1 s; allow for cold starts)
-Concurrency: reserve based on expected concurrent WebRTC sessions
+Memory:   256 MB  (boto3 + FastAPI fit comfortably; no heavy deps)
+Timeout:  10 s    (StartWebRTCContact typically < 1 s; headroom for cold starts)
+Architecture: arm64 (Graviton2 — ~20% cheaper, same performance)
 
-Reference
----------
-• Mangum ASGI adapter for Lambda:  https://mangum.fastapiexpert.com/
-• Lambda Function URLs:
-  https://docs.aws.amazon.com/lambda/latest/dg/lambda-urls.html
-• API Gateway HTTP API Lambda proxy:
-  https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html
+Ref: https://mangum.fastapiexpert.com/
+Ref: https://docs.aws.amazon.com/lambda/latest/dg/lambda-urls.html
 """
 
 from __future__ import annotations
@@ -56,16 +78,14 @@ from api.webrtc.app import app  # FastAPI ASGI application
 try:
     from mangum import Mangum
 
-    # lifespan="off" prevents Mangum from running FastAPI lifespan events on
-    # every Lambda invocation (those run once per container, not per request).
-    # Set lifespan="auto" if you need startup/shutdown hooks per invocation.
+    # lifespan="off" — FastAPI lifespan events run once per Lambda container
+    # (cold start), not per request.  Mangum's default "auto" re-runs them on
+    # every invocation; "off" is correct for Lambda container reuse semantics.
     handler = Mangum(app, lifespan="off")
 
 except ImportError:
-    # Mangum is an optional dependency — not needed for Docker/local deployments.
-    # If this module is imported in a non-Lambda environment, expose a clear error.
     def handler(event, context):  # type: ignore[misc]
         raise ImportError(
             "Mangum is required for Lambda deployment. "
-            "Add 'mangum' to requirements.txt and redeploy."
+            "Add 'mangum' to requirements-webrtc.txt and redeploy."
         )

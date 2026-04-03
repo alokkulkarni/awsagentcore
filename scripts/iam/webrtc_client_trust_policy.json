@@ -1,0 +1,77 @@
+{
+  "_comment": [
+    "IAM Trust Policy — WebRTC API Client Role (aria-webrtc-client-role)",
+    "",
+    "This trust policy allows an OIDC identity provider (Cognito User Pool,",
+    "Google, Auth0, etc.) to vend this role via AssumeRoleWithWebIdentity.",
+    "",
+    "Three principal patterns are provided — use the one that matches your",
+    "identity setup and remove the others:",
+    "",
+    "  A) Amazon Cognito User Pool  (most common for Meridian Bank)",
+    "  B) Amazon Cognito Identity Pool  (alternative — pool does the STS call)",
+    "  C) Generic OIDC provider  (Google, Auth0, Okta, etc.)",
+    "",
+    "Replace placeholder values before deploying:",
+    "  <REGION>          e.g. eu-west-2",
+    "  <ACCOUNT_ID>      12-digit AWS account ID",
+    "  <USER_POOL_ID>    Cognito User Pool ID, e.g. eu-west-2_AbCdEfGhI",
+    "  <APP_CLIENT_ID>   Cognito App Client ID (the 'aud' claim in the token)",
+    "  <IDENTITY_POOL_ID> Cognito Identity Pool ID (for pattern B)",
+    "  <OIDC_PROVIDER>   OIDC issuer URL without https://, e.g.",
+    "                    accounts.google.com  or  myapp.auth0.com",
+    "",
+    "References:",
+    "  https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html",
+    "  https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html",
+    "  https://docs.aws.amazon.com/cognito/latest/developerguide/role-based-access-control.html"
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CognitoUserPoolWebIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "cognito-idp.<REGION>.amazonaws.com/<USER_POOL_ID>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "cognito-idp.<REGION>.amazonaws.com/<USER_POOL_ID>:aud": "<APP_CLIENT_ID>"
+        },
+        "ForAnyValue:StringLike": {
+          "cognito-idp.<REGION>.amazonaws.com/<USER_POOL_ID>:amr": "authenticated"
+        }
+      }
+    },
+    {
+      "Sid": "CognitoIdentityPoolWebIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "cognito-identity.amazonaws.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "cognito-identity.amazonaws.com:aud": "<IDENTITY_POOL_ID>"
+        },
+        "ForAnyValue:StringLike": {
+          "cognito-identity.amazonaws.com:amr": "authenticated"
+        }
+      }
+    },
+    {
+      "Sid": "GenericOIDCWebIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "<OIDC_PROVIDER>:aud": "<APP_CLIENT_ID>"
+        }
+      }
+    }
+  ]
+}

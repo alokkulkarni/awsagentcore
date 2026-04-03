@@ -69,7 +69,7 @@ from fastapi.responses import JSONResponse
 from botocore.exceptions import ClientError
 
 from api.webrtc import connect_client
-from api.webrtc.auth import get_auth_dependency
+from api.webrtc.auth import CallerIdentity, get_auth_dependency
 from api.webrtc.config import settings
 from api.webrtc.models import (
     CreateParticipantConnectionRequest,
@@ -110,10 +110,10 @@ async def lifespan(application: FastAPI):
         raise
 
     log.info(
-        "WebRTC Contact API starting up | region=%s instance=%s auth_mode=%s",
+        "WebRTC Contact API starting up | region=%s instance=%s auth=aws_iam dev_mode=%s",
         settings.AWS_REGION,
         settings.CONNECT_INSTANCE_ID,
-        settings.AUTH_MODE,
+        settings.DEV_MODE,
     )
     yield
     log.info("WebRTC Contact API shutting down.")
@@ -239,40 +239,9 @@ async def health_check() -> HealthResponse:
 )
 async def start_contact(
     body: StartWebRTCContactRequest,
-    _auth_result: Any = Depends(_auth),
+    caller: CallerIdentity = Depends(_auth),
 ) -> StartWebRTCContactResponse:
-    """
-    POST /webrtc/start-contact
-
-    Step-by-step:
-    1. Validate auth (API key / Cognito JWT).
-    2. Validate request body (Pydantic).
-    3. Call connect:StartWebRTCContact with the Connect instance and flow IDs.
-    4. Parse the ConnectionData (Meeting + Attendee) from the response.
-    5. Return ContactId, ParticipantId, ParticipantToken, and ConnectionData.
-
-    Client usage (JavaScript / Chime SDK):
-    ```js
-    const resp = await fetch('/webrtc/start-contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-        body: JSON.stringify({ display_name: 'Alice', attributes: { customer_id: '123' } })
-    });
-    const data = await resp.json();
-
-    // Feed directly into the Chime SDK:
-    const config = new MeetingSessionConfiguration(
-        data.connection_data.Meeting,
-        data.connection_data.Attendee
-    );
-    const session = new DefaultMeetingSession(config, logger, deviceController);
-    await session.audioVideo.start();
-    ```
-
-    Reference:
-    https://docs.aws.amazon.com/connect/latest/APIReference/API_StartWebRTCContact.html
-    https://docs.aws.amazon.com/connect/latest/adminguide/config-com-widget2.html
-    """
+    log.debug("start_contact: caller_arn=%s dev_mode=%s", caller.user_arn, caller.dev_mode)
     return await connect_client.start_webrtc_contact(
         display_name=body.display_name,
         attributes=body.attributes or None,
@@ -298,24 +267,9 @@ async def start_contact(
 )
 async def participant_connection(
     body: CreateParticipantConnectionRequest,
-    _auth_result: Any = Depends(_auth),
+    caller: CallerIdentity = Depends(_auth),
 ) -> ParticipantConnectionResponse:
-    """
-    POST /webrtc/participant-connection
-
-    Use after start-contact when DTMF is needed:
-    1. Call this endpoint with the ParticipantToken from start-contact.
-    2. Receive a ConnectionToken (valid 24 hours).
-    3. Use ConnectionToken + connectparticipant:SendMessage to send digits:
-       contentType: "audio/dtmf", content: "1234#"
-
-    The ConnectionToken is scoped to participant-level operations only.
-    It does not grant agent or supervisor privileges.
-
-    Reference:
-    https://docs.aws.amazon.com/connect-participant/latest/APIReference/API_CreateParticipantConnection.html
-    https://docs.aws.amazon.com/connect/latest/adminguide/config-com-widget2.html#optional-send-dtmf
-    """
+    log.debug("participant_connection: caller_arn=%s", caller.user_arn)
     return await connect_client.create_participant_connection(
         participant_token=body.participant_token,
         connect_participant=body.connect_participant,
@@ -341,20 +295,8 @@ async def end_contact(
         max_length=256,
         description="ContactId returned by start-contact.",
     ),
-    _auth_result: Any = Depends(_auth),
+    caller: CallerIdentity = Depends(_auth),
 ) -> EndContactResponse:
-    """
-    DELETE /webrtc/end-contact/{contact_id}
-
-    Calls connect:StopContact to end the call.
-
-    Call this from the client when:
-    • The user presses the hang-up button.
-    • The app detects the Chime SDK AudioCallEnded status code.
-    • The page/app is unloaded (use navigator.sendBeacon for reliability).
-
-    Reference:
-    https://docs.aws.amazon.com/connect/latest/APIReference/API_StopContact.html
-    """
+    log.debug("end_contact: contact_id=%s caller_arn=%s", contact_id, caller.user_arn)
     await connect_client.end_contact(contact_id=contact_id)
     return EndContactResponse(contact_id=contact_id)
