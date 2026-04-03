@@ -1939,23 +1939,107 @@ cmd_teardown() {
         ok "Firehose role deleted" || warn "Role not found"
 
     # ── Step 8: Delete CloudTrail Lake ────────────────────────────────────────
+    # Enumerates ALL aria-banking-audit* stores — not just the one saved to
+    # state. Failed/retried deploys can leave orphaned stores that accumulate
+    # against the 10-store account-wide limit.
     header "Deleting CloudTrail Lake"
-    local channel_arn eds_arn
-    channel_arn=$(state_get "cloudtrail_channel_arn")
-    eds_arn=$(state_get "cloudtrail_eds_arn")
 
-    if [[ -n "$channel_arn" ]]; then
-        step "Deleting CloudTrail Lake channel"
-        aws cloudtrail delete-channel --channel "$channel_arn" \
-            --region "$agentcore_region" 2>/dev/null && ok "Channel deleted" || warn "Channel not found"
+    # 8a: Delete ALL aria-audit-channel channels (enumerate, not just from state)
+    step "Enumerating CloudTrail channels named aria-audit-channel"
+    local all_channels
+    all_channels=$(AWS_PAGER="" aws cloudtrail list-channels \
+        --region "$agentcore_region" \
+        --cli-read-timeout 20 \
+        --query "Channels[?Name=='aria-audit-channel'].ChannelArn" \
+        --output text 2>/dev/null || true)
+
+    if [[ -n "$all_channels" && "$all_channels" != "None" ]]; then
+        while IFS= read -r ch_arn; do
+            [[ -z "$ch_arn" || "$ch_arn" == "None" ]] && continue
+            step "Deleting channel: ${ch_arn}"
+            AWS_PAGER="" aws cloudtrail delete-channel --channel "$ch_arn" \
+                --region "$agentcore_region" 2>/dev/null \
+                && ok "Channel deleted" || warn "Channel delete failed (may already be gone)"
+        done <<< "$all_channels"
+    else
+        echo "  No aria-audit-channel channels found."
     fi
 
-    if [[ -n "$eds_arn" ]]; then
-        local eds_name
-        eds_name=$(state_get "cloudtrail_eds_name")
-        step "Deleting CloudTrail Lake event data store: ${eds_name:-aria-banking-audit}"
-        aws cloudtrail delete-event-data-store --event-data-store "$eds_arn" \
-            --region "$agentcore_region" 2>/dev/null && ok "Event data store deletion initiated (enters PENDING_DELETION)" || warn "Data store not found"
+    # 8b: Enumerate ALL event data stores with aria-banking-audit prefix
+    step "Enumerating ALL aria-banking-audit* event data stores (incl. orphans)"
+    local all_stores_json
+    all_stores_json=$(AWS_PAGER="" aws cloudtrail list-event-data-stores \
+        --region "$agentcore_region" \
+        --cli-connect-timeout 10 --cli-read-timeout 20 \
+        --output json 2>/dev/null || echo '{"EventDataStores":[]}')
+
+    local store_arns_statuses
+    store_arns_statuses=$(echo "$all_stores_json" | python3 -c "
+import json, sys
+try:
+    stores = json.load(sys.stdin).get('EventDataStores', [])
+except Exception:
+    stores = []
+for s in stores:
+    name = s.get('Name', '')
+    if name == 'aria-banking-audit' or name.startswith('aria-banking-audit-'):
+        status = s.get('Status') or 'UNKNOWN'
+        print(s['EventDataStoreArn'] + '|' + name + '|' + status)
+" 2>/dev/null || true)
+
+    if [[ -z "$store_arns_statuses" ]]; then
+        echo "  No aria-banking-audit* event data stores found."
+    else
+        local eds_count=0 eds_initiated=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local this_arn this_name this_status
+            this_arn="${line%%|*}"; rest="${line#*|}"; this_name="${rest%%|*}"; this_status="${rest##*|}"
+            (( eds_count++ ))
+
+            step "Store: ${this_name} [${this_status}] — ${this_arn}"
+
+            if [[ "$this_status" == "PENDING_DELETION" ]]; then
+                warn "  Already PENDING_DELETION — skipping"
+                continue
+            fi
+
+            # Remove termination protection (required before delete).
+            # INACTIVE stores cannot have their protection updated — skip that call.
+            if [[ "$this_status" != "INACTIVE" ]]; then
+                AWS_PAGER="" aws cloudtrail update-event-data-store \
+                    --event-data-store "$this_arn" \
+                    --no-termination-protection-enabled \
+                    --region "$agentcore_region" \
+                    --cli-read-timeout 20 \
+                    --output text > /dev/null 2>/dev/null \
+                    && echo "    ✓ Termination protection removed" \
+                    || warn "    Could not remove termination protection — attempting delete anyway"
+            else
+                echo "    ℹ Store is INACTIVE — skipping protection update"
+            fi
+
+            # Delete the store
+            local del_err
+            if AWS_PAGER="" aws cloudtrail delete-event-data-store \
+                    --event-data-store "$this_arn" \
+                    --region "$agentcore_region" \
+                    --cli-read-timeout 20 \
+                    --output text > /dev/null 2>/tmp/ctl_del_err; then
+                ok "    Deletion initiated (→ PENDING_DELETION)"
+                (( eds_initiated++ ))
+            else
+                del_err=$(cat /tmp/ctl_del_err 2>/dev/null || true)
+                warn "    Delete failed: ${del_err}"
+            fi
+            rm -f /tmp/ctl_del_err
+        done <<< "$store_arns_statuses"
+
+        ok "${eds_initiated}/${eds_count} event data store(s) queued for deletion (PENDING_DELETION)"
+        if (( eds_initiated > 0 )); then
+            echo -e "  ${YELLOW}Note: PENDING_DELETION can take up to 30 minutes to clear from the 10-store account limit.${NC}"
+            echo -e "  ${YELLOW}If you re-deploy immediately, the script will fall back to DynamoDB/S3 audit.${NC}"
+        fi
     fi
 
     # ── Step 9: Delete DynamoDB table ─────────────────────────────────────────
