@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "IAM Trust Policy — Amazon Connect WebRTC Contact API",
+    "",
+    "Controls which AWS service (or account) can assume the execution role.",
+    "",
+    "Two principal blocks are provided:",
+    "  1. lambda.amazonaws.com  — for Lambda + API Gateway / Function URL",
+    "  2. ecs-tasks.amazonaws.com — for ECS Fargate / Docker container",
+    "",
+    "Keep only the block(s) that match your deployment model.",
+    "Remove the unused block before applying with aws iam create-role.",
+    "",
+    "Apply with:",
+    "  aws iam create-role \\",
+    "    --role-name aria-webrtc-api-role \\",
+    "    --assume-role-policy-document file://scripts/iam/webrtc_api_trust_policy.json",
+    "",
+    "  aws iam put-role-policy \\",
+    "    --role-name aria-webrtc-api-role \\",
+    "    --policy-name WebRTCAPIPolicy \\",
+    "    --policy-document file://scripts/iam/webrtc_api_iam_policy.json",
+    "",
+    "Reference:",
+    "  https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html"
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaAssumeRole",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "_comment": "Remove if not deploying to Lambda."
+    },
+    {
+      "Sid": "ECSTaskAssumeRole",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "_comment": "Remove if not deploying to ECS / Docker."
+    }
+  ]
+}

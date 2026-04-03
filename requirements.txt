@@ -11,3 +11,7 @@ uvicorn[standard]
 # Voice mode (Nova Sonic 2 S2S bidirectional streaming)
 # aws_sdk_bedrock_runtime is installed transitively via strands-agents[bidi]
 pyaudio
+# WebRTC Contact API
+fastapi>=0.111.0
+python-jose[cryptography]>=3.3.0
+mangum>=0.17.0
