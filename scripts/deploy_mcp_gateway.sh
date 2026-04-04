@@ -805,14 +805,46 @@ PYEOF
   if [[ -n "${existing}" ]]; then
     ok "Gateway already exists with ID: ${existing}"
     GATEWAY_ID="${existing}"
-    GATEWAY_URL=$(python3 - <<PYEOF
+    # Wait for READY in case a previous run left it in CREATING/UPDATING
+    log "Checking gateway status..."
+    local status="" attempts=0 max_attempts=40
+    while [[ $attempts -lt $max_attempts ]]; do
+      status=$(python3 - <<PYEOF
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+r = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
+print(r.get('status', 'UNKNOWN') + '|' + r.get('gatewayUrl', ''))
+PYEOF
+)
+      local gw_status="${status%%|*}"
+      GATEWAY_URL="${status##*|}"
+      case "${gw_status}" in
+        READY)
+          ok "Gateway is READY"
+          return 0
+          ;;
+        FAILED)
+          die "Existing gateway is in FAILED status — delete it first with: $0 teardown --env ${ENV}"
+          ;;
+        CREATING|UPDATING)
+          attempts=$(( attempts + 1 ))
+          log "  Status: ${gw_status} (attempt ${attempts}/${max_attempts}) — waiting 15s..."
+          sleep 15
+          ;;
+        *)
+          warn "Unexpected status '${gw_status}'"
+          GATEWAY_URL=$(python3 - <<PYEOF
 import boto3
 c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
 r = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
 print(r.get('gatewayUrl', ''))
 PYEOF
 )
-    return 0
+          return 0
+          ;;
+      esac
+    done
+    die "Gateway did not reach READY after $(( max_attempts * 15 ))s"
   fi
 
   # Create the gateway — authorizerType must be 'AWS_IAM' (not 'IAM')
@@ -840,6 +872,39 @@ PYEOF
 
   ok "MCP Gateway created: ${GATEWAY_ID}"
   log "Gateway URL: ${GATEWAY_URL}"
+
+  # Poll until READY (gateway stays in CREATING for ~30-60s after creation)
+  log "Waiting for gateway to reach READY status..."
+  local status="" attempts=0 max_attempts=40
+  while [[ $attempts -lt $max_attempts ]]; do
+    status=$(python3 - <<PYEOF
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+r = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
+print(r.get('status', 'UNKNOWN'))
+PYEOF
+)
+    case "${status}" in
+      READY)
+        ok "Gateway is READY"
+        return 0
+        ;;
+      FAILED)
+        die "Gateway entered FAILED status — check AWS console for details"
+        ;;
+      CREATING|UPDATING)
+        attempts=$(( attempts + 1 ))
+        log "  Status: ${status} (attempt ${attempts}/${max_attempts}) — waiting 15s..."
+        sleep 15
+        ;;
+      *)
+        warn "Unexpected status '${status}' — waiting 15s..."
+        attempts=$(( attempts + 1 ))
+        sleep 15
+        ;;
+    esac
+  done
+  die "Gateway did not reach READY after $(( max_attempts * 15 ))s — aborting"
 }
 
 # ---------------------------------------------------------------------------
