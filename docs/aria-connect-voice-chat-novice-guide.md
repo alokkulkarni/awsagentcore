@@ -1242,17 +1242,21 @@ automatically.
 #### Gateway Authentication Requirement
 
 Amazon Connect's AI Agent service authenticates to the AgentCore Gateway using OIDC JWT tokens
-issued by your Connect instance. For this to work, the gateway's **Inbound Auth** must be set
-to **CUSTOM_JWT** with the Connect instance's Discovery URL:
+issued by your Connect instance. Two fields must be set on the gateway's CUSTOM_JWT authorizer:
 
-```
-https://meridian-aria.my.connect.aws/.well-known/openid-configuration
-```
+| Field | Value | Purpose |
+|---|---|---|
+| **Discovery URL** | `https://meridian-aria.my.connect.aws/.well-known/openid-configuration` | Tells the gateway which OIDC issuer to trust |
+| **Allowed Audience** | The **gateway ID** (e.g. `aria-banking-mcp-gateway-dev-ndrocvgxlr`) | Must match the `aud` claim in JWTs that Connect issues when calling the gateway |
 
-The deploy script automatically configures this when you supply `--instance-id`:
+> ⚠️ **Common mistake**: Setting `allowedClients` to the Connect instance ID (instead of
+> `allowedAudience` to the gateway ID) will prevent Connect from authenticating, and the
+> **Third-party MCP** category will not appear in the AI Agent Designer's Tools panel.
+
+The deploy script automatically configures both fields when you supply `--instance-id`:
 
 ```bash
-# Fresh deployment — CUSTOM_JWT configured automatically:
+# Fresh deployment — CUSTOM_JWT + correct audience configured automatically:
 ./scripts/deploy_mcp_gateway.sh deploy --env dev \
     --instance-id 6647242b-ff6a-4f3f-af35-c35e547adc2b
 ```
@@ -1270,14 +1274,16 @@ The deploy script automatically configures this when you supply `--instance-id`:
 > ```
 > The script will warn you if the existing gateway has the wrong auth type.
 
-You can verify the auth type in the **Bedrock AgentCore** console → **Gateways** →
-`aria-banking-mcp-gateway-dev` → **Configuration** tab. You should see
-**Authorizer type: Custom JWT** and the Discovery URL above.
+You can verify the configuration in the **Bedrock AgentCore** console → **Gateways** →
+`aria-banking-mcp-gateway-dev` → **Configuration** tab. You should see:
+- **Authorizer type**: `Custom JWT`
+- **Discovery URL**: the Connect instance URL above
+- **Allowed audience**: the gateway ID (e.g. `aria-banking-mcp-gateway-dev-ndrocvgxlr`)
 
-> **Why this matters**: Without CUSTOM_JWT auth, the Connect instance selector in step 5 below
-> will be greyed out (error: *"You can only select the instance that is configured with the
-> selected Gateway's Discovery URL"*). The gateway must have the Connect instance's OIDC
-> Discovery URL configured before the instance can be associated.
+> **Why this matters**: Without CUSTOM_JWT auth (correct Discovery URL + audience), two things break:
+> 1. The Connect instance selector in step 5 below will be greyed out
+> 2. The **Third-party MCP** category will not appear in the AI Agent Designer's Tools panel even
+>    after the integration is registered
 
 **Steps:**
 

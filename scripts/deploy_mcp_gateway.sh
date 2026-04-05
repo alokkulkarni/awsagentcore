@@ -1329,13 +1329,16 @@ PYEOF
   # Create the gateway.
   # Use CUSTOM_JWT auth (required for Connect AI agent tool invocation) when a
   # Connect Discovery URL is available; fall back to AWS_IAM otherwise.
-  # NOTE: allowedClients uses the Connect instance ID so only tokens from this
-  # instance are accepted. At least one of allowedAudience/allowedClients/
-  # allowedScopes/customClaims is required by the API when using CUSTOM_JWT.
-  local auth_kwargs=""
+  # The API requires at least one constraint field for CUSTOM_JWT, so we use
+  # allowedClients temporarily during creation. After the gateway reaches READY
+  # we immediately update it to set allowedAudience = gateway ID (the value
+  # Connect puts in the JWT "aud" claim when calling the gateway). This is what
+  # the AWS troubleshooting guide calls "inbound authentication audiences".
+  local auth_kwargs="" needs_audience_patch=false
   if [[ -n "${CONNECT_DISCOVERY_URL}" ]]; then
     log "Creating gateway with CUSTOM_JWT auth (Connect Discovery URL: ${CONNECT_DISCOVERY_URL})"
     auth_kwargs="authorizerType='CUSTOM_JWT', authorizerConfiguration={'customJWTAuthorizer': {'discoveryUrl': '${CONNECT_DISCOVERY_URL}', 'allowedClients': ['${CONNECT_INSTANCE_ID}']}}"
+    needs_audience_patch=true
   else
     warn "CONNECT_INSTANCE_ID/CONNECT_INSTANCE_URL not set — creating gateway with AWS_IAM auth."
     warn "Connect AI agents will not be able to call this gateway. Re-run with --instance-id."
@@ -1367,6 +1370,9 @@ PYEOF
 
   ok "MCP Gateway created: ${GATEWAY_ID}"
   log "Gateway URL: ${GATEWAY_URL}"
+
+  # Persist so the audience-patch step can use it after the wait loop.
+  export GATEWAY_ID GATEWAY_URL
 
   # Poll until READY (gateway stays in CREATING for ~30-60s after creation)
   log "Waiting for gateway to reach READY status..."
@@ -1400,6 +1406,55 @@ PYEOF
     esac
   done
   die "Gateway did not reach READY after $(( max_attempts * 15 ))s — aborting"
+
+  # Patch allowedAudience = gateway ID (Connect sets aud = gateway ID in its JWTs).
+  # This MUST be done after creation because the gateway ID is only known once
+  # the create call returns. Without this, Connect cannot authenticate and the
+  # "Third-party MCP" option will not appear in the AI Agent Designer.
+  if [[ "${needs_audience_patch}" == "true" ]]; then
+    log "Patching CUSTOM_JWT audience to gateway ID (${GATEWAY_ID})..."
+    python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    gw = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
+    c.update_gateway(
+        gatewayIdentifier='${GATEWAY_ID}',
+        name=gw['name'],
+        roleArn=gw['roleArn'],
+        protocolType=gw['protocolType'],
+        authorizerType=gw['authorizerType'],
+        authorizerConfiguration={
+            'customJWTAuthorizer': {
+                'discoveryUrl': '${CONNECT_DISCOVERY_URL}',
+                'allowedAudience': ['${GATEWAY_ID}']
+            }
+        }
+    )
+    print('Audience patched successfully')
+except Exception as exc:
+    print('ERROR patching audience: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+    # Brief wait for UPDATING → READY
+    sleep 5
+    local patch_status
+    patch_status=$(python3 -c "
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+print(c.get_gateway(gatewayIdentifier='${GATEWAY_ID}').get('status','?'))
+")
+    local wait_count=0
+    while [[ "${patch_status}" == "UPDATING" && ${wait_count} -lt 12 ]]; do
+      sleep 5; wait_count=$(( wait_count + 1 ))
+      patch_status=$(python3 -c "
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+print(c.get_gateway(gatewayIdentifier='${GATEWAY_ID}').get('status','?'))
+")
+    done
+    ok "Gateway CUSTOM_JWT audience set to gateway ID — status: ${patch_status}"
+  fi
 }
 
 # ---------------------------------------------------------------------------
