@@ -1237,12 +1237,15 @@ Block 8 (Connect Assistant) will reference.
 **Steps:**
 
 1. In AI Agent Designer → **AI Agents** tab → **Create AI agent**
+
+> ⚠️ **Do NOT use "Copy from existing"** — copying from SelfServiceOrchestrator will cause an "Invalid request body" error because the types are incompatible. Create from scratch.
+
 2. Fill in the **Agent details** panel:
    - **Name**: `ARIA-Banking-Orchestration-Agent`
    - **Type**: `Orchestration`
-   - **Description**: paste the following:
+   - **Description** *(max 255 characters — paste exactly)*:
      ```
-     ARIA (Automated Responsive Intelligence Agent) is Meridian Bank's AI-powered banking assistant for voice and chat channels. ARIA handles authenticated customer enquiries including current account balances and transactions, debit card and credit card queries, card blocking for lost or stolen cards, mortgage balance and payment queries, product catalogue lookups, and spending analysis. ARIA operates under PCI-DSS, UK GDPR, and FCA Consumer Duty obligations. It enforces a full authentication gate before any data access, runs a PII detection and vault pipeline on every customer utterance, and follows a regulated vulnerability protocol for flagged customers. ARIA escalates to a human specialist agent for regulated advice, fraud disputes, vulnerability safeguarding cases, and out-of-scope voice queries. ARIA does not provide financial advice, investment guidance, or access payment rails.
+     ARIA is Meridian Bank's AI banking assistant for voice and chat. Handles account, card, mortgage and product queries under PCI-DSS, UK GDPR and FCA obligations. Escalates fraud, advice and vulnerability cases.
      ```
 
 3. **AI Prompt** section — click **Select AI prompt**:
@@ -1287,7 +1290,10 @@ Nova Sonic.
 2. Fill in the **Agent details**:
    - **Name**: `ARIA-Banking-Selfservice-Agent`
    - **Type**: `Self-service`
-   - **Description**: Same as the Orchestration agent description above
+   - **Description** *(max 255 characters)*:
+     ```
+     ARIA is Meridian Bank's AI banking assistant for voice and chat. Handles account, card, mortgage and product queries under PCI-DSS, UK GDPR and FCA obligations. Escalates fraud, advice and vulnerability cases.
+     ```
 
 3. **AI Prompts** section — two prompts are required for Self-service type:
    - **Self-service pre-processing**: select `ARIA-Banking-Preprocessing-Prompt (v1)`
