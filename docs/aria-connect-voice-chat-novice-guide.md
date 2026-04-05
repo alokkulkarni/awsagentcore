@@ -1113,6 +1113,9 @@ and outputs structured routing instructions that guide ARIA's first turn.
    - **Name**: `ARIA-Banking-Preprocessing-Prompt`
    - **Type**: `Self-service pre-processing`
    - **Model**: `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` *(Cross Region — `eu.` prefix required; see GDPR note in Step D.3)*
+   - **Format**: `MESSAGES`
+
+3. Delete all existing content in the editor and paste the entire block below:
 
 ```yaml
 system: |
@@ -1139,7 +1142,7 @@ system: |
   </channel_type>
 
   <formatting_mode>
-  One of: VOICE_TTS (channel is voice or ivr — TTS only, no markdown, no URLs, no phone numbers), CHAT_MARKDOWN (channel is chat, mobile, web, or branch-kiosk — light markdown allowed, URLs and phone numbers permitted), CHAT_PLAIN (fallback for digital channels that cannot render markdown). Evaluate based on {{$.Custom.channel}}.
+  One of: VOICE_TTS (channel is voice or ivr — TTS only, no markdown, no URLs, no phone numbers), CHAT_MARKDOWN (channel is chat, mobile, web, or branch-kiosk — light markdown allowed, URLs and phone numbers permitted), CHAT_PLAIN (fallback for digital channels that cannot render markdown). Evaluate based on the channel value in the user message.
   </formatting_mode>
 
   <locale>
@@ -1159,7 +1162,7 @@ system: |
   </empathy_block>
 
   <prior_context>
-  If {{$.Custom.priorSummary}} is non-empty, summarise the prior session context in one or two plain sentences suitable for inclusion in the main agent's context window. If empty: none.
+  If the priorSummary value (provided in the user message) is non-empty, summarise it in one or two plain sentences suitable for inclusion in the main agent's context window. If empty: none.
   </prior_context>
 
 messages:
@@ -1181,7 +1184,7 @@ messages:
 
       Based on the above, produce structured routing instructions in the required XML format.
   - role: assistant
-    content: "<session_state>"
+    content: <session_state>
 ```
 
 4. Click **Save** → **Publish**
@@ -1206,6 +1209,7 @@ gives you a second, knowledge-base-specific prompt that can be invoked for KB qu
    - **Name**: `ARIA-Banking-Answer-Generation-Prompt`
    - **Type**: `Self-service answer generation`
    - **Model**: `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` *(Cross Region — `eu.` prefix required)*
+   - **Format**: `TEXT_COMPLETIONS`
 
 3. Delete all existing content and paste:
 
@@ -1237,13 +1241,13 @@ prompt: |
        * Include only information actually present in the documents — never add general knowledge or assumptions.
        * Be in the language specified in <locale></locale>.
 
-  VOICE-specific answer rules (when {{$.Custom.channel}} is voice or ivr):
+  VOICE-specific answer rules (when the channel is voice or ivr):
   - Write as natural speech: "To do this, you would..." not "Step 1: ..."
   - Monetary amounts spoken as words: "one thousand two hundred and forty-five pounds thirty".
   - Digit-by-digit for account numbers, card numbers, sort codes.
   - Never use "•", "*", "#", markdown, URLs, or phone numbers.
 
-  DIGITAL-specific answer rules (when {{$.Custom.channel}} is chat, mobile, web, or branch-kiosk):
+  DIGITAL-specific answer rules (when the channel is chat, mobile, web, or branch-kiosk):
   - Use numbered lists for multi-step instructions. Use **bold** for key values.
   - Monetary amounts as £X.XX format (e.g. £1,245.30).
   - URLs and phone numbers from source documents may be included.
