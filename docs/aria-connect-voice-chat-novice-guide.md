@@ -66,7 +66,17 @@
     - [Step I.9 — Grant connect:UpdateContactAttributes to the Session Injector Role](#step-i9--grant-connectupdatecontactattributes-to-the-session-injector-role)
     - [Step I.10 — Test Voice → Chat Transfer](#step-i10--test-voice--chat-transfer)
     - [Step I.11 — Test Chat → Voice Callback](#step-i11--test-chat--voice-callback)
-14. [Nova Sonic: What It Is and How to Use It with Connect](#nova-sonic-what-it-is-and-how-to-use-it-with-connect)
+14. [Part J — Agent Whisper Flows (Briefing the Human Agent Before Connection)](#part-j--agent-whisper-flows-briefing-the-human-agent-before-connection)
+    - [Step J.1 — Verify escalate_to_human_agent Writes Contact Attributes](#step-j1--verify-escalate_to_human_agent-writes-contact-attributes)
+    - [Step J.2 — Grant connect:UpdateContactAttributes to the AgentCore Runtime Role](#step-j2--grant-connectupdatecontactattributes-to-the-agentcore-runtime-role)
+    - [Step J.3 — Create the ARIA Agent Whisper Flow](#step-j3--create-the-aria-agent-whisper-flow)
+    - [Step J.4 — Assign the Whisper Flow to the ARIA Banking Agents Queue](#step-j4--assign-the-whisper-flow-to-the-aria-banking-agents-queue)
+    - [Step J.5 — (Optional) Add Block 10A for Dynamic Whisper Selection](#step-j5--optional-add-block-10a-for-dynamic-whisper-selection)
+    - [Step J.6 — (Optional) Create a Customer Queue Flow (Hold Music)](#step-j6--optional-create-a-customer-queue-flow-hold-music)
+    - [Step J.7 — Test the Whisper Flow (Voice)](#step-j7--test-the-whisper-flow-voice)
+    - [Step J.8 — Test the Whisper Flow (Chat)](#step-j8--test-the-whisper-flow-chat)
+    - [Part J Troubleshooting](#part-j--troubleshooting-quick-reference)
+15. [Nova Sonic: What It Is and How to Use It with Connect](#nova-sonic-what-it-is-and-how-to-use-it-with-connect)
     - [Three Paths to Voice AI](#three-paths-to-voice-ai-in-amazon-connect)
     - [Step C.1 — Configure Cross-Region Access for Nova Sonic 2](#step-c1--configure-cross-region-access-for-nova-sonic-2-us-east-1)
     - [Step C.2 — Enable Unlimited AI Pricing](#step-c2--enable-unlimited-ai-pricing-on-your-instance)
@@ -276,6 +286,7 @@ Work through these steps in order. Each phase depends on the previous one. Ticki
 | **G. Voice test** | Call the number and verify ARIA responds | Part G | ~10 min |
 | **H. Chat test** | Use the Test Chat tool and embed the widget | Parts H, I | ~10 min |
 | **I. Channel transfers** | (Optional) Voice→chat SMS deflection and chat→voice callback | Part I | ~30 min |
+| **J. Whisper flows** | (Recommended) Brief the human agent before the customer connects | Part J | ~20 min |
 
 > **The most common beginner mistake** is skipping Part D and trying to build the contact flow first. Block 8 (Connect Assistant) requires a **published** AI Agent to bind to. If the agent does not exist or is in Draft, Block 8 will fail at runtime with "Connect assistant not found."
 
@@ -2241,6 +2252,17 @@ ARIA session, the flow's job is done. It has:
   → **Disconnect / hang up**
 - **Error** → same fallback → **Disconnect / hang up**
 
+> **What comes next — Part J (Recommended)**: Once the contact enters the queue and ARIA
+> decides to escalate, the human agent receives the call or chat with **zero context** unless you
+> set up an Agent Whisper flow. Part J walks you through creating the whisper flow so that agents
+> hear a spoken 15-second brief (voice) or see a formatted text summary (chat) **before** the
+> customer is connected. This is the single highest-impact improvement to agent experience you can
+> make after the basic flow is working.
+>
+> **Optional Block 10A**: Part J Step J.5 also explains how to add a `Set Whisper Flow` block
+> between Block 10 and Block 11 if you want to dynamically select a different whisper flow based
+> on escalation priority (e.g., a more urgent brief for safeguarding contacts).
+
 ---
 
 ### Block 12: Disconnect / Hang Up
@@ -3541,6 +3563,832 @@ Look for:
 > - [UpdateContactAttributes API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_UpdateContactAttributes.html)
 > - [Using Lambda functions with Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html)
 > - [AWS Architecture Blog: Channel Deflection from Voice to Chat using Amazon Connect](https://aws.amazon.com/blogs/architecture/channel-deflection-from-voice-to-chat-using-amazon-connect/)
+
+---
+
+## Part J — Agent Whisper Flows (Briefing the Human Agent Before Connection)
+
+When ARIA escalates a customer to a human agent, the agent needs to know who the customer is, what they
+were calling or chatting about, why ARIA could not resolve it, and how urgently the contact needs to be
+handled — all *before* the customer can hear or see them. Without this briefing, the agent must spend the
+first 60–90 seconds asking the customer to repeat everything they just told ARIA. That is frustrating for
+the customer and unprofessional for the contact centre.
+
+Amazon Connect solves this with **Agent Whisper flows** — a special type of contact flow that runs on the
+**agent's side only**, *after* the agent accepts the contact but *before* the customer hears or sees them.
+The customer hears hold music (from the Customer Queue flow) while the agent receives a spoken brief
+(voice) or a visible system message (chat). Only once the whisper flow ends does the customer and agent
+connect and hear each other.
+
+This part of the guide walks you through:
+
+1. Verifying that ARIA's `escalate_to_human_agent` tool already writes the context attributes you need
+2. Granting the AgentCore runtime the IAM permission to write those attributes
+3. Building the `ARIA Agent Whisper` flow in the Connect console, block by block
+4. Assigning it to the `ARIA Banking Agents` queue
+5. (Optional) Upgrading to dynamic whisper selection so safeguarding contacts get a more urgent brief
+6. (Optional) Creating a Customer Queue flow so the waiting customer hears hold music instead of silence
+7. Testing the whisper flow end-to-end for voice
+8. Testing the whisper flow end-to-end for chat
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    ARIA Agent Whisper Flow Architecture                       │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+  VOICE ESCALATION                              CHAT ESCALATION
+  ────────────────                              ───────────────
+  Customer speaking to ARIA                     Customer chatting with ARIA
+      │                                               │
+  ARIA calls escalate_to_human_agent()          ARIA calls escalate_to_human_agent()
+      │                                               │
+  human_handoff.py writes ──────────────────────────► Contact record attributes:
+    escalationReason                              escalationReason
+    escalationPriority                            escalationPriority
+    handoffRef                                    handoffRef
+    authStatus / authLevel / riskScore            authStatus / authLevel / riskScore
+    customerId                                    customerId
+    transcriptSummaryVoice  ◄── TTS spoken brief (~400 chars)
+    transcriptSummaryChat   ◄── formatted text brief (~800 chars)
+      │                                               │
+  Transfer to ARIA Banking Agents queue         Transfer to ARIA Banking Agents queue
+      │                                               │
+  Customer hears hold music                     Customer sees "Connecting..." message
+  (Customer Queue flow — Step J.6)              (chat system message)
+      │                                               │
+  Agent accepts contact in CCP                  Agent accepts chat in CCP
+      │                                               │
+  ┌───┴──────────────────────────────────┐      ┌────┴──────────────────────────────────┐
+  │  ARIA Agent Whisper flow — VOICE     │      │  ARIA Agent Whisper flow — CHAT        │
+  │                                      │      │                                        │
+  │  Polly Neural TTS reads              │      │  System message appears in agent's     │
+  │  transcriptSummaryVoice              │      │  chat pane containing                  │
+  │  (~15-25 seconds)                    │      │  transcriptSummaryChat                 │
+  │  Customer hears hold music           │      │  (instant — customer cannot see it)    │
+  └──────────────────────────────────────┘      └────────────────────────────────────────┘
+      │                                               │
+  Customer and agent connected                  Agent reads summary, types first reply
+```
+
+---
+
+### Prerequisites for Part J
+
+Before starting any step below, ensure the following are already complete:
+
+| Prerequisite | Where to complete it | Status check |
+|---|---|---|
+| ARIA Unified Inbound Flow published (Blocks 1–12 working) | Part E of this guide | Call the number — ARIA must answer |
+| `ARIA Banking Agents` queue exists | Part A of this guide | Routing → Queues shows the queue |
+| `escalate_to_human_agent` tool deployed (with `human_handoff.py`) | Your ARIA MCP Gateway | Tool must appear in the agent's tool list |
+| `human_handoff.py` includes `UpdateContactAttributes` call | This codebase | See Step J.1 to verify |
+| `INSTANCE_ID` environment variable set on AgentCore runtime | Your deployment | See Step J.1 |
+| AWS CLI configured for `eu-west-2` | Your workstation | `aws sts get-caller-identity` must succeed |
+| IAM permissions to create and attach IAM policies | Your AWS account | `aws iam list-policies` must not deny |
+
+---
+
+### Step J.1 — Verify `escalate_to_human_agent` Writes Contact Attributes
+
+**Why this matters**: The Agent Whisper flow you create in Step J.3 reads its briefing content from Amazon
+Connect contact attributes. Those attributes (`transcriptSummaryVoice`, `transcriptSummaryChat`,
+`escalationReason`, etc.) are written by the `escalate_to_human_agent` ARIA tool *before* the contact is
+transferred to the human queue. If this step is not working, the whisper flow will either fail silently or
+read empty attributes and play the fallback message instead of a real briefing.
+
+#### What the code does
+
+The file `aria/tools/escalation/human_handoff.py` calls `connect:UpdateContactAttributes` before
+returning its response to ARIA. Here is a reference table of every attribute it writes:
+
+| Attribute name | Example value | Purpose in the whisper flow |
+|---|---|---|
+| `escalationReason` | `"fraud_dispute"` | Why ARIA escalated — read by the whisper brief |
+| `escalationPriority` | `"urgent"` | `standard`, `urgent`, or `safeguarding` — determines whisper urgency |
+| `handoffRef` | `"HO-20250415-CUST001"` | Unique reference the agent quotes on the call/chat |
+| `authStatus` | `"authenticated"` | Whether the customer passed ARIA's authentication |
+| `authLevel` | `"high"` | `high`, `medium`, `low`, or `none` — granularity of auth |
+| `riskScore` | `"72"` | Integer as string — fraud risk score from ARIA tools |
+| `customerId` | `"CUST001"` | The customer identifier ARIA matched |
+| `transcriptSummaryVoice` | See example below | TTS-optimised spoken brief (~400 chars) played as audio on voice |
+| `transcriptSummaryChat` | See example below | Formatted text brief (~800 chars) displayed as a system message on chat |
+
+**Example `transcriptSummaryVoice`**:
+```
+ARIA handoff. STANDARD priority. Reason: fraud or disputed transaction. Customer authenticated.
+Summary: The customer is enquiring about a disputed transaction of 42 pounds 50 pence from TechStore
+on March 15th. They want to raise a formal dispute. Reference: HO-20250415-CUST001.
+```
+
+**Example `transcriptSummaryChat`**:
+```
+ARIA HANDOFF — STANDARD | Fraud / disputed transaction | Authenticated | Ref: HO-20250415-CUST001
+The customer is enquiring about a disputed transaction of £42.50 at TechStore on March 15th.
+They want to raise a formal dispute. Customer authenticated (high level). Risk score: 72.
+Recommended action: Initiate chargeback process with customer.
+```
+
+The `transcriptSummaryVoice` string is designed to be read aloud by Amazon Polly's Neural TTS. It uses
+plain English phrasing (no symbols like £ or % that Polly may mispronounce), avoids SSML, and structures
+information in priority order: priority level → reason → authentication → summary → reference.
+
+The `transcriptSummaryChat` string is designed for on-screen reading in the CCP agent interface. It uses
+structured labels and line breaks (stored as `\n` in the attribute value) to help the agent scan quickly.
+
+#### Step J.1a — Verify the INSTANCE_ID environment variable
+
+The code uses `os.environ["INSTANCE_ID"]` to identify which Connect instance to call
+`UpdateContactAttributes` on. If this variable is missing or wrong, every attribute write silently fails
+and the whisper flow plays the fallback message.
+
+1. Open the AWS Console in `eu-west-2`
+2. Navigate to your AgentCore runtime:
+   - **Lambda function**: Lambda → Functions → your-agentcore-function → **Configuration** →
+     **Environment variables**
+   - **ECS/Fargate container**: ECS → Task definitions → your-task-def → **Environment variables**
+   - **Local/Docker**: check your `.env` file or `docker-compose.yml`
+3. Confirm `INSTANCE_ID` is set to your Connect instance ID (the UUID — **not** the full ARN)
+4. To find your instance ID:
+   - Amazon Connect console → **Instances** → click your instance name. The page URL contains the UUID
+     after `/overview/`: `…/overview/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
+   - Or via AWS CLI:
+     ```bash
+     aws connect list-instances \
+       --region eu-west-2 \
+       --query 'InstanceSummaryList[].{Name:InstanceAlias,ID:Id}'
+     ```
+5. If `INSTANCE_ID` is missing, add it now and redeploy (or restart) the runtime before continuing
+
+#### Step J.1b — Verify the code is calling UpdateContactAttributes
+
+Open `aria/tools/escalation/human_handoff.py` and confirm it contains:
+- An `import boto3` statement
+- A `boto3.client("connect", region_name="eu-west-2")` call
+- A call to `update_contact_attributes(InstanceId=..., InitialContactId=..., Attributes={...})`
+- The `Attributes` dict contains at minimum: `escalationReason`, `escalationPriority`,
+  `transcriptSummaryVoice`, `transcriptSummaryChat`
+- The entire block is wrapped in a `try/except` so failures are logged but do not block the escalation
+
+If the code does not yet include the `UpdateContactAttributes` call, that code change must be completed
+before Part J will function — the whisper flow infrastructure alone is not sufficient.
+
+---
+
+### Step J.2 — Grant `connect:UpdateContactAttributes` to the AgentCore Runtime Role
+
+**Why this is necessary**: The `human_handoff.py` code calls `connect:UpdateContactAttributes` from the
+AgentCore runtime (Lambda, ECS task, or container). That runtime executes under an IAM role. By default,
+no IAM role has permission to call Connect APIs. Without this permission, every call returns
+`AccessDeniedException` which is silently caught by the `try/except` block — the escalation proceeds but
+the agent receives no briefing context.
+
+#### Step J.2a — Identify the AgentCore runtime IAM role
+
+1. Open the **IAM** console at `https://console.aws.amazon.com/iam/`
+2. Navigate to **Roles**
+3. Find the role your AgentCore runtime uses:
+   - **Lambda**: Lambda → Functions → your-agentcore-function → **Configuration** → **Permissions** →
+     **Execution role** — click the role link to open it in IAM
+   - **ECS/Fargate**: ECS → Task definitions → your-task-definition → **Task role** — note the ARN
+4. Note the full role ARN: `arn:aws:iam::YOUR_ACCOUNT_ID:role/YOUR_ROLE_NAME`
+
+#### Step J.2b — Identify your Connect instance resource ARN
+
+The IAM policy should be scoped to your specific Connect instance. Your contact resource ARN pattern is:
+
+```
+arn:aws:connect:eu-west-2:YOUR_ACCOUNT_ID:instance/YOUR_INSTANCE_ID/contact/*
+```
+
+Replace:
+- `YOUR_ACCOUNT_ID` — your 12-digit AWS account number (top-right of the AWS console)
+- `YOUR_INSTANCE_ID` — the UUID from Step J.1a
+
+#### Step J.2c — Create the IAM policy
+
+1. IAM → **Policies** → **Create policy**
+2. Click the **JSON** tab
+3. Replace the default content with:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteEscalationAttributesForWhisper",
+      "Effect": "Allow",
+      "Action": [
+        "connect:UpdateContactAttributes",
+        "connect:DescribeContact"
+      ],
+      "Resource": "arn:aws:connect:eu-west-2:YOUR_ACCOUNT_ID:instance/YOUR_INSTANCE_ID/contact/*"
+    }
+  ]
+}
+```
+
+4. Replace `YOUR_ACCOUNT_ID` and `YOUR_INSTANCE_ID` with real values
+5. Click **Next**
+6. **Policy name**: `ARIAAgentCoreWriteContactAttributes`
+7. **Description**: `Allows AgentCore runtime to write escalation context attributes before human handoff`
+8. Click **Create policy**
+
+#### Step J.2d — Attach the policy to the runtime role
+
+1. IAM → **Roles** → click the role you identified in Step J.2a
+2. **Permissions** tab → **Add permissions** → **Attach policies**
+3. Search for `ARIAAgentCoreWriteContactAttributes`
+4. Check the box next to it
+5. Click **Add permissions**
+
+#### Step J.2e — Verify the permission works
+
+Wait 30 seconds for IAM propagation, then run this command. Use a real contact ID from a recent
+test — find one in **Analytics → Contact search** in the Connect console:
+
+```bash
+aws connect update-contact-attributes \
+  --instance-id YOUR_INSTANCE_ID \
+  --initial-contact-id A_REAL_CONTACT_ID \
+  --attributes '{"testAttribute":"whisper-iam-test"}' \
+  --region eu-west-2
+```
+
+A successful response is empty (`{}`) with exit code 0. If it returns `AccessDeniedException`, the policy
+is not yet attached or the wrong role was targeted — re-check Steps J.2a–J.2d.
+
+After verifying, clean up the test attribute: Analytics → Contact search → open the contact →
+**Attributes** tab → remove `testAttribute`.
+
+---
+
+### Step J.3 — Create the ARIA Agent Whisper Flow
+
+**What you are building**: A new contact flow of type **Agent whisper** named `ARIA Agent Whisper`. This
+flow runs on the agent's side only, after the agent accepts the contact, before the customer hears or
+sees them. It reads the `transcriptSummaryVoice` or `transcriptSummaryChat` contact attribute (written by
+`human_handoff.py`) and delivers it as spoken TTS audio (voice) or as a system message in the chat pane
+(chat).
+
+#### Understanding Amazon Connect flow types
+
+| Flow type | Runs on | Triggered when | ARIA uses it for |
+|---|---|---|---|
+| Contact flow (Inbound) | Both sides simultaneously | A new contact is created | Main ARIA Unified Inbound Flow (Part E) |
+| Customer queue | Customer side only | Customer is waiting in the queue | Playing hold music (Step J.6) |
+| **Agent whisper** | **Agent side only** | **Agent accepts the contact** | **This step — briefing the agent** |
+| Customer whisper | Customer side only | Just before customer and agent connect | Not used by ARIA |
+| Outbound whisper | Called party only | Agent initiates outbound call | Chat-to-voice callback (Part I) |
+
+> **Why the type matters**: Amazon Connect will only let you assign an Agent whisper type flow to the
+> "Agent whisper" slot on a queue. If you accidentally create it as a different type, it will not appear
+> in the queue configuration dropdown in Step J.4.
+
+#### Step J.3a — Navigate to the flow editor
+
+1. Open the **Amazon Connect console** at `https://eu-west-2.console.aws.amazon.com/connect/`
+2. Click your instance name to open the instance dashboard
+3. Left menu → **Routing** → **Flows**
+4. Click **Create flow** (orange button, top-right)
+5. The flow canvas opens with a single default **Entry point** block
+
+#### Step J.3b — Set the flow name and type
+
+1. At the top of the canvas, click the name field (shows "Untitled" or similar) and type:
+   `ARIA Agent Whisper`
+2. Locate the flow type selector at the top-left of the canvas (shows **Contact flow** by default)
+3. Click the type dropdown and select **Agent whisper**
+4. If a confirmation popup appears, click **OK**
+
+#### Step J.3c — Add Block 1: Check Contact Attributes (Channel branch)
+
+The first thing the whisper flow must do is determine whether this contact is a voice call or a chat.
+The `Channel` attribute is a System attribute set automatically by Connect — its value is `VOICE` for
+phone calls and `CHAT` for chat contacts.
+
+1. In the blocks panel (left side of the canvas), find or search for **Check contact attributes**
+2. Drag it onto the canvas (or click to add it)
+3. Click the block to open its configuration panel on the right side
+4. Set:
+   - **Attribute type**: System
+   - **Attribute key**: `Channel`
+     (Must be typed exactly as shown — capital C, lowercase rest)
+5. Under **Conditions**, click **Add condition**:
+   - Condition type: **Equals**
+   - Value: `VOICE`
+6. Click **Save** on this block's panel
+7. The block now shows two output connectors:
+   - **Match** — fires when `Channel` equals `VOICE`
+   - **No match** — fires for everything else (i.e., `CHAT`)
+8. Connect the **Entry point** block's output to the input of this **Check contact attributes** block
+
+#### Step J.3d — Add Block 2V: Check Contact Attributes (Is transcriptSummaryVoice set?)
+
+Before playing the voice summary, check whether the attribute was actually written. If
+`human_handoff.py` failed (e.g., IAM permission missing), we want to play a sensible fallback message
+rather than silence.
+
+1. Add a second **Check contact attributes** block to the canvas
+2. Configure:
+   - **Attribute type**: User defined
+   - **Attribute key**: `transcriptSummaryVoice`
+3. Conditions — click **Add condition**:
+   - Condition type: **Is not null**
+   - (No value field needed for this condition type)
+4. Click **Save** on the panel
+5. The block has two outputs: **Match** (attribute exists) and **No match** (attribute is null/empty)
+6. Connect Block 1's **Match** (VOICE) output to the input of Block 2V
+
+#### Step J.3e — Add Block 3V: Play Prompt (Voice summary — dynamic TTS)
+
+1. Add a **Play prompt** block to the canvas
+2. Configure:
+   - **Type**: Text-to-speech
+   - **Interpret as**: Text (do NOT select SSML)
+   - **Voice**: Click the voice dropdown and select:
+     - **Amy** (en-GB, Neural) — recommended for UK banking context, neutral and clear
+     - Alternative: **Brian** (en-GB, Neural) if agents prefer a male voice
+   - **Content**: Click **Set dynamically** (the toggle or radio button below the voice selector)
+   - Under **Set dynamically**:
+     - **Attribute type**: User defined
+     - **Attribute name**: `transcriptSummaryVoice`
+3. Click **Save** on the panel
+4. This tells Connect: *read the `transcriptSummaryVoice` contact attribute value and speak it aloud
+   using the Neural Amy voice*
+5. Connect Block 2V's **Match** (not null) output to the input of Block 3V
+6. You will connect Block 3V's outputs in Step J.3k after all blocks are added
+
+> **What the agent hears**: The `transcriptSummaryVoice` attribute contains a pre-built, TTS-optimised
+> string like: *"ARIA handoff. STANDARD priority. Reason: fraud or disputed transaction. Customer
+> authenticated. Summary: The customer is enquiring about a disputed transaction of 42 pounds 50 pence
+> from TechStore on March 15th. They want to raise a formal dispute. Reference: HO-20250415-CUST001."*
+> Amy's Neural voice reads this naturally in approximately 15–20 seconds.
+
+#### Step J.3f — Add Block 4V: Play Prompt (Voice fallback)
+
+1. Add another **Play prompt** block
+2. Configure:
+   - **Type**: Text-to-speech
+   - **Interpret as**: Text
+   - **Voice**: Amy (en-GB, Neural)
+   - **Content**: **Set statically** — type the following exactly:
+     ```
+     ARIA handoff. The customer has been escalated by ARIA. Please greet the customer and review the contact record in the Contact Control Panel for context.
+     ```
+3. Click **Save**
+4. Connect Block 2V's **No match** (null) output to the input of Block 4V
+
+#### Step J.3g — Add Block 2C: Check Contact Attributes (Is transcriptSummaryChat set?)
+
+Repeat the null-check pattern for the chat branch.
+
+1. Add a third **Check contact attributes** block
+2. Configure:
+   - **Attribute type**: User defined
+   - **Attribute key**: `transcriptSummaryChat`
+3. Conditions: **Is not null**
+4. Click **Save**
+5. Connect Block 1's **No match** (CHAT) output to the input of Block 2C
+
+#### Step J.3h — Add Block 3C: Play Prompt (Chat summary — dynamic)
+
+> **How chat whisper works in practice**: In a chat whisper flow, a **Play prompt** block renders as a
+> system-style message in the agent's chat window in the CCP. The customer does NOT see this message — it
+> appears only on the agent side, visually distinct from the customer/agent message thread. The agent sees
+> it the instant they accept the chat. They can read it at their own pace before typing their first reply.
+
+1. Add a **Play prompt** block
+2. Configure:
+   - **Type**: Text (not Text-to-speech — for chat, only text is delivered)
+   - **Content**: Click **Set dynamically**
+   - Under **Set dynamically**:
+     - **Attribute type**: User defined
+     - **Attribute name**: `transcriptSummaryChat`
+3. Click **Save**
+4. Connect Block 2C's **Match** (not null) output to the input of Block 3C
+
+#### Step J.3i — Add Block 4C: Play Prompt (Chat fallback)
+
+1. Add another **Play prompt** block
+2. Configure:
+   - **Type**: Text
+   - **Content**: **Set statically** — type:
+     ```
+     ARIA HANDOFF — Please review this contact's history in the Contact Control Panel for context. The customer has been transferred from ARIA.
+     ```
+3. Click **Save**
+4. Connect Block 2C's **No match** (null) output to the input of Block 4C
+
+#### Step J.3j — Add the End flow block and connect all outputs
+
+Every flow must end with an **End flow** block. Every block — including error branches — must connect to
+something; disconnected outputs cause flow validation to fail.
+
+1. Add one **End flow** block to the canvas (if not already present)
+2. Connect the following outputs to the **End flow** block:
+   - Block 3V **Success** output → End flow
+   - Block 3V **Error** output → End flow
+   - Block 4V **Success** output → End flow
+   - Block 4V **Error** output → End flow
+   - Block 3C **Success** output → End flow
+   - Block 3C **Error** output → End flow
+   - Block 4C **Success** output → End flow
+   - Block 4C **Error** output → End flow
+   - Block 1 **Error** output → End flow
+   - Block 2V **Error** output → End flow
+   - Block 2C **Error** output → End flow
+
+#### Step J.3k — Final flow structure overview
+
+```
+Entry
+  └──► Block 1: Check Channel (System — Channel)
+         ├── Match (VOICE)
+         │      └──► Block 2V: Check transcriptSummaryVoice (User defined — Is not null)
+         │                ├── Match (not null) ──► Block 3V: Play TTS dynamically
+         │                │                              (transcriptSummaryVoice, Amy Neural)
+         │                │                                   ├── Success ──► End flow
+         │                │                                   └── Error   ──► End flow
+         │                └── No match (null)  ──► Block 4V: Play TTS fallback (static)
+         │                         Error ──► End flow    ├── Success ──► End flow
+         │                                               └── Error   ──► End flow
+         ├── No match (CHAT)
+         │      └──► Block 2C: Check transcriptSummaryChat (User defined — Is not null)
+         │                ├── Match (not null) ──► Block 3C: Play text dynamically
+         │                │                              (transcriptSummaryChat)
+         │                │                                   ├── Success ──► End flow
+         │                │                                   └── Error   ──► End flow
+         │                └── No match (null)  ──► Block 4C: Play text fallback (static)
+         │                         Error ──► End flow    ├── Success ──► End flow
+         │                                               └── Error   ──► End flow
+         └── Error ──► End flow
+```
+
+#### Step J.3l — Save and publish the flow
+
+1. Click **Save** (button at top-right of the canvas)
+2. If there are validation errors, a red banner lists the problem blocks. The most common issue is a
+   disconnected Error output — trace each block and confirm all outputs are wired to something
+3. When **Save** succeeds with no errors, click **Publish**
+4. Confirm the publication dialog — the flow is now live and available for assignment to queues
+
+> **Tip**: After publishing, the flow version is locked. If you need to make changes later, you will
+> click into the flow → make edits → Save → Publish again. The queue assignment in Step J.4 will
+> automatically pick up the newly published version.
+
+---
+
+### Step J.4 — Assign the Whisper Flow to the ARIA Banking Agents Queue
+
+**Why assign at queue level**: Assigning the whisper flow to the queue is the simplest and most reliable
+approach. Every contact that routes to the `ARIA Banking Agents` queue — regardless of which contact
+flow transferred it there — will automatically use this whisper. You do not need to modify the Unified
+Inbound Flow to make this work.
+
+#### Step J.4a — Open the queue settings
+
+1. Left menu → **Routing** → **Queues**
+2. Find `ARIA Banking Agents` in the list
+3. Click the queue name to open its settings
+
+#### Step J.4b — Assign the whisper flow
+
+1. Scroll down to the section labelled **Flows** (or **Contact flow / Whisper flows**, depending on
+   your Connect console version)
+2. Find the field labelled **Agent whisper flow**
+3. Click the dropdown — you should see `ARIA Agent Whisper` listed (the flow you published in
+   Step J.3l)
+4. Select `ARIA Agent Whisper`
+5. Click **Save** (at the bottom of the page)
+
+> **If `ARIA Agent Whisper` does not appear in the dropdown**: The flow was not published (return to
+> Step J.3l and click **Publish**) or it was created with the wrong flow type. Verify the type via
+> Routing → Flows → click the flow — the type label appears at the top of the canvas and must say
+> **Agent whisper**.
+
+#### Step J.4c — Verify the assignment
+
+1. Routing → Queues → `ARIA Banking Agents`
+2. Confirm the **Agent whisper flow** field shows `ARIA Agent Whisper`
+3. The assignment is immediate — no restart or re-publish of the queue is needed
+
+---
+
+### Step J.5 — (Optional) Add Block 10A for Dynamic Whisper Selection
+
+**When to use this**: By default, all contacts entering the ARIA Banking Agents queue use the same
+`ARIA Agent Whisper` flow. This is correct for most deployments. However, if you want **safeguarding
+contacts** (those with `escalationPriority = safeguarding`) to use a completely separate, more urgent
+whisper flow — one that opens with a distinctive audio alert or a more direct verbal warning — you can
+override the queue-level setting by inserting a **Set whisper flow** block in the Unified Inbound Flow,
+between Block 10 (Set Working Queue) and Block 11 (Transfer to Queue).
+
+> **Most novice deployments do not need this step.** Skip to Step J.6 unless you have a firm
+> operational requirement for different whisper flows per escalation priority.
+
+#### Step J.5a — Create a dedicated safeguarding whisper flow
+
+1. Routing → Flows → **Create flow**
+2. Flow type: **Agent whisper**
+3. Name: `ARIA Agent Whisper Safeguarding`
+4. Add a single **Play prompt** block:
+   - Type: Text-to-speech
+   - Voice: Amy (en-GB, Neural)
+   - Content: Set statically — type:
+     ```
+     SAFEGUARDING ALERT. ARIA handoff. This customer may be at risk. Safeguarding priority. Please handle with care and follow the safeguarding protocol. Review the contact attributes in the Contact Control Panel for the full ARIA summary before speaking to the customer.
+     ```
+5. Connect Entry point → Play prompt → End flow
+6. Connect all Error outputs to End flow
+7. Save and Publish
+
+#### Step J.5b — Open the Unified Inbound Flow editor
+
+1. Routing → Flows
+2. Find and click `ARIA Unified Inbound Flow` (the flow built in Part E)
+3. The canvas opens in edit mode
+
+#### Step J.5c — Add Block 10A: Check escalationPriority
+
+1. Locate **Block 10** (Set Working Queue — sets the ARIA Banking Agents queue) and **Block 11**
+   (Transfer to Queue) in the canvas
+2. Block 10's Success output currently connects directly to Block 11's input — you will insert a new
+   block between them
+
+3. Add a **Check contact attributes** block between them:
+   - **Attribute type**: User defined
+   - **Attribute key**: `escalationPriority`
+   - Condition: **Equals** → `safeguarding`
+4. Re-wire connections:
+   - Disconnect Block 10 Success → Block 11
+   - Connect Block 10 **Success** → Block 10A input
+   - Connect Block 10A **Error** → Block 11 input (safe fallback bypasses dynamic selection)
+
+#### Step J.5d — Add Block 10B: Set Whisper Flow (safeguarding)
+
+1. Add a **Set whisper flow** block
+2. **Whisper flow**: select `ARIA Agent Whisper Safeguarding`
+3. Connect Block 10A **Match** (safeguarding) → this block's input
+4. Connect this block's **Success** and **Error** outputs → Block 11 input
+
+#### Step J.5e — Add Block 10C: Set Whisper Flow (standard)
+
+1. Add another **Set whisper flow** block
+2. **Whisper flow**: select `ARIA Agent Whisper`
+3. Connect Block 10A **No match** (not safeguarding) → this block's input
+4. Connect this block's **Success** and **Error** outputs → Block 11 input
+
+#### Step J.5f — Save and re-publish the Unified Flow
+
+1. Click **Save** and resolve any validation errors
+2. Click **Publish** and confirm
+
+The dynamic whisper selection is now live. Safeguarding escalations play the urgent brief; standard and
+urgent escalations play the standard brief. If the Set whisper flow block encounters any error, the
+contact falls through to Block 11 which uses the queue-level `ARIA Agent Whisper` as a safe fallback.
+
+---
+
+### Step J.6 — (Optional) Create a Customer Queue Flow (Hold Music)
+
+**Why this matters**: While the agent hears the whisper brief (15–25 seconds on voice), the customer is
+on hold. If no Customer Queue flow is assigned to the `ARIA Banking Agents` queue, Amazon Connect plays
+silence by default. Silence is disconcerting — customers assume the call has dropped and hang up, forcing
+a repeat contact. A simple queue flow with hold music and a periodic reassurance message reduces
+abandonment significantly.
+
+> **Note**: This is technically independent of the whisper flow, but both flows operate simultaneously
+> during the handoff window — the agent hears the whisper while the customer hears the queue flow.
+> Configuring them together produces a polished experience. If your queue already has a Customer Queue
+> flow assigned, skip to Step J.7.
+
+#### Step J.6a — Create the Customer Queue flow
+
+1. Routing → Flows → **Create flow**
+2. Flow type: **Customer queue**
+3. Name: `ARIA Customer Queue`
+
+#### Step J.6b — Build the hold loop
+
+This flow must loop — it cannot just play once and end, or the customer will hear silence after the
+first prompt completes.
+
+1. Add a **Loop prompts** block:
+   - Click the block to configure
+   - Under **Prompts**, click **Add prompt**:
+     - Option A (built-in music): Select one of Connect's built-in audio prompts from the dropdown
+       (scroll to find classical or neutral hold music)
+     - Option B (TTS): Select **Text-to-speech** → type:
+       `Please hold while we connect you to an advisor.`
+   - Under **Interrupt**: enable **Interrupt every** → set to `30` seconds
+   - Under **Interrupt prompt**: click **Add prompt** → Text-to-speech:
+     `You are still in the queue. We will be with you shortly.`
+   - Click **Save** on the block
+
+2. Add a **Wait** block:
+   - This keeps the customer in the queue without ending the contact
+   - Connect the **Loop complete** output of the Loop prompts block → **Wait** block input
+   - Connect the **Continue** output of the **Wait** block → back to the **Loop prompts** block input
+     (this creates the loop)
+
+3. Connect **Entry point** → **Loop prompts** block
+4. Connect Loop prompts **Error** output and Wait block **Error** output → **End flow** block
+
+#### Step J.6c — Save and publish
+
+1. Click **Save** — verify no validation errors
+2. Click **Publish** and confirm
+
+#### Step J.6d — Assign to the ARIA Banking Agents queue
+
+1. Left menu → Routing → Queues → `ARIA Banking Agents` → Edit
+2. Scroll to the **Flows** section
+3. **Customer queue flow** → select `ARIA Customer Queue`
+4. Click **Save**
+
+The customer now hears hold music while the agent receives the whisper briefing.
+
+---
+
+### Step J.7 — Test the Whisper Flow (Voice)
+
+With all steps complete, perform this end-to-end test to confirm the voice whisper path works. You need
+two devices or two people: one acts as the **customer** (on a mobile or landline), one acts as the
+**agent** (in the Connect CCP on a browser).
+
+#### Before you start — set up the agent CCP
+
+1. Open the **Connect Contact Control Panel** (CCP) in a browser:
+   ```
+   https://YOUR-INSTANCE-ALIAS.my.connect.aws/ccp-v2/
+   ```
+   Replace `YOUR-INSTANCE-ALIAS` with the alias set in Part A
+2. Log in with an agent account that is:
+   - A member of the routing profile associated with the `ARIA Banking Agents` queue
+   - Status set to **Available** (toggle in the CCP — the circle icon at the top)
+
+#### Exact sequence of events — what to expect at each moment
+
+Understanding this sequence before testing prevents confusion about what is normal:
+
+| Timeline | Agent experience (CCP) | Customer experience (phone) |
+|---|---|---|
+| T = 0s | — | Customer dials the Connect number |
+| T = 2s | — | ARIA answers, plays opening greeting |
+| T = varies | — | Customer converses with ARIA normally |
+| T = escalation | — | ARIA says: *"I'm transferring you to a specialist now. Please hold."* |
+| T + 1s | — | Customer hears hold music begins (Customer Queue flow) |
+| T + 2s | — | `human_handoff.py` writes contact attributes via `UpdateContactAttributes` |
+| T + 3s | CCP rings — incoming contact alert appears | Customer hears hold music |
+| T + 4s | Agent clicks **Accept** in CCP | Customer hears hold music |
+| T + 5s | **Agent whisper starts** — Amy's voice begins reading `transcriptSummaryVoice` | Customer hears hold music (unchanged — they cannot hear the whisper) |
+| T + 20–25s | Whisper ends — CCP status changes to **Connected** | Customer is now connected to the agent |
+| T + 25s+ | Agent speaks using context from the whisper | Customer hears the briefed agent for the first time |
+
+> **Critical point for novices**: During the whisper (T+5 to T+20), the agent can **hear** the whisper
+> but **cannot yet speak** to the customer. The customer cannot hear the whisper at all. The agent must
+> wait for the whisper to finish completely before speaking. Talking before the whisper ends does not
+> cut through to the customer — the customer hears only hold music until the whisper finishes.
+
+#### Test procedure
+
+1. Dial the Connect phone number from a mobile or external phone (the "customer" device)
+2. Wait for ARIA to answer and deliver its opening greeting
+3. Have a brief conversation — for example:
+   *"I've noticed a transaction on my account that I don't recognise — it's for £42.50 at TechStore
+   on March 15th. I'd like to dispute it."*
+4. After ARIA gathers the details, trigger an escalation by saying:
+   *"I'd like to speak to someone about this."*
+   (ARIA may also escalate automatically based on fraud detection rules in your system prompt)
+5. ARIA responds: *"I'm transferring you to a specialist now. Please hold while I connect you."*
+6. The customer phone begins playing hold music
+7. **On the agent CCP**: the notification rings → click **Accept**
+8. The agent immediately hears Amy's Neural voice reading the summary — approximately:
+   > *"ARIA handoff. STANDARD priority. Reason: fraud or disputed transaction. Customer authenticated.
+   > Summary: The customer is enquiring about a disputed transaction of 42 pounds 50 pence from
+   > TechStore on March 15th. They want to raise a formal dispute. Reference: HO-20250415-CUST001."*
+9. The whisper lasts approximately 15–25 seconds
+10. After the whisper ends, the CCP shows **Connected** and the agent can speak
+11. Agent opens with: *"Hello, I'm Jane from the disputes team. I understand you've noticed an
+    unrecognised transaction from TechStore — I have the details from ARIA and I'm going to help you
+    raise a formal dispute now."*
+
+#### Post-test verification in Connect console
+
+1. Analytics → **Contact search** → find the contact by date/time
+2. Open the contact record → **Attributes** tab — confirm populated:
+   - `escalationReason` — e.g., `fraud_dispute`
+   - `escalationPriority` — e.g., `standard`
+   - `transcriptSummaryVoice` — the TTS spoken summary string
+   - `transcriptSummaryChat` — the text formatted summary string
+3. **Flow logs** tab — look for:
+   - `ARIA Agent Whisper` in the flow execution log
+   - Block 2V executing and branching to **Match**
+   - Block 3V executing (the dynamic Play prompt)
+   - No Error events in the whisper flow segment
+
+#### CloudWatch log check
+
+```bash
+aws logs tail /aws/lambda/YOUR_AGENTCORE_FUNCTION_NAME \
+  --region eu-west-2 \
+  --since 10m \
+  --filter-pattern "UpdateContactAttributes"
+```
+
+Replace `YOUR_AGENTCORE_FUNCTION_NAME` with the name of your AgentCore Lambda. Look for:
+```
+INFO: UpdateContactAttributes successful for contact XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+```
+
+If you see `AccessDeniedException`, return to Step J.2 and re-check the IAM policy attachment.
+
+---
+
+### Step J.8 — Test the Whisper Flow (Chat)
+
+#### Before you start
+
+1. Open the **Connect Contact Control Panel** (CCP) — agent must be set to **Available**
+2. Open your chat widget (or use Connect Test Chat: Connect console → **Test chat**)
+
+#### Exact sequence of events — what to expect at each moment
+
+| Timeline | Agent experience (CCP chat window) | Customer experience (chat widget) |
+|---|---|---|
+| T = 0s | — | Customer opens chat widget |
+| T = 2s | — | ARIA sends its opening message |
+| T = varies | — | Customer chats with ARIA normally |
+| T = escalation | — | ARIA sends: *"I'm transferring you to a specialist now."* |
+| T + 1s | — | `human_handoff.py` writes contact attributes |
+| T + 2s | — | Customer sees: "Connecting you to an advisor..." |
+| T + 3s | CCP notification appears — incoming chat | Customer sees connecting message |
+| T + 4s | Agent clicks **Accept** in CCP | Customer waiting |
+| T + 5s | **Agent whisper system message appears** in agent's chat pane (agent only) | Customer does NOT see the whisper — only the "Connecting to advisor" message |
+| T + 5s+ | Agent reads the `transcriptSummaryChat` text silently | Customer waiting for agent's first reply |
+| T + agent-ready | Agent types opening reply using whisper context | Customer receives agent's first message |
+
+> **Chat whisper is instant**: Unlike voice (which takes 15–25 seconds for TTS), the chat whisper
+> appears as text the moment the agent accepts. The agent can take as long as needed to read it before
+> typing their first message — the customer sees only "the agent is typing" or no indicator at all.
+
+#### Test procedure
+
+1. Open the chat widget or Connect Test Chat console
+2. Chat with ARIA briefly — for example: *"I need to dispute a transaction."*
+3. Trigger an escalation — type: *"I want to speak to a human agent"* or allow ARIA to escalate
+   automatically
+4. ARIA responds: *"I'm transferring you to a specialist now."*
+5. **On the agent CCP**: the chat notification appears → click **Accept**
+6. The agent's chat window should show a **system-style message** (visually distinct from customer
+   messages — typically grey, labelled differently, or with a SYSTEM prefix) at the top of the
+   conversation, containing the formatted summary from `transcriptSummaryChat`, for example:
+   ```
+   ARIA HANDOFF — STANDARD | Fraud / disputed transaction | Authenticated | Ref: HO-20250415-CUST001
+   The customer is enquiring about a disputed transaction of £42.50 at TechStore on March 15th.
+   They want to raise a formal dispute. Customer authenticated (high level). Risk score: 72.
+   Recommended action: Initiate chargeback process with customer.
+   ```
+7. The customer sees only the "connecting to advisor" message in their chat window — they do NOT see
+   the whisper system message
+8. Agent types an informed opening reply, e.g.:
+   *"Hello, I've been briefed by ARIA — I understand you're looking to dispute a £42.50 transaction
+   from TechStore on March 15th. I'm going to help you raise a formal dispute right now."*
+
+#### Post-test verification in Connect console
+
+1. Analytics → Contact search → find the chat contact
+2. Open the contact record → **Attributes** tab — confirm `transcriptSummaryChat` is populated
+3. **Flow logs** tab — confirm `ARIA Agent Whisper` executed and Block 3C fired without errors
+4. **Transcript** tab — the whisper system message should appear in the transcript as a distinct
+   system entry (sender labelled SYSTEM or similar), separate from the customer/agent message thread
+
+---
+
+### Part J — Troubleshooting Quick Reference
+
+| Symptom | Channel | Likely cause | Resolution |
+|---|---|---|---|
+| Agent hears no whisper and connects directly to customer with no briefing | Voice | Whisper flow not assigned to the queue | Step J.4: Routing → Queues → ARIA Banking Agents → Agent whisper flow → select `ARIA Agent Whisper` and save |
+| Agent sees no system message in chat pane when they accept a contact | Chat | Same as above — whisper not assigned to queue | Same as above |
+| Whisper plays the fallback message ("ARIA handoff. The customer has been escalated...") instead of the real summary | Both | `transcriptSummaryVoice`/`Chat` attribute not set — `UpdateContactAttributes` failed silently | Check `INSTANCE_ID` env var (Step J.1a); check AgentCore CloudWatch logs for `AccessDeniedException` or `KeyError` |
+| `AccessDeniedException` in AgentCore Lambda / ECS logs when calling `UpdateContactAttributes` | Both | IAM policy not attached to the AgentCore runtime role | Step J.2d: Attach `ARIAAgentCoreWriteContactAttributes` policy to the correct role; wait 30s and retry |
+| `ARIA Agent Whisper` does not appear in the queue's Agent whisper flow dropdown | Both | Flow was not published, or was created with the wrong flow type | Step J.3l: Open the flow in the editor, check the type reads **Agent whisper**, and click Publish |
+| Flow validation error on save: "No output connection on block X" | Both | An Error output from a block is not connected to anything | Step J.3j: Connect all Error outputs to the End flow block — every single output must be wired |
+| Check contact attributes block routes to its Error branch instead of Match or No match | Both | `Channel` attribute key was typed incorrectly (case-sensitive) | The key must be exactly `Channel` with a capital C — `channel` (all lowercase) will not match the System attribute |
+| Customer hears silence (not hold music) while waiting for the agent during the whisper | Voice | No Customer Queue flow assigned to the ARIA Banking Agents queue | Step J.6: Create `ARIA Customer Queue` flow and assign it to the queue |
+| Whisper TTS has unnatural pauses, garbled words, or mispronounces figures | Voice | `transcriptSummaryVoice` built with symbols (£, %, $) or abbreviations Polly handles poorly | Review `human_handoff.py` summary builder — replace £42.50 with "42 pounds 50 pence", % with "percent", & with "and" |
+| Whisper plays after the customer can already hear the agent (briefing arrives late or out of sequence) | Voice | Extremely rare — suggests flow was accidentally set as Customer whisper instead of Agent whisper | Verify in Routing → Flows that the flow type label reads **Agent whisper** (not Customer whisper) |
+| Flow contact attributes are populated but the dynamic Play prompt block plays silence or nothing | Voice | The voice selector was left on Standard TTS instead of Neural — Standard voices may mishandle long dynamic strings | Re-edit Block 3V in the whisper flow — set voice to **Amy, Neural (en-GB)** and re-publish |
+
+---
+
+> **Official reference links for Part J**:
+> - [Amazon Connect agent whisper flows](https://docs.aws.amazon.com/connect/latest/adminguide/agent-whisper-flows.html)
+> - [Set up call recordings using whisper flows](https://docs.aws.amazon.com/connect/latest/adminguide/set-up-recordings-in-the-console.html)
+> - [Set whisper flow block reference](https://docs.aws.amazon.com/connect/latest/adminguide/flow-block-set-whisper-flow.html)
+> - [Create a queue flow (customer queue flow)](https://docs.aws.amazon.com/connect/latest/adminguide/create-queue-flow.html)
+> - [UpdateContactAttributes API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_UpdateContactAttributes.html)
 
 ---
 

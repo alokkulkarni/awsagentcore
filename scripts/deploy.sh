@@ -1995,7 +1995,7 @@ for s in stores:
             [[ -z "$line" ]] && continue
             local this_arn this_name this_status
             this_arn="${line%%|*}"; rest="${line#*|}"; this_name="${rest%%|*}"; this_status="${rest##*|}"
-            (( eds_count++ ))
+            eds_count=$(( eds_count + 1 ))
 
             step "Store: ${this_name} [${this_status}] — ${this_arn}"
 
@@ -2027,7 +2027,7 @@ for s in stores:
                     --cli-read-timeout 20 \
                     --output text > /dev/null 2>/tmp/ctl_del_err; then
                 ok "    Deletion initiated (→ PENDING_DELETION)"
-                (( eds_initiated++ ))
+                eds_initiated=$(( eds_initiated + 1 ))
             else
                 del_err=$(cat /tmp/ctl_del_err 2>/dev/null || true)
                 warn "    Delete failed: ${del_err}"
