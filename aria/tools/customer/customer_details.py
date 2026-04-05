@@ -15,7 +15,7 @@ _CUSTOMER_REGISTRY: dict[str, dict] = {
         "last_name": "Hartley",
         "preferred_name": "James",
         "email_masked": "j***@email.com",
-        "mobile_last_four": "7741",
+        "mobile_last_four": "9252",   # matches test caller +447765309252
         "registered_address_masked": "14 Oak Street, Altrincham",
         "customer_since_year": 2015,
         "status": "active",

@@ -157,6 +157,27 @@ def _get_dynamodb() -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Phone number → customer ID mapping (test/dev only)
+# ---------------------------------------------------------------------------
+# Maps inbound PSTN numbers to stub customer IDs so the Lambda can inject
+# rich customer context when no customerId has been set in contact attributes
+# (e.g. unauthenticated callers during development testing).
+#
+# In production this lookup is replaced by a CRM API call using the caller's
+# verified phone number or IVR-collected account reference.
+#
+# Add your own test number here to get full customer context on test calls.
+# ---------------------------------------------------------------------------
+_PHONE_TO_CUSTOMER: dict[str, str] = {
+    "+447765309252": "CUST-001",   # Developer / admin test number → James Hartley
+    "+447700900001": "CUST-002",   # Test: Sarah Chen (financial difficulty)
+    "+447700900002": "CUST-003",   # Test: Margaret Okonkwo (bereavement)
+    "+447700900003": "CUST-004",   # Test: Daniel Walsh (mental health)
+    "+447700900004": "CUST-005",   # Test: Ethel Parsons (elderly)
+}
+
+
+# ---------------------------------------------------------------------------
 # Stub customer registry
 # ---------------------------------------------------------------------------
 # This replicates the data in aria/tools/customer/customer_details.py.
@@ -257,6 +278,49 @@ _STUB_CUSTOMERS: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 # CRM lookup
 # ---------------------------------------------------------------------------
+
+def _resolve_wisdom_session_id(instance_id: str, contact_id: str) -> str:
+    """
+    Resolve the Q Connect session ID for the given contact.
+
+    The Q Connect session is created by the CreateWisdomSession block in the
+    contact flow.  The session UUID (required by UpdateSessionData) is stored
+    in Contact.WisdomInfo.SessionArn and is DIFFERENT from the ContactId.
+
+    ARN format: arn:aws:wisdom:REGION:ACCOUNT:session/ASSISTANT_ID/SESSION_UUID
+
+    We call DescribeContact to retrieve the ARN and return the full ARN (the
+    Q Connect API accepts either the UUID or the full ARN as sessionId).
+
+    Falls back to contact_id if DescribeContact fails or returns no SessionArn.
+    The fallback almost always fails downstream — it is kept to preserve the
+    error log for diagnosability.
+
+    IAM: requires connect:DescribeContact on the instance resource.
+    """
+    if not instance_id or not contact_id:
+        return contact_id
+
+    try:
+        resp = _get_connect().describe_contact(
+            InstanceId=instance_id,
+            ContactId=contact_id,
+        )
+        session_arn: str = resp.get("Contact", {}).get("WisdomInfo", {}).get("SessionArn", "")
+        if session_arn:
+            logger.info(f"Resolved Q Connect session ARN: {session_arn}")
+            return session_arn  # Q Connect accepts the full ARN as sessionId
+        else:
+            logger.warning(
+                "WisdomInfo.SessionArn not found on contact. "
+                "Ensure CreateWisdomSession ran before this Lambda."
+            )
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.warning(f"DescribeContact failed [{code}]: {e} — falling back to contact_id")
+
+    return contact_id
+
 
 def _lookup_customer(customer_id: str) -> dict | None:
     """
@@ -582,8 +646,22 @@ def lambda_handler(event: dict, context: Any) -> dict:
     auth_status: str = flow_attributes.get("authStatus", "unauthenticated")
     locale: str = flow_attributes.get("locale", "en-GB")
 
-    # Session ID is the ContactId — this is the session created by the Connect assistant block
-    session_id: str = contact_id
+    # If no customerId in attributes, try to identify the caller by phone number.
+    # This covers unauthenticated test calls where IVR has not yet set customerId.
+    caller_phone: str = contact_data.get("CustomerEndpoint", {}).get("Address", "")
+    if not customer_id and caller_phone:
+        resolved = _PHONE_TO_CUSTOMER.get(caller_phone, "")
+        if resolved:
+            customer_id = resolved
+            auth_status = "authenticated"   # phone-based lookup counts as light auth
+            logger.info(f"Resolved customerId={customer_id!r} from phone={caller_phone!r}")
+        else:
+            logger.info(f"Caller phone {caller_phone!r} has no mapped customerId — unauthenticated session")
+
+    # Resolve the Q Connect session ID via DescribeContact.
+    # CreateWisdomSession generates a separate UUID; it is NOT the ContactId.
+    # WisdomInfo.SessionArn on the Contact object gives us the correct ARN.
+    session_id: str = _resolve_wisdom_session_id(instance_id, contact_id)
 
     if not session_id:
         logger.error("ContactId is missing from event. Cannot inject session data.")
@@ -642,7 +720,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
             session_vars["vulnerabilityContext"] = ""
             session_vars["priorSummary"] = ""
     else:
-        logger.info("No customerId in contact attributes — injecting base session variables only.")
+        logger.info(f"No customerId resolved — injecting base session variables only (phone={caller_phone!r})")
 
     # ----------------------------------------------------------------
     # 3b. Cross-channel transfer context (voice→chat or chat→voice)
