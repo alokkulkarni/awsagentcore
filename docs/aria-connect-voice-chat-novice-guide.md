@@ -1546,23 +1546,24 @@ tools:
         - target_channel
 
 messages:
-  - role: user
-    content: "{{$.conversationHistory}}"
+  - "{{$.conversationHistory}}"
   - role: assistant
     content: "<message>"
 ```
 
 > **What is the `messages` section at the end?**
 >
-> - **`role: user / content: "{{$.conversationHistory}}"`** — This injects the full multi-turn
->   conversation history as the current user message. Connect expands `{{$.conversationHistory}}`
->   at runtime before calling the model. The `MESSAGES` schema requires every list item to have
->   both a `role` field (`user` or `assistant`) and a `content` field — a bare string like
->   `- "{{$.conversationHistory}}"` will fail Connect's YAML schema validation.
+> - **`- "{{$.conversationHistory}}"`** — This is Connect's special array-expansion placeholder.
+>   It **must** appear as a bare quoted string — NOT wrapped in `role`/`content`. Connect expands
+>   it at runtime into the full multi-turn conversation history (all user + assistant turns) before
+>   calling the model. Wrapping it in `role: user / content:` will cause the error
+>   _"Messages array can only contain '{{$.conversationHistory}}' optionally followed by a single
+>   assistant prefill message"_.
 > - **`role: assistant / content: "<message>"`** — This is an **assistant prefill**. It forces the
 >   model to begin every response with the `<message>` tag. Without it, the model may occasionally
->   start with `<thinking>` or free text. The angle brackets must be quoted to satisfy Connect's
->   schema validation.
+>   start with `<thinking>` or free text. The angle brackets must be quoted (`"<message>"`) to
+>   satisfy Connect's YAML schema validation — the original unquoted `content: <message>` causes
+>   the error _"Prompt is not in expected YAML format"_.
 
 5. Click **Save** → then click **Publish**
 6. Note the **Prompt ID** and the **Version number** (e.g. `v1`)
