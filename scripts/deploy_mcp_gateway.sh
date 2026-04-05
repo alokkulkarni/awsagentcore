@@ -791,32 +791,44 @@ create_dynamodb_table() {
       --table-name "${TRANSCRIPT_TABLE}" \
       --region "${AWS_REGION}" >/dev/null 2>&1; then
     ok "DynamoDB table already exists — skipping: ${TRANSCRIPT_TABLE}"
-    return 0
+  else
+    aws dynamodb create-table \
+      --region "${AWS_REGION}" \
+      --table-name "${TRANSCRIPT_TABLE}" \
+      --attribute-definitions AttributeName=contactId,AttributeType=S \
+      --key-schema AttributeName=contactId,KeyType=HASH \
+      --billing-mode PAY_PER_REQUEST \
+      --tags Key=Project,Value="${PROJECT}" Key=Environment,Value="${ENV}" \
+      >/dev/null
+
+    # Wait for the table to reach ACTIVE status before enabling TTL
+    log "Waiting for DynamoDB table to become ACTIVE..."
+    aws dynamodb wait table-active \
+      --table-name "${TRANSCRIPT_TABLE}" \
+      --region "${AWS_REGION}"
+
+    ok "DynamoDB table created: ${TRANSCRIPT_TABLE}"
   fi
 
-  aws dynamodb create-table \
+  # Always check and enable TTL — idempotent whether table is new or pre-existing
+  local ttl_status
+  ttl_status=$(aws dynamodb describe-time-to-live \
+    --table-name "${TRANSCRIPT_TABLE}" \
     --region "${AWS_REGION}" \
-    --table-name "${TRANSCRIPT_TABLE}" \
-    --attribute-definitions AttributeName=contactId,AttributeType=S \
-    --key-schema AttributeName=contactId,KeyType=HASH \
-    --billing-mode PAY_PER_REQUEST \
-    --tags Key=Project,Value="${PROJECT}" Key=Environment,Value="${ENV}" \
-    >/dev/null
+    --query 'TimeToLiveDescription.TimeToLiveStatus' \
+    --output text 2>/dev/null || echo "DISABLED")
 
-  # Wait for the table to become ACTIVE before enabling TTL
-  log "Waiting for DynamoDB table to become ACTIVE..."
-  aws dynamodb wait table-exists \
-    --table-name "${TRANSCRIPT_TABLE}" \
-    --region "${AWS_REGION}"
-
-  # Enable TTL so expired transcript records are deleted automatically
-  aws dynamodb update-time-to-live \
-    --region "${AWS_REGION}" \
-    --table-name "${TRANSCRIPT_TABLE}" \
-    --time-to-live-specification "Enabled=true,AttributeName=ttl" \
-    >/dev/null
-
-  ok "DynamoDB table created with TTL: ${TRANSCRIPT_TABLE}"
+  if [[ "${ttl_status}" == "ENABLED" || "${ttl_status}" == "ENABLING" ]]; then
+    ok "DynamoDB TTL already enabled (status: ${ttl_status}): ${TRANSCRIPT_TABLE}"
+  else
+    log "Enabling TTL on DynamoDB table (attribute: ttl)..."
+    aws dynamodb update-time-to-live \
+      --region "${AWS_REGION}" \
+      --table-name "${TRANSCRIPT_TABLE}" \
+      --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+      >/dev/null
+    ok "DynamoDB TTL enabled: ${TRANSCRIPT_TABLE}"
+  fi
 }
 
 # ---------------------------------------------------------------------------

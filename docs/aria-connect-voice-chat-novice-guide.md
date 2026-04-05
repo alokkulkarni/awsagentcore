@@ -463,11 +463,18 @@ aws lambda get-function \
   --query 'Configuration.{Name:FunctionName,State:State}' \
   --output table
 
-# 2. Verify the DynamoDB table
+# 2. Verify the DynamoDB table status and TTL
 aws dynamodb describe-table \
   --table-name aria-transcript-store \
   --region eu-west-2 \
-  --query 'Table.{Status:TableStatus,TTL:TimeToLiveDescription.TimeToLiveStatus}' \
+  --query 'Table.TableStatus' \
+  --output text
+
+# TTL must be checked with describe-time-to-live (describe-table does NOT return TTL status)
+aws dynamodb describe-time-to-live \
+  --table-name aria-transcript-store \
+  --region eu-west-2 \
+  --query 'TimeToLiveDescription.{Status:TimeToLiveStatus,Attribute:AttributeName}' \
   --output table
 
 # 3. Verify all 10 MCP domain Lambdas
@@ -496,7 +503,7 @@ EOF
 
 **Expected outputs:**
 - All Lambdas: `State: Active`
-- DynamoDB: `Status: ACTIVE`, `TTL: ENABLED`
+- DynamoDB table: `ACTIVE`; TTL: `Status: ENABLED`, `Attribute: ttl`
 - All 10 domains: `OK: auth`, `OK: account`, etc.
 - Gateway URL is printed and available to copy
 
@@ -2796,24 +2803,36 @@ blank slate and the customer must repeat themselves.
 #### Verify the table was created (run this now)
 
 ```bash
+# Check table status
 aws dynamodb describe-table \
   --region eu-west-2 \
   --table-name aria-transcript-store \
-  --query "Table.{Status:TableStatus,TTL:TimeToLiveDescription}" \
-  --output json
+  --query "Table.TableStatus" \
+  --output text
+
+# Check TTL — describe-table does NOT return TTL; use describe-time-to-live
+aws dynamodb describe-time-to-live \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --query 'TimeToLiveDescription.{Status:TimeToLiveStatus,Attribute:AttributeName}' \
+  --output table
 ```
 
 Expected output:
 
-```json
-{
-  "Status": "ACTIVE",
-  "TTL": {
-    "TimeToLiveStatus": "ENABLED",
-    "AttributeName": "ttl"
-  }
-}
 ```
+ACTIVE
+
+---------------------------------------
+|       DescribeTimeToLive            |
++------------+------------------------+
+|  Attribute |  Status                |
++------------+------------------------+
+|  ttl       |  ENABLED               |
++------------+------------------------+
+```
+
+> **Note**: `describe-table` does not include TTL information — always use `describe-time-to-live` to check TTL status. If the table was just created, TTL status may briefly show as `ENABLING` before transitioning to `ENABLED`. Both `ENABLING` and `ENABLED` mean TTL is correctly configured.
 
 If this returns an error like `ResourceNotFoundException`, go back to **Phase 0** and run the deploy
 script. Do **not** proceed until the table exists.
