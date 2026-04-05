@@ -2,31 +2,64 @@
 # =============================================================================
 # deploy_mcp_gateway.sh
 # =============================================================================
-# Deploys ARIA banking tools to AWS AgentCore MCP Gateway by domain.
+# Deploys ALL ARIA backend infrastructure: the AgentCore MCP Gateway (10 domain
+# Lambdas) plus the three support Lambdas required by the Connect contact flow.
 #
-# Each domain becomes one Lambda function and one MCP Gateway target.
-# The final output is a single MCP endpoint URL that a Connect AI Agent
-# (or any MCP-capable client) can call to access all ARIA tools.
+# What this script deploys
+# ────────────────────────
+# MCP Gateway tier (10 functions + 1 gateway):
+#   aria-banking-mcp-{domain}-{env}   — one per banking domain (10 total)
+#   aria-banking-mcp-gateway-{env}    — AgentCore MCP Gateway + 10 targets
+#
+# Support Lambda tier (3 functions):
+#   aria-banking-session-injector-{env}       — injects customer context into
+#                                               Q Connect sessions (Block 9)
+#   aria-banking-voice-to-chat-transfer-{env} — handles voice→chat SMS deflection
+#                                               (Part I of novice guide)
+#   aria-banking-chat-to-voice-transfer-{env} — handles chat→voice callback
+#                                               (Part I of novice guide)
+#
+# Supporting infrastructure:
+#   aria-transcript-store    — DynamoDB table for cross-channel transcript storage
+#   aria-banking-support-lambda-role-{env}    — IAM role for all 3 support Lambdas
 #
 # Usage:
 #   chmod +x scripts/deploy_mcp_gateway.sh
-#   ./scripts/deploy_mcp_gateway.sh [--env prod|dev] [--region eu-west-2]
+#   ./scripts/deploy_mcp_gateway.sh deploy \
+#       --env dev --region eu-west-2 \
+#       --instance-id  <connect-instance-id> \
+#       --assistant-id <q-connect-assistant-id> \
+#       --chat-widget-url https://yourbank.example.com/chat \
+#       --sms-number  +441234567890 \
+#       --source-phone +441234567890 \
+#       --queue-id    <queue-arn-or-id> \
+#       --flow-id     <unified-inbound-flow-id>
+#
+# All --instance-id / --assistant-id / etc. args can also be provided as the
+# environment variables CONNECT_INSTANCE_ID, CONNECT_ASSISTANT_ID,
+# CHAT_WIDGET_URL, SMS_ORIGINATION_NUMBER, SOURCE_PHONE_NUMBER,
+# CONNECT_QUEUE_ID, CONNECT_CONTACT_FLOW_ID.
 #
 # Prerequisites:
 #   - AWS CLI configured with sufficient permissions
 #   - Python 3.12 available
 #   - pip available
 #   - jq available (brew install jq / apt-get install jq)
+#   - zip available
 #   - The awsagentcore project is your current working directory
 #
-# What this script does:
-#   1. Creates an IAM role for the Lambda functions
-#   2. Packages each ARIA tool domain as a Lambda function
-#   3. Deploys all Lambda functions to AWS
-#   4. Creates an AgentCore IAM role for the MCP Gateway
-#   5. Creates the AgentCore MCP Gateway (IAM auth)
-#   6. Adds one MCP target per domain pointing to the Lambda
-#   7. Outputs the final MCP endpoint URL
+# What this script does (in order):
+#   1.  Creates IAM role for MCP domain Lambda functions
+#   2.  Creates DynamoDB table aria-transcript-store (TTL enabled)
+#   3.  Creates IAM role for support Lambda functions
+#   4.  Deploys session_injector Lambda + Connect resource-based policy
+#   5.  Deploys voice_to_chat_transfer Lambda + Connect resource-based policy
+#   6.  Deploys chat_to_voice_transfer Lambda + Connect resource-based policy
+#   7.  Packages and deploys 10 domain MCP Lambda functions
+#   8.  Creates AgentCore MCP Gateway IAM role
+#   9.  Creates the AgentCore MCP Gateway
+#   10. Adds one MCP target per domain
+#   11. Outputs the final MCP endpoint URL and all Lambda ARNs
 # =============================================================================
 
 set -euo pipefail
@@ -44,6 +77,38 @@ GATEWAY_ROLE_NAME="${PROJECT}-mcp-gateway-role-${ENV}"
 
 # ARIA AgentCore runtime ARN (already deployed — tools forward to this)
 AGENTCORE_RUNTIME_ARN="arn:aws:bedrock-agentcore:${AWS_REGION}:${AWS_ACCOUNT_ID}:runtime/aria_banking_agent-xedQS9HNJe"
+
+# ---------------------------------------------------------------------------
+# Support Lambda configuration — override via CLI args or env vars
+# ---------------------------------------------------------------------------
+# Amazon Connect instance ID  (UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+CONNECT_INSTANCE_ID="${CONNECT_INSTANCE_ID:-}"
+# Q Connect assistant ID (Connect → AI Agent Designer → Assistants)
+CONNECT_ASSISTANT_ID="${CONNECT_ASSISTANT_ID:-}"
+# ID of the ARIA Unified Inbound contact flow (needed by transfer Lambdas)
+CONNECT_CONTACT_FLOW_ID="${CONNECT_CONTACT_FLOW_ID:-}"
+# ARN or ID of the Connect queue for outbound voice callbacks
+CONNECT_QUEUE_ID="${CONNECT_QUEUE_ID:-}"
+# Base URL for the chat widget (e.g. https://yourbank.example.com/chat)
+CHAT_WIDGET_URL="${CHAT_WIDGET_URL:-}"
+# SMS-capable phone number in E.164 format for voice→chat notifications
+SMS_ORIGINATION_NUMBER="${SMS_ORIGINATION_NUMBER:-}"
+# Connect phone number in E.164 format for chat→voice outbound calls
+SOURCE_PHONE_NUMBER="${SOURCE_PHONE_NUMBER:-}"
+# CRM API endpoint (leave empty to use stub data)
+CRM_API_ENDPOINT="${CRM_API_ENDPOINT:-}"
+# DynamoDB table name for cross-channel transcript storage
+TRANSCRIPT_TABLE="aria-transcript-store"
+
+# Support Lambda resource names (derived — do not edit directly)
+SUPPORT_LAMBDA_ROLE_NAME="${PROJECT}-support-lambda-role-${ENV}"
+SUPPORT_LAMBDA_ROLE_ARN=""   # populated by create_support_lambda_role
+SESSION_INJECTOR_NAME="${PROJECT}-session-injector-${ENV}"
+SESSION_INJECTOR_ARN=""      # populated by deploy_session_injector
+VOICE_TO_CHAT_LAMBDA_NAME="${PROJECT}-voice-to-chat-transfer-${ENV}"
+VOICE_TO_CHAT_ARN=""         # populated by deploy_transfer_lambdas
+CHAT_TO_VOICE_LAMBDA_NAME="${PROJECT}-chat-to-voice-transfer-${ENV}"
+CHAT_TO_VOICE_ARN=""         # populated by deploy_transfer_lambdas
 
 # Colours for output
 RED='\033[0;31m'
@@ -710,7 +775,358 @@ deploy_lambda() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 — Create the AgentCore MCP Gateway IAM Role
+# Step 4 — Create DynamoDB table for cross-channel transcript storage
+# ---------------------------------------------------------------------------
+create_dynamodb_table() {
+  log "Creating DynamoDB table: ${TRANSCRIPT_TABLE}..."
+
+  if aws dynamodb describe-table \
+      --table-name "${TRANSCRIPT_TABLE}" \
+      --region "${AWS_REGION}" >/dev/null 2>&1; then
+    ok "DynamoDB table already exists — skipping: ${TRANSCRIPT_TABLE}"
+    return 0
+  fi
+
+  aws dynamodb create-table \
+    --region "${AWS_REGION}" \
+    --table-name "${TRANSCRIPT_TABLE}" \
+    --attribute-definitions AttributeName=contactId,AttributeType=S \
+    --key-schema AttributeName=contactId,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --tags Key=Project,Value="${PROJECT}" Key=Environment,Value="${ENV}" \
+    >/dev/null
+
+  # Wait for the table to become ACTIVE before enabling TTL
+  log "Waiting for DynamoDB table to become ACTIVE..."
+  aws dynamodb wait table-exists \
+    --table-name "${TRANSCRIPT_TABLE}" \
+    --region "${AWS_REGION}"
+
+  # Enable TTL so expired transcript records are deleted automatically
+  aws dynamodb update-time-to-live \
+    --region "${AWS_REGION}" \
+    --table-name "${TRANSCRIPT_TABLE}" \
+    --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+    >/dev/null
+
+  ok "DynamoDB table created with TTL: ${TRANSCRIPT_TABLE}"
+}
+
+# ---------------------------------------------------------------------------
+# Step 5 — Create shared IAM role for all support Lambda functions
+#
+# One role is shared by: session_injector, voice_to_chat_transfer,
+# chat_to_voice_transfer.  It grants the union of all their permissions.
+# ---------------------------------------------------------------------------
+create_support_lambda_role() {
+  log "Creating Support Lambda IAM role: ${SUPPORT_LAMBDA_ROLE_NAME}..."
+
+  if aws iam get-role --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" >/dev/null 2>&1; then
+    ok "Support Lambda role already exists — skipping"
+    SUPPORT_LAMBDA_ROLE_ARN=$(aws iam get-role \
+      --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+      --query 'Role.Arn' --output text)
+    return 0
+  fi
+
+  local TRUST_POLICY
+  TRUST_POLICY=$(cat <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "lambda.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
+)
+
+  aws iam create-role \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --assume-role-policy-document "${TRUST_POLICY}" \
+    --description "IAM role for ARIA support Lambdas (session injector + channel transfers)" \
+    >/dev/null
+
+  aws iam attach-role-policy \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  local INLINE_POLICY
+  INLINE_POLICY=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConnectReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "connect:DescribeContact",
+        "connect:GetContactAttributes",
+        "connect:UpdateContactAttributes",
+        "connect:StartChatContact",
+        "connect:StartOutboundVoiceContact",
+        "connect:ListRealtimeContactAnalysisSegmentsV2"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ContactLens",
+      "Effect": "Allow",
+      "Action": [
+        "connect-contact-lens:ListRealtimeContactAnalysisSegments"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "QConnect",
+      "Effect": "Allow",
+      "Action": [
+        "qconnect:UpdateSessionData",
+        "wisdom:UpdateSessionData"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDB",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${TRANSCRIPT_TABLE}"
+    },
+    {
+      "Sid": "SMSVoice",
+      "Effect": "Allow",
+      "Action": [
+        "sms-voice:SendTextMessage"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+)
+
+  aws iam put-role-policy \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --policy-name "aria-support-lambda-policy" \
+    --policy-document "${INLINE_POLICY}"
+
+  SUPPORT_LAMBDA_ROLE_ARN=$(aws iam get-role \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --query 'Role.Arn' --output text)
+
+  log "Waiting 15 seconds for Support Lambda IAM role to propagate..."
+  sleep 15
+
+  ok "Support Lambda role created: ${SUPPORT_LAMBDA_ROLE_ARN}"
+}
+
+# ---------------------------------------------------------------------------
+# Step 6 — Package and deploy a support Lambda from a source .py file
+#
+# Unlike the MCP domain Lambdas (which have a generated handler), support
+# Lambdas are deployed directly from their source file, renamed to
+# lambda_function.py, with handler = lambda_function.lambda_handler.
+#
+# Arguments:
+#   $1 — fully-qualified function name
+#   $2 — path to the source .py file
+#   $3 — human-readable description
+#   $4 — JSON string for --environment Variables={...}
+#   $5 — (optional) timeout in seconds (default: 60)
+# Prints the deployed Lambda ARN to stdout.
+# ---------------------------------------------------------------------------
+deploy_support_lambda() {
+  local function_name="$1"
+  local source_file="$2"
+  local description="$3"
+  local env_vars="$4"
+  local timeout="${5:-60}"
+
+  log "Deploying support Lambda: ${function_name}..."
+
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  local zipfile="${tmpdir}/${function_name}.zip"
+
+  cp "${source_file}" "${tmpdir}/lambda_function.py"
+  (cd "${tmpdir}" && zip -q "${zipfile}" lambda_function.py)
+
+  if aws lambda get-function \
+      --function-name "${function_name}" \
+      --region "${AWS_REGION}" >/dev/null 2>&1; then
+    # Update code
+    aws lambda update-function-code \
+      --function-name "${function_name}" \
+      --zip-file "fileb://${zipfile}" \
+      --region "${AWS_REGION}" >/dev/null
+    # Update env vars in case config changed
+    aws lambda update-function-configuration \
+      --function-name "${function_name}" \
+      --environment "${env_vars}" \
+      --region "${AWS_REGION}" >/dev/null
+    ok "Lambda updated: ${function_name}"
+  else
+    aws lambda create-function \
+      --function-name "${function_name}" \
+      --runtime python3.12 \
+      --role "${SUPPORT_LAMBDA_ROLE_ARN}" \
+      --handler lambda_function.lambda_handler \
+      --zip-file "fileb://${zipfile}" \
+      --timeout "${timeout}" \
+      --memory-size 256 \
+      --description "${description}" \
+      --region "${AWS_REGION}" \
+      --environment "${env_vars}" \
+      --tags "Project=${PROJECT},Environment=${ENV}" \
+      >/dev/null
+    ok "Lambda created: ${function_name}"
+  fi
+
+  rm -rf "${tmpdir}"
+
+  aws lambda get-function \
+    --function-name "${function_name}" \
+    --region "${AWS_REGION}" \
+    --query 'Configuration.FunctionArn' --output text
+}
+
+# ---------------------------------------------------------------------------
+# Step 6a — Add a Connect resource-based policy to a Lambda function
+#
+# Amazon Connect requires lambda:InvokeFunction from connect.amazonaws.com
+# before it can call a Lambda from a contact flow.  This is in addition to
+# the Lambda execution role permissions granted above.
+# ---------------------------------------------------------------------------
+add_connect_resource_policy() {
+  local function_name="$1"
+  local statement_id="${function_name}-connect-invoke"
+
+  log "Adding Connect resource-based policy to: ${function_name}..."
+
+  # Remove an existing statement first so the call is idempotent
+  aws lambda remove-permission \
+    --function-name "${function_name}" \
+    --statement-id "${statement_id}" \
+    --region "${AWS_REGION}" >/dev/null 2>&1 || true
+
+  aws lambda add-permission \
+    --function-name "${function_name}" \
+    --statement-id "${statement_id}" \
+    --action lambda:InvokeFunction \
+    --principal connect.amazonaws.com \
+    --source-account "${AWS_ACCOUNT_ID}" \
+    --region "${AWS_REGION}" >/dev/null
+
+  ok "Connect resource policy added: ${function_name}"
+}
+
+# ---------------------------------------------------------------------------
+# Step 6b — Deploy the session_injector Lambda
+#
+# Injects customer context (name, products, auth status, prior summary) into
+# Q Connect sessions.  Runs immediately after Block 8 (Connect assistant) in
+# the Unified Inbound contact flow (Block 9).
+# ---------------------------------------------------------------------------
+deploy_session_injector() {
+  local source_file="scripts/lambdas/session_injector.py"
+  [[ -f "${source_file}" ]] || die "Session injector source not found: ${source_file}"
+
+  if [[ -z "${CONNECT_ASSISTANT_ID}" ]]; then
+    warn "CONNECT_ASSISTANT_ID is not set. The session injector will deploy but ARIA cannot"
+    warn "personalise sessions until ASSISTANT_ID is configured in its environment variables."
+    warn "Re-run with --assistant-id <id> after noting the Q Connect assistant ID from Part D.1"
+    warn "of the novice guide."
+  fi
+
+  local env_vars
+  env_vars=$(cat <<EOF
+{"Variables":{"ASSISTANT_ID":"${CONNECT_ASSISTANT_ID}","AWS_REGION":"${AWS_REGION}","CRM_API_ENDPOINT":"${CRM_API_ENDPOINT}","TRANSCRIPT_TABLE_NAME":"${TRANSCRIPT_TABLE}","INSTANCE_ID":"${CONNECT_INSTANCE_ID}"}}
+EOF
+)
+
+  SESSION_INJECTOR_ARN=$(deploy_support_lambda \
+    "${SESSION_INJECTOR_NAME}" \
+    "${source_file}" \
+    "ARIA session injector — injects customer context into Q Connect sessions" \
+    "${env_vars}" \
+    60)
+
+  add_connect_resource_policy "${SESSION_INJECTOR_NAME}"
+  ok "Session injector deployed: ${SESSION_INJECTOR_ARN}"
+}
+
+# ---------------------------------------------------------------------------
+# Step 6c — Deploy voice_to_chat_transfer and chat_to_voice_transfer Lambdas
+#
+# voice_to_chat_transfer: called when ARIA sets requestChatTransfer=true.
+#   Retrieves the Contact Lens voice transcript, starts a new chat contact,
+#   and sends the customer an SMS with a deep-link to the chat widget.
+#
+# chat_to_voice_transfer: called when ARIA sets requestVoiceTransfer=true.
+#   Retrieves the chat transcript via Contact Lens V2 API, then initiates an
+#   outbound voice callback via StartOutboundVoiceContact.
+# ---------------------------------------------------------------------------
+deploy_transfer_lambdas() {
+  # ── voice_to_chat_transfer ───────────────────────────────────────────────
+  local v2c_source="scripts/lambdas/voice_to_chat_transfer.py"
+  [[ -f "${v2c_source}" ]] || die "voice_to_chat_transfer source not found: ${v2c_source}"
+
+  [[ -z "${CONNECT_INSTANCE_ID}" ]] \
+    && warn "CONNECT_INSTANCE_ID not set — transfer Lambdas will deploy but will fail at runtime."
+  [[ -z "${SMS_ORIGINATION_NUMBER}" ]] \
+    && warn "SMS_ORIGINATION_NUMBER not set — voice→chat SMS deflection will not send messages."
+  [[ -z "${CHAT_WIDGET_URL}" ]] \
+    && warn "CHAT_WIDGET_URL not set — the SMS deep-link will be empty."
+
+  local v2c_env
+  v2c_env=$(cat <<EOF
+{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","CHAT_WIDGET_URL":"${CHAT_WIDGET_URL}","SMS_ORIGINATION_NUMBER":"${SMS_ORIGINATION_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}","AWS_REGION":"${AWS_REGION}"}}
+EOF
+)
+
+  VOICE_TO_CHAT_ARN=$(deploy_support_lambda \
+    "${VOICE_TO_CHAT_LAMBDA_NAME}" \
+    "${v2c_source}" \
+    "ARIA voice→chat transfer — creates chat contact and sends SMS deep-link" \
+    "${v2c_env}" \
+    60)
+
+  add_connect_resource_policy "${VOICE_TO_CHAT_LAMBDA_NAME}"
+  ok "voice_to_chat_transfer deployed: ${VOICE_TO_CHAT_ARN}"
+
+  # ── chat_to_voice_transfer ───────────────────────────────────────────────
+  local c2v_source="scripts/lambdas/chat_to_voice_transfer.py"
+  [[ -f "${c2v_source}" ]] || die "chat_to_voice_transfer source not found: ${c2v_source}"
+
+  [[ -z "${SOURCE_PHONE_NUMBER}" ]] \
+    && warn "SOURCE_PHONE_NUMBER not set — chat→voice callbacks will not dial out."
+  [[ -z "${CONNECT_QUEUE_ID}" ]] \
+    && warn "CONNECT_QUEUE_ID not set — chat→voice callbacks will not be queued correctly."
+
+  local c2v_env
+  c2v_env=$(cat <<EOF
+{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","QUEUE_ID":"${CONNECT_QUEUE_ID}","SOURCE_PHONE_NUMBER":"${SOURCE_PHONE_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}","AWS_REGION":"${AWS_REGION}"}}
+EOF
+)
+
+  CHAT_TO_VOICE_ARN=$(deploy_support_lambda \
+    "${CHAT_TO_VOICE_LAMBDA_NAME}" \
+    "${c2v_source}" \
+    "ARIA chat→voice transfer — retrieves chat transcript and initiates outbound callback" \
+    "${c2v_env}" \
+    60)
+
+  add_connect_resource_policy "${CHAT_TO_VOICE_LAMBDA_NAME}"
+  ok "chat_to_voice_transfer deployed: ${CHAT_TO_VOICE_ARN}"
+}
+
+# ---------------------------------------------------------------------------
+# Step 7 — Create the AgentCore MCP Gateway IAM Role
 # ---------------------------------------------------------------------------
 create_gateway_role() {
   log "Creating AgentCore MCP Gateway IAM role: ${GATEWAY_ROLE_NAME}..."
@@ -975,18 +1391,28 @@ PYEOF
 # ---------------------------------------------------------------------------
 cmd_deploy() {
   echo ""
-  echo -e "${BLUE}======================================================${NC}"
-  echo -e "${BLUE}  ARIA AgentCore MCP Gateway Deployment${NC}"
+  echo -e "${BLUE}=====================================================================${NC}"
+  echo -e "${BLUE}  ARIA AgentCore — Full Infrastructure Deployment${NC}"
   echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
-  echo -e "${BLUE}======================================================${NC}"
+  echo -e "${BLUE}=====================================================================${NC}"
   echo ""
 
   check_prereqs
 
-  # Step 1 — Lambda IAM role
+  # Step 1 — DynamoDB table (no dependencies)
+  create_dynamodb_table
+
+  # Step 2 — Support Lambda IAM role (session injector + transfer Lambdas share this)
+  create_support_lambda_role
+
+  # Step 3 — Deploy support Lambdas (requires SUPPORT_LAMBDA_ROLE_ARN from step 2)
+  deploy_session_injector
+  deploy_transfer_lambdas
+
+  # Step 4 — MCP domain Lambda IAM role
   create_lambda_role
 
-  # Step 2+3 — Build and deploy each domain Lambda
+  # Step 5 — Build and deploy each domain Lambda
   declare -A LAMBDA_ARNS
   local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
 
@@ -997,28 +1423,36 @@ cmd_deploy() {
     rm -f "${zip_path}"
   done
 
-  ok "All ${#DOMAINS[@]} Lambda functions deployed"
+  ok "All ${#DOMAINS[@]} MCP domain Lambda functions deployed"
 
-  # Step 4 — Gateway IAM role
+  # Step 6 — Gateway IAM role
   create_gateway_role
 
-  # Step 5 — Create gateway
+  # Step 7 — Create gateway
   create_mcp_gateway
 
-  # Step 6 — Add targets
+  # Step 8 — Add targets
   for domain in "${DOMAINS[@]}"; do
     add_gateway_target "${domain}" "${LAMBDA_ARNS[${domain}]}"
   done
 
   echo ""
-  echo -e "${GREEN}======================================================${NC}"
+  echo -e "${GREEN}=====================================================================${NC}"
   echo -e "${GREEN}  Deployment Complete!${NC}"
-  echo -e "${GREEN}======================================================${NC}"
+  echo -e "${GREEN}=====================================================================${NC}"
   echo ""
   echo -e "  Gateway ID:   ${YELLOW}${GATEWAY_ID}${NC}"
-  echo -e "  Gateway URL:  ${YELLOW}${GATEWAY_URL:-<check console — may take a moment to provision>}${NC}"
+  echo -e "  Gateway URL:  ${YELLOW}${GATEWAY_URL:-<check console — may take a moment>}${NC}"
   echo ""
-  echo "  Lambda functions deployed:"
+  echo "  Support Lambdas:"
+  echo -e "    ${GREEN}✓${NC}  ${SESSION_INJECTOR_NAME}"
+  echo -e "       ARN: ${SESSION_INJECTOR_ARN}"
+  echo -e "    ${GREEN}✓${NC}  ${VOICE_TO_CHAT_LAMBDA_NAME}"
+  echo -e "       ARN: ${VOICE_TO_CHAT_ARN}"
+  echo -e "    ${GREEN}✓${NC}  ${CHAT_TO_VOICE_LAMBDA_NAME}"
+  echo -e "       ARN: ${CHAT_TO_VOICE_ARN}"
+  echo ""
+  echo "  MCP domain Lambdas:"
   for domain in "${DOMAINS[@]}"; do
     echo -e "    ${GREEN}✓${NC}  ${PROJECT}-mcp-${domain}-${ENV}"
   done
@@ -1029,13 +1463,23 @@ cmd_deploy() {
   done
   echo ""
   echo -e "${BLUE}Next steps:${NC}"
-  echo "  1. Copy the Gateway URL above."
-  echo "  2. In the Connect AI Agent builder, add the MCP Gateway URL"
-  echo "     to the Orchestration AI Agent's tool configuration."
-  echo "  3. Test by sending 'Hello Aria' in the Connect test chat widget."
-  echo "  4. Check CloudWatch Logs for each aria-mcp-<domain> Lambda"
-  echo "     to verify tool invocations are being received."
+  echo "  1. In Connect, add all 4 Lambdas to the instance allow-list:"
+  echo "     Connect console → Instance settings → Flows → Lambda functions → Add"
+  echo "     Add: ${SESSION_INJECTOR_NAME}"
+  echo "     Add: ${VOICE_TO_CHAT_LAMBDA_NAME}"
+  echo "     Add: ${CHAT_TO_VOICE_LAMBDA_NAME}"
+  echo "  2. Copy the Gateway URL above and paste it into the ARIA AI Agent's"
+  echo "     MCP tool configuration in the Connect AI Agent Builder."
+  echo "  3. In Block 9 of the Unified Inbound flow, select: ${SESSION_INJECTOR_NAME}"
+  echo "  4. Update Blocks 9A/9B in the flow to invoke the transfer Lambdas."
+  echo "  5. Test by sending 'Hello Aria' in the Connect test chat widget."
+  echo "  6. Check CloudWatch Logs for each Lambda to verify invocations."
   echo ""
+  if [[ -z "${CONNECT_ASSISTANT_ID}" ]]; then
+    echo -e "  ${YELLOW}⚠  CONNECT_ASSISTANT_ID was not set. Run again with --assistant-id${NC}"
+    echo "     after noting the Q Connect assistant ID from Connect → AI Agent Designer."
+    echo ""
+  fi
   echo "  To retrieve the gateway URL later:"
   echo -e "    ${YELLOW}aws bedrock-agentcore-control get-gateway \\"
   echo -e "      --gateway-id ${GATEWAY_ID} \\"
@@ -1071,11 +1515,16 @@ cmd_teardown() {
     || die "AWS credentials not configured."
 
   echo -e "${RED}  The following resources will be permanently deleted:${NC}"
-  echo "    • MCP Gateway:      ${GATEWAY_NAME}"
-  echo "    • MCP targets:      ${PROJECT}-{domain}  (${#DOMAINS[@]} targets)"
-  echo "    • Lambda functions: ${PROJECT}-mcp-{domain}-${ENV}  (${#DOMAINS[@]} functions)"
-  echo "    • IAM roles:        ${LAMBDA_ROLE_NAME}"
-  echo "                        ${GATEWAY_ROLE_NAME}"
+  echo "    • MCP Gateway:              ${GATEWAY_NAME}"
+  echo "    • MCP targets:              ${PROJECT}-{domain}  (${#DOMAINS[@]} targets)"
+  echo "    • MCP domain Lambdas:       ${PROJECT}-mcp-{domain}-${ENV}  (${#DOMAINS[@]} functions)"
+  echo "    • Session injector Lambda:  ${SESSION_INJECTOR_NAME}"
+  echo "    • Transfer Lambdas:         ${VOICE_TO_CHAT_LAMBDA_NAME}"
+  echo "                                ${CHAT_TO_VOICE_LAMBDA_NAME}"
+  echo "    • DynamoDB table:           ${TRANSCRIPT_TABLE}"
+  echo "    • IAM roles:                ${LAMBDA_ROLE_NAME}"
+  echo "                                ${SUPPORT_LAMBDA_ROLE_NAME}"
+  echo "                                ${GATEWAY_ROLE_NAME}"
   echo ""
   printf "  Are you sure? [y/N]: "
   read -r confirm
@@ -1159,9 +1608,9 @@ PYEOF
   fi
 
   # ------------------------------------------------------------------
-  # Step 2 — Delete Lambda functions
+  # Step 2 — Delete MCP domain Lambda functions
   # ------------------------------------------------------------------
-  log "Deleting ${#DOMAINS[@]} Lambda functions..."
+  log "Deleting ${#DOMAINS[@]} MCP domain Lambda functions..."
   for domain in "${DOMAINS[@]}"; do
     local fn="${PROJECT}-mcp-${domain}-${ENV}"
     if aws lambda delete-function \
@@ -1174,26 +1623,69 @@ PYEOF
   done
 
   # ------------------------------------------------------------------
+  # Step 2b — Delete support Lambda functions
+  # ------------------------------------------------------------------
+  log "Deleting support Lambda functions..."
+  for fn in "${SESSION_INJECTOR_NAME}" "${VOICE_TO_CHAT_LAMBDA_NAME}" "${CHAT_TO_VOICE_LAMBDA_NAME}"; do
+    if aws lambda delete-function \
+        --function-name "${fn}" \
+        --region "${AWS_REGION}" >/dev/null 2>&1; then
+      ok "Lambda deleted: ${fn}"
+    else
+      warn "Lambda not found (already deleted?): ${fn}"
+    fi
+  done
+
+  # ------------------------------------------------------------------
+  # Step 2c — Delete DynamoDB table
+  # ------------------------------------------------------------------
+  log "Deleting DynamoDB table: ${TRANSCRIPT_TABLE}..."
+  if aws dynamodb delete-table \
+      --table-name "${TRANSCRIPT_TABLE}" \
+      --region "${AWS_REGION}" >/dev/null 2>&1; then
+    ok "DynamoDB table deleted: ${TRANSCRIPT_TABLE}"
+  else
+    warn "DynamoDB table not found (already deleted?): ${TRANSCRIPT_TABLE}"
+  fi
+
+  # ------------------------------------------------------------------
   # Step 3 — Delete Lambda IAM role
   # ------------------------------------------------------------------
-  log "Deleting Lambda IAM role: ${LAMBDA_ROLE_NAME}..."
-  # Detach AWS managed policy first (required before role deletion)
+  log "Deleting MCP Lambda IAM role: ${LAMBDA_ROLE_NAME}..."
   aws iam detach-role-policy \
     --role-name "${LAMBDA_ROLE_NAME}" \
     --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" \
     >/dev/null 2>&1 || true
-  # Delete inline policy
   aws iam delete-role-policy \
     --role-name "${LAMBDA_ROLE_NAME}" \
     --policy-name "aria-mcp-lambda-policy" \
     >/dev/null 2>&1 || true
-  # Delete the role itself
   if aws iam delete-role \
       --role-name "${LAMBDA_ROLE_NAME}" \
       >/dev/null 2>&1; then
     ok "Lambda role deleted: ${LAMBDA_ROLE_NAME}"
   else
     warn "Lambda role not found (already deleted?): ${LAMBDA_ROLE_NAME}"
+  fi
+
+  # ------------------------------------------------------------------
+  # Step 3b — Delete Support Lambda IAM role
+  # ------------------------------------------------------------------
+  log "Deleting Support Lambda IAM role: ${SUPPORT_LAMBDA_ROLE_NAME}..."
+  aws iam detach-role-policy \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" \
+    >/dev/null 2>&1 || true
+  aws iam delete-role-policy \
+    --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+    --policy-name "aria-support-lambda-policy" \
+    >/dev/null 2>&1 || true
+  if aws iam delete-role \
+      --role-name "${SUPPORT_LAMBDA_ROLE_NAME}" \
+      >/dev/null 2>&1; then
+    ok "Support Lambda role deleted: ${SUPPORT_LAMBDA_ROLE_NAME}"
+  else
+    warn "Support Lambda role not found (already deleted?): ${SUPPORT_LAMBDA_ROLE_NAME}"
   fi
 
   # ------------------------------------------------------------------
@@ -1224,21 +1716,48 @@ PYEOF
 # ---------------------------------------------------------------------------
 usage() {
   echo ""
-  echo "  Usage: $0 [deploy|teardown] [--env prod|dev] [--region <region>]"
+  echo "  Usage: $0 [deploy|teardown] [OPTIONS]"
   echo ""
   echo "  Subcommands:"
-  echo "    deploy   — (default) deploy Lambda functions + MCP Gateway"
+  echo "    deploy   — (default) deploy all ARIA infrastructure"
   echo "    teardown — delete all resources created by deploy"
   echo ""
-  echo "  Options:"
-  echo "    --env <env>         Environment tag  (default: prod)"
-  echo "    --region <region>   AWS region       (default: eu-west-2)"
-  echo "    --help              Show this help"
+  echo "  Core options:"
+  echo "    --env <env>              Environment tag              (default: prod)"
+  echo "    --region <region>        AWS region                   (default: eu-west-2)"
+  echo "    --help                   Show this help"
+  echo ""
+  echo "  Connect / support Lambda options (required for full deployment):"
+  echo "    --instance-id  <id>      Amazon Connect instance ID"
+  echo "    --assistant-id <id>      Q Connect assistant ID (from Part D.1)"
+  echo "    --flow-id      <id>      Unified Inbound contact flow ID (from Part E)"
+  echo "    --queue-id     <id>      Queue ARN/ID for outbound voice callbacks"
+  echo "    --chat-widget-url <url>  Base URL of the chat widget page"
+  echo "    --sms-number   <e164>    SMS origination number (E.164, e.g. +441234567890)"
+  echo "    --source-phone <e164>    Outbound call number for chat→voice callbacks"
+  echo "    --crm-endpoint <url>     CRM API endpoint (leave unset to use stub data)"
+  echo ""
+  echo "  All --* options can also be set as environment variables:"
+  echo "    CONNECT_INSTANCE_ID, CONNECT_ASSISTANT_ID, CONNECT_CONTACT_FLOW_ID,"
+  echo "    CONNECT_QUEUE_ID, CHAT_WIDGET_URL, SMS_ORIGINATION_NUMBER,"
+  echo "    SOURCE_PHONE_NUMBER, CRM_API_ENDPOINT"
   echo ""
   echo "  Examples:"
-  echo "    $0 deploy   --env dev  --region eu-west-2"
-  echo "    $0 teardown --env dev  --region eu-west-2"
-  echo "    $0          --env prod                     # deploy is the default"
+  echo "    # Minimal — deploy MCP Gateway only (support Lambdas created with empty config)"
+  echo "    $0 deploy --env dev --region eu-west-2"
+  echo ""
+  echo "    # Full deployment with all options"
+  echo "    $0 deploy --env dev --region eu-west-2 \\"
+  echo "          --instance-id  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \\"
+  echo "          --assistant-id yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy \\"
+  echo "          --flow-id      zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \\"
+  echo "          --queue-id     arn:aws:connect:eu-west-2:ACCOUNT:instance/INST/queue/QUEUE \\"
+  echo "          --chat-widget-url https://yourbank.example.com/chat \\"
+  echo "          --sms-number   +441234567890 \\"
+  echo "          --source-phone +441234567890"
+  echo ""
+  echo "    # Teardown"
+  echo "    $0 teardown --env dev --region eu-west-2"
   echo ""
 }
 
@@ -1258,13 +1777,21 @@ main() {
       ;;
   esac
 
-  # Parse --env / --region / --help flags
+  # Parse all flags
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --env)    ENV="$2";        shift 2 ;;
-      --region) AWS_REGION="$2"; shift 2 ;;
-      --help)   usage; exit 0 ;;
-      *)        warn "Unknown argument: $1"; shift ;;
+      --env)              ENV="$2";                      shift 2 ;;
+      --region)           AWS_REGION="$2";               shift 2 ;;
+      --instance-id)      CONNECT_INSTANCE_ID="$2";      shift 2 ;;
+      --assistant-id)     CONNECT_ASSISTANT_ID="$2";     shift 2 ;;
+      --flow-id)          CONNECT_CONTACT_FLOW_ID="$2";  shift 2 ;;
+      --queue-id)         CONNECT_QUEUE_ID="$2";         shift 2 ;;
+      --chat-widget-url)  CHAT_WIDGET_URL="$2";          shift 2 ;;
+      --sms-number)       SMS_ORIGINATION_NUMBER="$2";   shift 2 ;;
+      --source-phone)     SOURCE_PHONE_NUMBER="$2";      shift 2 ;;
+      --crm-endpoint)     CRM_API_ENDPOINT="$2";         shift 2 ;;
+      --help)             usage; exit 0 ;;
+      *)                  warn "Unknown argument: $1"; shift ;;
     esac
   done
 
@@ -1272,6 +1799,10 @@ main() {
   GATEWAY_NAME="${PROJECT}-mcp-gateway-${ENV}"
   LAMBDA_ROLE_NAME="${PROJECT}-mcp-lambda-role-${ENV}"
   GATEWAY_ROLE_NAME="${PROJECT}-mcp-gateway-role-${ENV}"
+  SUPPORT_LAMBDA_ROLE_NAME="${PROJECT}-support-lambda-role-${ENV}"
+  SESSION_INJECTOR_NAME="${PROJECT}-session-injector-${ENV}"
+  VOICE_TO_CHAT_LAMBDA_NAME="${PROJECT}-voice-to-chat-transfer-${ENV}"
+  CHAT_TO_VOICE_LAMBDA_NAME="${PROJECT}-chat-to-voice-transfer-${ENV}"
 
   case "${subcmd}" in
     deploy)   cmd_deploy   ;;
