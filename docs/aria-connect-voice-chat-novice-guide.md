@@ -21,7 +21,8 @@
 2. [Prerequisites](#2-prerequisites)
 3. [Architecture: What You Are Building](#3-architecture-what-you-are-building)
 4. [Master Setup Sequence — Complete Checklist](#master-setup-sequence--complete-checklist)
-5. [Part A — Instance & Foundation Setup](#part-a--instance--foundation-setup)
+5. [Phase 0 — Infrastructure Deployment (Run This First)](#phase-0--infrastructure-deployment-run-this-first)
+6. [Part A — Instance & Foundation Setup](#part-a--instance--foundation-setup)
 6. [Part B — Enable Contact Lens (Required for Voice AI)](#part-b--enable-contact-lens-required-for-voice-ai)
 7. [Part C — Claim a Phone Number](#part-c--claim-a-phone-number)
 8. [Part D — Build the ARIA AI Agent (Guardrail, Prompts & Agents)](#part-d--build-the-aria-ai-agent-guardrail-prompts--agents)
@@ -171,8 +172,8 @@ Complete all of these before starting. If any are missing, the relevant Part of 
 | # | Item | Status | Where it is built |
 |---|---|---|---|
 | 1 | AWS account with admin or Connect-full-access IAM role | Must be done first | AWS console / IAM |
-| 2 | ARIA AgentCore MCP Gateway deployed (10 domain Lambdas) | Required before Part D | `scripts/deploy_mcp_gateway.sh deploy --env dev --region eu-west-2` |
-| 3 | `session_injector` Lambda deployed in `eu-west-2` | Required before Part E | `scripts/lambdas/session_injector.py` |
+| 2 | ARIA AgentCore MCP Gateway deployed (10 domain Lambdas + support Lambdas + DynamoDB) | Required before Part D/E | `scripts/deploy_mcp_gateway.sh deploy` — **see Phase 0 below** |
+| 3 | `session_injector`, `voice_to_chat_transfer`, `chat_to_voice_transfer` Lambdas deployed | Automated by deploy script | `scripts/deploy_mcp_gateway.sh` — run once |
 | 4 | Amazon Connect instance created | **Part A** | AWS Connect console |
 | 5 | Contact Lens enabled on the instance | **Part B** | Connect instance settings |
 | 6 | Phone number claimed | **Part C** | Connect → Channels → Phone numbers |
@@ -181,6 +182,7 @@ Complete all of these before starting. If any are missing, the relevant Part of 
 | 9 | Orchestration AI Agent assembled and published | **Part D.6** | Connect → AI Agent Designer → Agents |
 | 10 | Session injector Lambda added to the Connect allow-list | **Part E (Block 9)** | Connect → Instance settings → Flows → Add Lambda |
 | 11 | Q Connect Assistant ARN noted down | **Part D.1** | Connect → AI Agent Designer → copy ARN |
+| 12 | Transfer Lambdas added to the Connect allow-list (optional — for Part I) | **Part I, Step I.6** | Connect → Instance settings → Flows → Add Lambda |
 
 > **If you are starting from scratch**, work through this guide from top to bottom. Parts A–D build the infrastructure and AI components; Parts E onwards wire them together in a contact flow. Every part has been written to assume no prior knowledge.
 
@@ -276,7 +278,7 @@ Work through these steps in order. Each phase depends on the previous one. Ticki
 
 | Phase | What you do | This guide section | Time estimate |
 |---|---|---|---|
-| **0. Infrastructure** | Deploy the MCP Gateway (10 domain Lambdas) and session injector Lambda | `scripts/deploy_mcp_gateway.sh` — see the MCP Gateway deploy guide | ~10 min |
+| **0. Infrastructure** | Run `deploy_mcp_gateway.sh` to create: DynamoDB table, 3 support Lambdas (session injector + 2 transfer), 10 MCP domain Lambdas, and the AgentCore MCP Gateway | **Phase 0** (this guide, just below) | ~15 min |
 | **A. Connect instance** | Create the Amazon Connect instance | Part A | ~5 min |
 | **B. Contact Lens** | Enable Contact Lens on the instance (required for voice AI) | Part B | ~2 min |
 | **C. Phone number** | Claim a phone number for voice | Part C | ~5 min |
@@ -291,6 +293,224 @@ Work through these steps in order. Each phase depends on the previous one. Ticki
 > **The most common beginner mistake** is skipping Part D and trying to build the contact flow first. Block 8 (Connect Assistant) requires a **published** AI Agent to bind to. If the agent does not exist or is in Draft, Block 8 will fail at runtime with "Connect assistant not found."
 
 > **Second most common mistake**: deploying the infrastructure (Phase 0) and the contact flow (Part E) but forgetting to build the AI Agent (Part D). The flow will appear to save and publish correctly, but calls will drop at Block 8.
+
+---
+
+## Phase 0 — Infrastructure Deployment (Run This First)
+
+Before touching the AWS Connect console, run `scripts/deploy_mcp_gateway.sh` from this repository. This single script creates everything in AWS that the contact flow and ARIA agent need at runtime:
+
+| Resource | Name | Purpose |
+|---|---|---|
+| DynamoDB table | `aria-transcript-store` | Stores cross-channel transcripts for voice↔chat transfers and session memory |
+| IAM role | `aria-banking-support-lambda-role-{env}` | Execution role for the 3 support Lambdas |
+| Lambda | `aria-banking-session-injector-{env}` | Injects customer context into Q Connect sessions (Block 9 of the flow) |
+| Lambda | `aria-banking-voice-to-chat-transfer-{env}` | Handles voice→chat SMS deflection (Part I) |
+| Lambda | `aria-banking-chat-to-voice-transfer-{env}` | Handles chat→voice callback (Part I) |
+| IAM role | `aria-banking-mcp-lambda-role-{env}` | Execution role for the 10 MCP domain Lambdas |
+| Lambda (×10) | `aria-banking-mcp-{domain}-{env}` | One per banking domain (auth, account, customer, debit-card, credit-card, mortgage, products, pii, escalation, knowledge) |
+| AgentCore Gateway | `aria-banking-mcp-gateway-{env}` | Single MCP endpoint that ARIA uses to call all 10 domain tools |
+| IAM role | `aria-banking-mcp-gateway-role-{env}` | Allows the gateway to invoke the 10 domain Lambdas |
+
+### What you need before running
+
+1. **AWS CLI configured** for `eu-west-2` with permissions to create Lambdas, IAM roles, DynamoDB tables, and Bedrock AgentCore gateways. Run `aws sts get-caller-identity` to verify.
+2. **Python 3.12** (`python3 --version`)
+3. **jq** (`brew install jq` on macOS, `apt-get install jq` on Ubuntu)
+4. **zip** (`zip --version`)
+5. **Project root as your working directory**: `cd /path/to/awsagentcore`
+
+You also need several Connect-specific IDs. Collect them as you work through the guide. You can run the script without them first (it will warn but still create all resources); then re-run with the IDs once you have them.
+
+| Flag | What it is | When you get it |
+|---|---|---|
+| `--instance-id` | Your Connect instance ID | After Part A |
+| `--assistant-id` | Q Connect assistant ID | After Part D.1 |
+| `--flow-id` | Unified Inbound flow ID | After Part E |
+| `--queue-id` | ARIA Banking Agents queue ARN | After Part E (Block 10) |
+| `--chat-widget-url` | Your chat widget base URL | After Part H |
+| `--sms-number` | SMS origination number (E.164) | After Part I, Step I.2 |
+| `--source-phone` | Outbound call number (E.164) | After Part C |
+
+### Phase 0 — Step 0.1: First run (without Connect IDs)
+
+Run this from the project root the first time. It creates all AWS resources and warns about any missing Connect IDs:
+
+```bash
+cd /path/to/awsagentcore
+
+chmod +x scripts/deploy_mcp_gateway.sh
+
+./scripts/deploy_mcp_gateway.sh deploy \
+  --env dev \
+  --region eu-west-2
+```
+
+**What you will see:**
+
+```
+=======================================================================
+  ARIA AgentCore — Full Infrastructure Deployment
+  Environment: dev | Region: eu-west-2
+=======================================================================
+
+[INFO]  Creating DynamoDB table: aria-transcript-store...
+[OK]    DynamoDB table created with TTL: aria-transcript-store
+[INFO]  Creating Support Lambda IAM role: aria-banking-support-lambda-role-dev...
+[OK]    Support Lambda role created: arn:aws:iam::395402194296:role/aria-banking-support-lambda-role-dev
+[WARN]  CONNECT_ASSISTANT_ID is not set. The session injector will deploy but ARIA cannot
+[WARN]  personalise sessions until ASSISTANT_ID is configured...
+[INFO]  Deploying support Lambda: aria-banking-session-injector-dev...
+[OK]    Lambda created: aria-banking-session-injector-dev
+[OK]    Connect resource policy added: aria-banking-session-injector-dev
+[OK]    Session injector deployed: arn:aws:lambda:eu-west-2:...
+[INFO]  Deploying support Lambda: aria-banking-voice-to-chat-transfer-dev...
+[OK]    Lambda created: aria-banking-voice-to-chat-transfer-dev
+...
+[INFO]  Creating AgentCore MCP Gateway: aria-banking-mcp-gateway-dev...
+[OK]    MCP Gateway created: aria-banking-mcp-gateway-dev-ef2c4avfuy
+[INFO]  Gateway URL: https://aria-banking-mcp-gateway-dev-ef2c4avfuy.gateway.bedrock-agentcore.eu-west-2.amazonaws.com/mcp
+...
+=======================================================================
+  Deployment Complete!
+=======================================================================
+  Gateway URL:  https://aria-banking-mcp-gateway-dev-...
+  Support Lambdas:
+    ✓  aria-banking-session-injector-dev
+    ✓  aria-banking-voice-to-chat-transfer-dev
+    ✓  aria-banking-chat-to-voice-transfer-dev
+  MCP domain Lambdas:
+    ✓  aria-banking-mcp-auth-dev
+    ...
+```
+
+> **Copy the Gateway URL from this output.** You need it in Part D when configuring the AI Agent's MCP tools. It looks like: `https://aria-banking-mcp-gateway-dev-XXXX.gateway.bedrock-agentcore.eu-west-2.amazonaws.com/mcp`
+
+> **Note the warnings** about missing Connect IDs. These are expected on the first run. All Lambdas deploy successfully — they just cannot do their jobs until the Connect IDs are set (see Step 0.2).
+
+### Phase 0 — Step 0.2: Update Lambdas after collecting Connect IDs
+
+After you have worked through Parts A–E and collected your Connect IDs, run the script again with all the flags. It is fully **idempotent** — it updates existing resources rather than recreating them:
+
+```bash
+./scripts/deploy_mcp_gateway.sh deploy \
+  --env dev \
+  --region eu-west-2 \
+  --instance-id  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+  --assistant-id yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy \
+  --flow-id      zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \
+  --queue-id     "arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE" \
+  --chat-widget-url "https://yourbank.example.com/chat" \
+  --sms-number   "+441234567890" \
+  --source-phone "+441234567890"
+```
+
+Alternatively, set these as environment variables so you don't have to type them every time:
+
+```bash
+export CONNECT_INSTANCE_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+export CONNECT_ASSISTANT_ID="yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+export CONNECT_CONTACT_FLOW_ID="zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+export CONNECT_QUEUE_ID="arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE"
+export CHAT_WIDGET_URL="https://yourbank.example.com/chat"
+export SMS_ORIGINATION_NUMBER="+441234567890"
+export SOURCE_PHONE_NUMBER="+441234567890"
+
+./scripts/deploy_mcp_gateway.sh deploy --env dev --region eu-west-2
+```
+
+### Phase 0 — Step 0.3: Add all Lambdas to the Connect allow-list
+
+Amazon Connect requires you to explicitly allow each Lambda before it can be called from a contact flow. This is a one-time console action — **you cannot do it via CLI**.
+
+1. Go to [https://console.aws.amazon.com/connect/](https://console.aws.amazon.com/connect/)
+2. Click on your Connect instance name
+3. In the left sidebar, click **Flows**
+4. Scroll down to **AWS Lambda**
+5. For each Lambda below, click the **Add Lambda Function** dropdown and select it, then click **Add Lambda**:
+
+| Lambda to add | When it is used in the flow |
+|---|---|
+| `aria-banking-session-injector-dev` | Block 9 — injects customer context after ARIA session is created |
+| `aria-banking-voice-to-chat-transfer-dev` | Block 9A — handles voice→chat transfer requests (Part I) |
+| `aria-banking-chat-to-voice-transfer-dev` | Block 9B — handles chat→voice callback requests (Part I) |
+
+> **Why is this manual?** The Connect Lambda allow-list is an instance-level security control. AWS requires a human with Connect admin permissions to explicitly authorise each Lambda. The `connect.amazonaws.com` resource-based policies on the Lambdas (added automatically by the deploy script) are necessary but not sufficient — the allow-list must also be updated.
+
+> **Official docs**: [Invoke AWS Lambda functions](https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html)
+
+### Phase 0 — Step 0.4: Verify the deployment
+
+Run the following checks to confirm everything deployed correctly:
+
+```bash
+# 1. Verify all 3 support Lambdas exist
+aws lambda get-function \
+  --function-name aria-banking-session-injector-dev \
+  --region eu-west-2 \
+  --query 'Configuration.{Name:FunctionName,State:State}' \
+  --output table
+
+aws lambda get-function \
+  --function-name aria-banking-voice-to-chat-transfer-dev \
+  --region eu-west-2 \
+  --query 'Configuration.{Name:FunctionName,State:State}' \
+  --output table
+
+aws lambda get-function \
+  --function-name aria-banking-chat-to-voice-transfer-dev \
+  --region eu-west-2 \
+  --query 'Configuration.{Name:FunctionName,State:State}' \
+  --output table
+
+# 2. Verify the DynamoDB table
+aws dynamodb describe-table \
+  --table-name aria-transcript-store \
+  --region eu-west-2 \
+  --query 'Table.{Status:TableStatus,TTL:TimeToLiveDescription.TimeToLiveStatus}' \
+  --output table
+
+# 3. Verify all 10 MCP domain Lambdas
+for domain in auth account customer debit-card credit-card mortgage products pii escalation knowledge; do
+  aws lambda get-function \
+    --function-name "aria-banking-mcp-${domain}-dev" \
+    --region eu-west-2 \
+    --query 'Configuration.FunctionName' \
+    --output text 2>/dev/null && echo "  OK: ${domain}" || echo "  MISSING: ${domain}"
+done
+
+# 4. Get the MCP Gateway URL (if you need it again)
+python3 - <<'EOF'
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='eu-west-2')
+pages = c.get_paginator('list_gateways').paginate()
+for page in pages:
+    for gw in page.get('items', []):
+        if 'aria-banking-mcp-gateway-dev' in gw['name']:
+            print(f"Gateway: {gw['name']}")
+            print(f"Status:  {gw['status']}")
+            full = c.get_gateway(gatewayIdentifier=gw['gatewayId'])
+            print(f"URL:     {full.get('gatewayUrl', 'not yet available')}")
+EOF
+```
+
+**Expected outputs:**
+- All Lambdas: `State: Active`
+- DynamoDB: `Status: ACTIVE`, `TTL: ENABLED`
+- All 10 domains: `OK: auth`, `OK: account`, etc.
+- Gateway URL is printed and available to copy
+
+### Phase 0 — Step 0.5: Teardown (when needed)
+
+To delete **all** resources created by the deploy script:
+
+```bash
+./scripts/deploy_mcp_gateway.sh teardown --env dev --region eu-west-2
+```
+
+You will be shown the full list of resources that will be deleted and asked to confirm. Teardown deletes (in order): MCP Gateway targets → MCP Gateway → MCP domain Lambdas → support Lambdas → DynamoDB table → Lambda IAM roles → Gateway IAM role.
+
+> **Warning**: The DynamoDB `aria-transcript-store` table is also deleted in teardown. Any in-flight cross-channel transfer data will be lost. Do not run teardown if there are active channel transfers in progress.
 
 ---
 
@@ -2537,19 +2757,25 @@ Before starting any step below, ensure the following are already complete:
 | Prerequisite | Where to complete it | Status check |
 |---|---|---|
 | ARIA Unified Inbound Flow published (Blocks 1–12 working) | Part E of this guide | Call the number — ARIA must answer |
-| ARIA MCP Gateway deployed (all domain Lambdas) | Phase 0 | MCP Gateway health check passes |
-| Session Injector Lambda deployed and working | Phase 0 | Block 9 in flow must succeed |
+| ARIA MCP Gateway deployed (all domain Lambdas) | **Phase 0 — automated** | MCP Gateway health check passes |
+| `aria-transcript-store` DynamoDB table created | **Phase 0 — automated** | `aws dynamodb describe-table --table-name aria-transcript-store --region eu-west-2` returns ACTIVE |
+| Transfer Lambdas deployed and Connect-allowed | **Phase 0 — automated** (deploy) + **Phase 0 Step 0.3** (manual allow-list) | Both Lambdas appear in Connect → Instance settings → Flows → Lambda |
+| Session Injector Lambda deployed and working | **Phase 0 — automated** | Block 9 in flow must succeed |
 | Amazon Connect instance running in `eu-west-2` | Part A | Instance status: Active |
 | Contact Lens enabled on the instance | Part B | Contact Lens toggle is On |
-| `voice_to_chat_transfer.py` in `scripts/lambdas/` | This repository | File must be present |
-| `chat_to_voice_transfer.py` in `scripts/lambdas/` | This repository | File must be present |
-| `aria/tools/channels/request_transfer.py` created | This repository | File must be present |
+| `aria/tools/channels/request_transfer.py` present | This repository | File must exist |
 | AWS CLI configured for `eu-west-2` | Your workstation | `aws sts get-caller-identity` returns your account |
-| IAM permissions to create Lambdas, DynamoDB tables, and IAM roles | Your AWS account | Try `aws lambda list-functions` — must not deny |
+
+> **If you ran the deploy script (Phase 0)**: Steps I.1, I.3, I.4, and I.5 are **already done**. Each of those steps now starts with an "AUTOMATED" banner and a verification check. Read the verification, confirm the resource exists, and skip to Step I.2 (SMS provisioning — still manual), then continue from Step I.6.
 
 ---
 
 ### Step I.1 — Create the `aria-transcript-store` DynamoDB Table
+
+> ✅ **AUTOMATED — `scripts/deploy_mcp_gateway.sh` does this for you.**
+>
+> If you ran the deploy script in **Phase 0**, this table already exists with TTL configured. Run the
+> verification below and skip to Step I.2.
 
 **Why this table exists**: Contact Lens stores real-time voice transcripts for only 24 hours before they
 expire. When a customer transfers from voice to chat (or chat to voice), the receiving channel needs to
@@ -2558,63 +2784,16 @@ when the transfer is requested, and the Session Injector on the receiving channe
 `priorSummary` as a contact attribute. Without this table, every cross-channel transfer starts from a
 blank slate and the customer must repeat themselves.
 
+**Table specification** (created by the deploy script):
+- **Table name**: `aria-transcript-store`
+- **Partition key**: `contactId` (String) — the Connect contact ID, unique per call or chat
+- **No sort key** — one item per contact
+- **Billing mode**: On-demand (pay-per-request) — ideal for event-driven workloads
+- **TTL attribute**: `ttl` (Unix epoch seconds) — items auto-expire 48 hours after transfer
+
 > Official docs: [Amazon DynamoDB — Getting Started](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GettingStartedDynamoDB.html)
 
-#### Console walkthrough
-
-1. Go to [https://console.aws.amazon.com/dynamodb/](https://console.aws.amazon.com/dynamodb/)
-2. Confirm your region is **Europe (London) eu-west-2** (top-right corner of the console)
-3. In the left sidebar click **Tables**, then click **Create table** (orange button, top right)
-4. Fill in the table configuration form:
-   - **Table name**: `aria-transcript-store`
-   - **Partition key**: type `contactId`, leave the type dropdown as **String**
-   - **Sort key**: leave this **blank** — do not add a sort key
-5. Under **Table settings**, select **Customize settings**
-6. Under **Read/write capacity settings**, choose **On-demand** (pay-per-request). This is the simplest
-   choice for an event-driven workload that runs only when transfers occur. You can switch to provisioned
-   capacity later if volume grows.
-7. Scroll down to **Additional settings** → **Time to live (TTL)**:
-   - Click **Manage TTL**
-   - **Attribute name**: `ttl`
-   - Click **Save changes**
-
-   > **Why TTL?** The transfer Lambdas set the `ttl` attribute to `now + 172800` (48 hours in Unix epoch
-   > seconds). After that, DynamoDB automatically deletes the item at no cost. This keeps the table clean
-   > and prevents long-term storage charges for stale session data.
-
-8. Leave all other settings at defaults. Click **Create table** at the bottom of the page.
-9. Wait for the table status to change from **Creating** to **Active** (usually under 30 seconds). Refresh
-   the page if needed.
-10. Click on the table name to open it, then click the **Additional info** tab. Copy the **Amazon Resource
-    Name (ARN)**. It will look like:
-    ```
-    arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store
-    ```
-    Save this ARN — you will paste it into both IAM policies in Step I.3.
-
-#### CLI alternative
-
-If you prefer the command line over the console:
-
-```bash
-aws dynamodb create-table \
-  --region eu-west-2 \
-  --table-name aria-transcript-store \
-  --attribute-definitions AttributeName=contactId,AttributeType=S \
-  --key-schema AttributeName=contactId,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST
-```
-
-Then enable TTL (only after the table status is ACTIVE — wait ~30 seconds):
-
-```bash
-aws dynamodb update-time-to-live \
-  --region eu-west-2 \
-  --table-name aria-transcript-store \
-  --time-to-live-specification "Enabled=true,AttributeName=ttl"
-```
-
-Verify both commands worked:
+#### Verify the table was created (run this now)
 
 ```bash
 aws dynamodb describe-table \
@@ -2635,6 +2814,40 @@ Expected output:
   }
 }
 ```
+
+If this returns an error like `ResourceNotFoundException`, go back to **Phase 0** and run the deploy
+script. Do **not** proceed until the table exists.
+
+Note the table ARN for reference (you will not need to paste it manually — the deploy script configures
+all Lambdas with the correct table name):
+
+```bash
+aws dynamodb describe-table \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --query "Table.TableArn" \
+  --output text
+```
+
+<details>
+<summary>Manual creation (only if NOT using the deploy script)</summary>
+
+```bash
+aws dynamodb create-table \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --attribute-definitions AttributeName=contactId,AttributeType=S \
+  --key-schema AttributeName=contactId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
+
+# Wait ~30 seconds for ACTIVE status, then enable TTL:
+aws dynamodb update-time-to-live \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --time-to-live-specification "Enabled=true,AttributeName=ttl"
+```
+
+</details>
 
 ---
 
@@ -2700,18 +2913,47 @@ Lambda.
 
 ### Step I.3 — Create IAM Roles for the Transfer Lambdas
 
+> ✅ **AUTOMATED — `scripts/deploy_mcp_gateway.sh` does this for you.**
+>
+> The deploy script creates a single shared IAM execution role `aria-banking-support-lambda-role-{env}` used
+> by all three support Lambdas (session injector, voice-to-chat, chat-to-voice). It follows the principle of
+> least privilege with exactly the permissions each Lambda needs. If you ran the deploy script in Phase 0,
+> this role already exists. Run the verification below and skip to Step I.4.
+
+**IAM role created by the deploy script**: `aria-banking-support-lambda-role-dev`
+
+**Permissions granted** (least-privilege):
+- `connect:UpdateContactAttributes`, `connect:GetContactAttributes`, `connect:StartChatContact`, `connect:StartOutboundVoiceContact`, `connect:GetContact` — for interacting with contacts
+- `connect-contact-lens:ListRealtimeContactAnalysisSegments` — for fetching Voice transcripts
+- `connect:ListRealtimeContactAnalysisSegmentsV2` — for fetching Chat transcripts
+- `wisdom:UpdateSessionData` / `qconnect:UpdateSessionData` — for Q Connect session personalisation
+- `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem` on `aria-transcript-store`
+- `sms-voice:SendTextMessage` — for SMS notifications via Pinpoint/End User Messaging
+- `logs:CreateLogGroup`, `logs:CreateLogDelivery`, `logs:PutLogEvents` — for CloudWatch Logs
+
+#### Verify the IAM role was created (run this now)
+
+```bash
+aws iam get-role \
+  --role-name aria-banking-support-lambda-role-dev \
+  --query "Role.{Name:RoleName,Arn:Arn,Created:CreateDate}" \
+  --output table
+```
+
+Expected output: a table showing the role name and ARN. If this returns a `NoSuchEntity` error, go back to **Phase 0** and run the deploy script.
+
+<details>
+<summary>Manual role creation (only if NOT using the deploy script)</summary>
+
 You need two IAM execution roles — one per Lambda function. Each role follows the **principle of least
-privilege**: it grants only the exact permissions needed for that Lambda to do its job. Granting broad
-permissions (like `"Action": "*"`) is a security risk and will be flagged by AWS Security Hub.
+privilege**: it grants only the exact permissions needed for that Lambda to do its job.
 
 Replace `395402194296` with your actual AWS account ID throughout this step.
-Replace `YOUR_CONNECT_INSTANCE_ID` with your Connect instance ID (a UUID like
-`a1b2c3d4-e5f6-7890-abcd-ef1234567890`).
+Replace `YOUR_CONNECT_INSTANCE_ID` with your Connect instance ID.
 
-#### Role 1: `aria-voice-to-chat-lambda-role`
+#### Trust policy (same for both roles)
 
-First, create the trust policy file. This tells IAM which service is allowed to assume (use) this role.
-Save the following as `scripts/iam/voice-to-chat-trust.json`:
+Save as `scripts/iam/transfer-trust.json`:
 
 ```json
 {
@@ -2726,323 +2968,222 @@ Save the following as `scripts/iam/voice-to-chat-trust.json`:
 }
 ```
 
-Next, create the permission policy. This defines what the Lambda can actually do. Save the following as
-`scripts/iam/voice-to-chat-policy.json`:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "StartChatContact",
-      "Effect": "Allow",
-      "Action": "connect:StartChatContact",
-      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/*"
-    },
-    {
-      "Sid": "ContactLensTranscript",
-      "Effect": "Allow",
-      "Action": "connect-contact-lens:ListRealtimeContactAnalysisSegments",
-      "Resource": "*"
-    },
-    {
-      "Sid": "SendSMS",
-      "Effect": "Allow",
-      "Action": "sms-voice:SendTextMessage",
-      "Resource": "*"
-    },
-    {
-      "Sid": "DynamoDBPut",
-      "Effect": "Allow",
-      "Action": "dynamodb:PutItem",
-      "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store"
-    },
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-voice-to-chat-transfer:*"
-    }
-  ]
-}
-```
-
-Now create the role and attach the policy using the AWS CLI:
+Create both roles:
 
 ```bash
-# Create the IAM role with the trust policy
 aws iam create-role \
-  --region eu-west-2 \
   --role-name aria-voice-to-chat-lambda-role \
-  --assume-role-policy-document file://scripts/iam/voice-to-chat-trust.json
+  --assume-role-policy-document file://scripts/iam/transfer-trust.json
 
-# Attach the permission policy inline
-aws iam put-role-policy \
-  --role-name aria-voice-to-chat-lambda-role \
-  --policy-name aria-voice-to-chat-policy \
-  --policy-document file://scripts/iam/voice-to-chat-policy.json
+aws iam create-role \
+  --role-name aria-chat-to-voice-lambda-role \
+  --assume-role-policy-document file://scripts/iam/transfer-trust.json
 ```
 
-Copy the role ARN from the `create-role` output. It looks like:
-`arn:aws:iam::395402194296:role/aria-voice-to-chat-lambda-role`
-
-#### Role 2: `aria-chat-to-voice-lambda-role`
-
-The trust policy is identical to Role 1. Save the permission policy as
-`scripts/iam/chat-to-voice-policy.json`:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "StartOutboundVoice",
-      "Effect": "Allow",
-      "Action": "connect:StartOutboundVoiceContact",
-      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/*"
-    },
-    {
-      "Sid": "ContactLensV2Transcript",
-      "Effect": "Allow",
-      "Action": "connect:ListRealtimeContactAnalysisSegmentsV2",
-      "Resource": "*"
-    },
-    {
-      "Sid": "DynamoDBPut",
-      "Effect": "Allow",
-      "Action": "dynamodb:PutItem",
-      "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store"
-    },
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-chat-to-voice-transfer:*"
-    }
-  ]
-}
-```
-
-CLI commands:
+Attach the AWS managed basic execution policy to both:
 
 ```bash
-# Create the IAM role (reuse the same trust policy file)
-aws iam create-role \
-  --region eu-west-2 \
-  --role-name aria-chat-to-voice-lambda-role \
-  --assume-role-policy-document file://scripts/iam/voice-to-chat-trust.json
+aws iam attach-role-policy \
+  --role-name aria-voice-to-chat-lambda-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
-# Attach the permission policy inline
-aws iam put-role-policy \
+aws iam attach-role-policy \
   --role-name aria-chat-to-voice-lambda-role \
-  --policy-name aria-chat-to-voice-policy \
-  --policy-document file://scripts/iam/chat-to-voice-policy.json
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 ```
 
-> **Note:** The `scripts/iam/` JSON files are not secrets — they contain no passwords or access keys. It
-> is good practice to commit them to your repository so you can recreate the roles if needed. Never
-> commit actual credentials.
+Create and attach a Connect/DynamoDB inline policy on each role granting the permissions listed above.
+
+</details>
 
 ---
 
 ### Step I.4 — Deploy the `voice_to_chat_transfer` Lambda
 
-This Lambda is invoked by the contact flow when `requestChatTransfer = true`. It retrieves the Contact
-Lens real-time transcript for the current voice contact, stores a summary in DynamoDB, creates a new chat
-contact using `StartChatContact`, and sends the customer an SMS with a deep-link to the chat widget.
+> ✅ **AUTOMATED — `scripts/deploy_mcp_gateway.sh` does this for you.**
+>
+> The deploy script packages and deploys `scripts/lambdas/voice_to_chat_transfer.py` as
+> `aria-banking-voice-to-chat-transfer-{env}`. It also adds the Connect resource-based policy so Connect
+> can invoke it. If you ran the deploy script in Phase 0, this Lambda already exists. Run the verification
+> below and skip to Step I.5.
 
-> Official docs: [Using Lambda functions with Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html)
+**What this Lambda does**: When ARIA sets `requestChatTransfer = true` in contact attributes, the contact
+flow invokes this Lambda. It:
+1. Calls Contact Lens `ListRealtimeContactAnalysisSegments` to retrieve the last 5 turns of the voice conversation
+2. Builds a brief summary and stores it in `aria-transcript-store` DynamoDB table (key = contactId, TTL = 48 hours)
+3. Calls `connect:StartChatContact` to create a new chat contact in the same queue with the transcript pre-loaded
+4. Calls Pinpoint SMS V2 `SendTextMessage` to text the customer's phone number with a deep-link to the chat widget
+5. Returns `transferInitiated: "true"` to the contact flow so Block 9A can check success/failure
 
-#### 4a — Package the function
+**Deployed Lambda name**: `aria-banking-voice-to-chat-transfer-dev`
 
-Lambda functions are deployed as ZIP archives. The `voice_to_chat_transfer.py` script uses only `boto3`
-(the AWS SDK for Python), which is pre-installed in every AWS Lambda Python runtime — no extra libraries
-needed.
+**Environment variables set by deploy script**:
+- `INSTANCE_ID` — your Connect instance UUID
+- `CONTACT_FLOW_ID` — the Unified Inbound flow ID (used when starting the new chat contact)
+- `CHAT_WIDGET_URL` — your chat widget base URL (deep-link sent to the customer via SMS)
+- `SMS_ORIGINATION_NUMBER` — the E.164 SMS number (e.g. `+441234567890`)
+- `DYNAMODB_TABLE` — `aria-transcript-store`
+
+> **If Connect IDs were empty when you first ran the deploy**: The Lambda was created but its environment
+> variables are blank. After completing Parts A–E and collecting all IDs, run the deploy script again with
+> `--instance-id`, `--flow-id`, `--chat-widget-url`, and `--sms-number` flags (see Phase 0, Step 0.2).
+> The script is idempotent — it updates the existing Lambda rather than recreating it.
+
+#### Verify the Lambda was deployed (run this now)
 
 ```bash
+aws lambda get-function \
+  --function-name aria-banking-voice-to-chat-transfer-dev \
+  --region eu-west-2 \
+  --query 'Configuration.{Name:FunctionName,State:State,Runtime:Runtime}' \
+  --output table
+```
+
+Check environment variables are set (after re-running with Connect IDs):
+
+```bash
+aws lambda get-function-configuration \
+  --function-name aria-banking-voice-to-chat-transfer-dev \
+  --region eu-west-2 \
+  --query 'Environment.Variables' \
+  --output json
+```
+
+Expected output: a JSON object showing `INSTANCE_ID`, `CONTACT_FLOW_ID`, `CHAT_WIDGET_URL`, `SMS_ORIGINATION_NUMBER`, and `DYNAMODB_TABLE` — all non-empty.
+
+> **IMPORTANT**: You still need to add this Lambda to the Connect allow-list manually (covered in
+> Phase 0, Step 0.3). The resource-based policy alone is not sufficient — Connect requires an explicit
+> allow-list entry per Lambda.
+
+<details>
+<summary>Manual deployment (only if NOT using the deploy script)</summary>
+
+Package and deploy manually:
+
+```bash
+# 1. Package
 cd scripts/lambdas
-zip voice-to-chat.zip voice_to_chat_transfer.py
-cd ../..
-```
+cp voice_to_chat_transfer.py lambda_function.py
+zip -j voice-to-chat-transfer.zip lambda_function.py
+rm lambda_function.py
 
-#### 4b — Create the Lambda function
+# 2. Deploy
+ROLE_ARN=$(aws iam get-role \
+  --role-name aria-voice-to-chat-lambda-role \
+  --query 'Role.Arn' --output text)
 
-Replace the role ARN with the one you copied at the end of Step I.3:
-
-```bash
 aws lambda create-function \
-  --region eu-west-2 \
-  --function-name aria-voice-to-chat-transfer \
+  --function-name aria-banking-voice-to-chat-transfer-dev \
   --runtime python3.12 \
-  --role arn:aws:iam::395402194296:role/aria-voice-to-chat-lambda-role \
-  --handler voice_to_chat_transfer.lambda_handler \
-  --zip-file fileb://scripts/lambdas/voice-to-chat.zip \
-  --timeout 30 \
-  --memory-size 256 \
-  --description "ARIA voice-to-chat SMS deflection transfer Lambda"
-```
-
-The `--timeout 30` is important: Contact Lens transcript retrieval can take several seconds on long calls,
-and SMS delivery confirmation adds more latency. If the timeout is too low, Connect will receive an error
-from the Lambda invocation.
-
-#### 4c — Set environment variables
-
-Run the following command, substituting your real values for each placeholder:
-
-```bash
-aws lambda update-function-configuration \
+  --handler lambda_function.lambda_handler \
+  --role "$ROLE_ARN" \
+  --zip-file fileb://voice-to-chat-transfer.zip \
   --region eu-west-2 \
-  --function-name aria-voice-to-chat-transfer \
-  --environment "Variables={
-    INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,
-    CONTACT_FLOW_ID=YOUR_ARIA_UNIFIED_INBOUND_FLOW_ID,
-    CHAT_WIDGET_URL=https://app.meridianbank.co.uk/chat,
-    SMS_ORIGINATION_NUMBER=+447700123456,
-    DYNAMODB_TABLE=aria-transcript-store,
-    MOBILE_APP_SCHEME=meridianbank://chat
-  }"
-```
+  --environment "Variables={INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,CONTACT_FLOW_ID=YOUR_FLOW_ID,CHAT_WIDGET_URL=https://yourbank.example.com/chat,SMS_ORIGINATION_NUMBER=+441234567890,DYNAMODB_TABLE=aria-transcript-store}"
 
-| Variable | What to put here | Where to find it |
-|---|---|---|
-| `INSTANCE_ID` | Your Connect instance ID (a UUID) | Connect console → Overview → **Instance ID** |
-| `CONTACT_FLOW_ID` | ARIA Unified Inbound flow ID | Connect → Contact flows → open your flow → ID is in the ARN after `/contact-flow/` |
-| `CHAT_WIDGET_URL` | Base URL of your chat widget page | The URL where your chat widget is embedded (no trailing slash) |
-| `SMS_ORIGINATION_NUMBER` | SMS-enabled number in E.164 format | The number provisioned in Step I.2 |
-| `DYNAMODB_TABLE` | `aria-transcript-store` | The table you created in Step I.1 |
-| `MOBILE_APP_SCHEME` | Optional — deep-link scheme for a native app | Your mobile app team can provide this (omit if no native app) |
-
-#### 4d — Allow Amazon Connect to invoke the Lambda
-
-This command adds a **resource-based policy** directly to the Lambda function. Without it, Connect cannot
-call the function — it will receive `Access denied` even if the Lambda's IAM execution role looks
-correct. The `--source-arn` scopes the permission to your specific Connect instance:
-
-```bash
+# 3. Add Connect resource-based policy
 aws lambda add-permission \
-  --region eu-west-2 \
-  --function-name aria-voice-to-chat-transfer \
-  --statement-id allow-connect-invoke \
+  --function-name aria-banking-voice-to-chat-transfer-dev \
+  --statement-id AllowConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-account 395402194296 \
-  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID
+  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID \
+  --region eu-west-2
 ```
 
-#### 4e — Add the Lambda to the Connect instance allow-list
-
-Amazon Connect maintains its own approved list of Lambda functions that contact flows are allowed to
-invoke. A function must appear on this list even if the resource-based policy (step 4d) is correct.
-
-1. Open your Amazon Connect instance in the AWS console
-2. Left sidebar → **Contact flows** → **AWS Lambda**
-3. In the **Lambda functions** section, click **Add Lambda function**
-4. Select `aria-voice-to-chat-transfer` from the dropdown
-5. Click **Add Lambda function** (the confirmation button below the dropdown)
-
-You should now see `aria-voice-to-chat-transfer` listed in the table.
+</details>
 
 ---
 
 ### Step I.5 — Deploy the `chat_to_voice_transfer` Lambda
 
-This Lambda is invoked when `requestVoiceTransfer = true`. It retrieves the Contact Lens V2 chat
-transcript, stores a summary in DynamoDB, and initiates an outbound call to the customer using
-`StartOutboundVoiceContact`.
-
-> Official docs:
-> - [StartOutboundVoiceContact API](https://docs.aws.amazon.com/connect/latest/APIReference/API_StartOutboundVoiceContact.html)
-> - [ListRealtimeContactAnalysisSegmentsV2 API](https://docs.aws.amazon.com/connect/latest/APIReference/API_ListRealtimeContactAnalysisSegmentsV2.html)
-
-#### 5a — Package the function
-
-```bash
-cd scripts/lambdas
-zip chat-to-voice.zip chat_to_voice_transfer.py
-cd ../..
-```
-
-#### 5b — Create the Lambda function
-
-```bash
-aws lambda create-function \
-  --region eu-west-2 \
-  --function-name aria-chat-to-voice-transfer \
-  --runtime python3.12 \
-  --role arn:aws:iam::395402194296:role/aria-chat-to-voice-lambda-role \
-  --handler chat_to_voice_transfer.lambda_handler \
-  --zip-file fileb://scripts/lambdas/chat-to-voice.zip \
-  --timeout 30 \
-  --memory-size 256 \
-  --description "ARIA chat-to-voice callback transfer Lambda"
-```
-
-#### 5c — Set environment variables
-
-```bash
-aws lambda update-function-configuration \
-  --region eu-west-2 \
-  --function-name aria-chat-to-voice-transfer \
-  --environment "Variables={
-    INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,
-    CONTACT_FLOW_ID=YOUR_ARIA_UNIFIED_INBOUND_FLOW_ID,
-    QUEUE_ID=YOUR_QUEUE_ARN,
-    SOURCE_PHONE_NUMBER=+441234567890,
-    DYNAMODB_TABLE=aria-transcript-store
-  }"
-```
-
-| Variable | What to put here | Where to find it |
-|---|---|---|
-| `INSTANCE_ID` | Your Connect instance ID (UUID) | Connect console → Overview → **Instance ID** |
-| `CONTACT_FLOW_ID` | ARIA Unified Inbound flow ID | Connect → Contact flows → ARN → last segment after `/contact-flow/` |
-| `QUEUE_ID` | Full ARN of your routing queue | Connect → Routing → Queues → click queue → **Show additional queue information** → copy the full ARN |
-| `SOURCE_PHONE_NUMBER` | A Connect-claimed phone number (E.164) | Connect → Channels → Phone numbers |
-| `DYNAMODB_TABLE` | `aria-transcript-store` | The table from Step I.1 |
-
-> **Finding the Queue ARN**: In the Connect console, go to **Routing** → **Queues** → click on your
-> default queue (usually called **BasicQueue**). Near the top of the details page, click **Show additional
-> queue information**. You will see: **Queue ARN**. Copy the full ARN string — it looks like:
-> `arn:aws:connect:eu-west-2:395402194296:instance/a1b2.../queue/b2c3...`
+> ✅ **AUTOMATED — `scripts/deploy_mcp_gateway.sh` does this for you.**
 >
-> The `QUEUE_ID` variable must be the **full ARN**, not just the UUID at the end. If you pass only the
-> UUID, `StartOutboundVoiceContact` will return `InvalidParameterException`.
+> The deploy script packages and deploys `scripts/lambdas/chat_to_voice_transfer.py` as
+> `aria-banking-chat-to-voice-transfer-{env}`. It also adds the Connect resource-based policy so Connect
+> can invoke it. If you ran the deploy script in Phase 0, this Lambda already exists. Run the verification
+> below and skip to Step I.6.
 
-#### 5d — Enable outbound calling on your Connect instance (if not already done)
+**What this Lambda does**: When ARIA sets `requestVoiceTransfer = true` in contact attributes, the contact
+flow invokes this Lambda. It:
+1. Calls Connect `ListRealtimeContactAnalysisSegmentsV2` (the chat transcript API) to retrieve the last 5 turns of the chat
+2. Builds a summary and stores it in `aria-transcript-store` DynamoDB table with the chat contactId as the key
+3. Calls `connect:StartOutboundVoiceContact` to initiate an outbound call to the customer's callback number, routing through the Unified Inbound flow with `priorChannel=CHAT` and `priorContactId` pre-set
+4. Returns `transferInitiated: "true"` to the contact flow so Block 9B can check success/failure
 
-`StartOutboundVoiceContact` will fail silently if outbound calling is disabled at the instance level.
+**Deployed Lambda name**: `aria-banking-chat-to-voice-transfer-dev`
 
-1. Go to your Amazon Connect instance in the AWS console
-2. Left sidebar → **Telephony**
-3. Under **Outbound calling**, ensure the toggle is **On**
-4. Click **Save**
+**Environment variables set by deploy script**:
+- `INSTANCE_ID` — your Connect instance UUID
+- `CONTACT_FLOW_ID` — the Unified Inbound flow ID
+- `QUEUE_ID` — the ARIA Banking Agents queue ARN
+- `SOURCE_PHONE_NUMBER` — the E.164 outbound call number (e.g. `+441234567890`)
+- `DYNAMODB_TABLE` — `aria-transcript-store`
 
-#### 5e — Allow Amazon Connect to invoke the Lambda
+> **If Connect IDs were empty when you first ran the deploy**: The Lambda was created but its environment
+> variables are blank. After completing Parts A–E, run the deploy script again with `--instance-id`,
+> `--flow-id`, `--queue-id`, and `--source-phone` flags (see Phase 0, Step 0.2).
+
+#### Verify the Lambda was deployed (run this now)
 
 ```bash
-aws lambda add-permission \
+aws lambda get-function \
+  --function-name aria-banking-chat-to-voice-transfer-dev \
   --region eu-west-2 \
-  --function-name aria-chat-to-voice-transfer \
-  --statement-id allow-connect-invoke \
+  --query 'Configuration.{Name:FunctionName,State:State,Runtime:Runtime}' \
+  --output table
+```
+
+Check environment variables are set (after re-running with Connect IDs):
+
+```bash
+aws lambda get-function-configuration \
+  --function-name aria-banking-chat-to-voice-transfer-dev \
+  --region eu-west-2 \
+  --query 'Environment.Variables' \
+  --output json
+```
+
+Expected output: a JSON object showing `INSTANCE_ID`, `CONTACT_FLOW_ID`, `QUEUE_ID`, `SOURCE_PHONE_NUMBER`, and `DYNAMODB_TABLE` — all non-empty.
+
+> **IMPORTANT**: You still need to add this Lambda to the Connect allow-list manually (covered in
+> Phase 0, Step 0.3). The resource-based policy alone is not sufficient.
+
+<details>
+<summary>Manual deployment (only if NOT using the deploy script)</summary>
+
+```bash
+# 1. Package
+cd scripts/lambdas
+cp chat_to_voice_transfer.py lambda_function.py
+zip -j chat-to-voice-transfer.zip lambda_function.py
+rm lambda_function.py
+
+# 2. Deploy
+ROLE_ARN=$(aws iam get-role \
+  --role-name aria-chat-to-voice-lambda-role \
+  --query 'Role.Arn' --output text)
+
+aws lambda create-function \
+  --function-name aria-banking-chat-to-voice-transfer-dev \
+  --runtime python3.12 \
+  --handler lambda_function.lambda_handler \
+  --role "$ROLE_ARN" \
+  --zip-file fileb://chat-to-voice-transfer.zip \
+  --region eu-west-2 \
+  --environment "Variables={INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,CONTACT_FLOW_ID=YOUR_FLOW_ID,QUEUE_ID=arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE,SOURCE_PHONE_NUMBER=+441234567890,DYNAMODB_TABLE=aria-transcript-store}"
+
+# 3. Add Connect resource-based policy
+aws lambda add-permission \
+  --function-name aria-banking-chat-to-voice-transfer-dev \
+  --statement-id AllowConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-account 395402194296 \
-  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID
+  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID \
+  --region eu-west-2
 ```
 
-#### 5f — Add the Lambda to the Connect instance allow-list
-
-Follow the identical steps as Step I.4e, but this time select `aria-chat-to-voice-transfer` from the
-dropdown.
+</details>
 
 ---
 
