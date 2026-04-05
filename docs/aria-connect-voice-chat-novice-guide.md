@@ -796,8 +796,18 @@ The Orchestration prompt is ARIA's brain. It contains:
 3. Fill in the header:
    - **Name**: `ARIA-Banking-Orchestration-Prompt`
    - **Type**: `Orchestration`
-   - **Model**: `eu.anthropic.claude-4-5-sonnet-20250929-v1:0`
-     *(If this exact model ID is not listed, choose the most recent Claude Sonnet model with the `eu.` prefix — these are the eu-west-2 cross-region inference profiles.)*
+   - **Model**: `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` *(Cross Region)*
+
+     > ⚠️ **GDPR / data residency — use the `eu.` prefix, NOT `global.`**
+     > The console may show `global.anthropic.claude-sonnet-4-5-20250929-v1:0` as an option.
+     > Do **not** select it for banking customers — the `global.` Cross-Region Inference Service
+     > can route requests to any AWS region worldwide, including `us-east-1`. Use **`eu.`** which
+     > restricts routing to European regions only (`eu-west-2` ↔ `eu-central-1`).
+     >
+     > If `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` is not shown, look for
+     > `eu.anthropic.claude-4-5-sonnet-20250929-v1:0` (same model, older naming format).
+     > Both are valid. If neither is listed, choose the most recent Claude Sonnet with an `eu.` prefix.
+
    - **Format**: `MESSAGES`
 
 4. In the **Prompt editor** area, you will see an empty YAML template. **Delete all existing content**
@@ -1580,10 +1590,7 @@ and outputs structured routing instructions that guide ARIA's first turn.
 2. Fill in the header:
    - **Name**: `ARIA-Banking-Preprocessing-Prompt`
    - **Type**: `Self-service pre-processing`
-   - **Model**: `eu.anthropic.claude-4-5-sonnet-20250929-v1:0`
-   - **Format**: `MESSAGES`
-
-3. Delete all existing content in the editor and paste the entire block below:
+   - **Model**: `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` *(Cross Region — `eu.` prefix required; see GDPR note in Step D.3)*
 
 ```yaml
 system: |
@@ -1676,8 +1683,7 @@ gives you a second, knowledge-base-specific prompt that can be invoked for KB qu
 2. Fill in the header:
    - **Name**: `ARIA-Banking-Answer-Generation-Prompt`
    - **Type**: `Self-service answer generation`
-   - **Model**: `eu.anthropic.claude-4-5-sonnet-20250929-v1:0`
-   - **Format**: `TEXT_COMPLETIONS`
+   - **Model**: `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` *(Cross Region — `eu.` prefix required)*
 
 3. Delete all existing content and paste:
 
@@ -4854,23 +4860,33 @@ supported model:
 
 **Supported custom prompt models in eu-west-2:**
 
+> ⚠️ **GDPR / data residency**: Always use the **`eu.`** prefix for banking workloads. The
+> `eu.` Cross-Region Inference Service routes only between `eu-west-2` and `eu-central-1`.
+> The `global.` prefix (Global CRIS) can route to any region worldwide including US regions
+> — this is not acceptable for processing UK banking customer personal data under GDPR.
+
 | Model ID | Notes |
 |---|---|
+| `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (new naming format) — **recommended for ARIA** |
+| `eu.anthropic.claude-4-5-sonnet-20250929-v1:0` | Same model, older naming format — both are valid |
 | `eu.anthropic.claude-4-5-haiku-20251001-v1:0` | Fast, cost-efficient (Cross-Region) |
-| `eu.anthropic.claude-4-5-sonnet-20250929-v1:0` | Balanced quality/speed (Cross-Region) — **recommended for ARIA** |
-| `global.anthropic.claude-4-5-haiku-20251001-v1:0` | Global CRIS |
-| `global.anthropic.claude-4-5-sonnet-20250929-v1:0` | Global CRIS |
-| `eu.amazon.nova-pro-v1:0` | Amazon Nova Pro — also excellent for ARIA |
+| `eu.amazon.nova-pro-v1:0` | Amazon Nova Pro — also excellent for ARIA, supports prompt caching |
 | `eu.amazon.nova-lite-v1:0` | Nova Lite — faster, lower cost |
+| `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | ⚠️ Global CRIS — **do not use** for banking |
+| `global.anthropic.claude-4-5-sonnet-20250929-v1:0` | ⚠️ Global CRIS — **do not use** for banking |
 | `anthropic.claude-3-7-sonnet-20250219-v1:0` | Previous generation, still supported |
-| `anthropic.claude-3-haiku-20240307-v1:0` | Previous generation |
+
+> **Note on naming formats**: AWS uses two naming conventions for the same model. Both
+> `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` (new format) and
+> `eu.anthropic.claude-4-5-sonnet-20250929-v1:0` (old format) refer to Claude Sonnet 4.5.
+> The console dropdown may show one or both — either is correct.
 
 **To check/update the model on your ARIA AI prompt:**
 1. Connect admin → **AI Agent Designer** → **AI Prompts**
 2. Click your ARIA Orchestration prompt
 3. In the **Models** section, verify the current model
-4. If it shows a `us.*` model (which will fail cross-region from eu-west-2), change it to
-   `eu.anthropic.claude-4-5-sonnet-20250929-v1:0` or `eu.amazon.nova-pro-v1:0`
+4. If it shows a `us.*` or `global.*` model, change it to
+   `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` or `eu.amazon.nova-pro-v1:0`
 5. Click **Save** → **Publish** to create a new version
 6. In **AI Agent Designer** → **AI Agents** → your ARIA agent → update to use the new prompt version → **Publish**
 
