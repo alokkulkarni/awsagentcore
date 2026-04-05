@@ -1236,8 +1236,48 @@ AgentCore Gateway (`aria-banking-mcp-gateway-dev`) as a third-party MCP server a
 inside Amazon Connect. This is a one-time step that the deploy script does **not** perform
 automatically.
 
-> **Prerequisite**: Run `scripts/deploy_mcp_gateway.sh` first and note the gateway ID printed
-> in the summary (`aria-banking-mcp-gateway-dev-xxxxxxxxxxxx`).
+> **Prerequisite**: Run `scripts/deploy_mcp_gateway.sh` with `--instance-id` so the gateway
+> is configured for Connect. See the gateway auth note below.
+
+#### Gateway Authentication Requirement
+
+Amazon Connect's AI Agent service authenticates to the AgentCore Gateway using OIDC JWT tokens
+issued by your Connect instance. For this to work, the gateway's **Inbound Auth** must be set
+to **CUSTOM_JWT** with the Connect instance's Discovery URL:
+
+```
+https://meridian-aria.my.connect.aws/.well-known/openid-configuration
+```
+
+The deploy script automatically configures this when you supply `--instance-id`:
+
+```bash
+# Fresh deployment — CUSTOM_JWT configured automatically:
+./scripts/deploy_mcp_gateway.sh deploy --env dev \
+    --instance-id 6647242b-ff6a-4f3f-af35-c35e547adc2b
+```
+
+> ⚠️ **Existing gateway (AWS_IAM auth)**: The authorizer type **cannot** be changed on an
+> existing gateway — it must be deleted and recreated. If you already ran the deploy script
+> without `--instance-id`, you must re-deploy:
+> ```bash
+> # 1. Tear down the existing gateway (preserves Lambdas, only deletes the gateway)
+> ./scripts/deploy_mcp_gateway.sh teardown --env dev
+>
+> # 2. Re-deploy with --instance-id to create with CUSTOM_JWT auth
+> ./scripts/deploy_mcp_gateway.sh deploy --env dev \
+>     --instance-id 6647242b-ff6a-4f3f-af35-c35e547adc2b
+> ```
+> The script will warn you if the existing gateway has the wrong auth type.
+
+You can verify the auth type in the **Bedrock AgentCore** console → **Gateways** →
+`aria-banking-mcp-gateway-dev` → **Configuration** tab. You should see
+**Authorizer type: Custom JWT** and the Discovery URL above.
+
+> **Why this matters**: Without CUSTOM_JWT auth, the Connect instance selector in step 5 below
+> will be greyed out (error: *"You can only select the instance that is configured with the
+> selected Gateway's Discovery URL"*). The gateway must have the Connect instance's OIDC
+> Discovery URL configured before the instance can be associated.
 
 **Steps:**
 
@@ -1257,9 +1297,12 @@ automatically.
      that your Connect instance is in the same account and region (`eu-west-2`)
 
 5. Under **Instance association**:
-   - Select your Connect instance — this is the instance whose Discovery URL
-     (`https://<instance>.my.connect.aws/.well-known/openid-configuration`) was configured
-     in the AgentCore Gateway's authorizer settings
+   - If you ran the deploy script with `--instance-id` (CUSTOM_JWT auth configured), your
+     Connect instance will appear in the dropdown — select it
+   - If the instance is greyed out, the gateway still has `AWS_IAM` auth — re-run the deploy
+     script with `--instance-id` as shown above, then refresh this page
+   - If you prefer to skip this for now, leave it as **None** and associate the instance later
+     (the integration will still be created; you can edit it afterwards)
 
 6. Click **Add integration**
 

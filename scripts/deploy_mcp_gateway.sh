@@ -90,6 +90,10 @@ AGENTCORE_RUNTIME_ARN="arn:aws:bedrock-agentcore:${AWS_REGION}:${AWS_ACCOUNT_ID}
 # ---------------------------------------------------------------------------
 # Amazon Connect instance ID  (UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
 CONNECT_INSTANCE_ID="${CONNECT_INSTANCE_ID:-}"
+# Amazon Connect instance URL (e.g. https://my-instance.my.connect.aws)
+# Auto-derived from CONNECT_INSTANCE_ID if not set explicitly.
+# Required for CUSTOM_JWT gateway auth so Connect AI agents can call the gateway.
+CONNECT_INSTANCE_URL="${CONNECT_INSTANCE_URL:-}"
 # Q Connect assistant ID (Connect → AI Agent Designer → Assistants)
 CONNECT_ASSISTANT_ID="${CONNECT_ASSISTANT_ID:-}"
 # ID of the ARIA Unified Inbound contact flow (needed by transfer Lambdas)
@@ -803,7 +807,7 @@ create_dynamodb_table() {
 
     # Wait for the table to reach ACTIVE status before enabling TTL
     log "Waiting for DynamoDB table to become ACTIVE..."
-    aws dynamodb wait table-active \
+    aws dynamodb wait table-exists \
       --table-name "${TRANSCRIPT_TABLE}" \
       --region "${AWS_REGION}"
 
@@ -1248,6 +1252,38 @@ PYEOF
   if [[ -n "${existing}" ]]; then
     ok "Gateway already exists with ID: ${existing}"
     GATEWAY_ID="${existing}"
+    # Check auth type — the authorizer type cannot be changed on an existing gateway.
+    # If we need CUSTOM_JWT (for Connect) but the gateway was created with AWS_IAM,
+    # the user must run teardown first and then re-deploy with --instance-id.
+    if [[ -n "${CONNECT_DISCOVERY_URL}" ]]; then
+      local current_auth=""
+      current_auth=$(python3 - <<PYEOF
+import boto3
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+r = c.get_gateway(gatewayIdentifier='${GATEWAY_ID}')
+print(r.get('authorizerType', ''))
+PYEOF
+)
+      if [[ "${current_auth}" == "AWS_IAM" ]]; then
+        echo ""
+        warn "════════════════════════════════════════════════════════════════"
+        warn "  Gateway auth type mismatch — ACTION REQUIRED"
+        warn "  The existing gateway uses AWS_IAM auth but you need CUSTOM_JWT"
+        warn "  for Connect AI agents to call it."
+        warn ""
+        warn "  The authorizer type CANNOT be changed on an existing gateway."
+        warn "  You must delete and recreate the gateway:"
+        warn ""
+        warn "    1. Run teardown:  $0 teardown --env ${ENV} --region ${AWS_REGION}"
+        warn "    2. Re-deploy:     $0 deploy  --env ${ENV} --region ${AWS_REGION} \\"
+        warn "                          --instance-id <connect-instance-id>"
+        warn ""
+        warn "  Continuing with existing AWS_IAM gateway — Connect instance"
+        warn "  association in D.5.5 will not be available until recreated."
+        warn "════════════════════════════════════════════════════════════════"
+        echo ""
+      fi
+    fi
     # Wait for READY in case a previous run left it in CREATING/UPDATING
     log "Checking gateway status..."
     local status="" attempts=0 max_attempts=40
@@ -1290,19 +1326,35 @@ PYEOF
     die "Gateway did not reach READY after $(( max_attempts * 15 ))s"
   fi
 
-  # Create the gateway — authorizerType must be 'AWS_IAM' (not 'IAM')
+  # Create the gateway.
+  # Use CUSTOM_JWT auth (required for Connect AI agent tool invocation) when a
+  # Connect Discovery URL is available; fall back to AWS_IAM otherwise.
+  # NOTE: allowedClients uses the Connect instance ID so only tokens from this
+  # instance are accepted. At least one of allowedAudience/allowedClients/
+  # allowedScopes/customClaims is required by the API when using CUSTOM_JWT.
+  local auth_kwargs=""
+  if [[ -n "${CONNECT_DISCOVERY_URL}" ]]; then
+    log "Creating gateway with CUSTOM_JWT auth (Connect Discovery URL: ${CONNECT_DISCOVERY_URL})"
+    auth_kwargs="authorizerType='CUSTOM_JWT', authorizerConfiguration={'customJWTAuthorizer': {'discoveryUrl': '${CONNECT_DISCOVERY_URL}', 'allowedClients': ['${CONNECT_INSTANCE_ID}']}}"
+  else
+    warn "CONNECT_INSTANCE_ID/CONNECT_INSTANCE_URL not set — creating gateway with AWS_IAM auth."
+    warn "Connect AI agents will not be able to call this gateway. Re-run with --instance-id."
+    auth_kwargs="authorizerType='AWS_IAM'"
+  fi
+
   local result=""
   result=$(python3 - <<PYEOF
 import boto3, sys
 c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
 try:
-    r = c.create_gateway(
+    kwargs = dict(
         name='${GATEWAY_NAME}',
         roleArn='${GATEWAY_ROLE_ARN}',
         protocolType='MCP',
-        authorizerType='AWS_IAM',
+        ${auth_kwargs},
         description='AgentCore MCP Gateway for ARIA Banking Agent - ${ENV}'
     )
+    r = c.create_gateway(**kwargs)
     print(r['gatewayId'] + '|' + r.get('gatewayUrl', ''))
 except Exception as exc:
     print('ERROR: ' + str(exc), file=sys.stderr)
@@ -1475,10 +1527,53 @@ cmd_deploy() {
   # Step 6 — Gateway IAM role
   create_gateway_role
 
-  # Step 7 — Create gateway
+  # Step 7 — Derive Connect Discovery URL for CUSTOM_JWT gateway auth.
+  # The gateway must use CUSTOM_JWT auth with the Connect instance's OIDC
+  # Discovery URL so that Connect AI agents can call the gateway and so that
+  # the Connect instance can be associated in the MCP integration UI.
+  # The ARIA runtime does NOT call the gateway (it imports tools directly),
+  # so changing from AWS_IAM to CUSTOM_JWT does not affect the runtime.
+  CONNECT_DISCOVERY_URL=""
+  if [[ -n "${CONNECT_INSTANCE_URL}" ]]; then
+    CONNECT_DISCOVERY_URL="${CONNECT_INSTANCE_URL%/}/.well-known/openid-configuration"
+    log "Connect Discovery URL: ${CONNECT_DISCOVERY_URL}"
+  elif [[ -n "${CONNECT_INSTANCE_ID}" ]]; then
+    log "Deriving Connect instance URL from instance ID: ${CONNECT_INSTANCE_ID}..."
+    local derived_url=""
+    derived_url=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('connect', region_name='${AWS_REGION}')
+try:
+    r = c.describe_instance(InstanceId='${CONNECT_INSTANCE_ID}')
+    alias = r.get('Instance', {}).get('InstanceAlias', '')
+    if alias:
+        print(f'https://{alias}.my.connect.aws')
+    else:
+        # Fall back to the access URL field
+        url = r.get('Instance', {}).get('InstanceAccessUrl', '')
+        print(url.rstrip('/'))
+except Exception as exc:
+    print('', end='', flush=True)
+    import sys; print(f'WARN: could not derive Connect URL: {exc}', file=sys.stderr)
+PYEOF
+)
+    if [[ -n "${derived_url}" ]]; then
+      CONNECT_INSTANCE_URL="${derived_url}"
+      CONNECT_DISCOVERY_URL="${derived_url}/.well-known/openid-configuration"
+      log "Derived Connect Discovery URL: ${CONNECT_DISCOVERY_URL}"
+    else
+      warn "Could not derive Connect instance URL — gateway will use AWS_IAM auth."
+      warn "Re-run with CONNECT_INSTANCE_URL=https://<alias>.my.connect.aws to enable CUSTOM_JWT."
+    fi
+  else
+    warn "CONNECT_INSTANCE_ID/CONNECT_INSTANCE_URL not set — gateway will use AWS_IAM auth."
+    warn "Connect AI agents will not be able to call the gateway. Set --instance-id to fix this."
+  fi
+
+  # Step 8 — Create gateway (uses CONNECT_DISCOVERY_URL if set)
   create_mcp_gateway
 
-  # Step 8 — Add targets
+  # Step 9 — Add targets
   for domain in "${DOMAINS[@]}"; do
     add_gateway_target "${domain}" "${LAMBDA_ARNS[${domain}]}"
   done
@@ -1779,6 +1874,10 @@ usage() {
   echo ""
   echo "  Connect / support Lambda options (required for full deployment):"
   echo "    --instance-id  <id>      Amazon Connect instance ID"
+  echo "    --instance-url <url>     Connect instance URL (e.g. https://my-instance.my.connect.aws)"
+  echo "                             Auto-derived from --instance-id if not supplied."
+  echo "                             Used to configure CUSTOM_JWT auth on the gateway so Connect"
+  echo "                             AI agents can invoke tools. Strongly recommended."
   echo "    --assistant-id <id>      Q Connect assistant ID (from Part D.1)"
   echo "    --flow-id      <id>      Unified Inbound contact flow ID (from Part E)"
   echo "    --queue-id     <id>      Queue ARN/ID for outbound voice callbacks"
@@ -1833,6 +1932,7 @@ main() {
       --env)              ENV="$2";                      shift 2 ;;
       --region)           AWS_REGION="$2";               shift 2 ;;
       --instance-id)      CONNECT_INSTANCE_ID="$2";      shift 2 ;;
+      --instance-url)     CONNECT_INSTANCE_URL="$2";     shift 2 ;;
       --assistant-id)     CONNECT_ASSISTANT_ID="$2";     shift 2 ;;
       --flow-id)          CONNECT_CONTACT_FLOW_ID="$2";  shift 2 ;;
       --queue-id)         CONNECT_QUEUE_ID="$2";         shift 2 ;;
