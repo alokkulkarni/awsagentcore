@@ -1259,7 +1259,7 @@ The deploy script automatically configures both fields when you supply `--instan
 ```bash
 # Fresh deployment — CUSTOM_JWT + correct audience configured automatically:
 ./scripts/deploy_mcp_gateway.sh deploy --env dev \
-    --instance-id 6647242b-ff6a-4f3f-af35-c35e547adc2b
+    --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe
 ```
 
 > ⚠️ **Existing gateway (AWS_IAM auth)**: The authorizer type **cannot** be changed on an
@@ -1271,7 +1271,7 @@ The deploy script automatically configures both fields when you supply `--instan
 >
 > # 2. Re-deploy with --instance-id to create with CUSTOM_JWT auth
 > ./scripts/deploy_mcp_gateway.sh deploy --env dev \
->     --instance-id 6647242b-ff6a-4f3f-af35-c35e547adc2b
+>     --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe
 > ```
 > The script will warn you if the existing gateway has the wrong auth type.
 
@@ -1304,12 +1304,14 @@ You can verify the configuration in the **Bedrock AgentCore** console → **Gate
      that your Connect instance is in the same account and region (`eu-west-2`)
 
 5. Under **Instance association**:
-   - If you ran the deploy script with `--instance-id` (CUSTOM_JWT auth configured), your
-     Connect instance will appear in the dropdown — select it
-   - If the instance is greyed out, the gateway still has `AWS_IAM` auth — re-run the deploy
-     script with `--instance-id` as shown above, then refresh this page
-   - If you prefer to skip this for now, leave it as **None** and associate the instance later
-     (the integration will still be created; you can edit it afterwards)
+   - Your Connect instance (`aria-meridian-bank`) **must** appear and be selected here.
+     This is what makes the **Third-party MCP** category visible in the AI Agent Builder.
+   - If the instance is greyed out with the message *"You can only select the instance that
+     is configured with the selected Gateway's Discovery URL"*, the gateway's CUSTOM_JWT
+     Discovery URL does not match your instance. Re-run the deploy script with the correct
+     `--instance-id` as shown above, then refresh this page.
+   - **Do not skip this step** — leaving it as None means the AI Agent Builder will not
+     show the gateway as a tool source.
 
 6. Click **Add integration**
 
@@ -1320,6 +1322,55 @@ You can verify the configuration in the **Bedrock AgentCore** console → **Gate
 > into the prompt via `{{$.toolConfigurationList}}`. The 10 banking domain tool groups
 > (auth, account, customer, debit-card, credit-card, mortgage, products, pii, escalation, knowledge)
 > then become available to ARIA during the conversation.
+
+#### Troubleshooting: "Third-party MCP" still not visible in the AI Agent Builder
+
+If you completed all 6 steps above but **Add Tools** in D.6 still shows only **"Amazon Connect"**
+and **"Create new AI Tool"** (no **Third-party MCP** section):
+
+**Step 1 — Verify the integration was saved with instance association**
+
+Go to Connect console → **Integrations** → find `ARIA-Banking-MCP-Gateway`. Click it and confirm
+the **Instance** column shows `aria-meridian-bank`. If it shows **None**, delete the integration
+and re-do D.5.5, this time selecting the instance in step 5.
+
+**Step 2 — Confirm WISDOM_ASSISTANT points to the correct assistant**
+
+The Connect instance must be linked to the Q Connect assistant that contains your AI agents.
+Run this check:
+```bash
+aws connect list-integration-associations \
+  --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe \
+  --region eu-west-2 \
+  --query "IntegrationAssociationSummaryList[?IntegrationType=='WISDOM_ASSISTANT']"
+```
+The `IntegrationArn` must point to `meridian-aria-domain`
+(`arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749`).
+If it points to a different assistant, the AI Agent Builder is showing the wrong agent list.
+To fix:
+```bash
+# Remove the wrong WISDOM_ASSISTANT association first
+aws connect delete-integration-association \
+  --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe \
+  --integration-association-id <ASSOC_ID> --region eu-west-2
+
+# Re-link to the correct assistant
+aws connect create-integration-association \
+  --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe \
+  --integration-type WISDOM_ASSISTANT \
+  --integration-arn arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749 \
+  --region eu-west-2
+```
+
+**Step 3 — Hard-refresh the Connect console**
+
+Press **Cmd+Shift+R** (Mac) or **Ctrl+Shift+R** (Windows/Linux) to force a full reload.
+The AI Agent Builder caches the list of integrations; a stale cache is a common cause.
+
+**Step 4 — Re-open the agent editor**
+
+If editing an existing agent, close the editor tab and reopen it. If creating a new agent,
+cancel and start the creation flow again after the hard refresh.
 
 ---
 
