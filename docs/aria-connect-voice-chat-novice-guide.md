@@ -1450,25 +1450,12 @@ Nova Sonic.
 
 4. **AI Guardrail**: select `ARIA-Banking-Guardrail (v1)`
 
-5. **Tools** section — Self-service agents use a different tool model from Orchestration:
-
-   - The Self-service pre-processing prompt routes conversations using its built-in XML tag
-     output (`<routing_decision>`) — it does **not** call MCP tools directly.
-   - The Self-service answer generation prompt answers KB queries using `{{$.contentExcerpt}}`
-     — it also does **not** call MCP tools.
-   - **Leave the Tools section empty** for this agent type unless you specifically want to add
-     out-of-the-box Connect tools (e.g. Update contact attributes).
-   - Do **not** add the `ARIA-Banking-MCP-Gateway` here — it is only used by the Orchestration agent.
-
-   > **Note**: Amazon Connect does not support locale selection for Self-service agents — only
-   > English (`en_GB` / `en_US`) is supported regardless of what you configure.
-
-6. **Locale**: `en_GB`
+5. **Locale**: `en_GB`
 
    > ⚠️ Locale setting has no effect on Self-service agents — only English is supported by this
    > agent type at the time of writing. The locale field is shown but ignored at runtime.
 
-7. Click **Save** → **Publish**
+6. Click **Save** → **Publish**
 
 > The Self-service agent does **not** use the Orchestration prompt — it uses the pre-processing and
 > answer generation prompts together. The Orchestration agent handles complex multi-turn queries with
@@ -4263,12 +4250,254 @@ feels genuinely like speaking to a human agent.
 | Path | Pipeline | Voice quality | Complexity | When to use |
 |---|---|---|---|---|
 | **Path A — Native Connect AI Agent** (this guide) | Contact Lens real-time → Connect AI Agent (LLM) → Polly TTS | Good (neural/generative Polly) | Lowest — no extra services | Fastest to deploy; eu-west-2 supported today |
-| **Path B — Lex V2 + Nova Sonic S2S** | Connect → Lex V2 bot → Nova Sonic → Lambda → ARIA AgentCore | Excellent — native S2S | Medium — requires Lex bot + bridge Lambda | Best voice quality; full speech-to-speech |
-| **Path C — Native AI Voice (Nova Sonic 2 built-in)** | Connect native voice AI with Nova Sonic 2 as the model | Excellent — native S2S | Low once enabled — no Lex needed | Nova Sonic 2 is in `us-east-1` only; our eu-west-2 Connect instance accesses it via **cross-region inference profile** |
+| **Path B — Connect Conversational AI Bot + Nova Sonic S2S** | Routing → Flows → **Bots** tab → Lex V2 bot with Nova Sonic S2S + `AMAZON.QinConnectIntent` → Q Connect AI Agent | Excellent — native S2S, no Polly | Medium — create a Lex bot + update the flow | Best voice quality within Connect; Nova Sonic processes speech natively |
+| **Path C — Nova Sonic 2 via Cross-Region Inference Profile** | Q Connect AI Agent (ARIA) with Nova Sonic 2 model via `us.amazon.nova-sonic-v2:0` inference profile | Excellent — native S2S | Low once enabled — no Lex needed | Nova Sonic 2 is in `us-east-1` only; our eu-west-2 Connect instance accesses it via **cross-region inference profile** |
 
-This section covers **Path A in full** (already documented above), then covers **Path C** — using
-Nova Sonic natively within the Connect Conversational AI pipeline without Lex — in complete detail.
-Path B is documented in `docs/amazon-connect-lex-nova-sonic-setup-guide.md`.
+This section covers **Path A in full** (already documented above), then covers **Path B** — the
+new Connect Conversational AI Bots tab approach with native Nova Sonic S2S — followed by **Path C**.
+
+---
+
+### Path B — Connect Conversational AI Bot with Nova Sonic S2S
+
+#### What this path does differently from Path A
+
+In Path A, the contact flow uses a `CreateWisdomSession` block (Block 8) to hand the call directly
+to the Q Connect Orchestration AI Agent. Amazon Polly handles all TTS.
+
+In Path B, you create a **Conversational AI bot** in Connect (a Lex V2 bot built entirely inside the
+Connect admin website). You configure the bot's speech model as **Speech-to-Speech: Amazon Nova Sonic**,
+meaning Nova Sonic processes both the customer's speech (STT) and ARIA's responses (TTS) natively —
+no Polly is used. You then enable **`AMAZON.QinConnectIntent`** on the bot, which tells the Lex bot to
+hand off complex queries directly to your Q Connect AI Agent (ARIA). The contact flow replaces the
+`CreateWisdomSession` block with a **Get Customer Input** block pointing at the Lex bot.
+
+```
+Customer call arrives
+        ↓
+Set Voice block (Amy, Generative speaking style — enables Nova Sonic expressive output)
+        ↓
+Get Customer Input block → ARIA-Banking-Bot (Lex V2)
+        ↓  ← Nova Sonic: customer speech → text (STT)
+AMAZON.QinConnectIntent → Q Connect AI Agent (ARIA Orchestration)
+        ↓  ← ARIA LLM generates a text response
+Nova Sonic: text → speech (TTS) → streamed back to customer
+```
+
+> **Key benefit**: The entire speech pipeline runs natively inside Connect. No external WebRTC or
+> bidirectional stream connection is needed. Nova Sonic handles STT and TTS as a first-party feature.
+
+---
+
+#### Step B.1 — Enable Bot Building (if not already enabled)
+
+Bot building may already be enabled. Verify:
+
+1. Connect admin → **Routing** → **Flows**
+2. Check for a **Bots** tab at the top of the page
+3. If you do not see the Bots tab:
+   - Connect admin → **Settings** → **Feature settings** → Enable **Conversational AI bots**
+
+> Official docs: [Enable bot and analytics in Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/enable-bot-building.html)
+
+---
+
+#### Step B.2 — Create the ARIA Banking Conversational AI Bot
+
+1. Connect admin → **Routing** → **Flows** → select the **Bots** tab
+2. Choose **Create bot**
+3. Fill in the Details dialog:
+   - **Bot name**: `ARIA-Banking-Bot`
+   - **Bot description**: `ARIA Banking AI voice bot — routes to Q Connect AI Agent`
+   - **COPPA**: `No` (banking service for adults)
+4. Choose **Create**
+5. You are taken to the bot configuration page
+
+> The bot is powered by Amazon Lex V2 under the hood but is built and managed entirely within the
+> Connect admin website — you do not need to open the Lex console.
+
+---
+
+#### Step B.3 — Add the en-GB Locale
+
+1. On the bot configuration page, choose **Add language**
+2. Select **English (British) (en-GB)**
+3. Choose **Create from scratch**
+4. You are taken to the **Define your bot** section
+
+> You do not need to add custom intents. `AMAZON.QinConnectIntent` (enabled in Step B.5) acts as the
+> bot's primary intent and handles all natural language routing through the Q Connect AI Agent.
+
+---
+
+#### Step B.4 — Configure Speech-to-Speech: Amazon Nova Sonic
+
+1. On the bot page, select the **Configuration** tab
+2. Under **Languages**, select the **en-GB** locale you just added
+3. In the **Speech model** section, choose **Edit**
+4. In the Speech model dialog:
+   - **Model type**: select **Speech-to-Speech**
+   - **Voice provider**: select **Amazon Nova Sonic**
+5. Choose **Confirm**
+
+The Speech model card now shows **Speech-to-Speech: Amazon Nova Sonic** with a ⚠️ warning:
+> "Select a Nova Sonic compatible voice in your Set voice block"
+
+You will configure the Set voice block in Step B.8 below.
+
+> Official docs: [Configure Amazon Nova Sonic Speech-to-Speech](https://docs.aws.amazon.com/connect/latest/adminguide/nova-sonic-speech-to-speech.html)
+
+---
+
+#### Step B.5 — Enable AMAZON.QinConnectIntent (Connect AI Agents)
+
+This is the bridge that routes customer speech from the Lex bot to your Q Connect AI Agent (ARIA).
+
+1. Still on the bot Configuration tab, find **Connect AI agents intent**
+2. Toggle the **Connect AI agents intent** switch to **On**
+3. In the **Enable Connect AI agents intent** dialog:
+   - Use the dropdown to select the **ARN of your Q Connect assistant**
+   - The ARN is: `arn:aws:wisdom:eu-west-2:<ACCOUNT_ID>:assistant/<ASSISTANT_ID>`
+   - For Meridian ARIA: `arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749`
+4. Choose **Confirm**
+
+> The `AMAZON.QinConnectIntent` is an Amazon Lex built-in intent that delegates the conversation
+> to your Q Connect Orchestration AI Agent. Once enabled, virtually all customer speech is routed
+> through ARIA rather than being handled by the bot's own intents.
+
+⚠️ **Important constraint**: You **cannot** use `AMAZON.QinConnectIntent` in the same bot locale as
+`AMAZON.QnAIntent` or `AMAZON.BedrockAgentIntent` — they conflict. Since we only need QinConnect,
+this is fine.
+
+---
+
+#### Step B.6 — Build the Language
+
+1. The en-GB locale now shows **Unbuilt changes**
+2. Choose **Build language**
+3. Wait for the build to complete — the status changes to **Built**
+
+> Build time is typically 1–3 minutes.
+
+---
+
+#### Step B.7 — Create a Bot Alias
+
+The contact flow must reference a specific bot alias, not the DRAFT version.
+
+1. On the bot page, choose the **Aliases** tab
+2. Choose **Create alias**
+3. Fill in:
+   - **Alias name**: `Production`
+   - **Bot version**: `1` (first build) — or `DRAFT` for testing
+4. Enable **Use in flow and flow modules** toggle → **On**
+5. Choose **Create**
+
+> Record the alias ARN — you will need it in Step B.9:
+> `arn:aws:lex:eu-west-2:<ACCOUNT_ID>:bot-alias/<BOT_ID>/<ALIAS_ID>`
+
+---
+
+#### Step B.8 — Update the Set Voice Block for Nova Sonic
+
+The contact flow's Set Voice block (Block 3V in the voice path) must be configured to use a
+Nova Sonic-compatible voice with Generative speaking style.
+
+1. Open the **ARIA Banking Unified Inbound** flow in the Flow designer
+2. In the voice path, open **Block 3V** (Set voice)
+3. Configure:
+   - **Voice provider**: `Amazon`
+   - **Language**: `English, British (en-GB)`
+   - **Voice**: `Amy`
+4. Under **Other settings**, expand and enable **Override speaking style**
+5. Set speaking style to: **Generative**
+6. Choose **Save**
+
+The Set Voice block now shows `Voice: Amy (Generative)`.
+
+> Nova Sonic-compatible voices for en-GB: **Amy** (Feminine). Generative speaking style is required —
+> Standard or Neural styles do not activate Nova Sonic's expressive speech output.
+
+---
+
+#### Step B.9 — Replace the CreateWisdomSession Block with Get Customer Input
+
+> **This step changes the contact flow architecture.** If you want to keep Path A (Polly) as a
+> fallback, keep a copy of the current flow before making these changes.
+
+The current voice path uses:
+```
+Block 7V (Greeting) → Block 8 (CreateWisdomSession) → Block 9 (Lambda session injector) → Block 10 (Queue)
+```
+
+For Path B, replace Block 8 and Block 9 with a single **Get Customer Input** block:
+
+1. In the flow canvas, delete **Block 8** (CreateWisdomSession)
+2. Delete **Block 9** (Lambda session injector — `aria-banking-session-injector-dev`)
+3. Search the block library for **Get customer input** and drag it onto the canvas
+4. Connect Block 7V's output to the new Get Customer Input block
+5. Configure the Get Customer Input block:
+   - Select the **Amazon Lex** tab
+   - **Bot**: `ARIA-Banking-Bot`
+   - **Alias**: `Production` (the alias you created in Step B.7)
+   - **Language attribute**: `en-GB`
+   - **Customer prompt or bot initialization**: enter a brief opening prompt, e.g.:
+     ```
+     Welcome to Meridian Bank. How can I help you today?
+     ```
+     *(This prompt is spoken by Polly before Nova Sonic takes over — keep it short)*
+   - Under **Intents**, choose **Add an intent** → select `AMAZON.QinConnectIntent`
+6. Under **Transitions** in the block:
+   - **Intent matched** (QinConnectIntent) → connect to Block 10 (Set working queue)
+   - **No match / Error** → connect to error block (transfer to BasicQueue)
+7. Save the Get Customer Input block
+
+8. Connect the block's output to **Block 10** (UpdateContactTargetQueue → BasicQueue)
+9. **Save and Publish** the flow
+
+> **Session context injection**: The session injector Lambda (Block 9) is no longer needed in this
+> path — the Q Connect session is created automatically by the Lex bot + QinConnectIntent. To
+> pass customer context (auth status, locale, etc.) to ARIA, use **Session attributes** in the
+> Get Customer Input block. Add session attributes in the block configuration under
+> **Session attributes** → **Add an attribute** for each key you want to pass (e.g. `locale`,
+> `channel`, `authStatus`, `contactId`). These become available as `$.SessionAttributes.<key>` in
+> the Q Connect AI Agent.
+
+---
+
+#### Step B.10 — Verify Path B is Active on a Test Call
+
+1. Call your Meridian Bank phone number (`+442046394691`)
+2. You should hear the greeting prompt from Block 7V (spoken by Polly)
+3. After the greeting, Nova Sonic takes over — the voice noticeably changes to Amy's
+   natural, expressive Nova Sonic voice
+4. Speak a banking query: "What's my account balance?"
+5. ARIA (via Q Connect AI Agent + `AMAZON.QinConnectIntent`) responds naturally
+
+**Verify in Connect Analytics:**
+1. Connect admin → **Analytics** → **Contact search**
+2. Find the test call → click the Contact ID
+3. Under **Recordings and transcripts**:
+   - The transcript shows the Lex bot received the speech
+   - The `AMAZON.QinConnectIntent` intent is listed
+   - ARIA's response is shown in the transcript
+
+---
+
+#### Step B.11 — Troubleshooting Path B
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| No Bots tab visible | Feature not enabled | Settings → Feature settings → Enable Conversational AI bots |
+| `AMAZON.QinConnectIntent` not in dropdown | Bot created outside Connect admin site | Only bots created in the Connect Bots tab show QinConnect intent toggle; use Connect admin site |
+| Bot not appearing in Get Customer Input block | `AmazonConnectEnabled` tag missing | Lex console → bot → Tags → add `AmazonConnectEnabled = true`; refresh flow designer |
+| Voice sounds like Polly, not Nova Sonic | Set voice block not set to Generative | Block 3V → Amy → Override speaking style → Generative |
+| ARIA does not respond (silence after greeting) | QinConnectIntent not enabled or built | Check bot Configuration tab → Connect AI agents intent is On; rebuild the language |
+| "Alias not found" error in Connect | Alias not set to use in flows | Aliases tab → select alias → enable "Use in flow and flow modules" |
+| Session attributes not reaching ARIA | Wrong attribute key format | Use session attributes in GCI block config; reference as `$.SessionAttributes.<key>` in AI Prompt |
+| Call drops immediately after GCI block | Bot not associated with Connect instance | Routing → Flows → Bots — verify bot shows in your instance's bot list |
+
+---
 
 ---
 
@@ -4767,18 +4996,18 @@ Use these analytics to monitor and improve ARIA's Nova Sonic voice experience.
 
 ### Nova Sonic vs Polly: Feature Comparison for ARIA
 
-| Feature | Amazon Polly (Path A — neural/generative) | Nova Sonic (Path C — S2S) |
-|---|---|---|
-| Voice naturalness | Good (neural) / Excellent (generative) | Excellent — human-like cadence |
-| Latency (time to first audio) | ~200–500ms | ~100–300ms |
-| Barge-in support | Via Contact Lens / Lex | Native in Nova Sonic |
-| Tone/emotion | Static — same tone always | Dynamic — reflects content tone |
-| SSML support | Yes | No — uses natural language |
-| Multilingual | 60+ languages via Polly | Core languages (expanding) |
-| Cost (eu-west-2) | Included in Unlimited AI Pricing | Included in Unlimited AI Pricing + cross-region data transfer costs (eu-west-2 ↔ us-east-1) |
-| Region availability | Available now in eu-west-2 | Nova Sonic 2 available in `us-east-1` only; accessed from eu-west-2 via cross-region inference profile `us.amazon.nova-sonic-v2:0` |
-| Configuration required | Set voice block engine | Bedrock model access + enabled instance |
-| ARIA prompt changes needed | None | Add voice style guidance (recommended) |
+| Feature | Path A — Polly (neural/generative) | Path B — Nova Sonic S2S (Lex bot) | Path C — Nova Sonic 2 (inference profile) |
+|---|---|---|---|
+| Voice naturalness | Good (neural) / Excellent (generative) | Excellent — native S2S, Amy en-GB | Excellent — human-like cadence |
+| Latency (first audio) | ~200–500ms | ~100–200ms | ~100–300ms |
+| Barge-in support | Via Contact Lens | Native in Nova Sonic | Native in Nova Sonic |
+| Tone/emotion | Static | Dynamic | Dynamic |
+| SSML support | Yes | No — natural language only | No — natural language only |
+| Lex bot required | No | Yes — built in Connect Bots tab | No |
+| Session injector Lambda | Yes (Block 9) | No — use GCI session attributes | Yes (Block 9) |
+| Region | eu-west-2 | eu-west-2 (Lex) + us-east-1 (Nova Sonic) | us-east-1 via cross-region profile |
+| Data residency concern | No | Voice → us-east-1 for Nova Sonic S2S | Voice → us-east-1 |
+| Complexity | Lowest | Medium (create bot, update flow) | Low once enabled |
 
 ---
 
@@ -4791,14 +5020,23 @@ Are you using ARIA in eu-west-2 (our deployment)?
     │   → Use Path A (Polly neural Amy)
     │   Parts D–G of this guide. ARIA works fully today.
     │
-    └── Want Native Speech-to-Speech (Nova Sonic 2)?
+    └── Want Native Speech-to-Speech (Nova Sonic)?
         │
-        ├── Have DPO / legal sign-off for voice data processing in us-east-1?
-        │   └── Yes → Use Path C (Nova Sonic 2 cross-region)
-        │             Enable model access in us-east-1 (Step C.3)
-        │             Use inference profile us.amazon.nova-sonic-v2:0
-        │             Steps C.1–C.11 above
+        ├── Want the simplest Nova Sonic setup within Connect (Bots tab)?
+        │   → Use Path B (Connect Conversational AI Bot + Nova Sonic S2S)
+        │       Steps B.1–B.11 in this section
+        │       Creates a Lex bot in the Connect Bots tab
+        │       Enables AMAZON.QinConnectIntent → Q Connect AI Agent (ARIA)
+        │       Requires DPO/legal sign-off (voice data processed in us-east-1)
         │
+        └── Already have Q Connect AI Agent path set up, want to add Nova Sonic?
+            │
+            ├── Have DPO / legal sign-off for voice data processing in us-east-1?
+            │   └── Yes → Use Path C (Nova Sonic 2 cross-region inference profile)
+            │             Enable model access in us-east-1 (Step C.3)
+            │             Use inference profile us.amazon.nova-sonic-v2:0
+            │             Steps C.1–C.11 above
+            │
         └── Not yet / still reviewing compliance?
             → Use Path A now
               Return to Path C after compliance review

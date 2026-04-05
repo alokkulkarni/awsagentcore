@@ -1067,11 +1067,27 @@ deploy_session_injector() {
   local source_file="${REPO_ROOT}/scripts/lambdas/session_injector.py"
   [[ -f "${source_file}" ]] || die "Session injector source not found: ${source_file}"
 
+  # Auto-discover CONNECT_ASSISTANT_ID from Q Connect if not supplied.
+  # Q Connect assistants are regional — list all and take the first one whose
+  # association matches our Connect instance.
   if [[ -z "${CONNECT_ASSISTANT_ID}" ]]; then
-    warn "CONNECT_ASSISTANT_ID is not set. The session injector will deploy but ARIA cannot"
-    warn "personalise sessions until ASSISTANT_ID is configured in its environment variables."
-    warn "Re-run with --assistant-id <id> after noting the Q Connect assistant ID from Part D.1"
-    warn "of the novice guide."
+    step "CONNECT_ASSISTANT_ID not set — attempting auto-discovery from Q Connect…"
+    local discovered
+    discovered=$(
+      aws qconnect list-assistants \
+        --region "${AGENTCORE_REGION}" \
+        --query "assistantSummaries[0].assistantId" \
+        --output text 2>/dev/null || true
+    )
+    if [[ -n "${discovered}" && "${discovered}" != "None" ]]; then
+      CONNECT_ASSISTANT_ID="${discovered}"
+      ok "Auto-discovered Q Connect assistant ID: ${CONNECT_ASSISTANT_ID}"
+    else
+      warn "CONNECT_ASSISTANT_ID is not set and auto-discovery failed."
+      warn "The session injector will deploy but ARIA cannot personalise sessions"
+      warn "until ASSISTANT_ID is configured in its environment variables."
+      warn "Re-run with --assistant-id <id> after noting the Q Connect assistant ID from D.1."
+    fi
   fi
 
   local env_vars
