@@ -1229,10 +1229,54 @@ prompt: |
 
 ---
 
+### Step D.5.5 — Register the AgentCore MCP Gateway as a Connect Integration
+
+Before you can attach tools to the Orchestration AI Agent, you must register the deployed
+AgentCore Gateway (`aria-banking-mcp-gateway-dev`) as a third-party MCP server application
+inside Amazon Connect. This is a one-time step that the deploy script does **not** perform
+automatically.
+
+> **Prerequisite**: Run `scripts/deploy_mcp_gateway.sh` first and note the gateway ID printed
+> in the summary (`aria-banking-mcp-gateway-dev-xxxxxxxxxxxx`).
+
+**Steps:**
+
+1. In the Amazon Connect Admin console, go to the left navigation → **Integrations** (under
+   the **Applications** or **Third-party applications** heading, depending on your view).
+
+2. Click **Add integration**.
+
+3. Fill in **Basic information**:
+   - **Display name**: `ARIA-Banking-MCP-Gateway`
+   - **Description**: `ARIA banking domain tools via AgentCore MCP Gateway (10 domain Lambdas)`
+   - **Integration type**: `MCP server`
+
+4. Under **Application details** → **Select a Bedrock AgentCore gateway**:
+   - Choose `aria-banking-mcp-gateway-dev` from the dropdown
+   - If it doesn't appear, confirm the gateway is `READY` in the Bedrock AgentCore console and
+     that your Connect instance is in the same account and region (`eu-west-2`)
+
+5. Under **Instance association**:
+   - Select your Connect instance — this is the instance whose Discovery URL
+     (`https://<instance>.my.connect.aws/.well-known/openid-configuration`) was configured
+     in the AgentCore Gateway's authorizer settings
+
+6. Click **Add integration**
+
+7. Note the integration name `ARIA-Banking-MCP-Gateway` — you will select it in Step D.6.
+
+> **What this does**: Amazon Connect registers the gateway as a trusted third-party tool provider.
+> When the Orchestration AI Agent runs, it fetches the tool list from the gateway and injects it
+> into the prompt via `{{$.toolConfigurationList}}`. The 10 banking domain tool groups
+> (auth, account, customer, debit-card, credit-card, mortgage, products, pii, escalation, knowledge)
+> then become available to ARIA during the conversation.
+
+---
+
 ### Step D.6 — Assemble and Publish the Orchestration AI Agent
 
-Now you wire the guardrail and prompt together into the AI Agent. This is what the contact flow's
-Block 8 (Connect Assistant) will reference.
+Now you wire the guardrail, prompt, and MCP tools together into the AI Agent. This is what the
+contact flow's Block 8 (Connect Assistant) will reference.
 
 **Steps:**
 
@@ -1256,24 +1300,60 @@ Block 8 (Connect Assistant) will reference.
    - Select `ARIA-Banking-Guardrail`
    - Select the **published version** (e.g. `v1`)
 
-5. **Locale** — set to `en_GB`
+5. **Tools** section — this is where ARIA's banking capabilities are wired in:
 
-6. Click **Save** — this saves a Draft agent
+   a. Click **Add tools** (or the **+** icon in the Tools section).
 
-7. Review the configuration:
+   b. You will see three tool categories:
+
+      | Category | What it is | Use for ARIA? |
+      |---|---|---|
+      | **Out-of-the-box tools** | Prebuilt Connect tools (update contact attributes, retrieve case info) | Optional — see below |
+      | **Flow module tools** | Existing Connect flow modules promoted to MCP tools | Not used for ARIA |
+      | **Third-party MCP** | AgentCore Gateway tools registered in Step D.5.5 | **Required** |
+
+   c. Under **Third-party MCP** → select `ARIA-Banking-MCP-Gateway`
+      - This adds all 10 banking domain tool groups to the agent:
+        `auth`, `account`, `customer`, `debit-card`, `credit-card`, `mortgage`,
+        `products`, `pii`, `escalation`, `knowledge`
+      - The tools will be injected into the orchestration prompt at runtime via
+        `{{$.toolConfigurationList}}`
+
+   d. *(Optional)* Under **Out-of-the-box tools**, you may also enable:
+      - **Update contact attributes** — allows ARIA to write session data back to the contact
+        (e.g. flag a vulnerability, set resolved status)
+      - Leave all others disabled unless needed
+
+   e. *(Optional)* For each tool added, you can configure:
+      - **Additional instructions** — extra guidance to the model on when/how to call the tool
+      - **Input overrides** — force specific input fields to fixed values
+      - **Output filters** — restrict which output fields are passed back to the model
+      - For ARIA, leave these at defaults unless you want to restrict specific tool inputs
+
+6. **Locale** — set to `en_GB`
+
+7. Click **Save** — this saves a Draft agent
+
+8. Review the configuration:
    - Type shows `Orchestration`
    - AI Prompt shows `ARIA-Banking-Orchestration-Prompt (v1)` or similar
    - AI Guardrail shows `ARIA-Banking-Guardrail (v1)` or similar
+   - Tools shows `ARIA-Banking-MCP-Gateway` plus any out-of-the-box tools you added
 
-8. Click **Publish**
+9. Click **Publish**
 
-9. After publishing, note down:
-   - **Agent ID** (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
-   - **Agent ARN** (format: `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/...`)
-   - The ARN is what Block 8 in the contact flow needs
+10. After publishing, note down:
+    - **Agent ID** (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+    - **Agent ARN** (format: `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/...`)
+    - The ARN is what Block 8 in the contact flow needs
 
 > **Draft vs Published**: Only the Published version is visible to contact flows. If the agent shows as
 > Draft, Block 8 cannot find it and calls will fail. Always publish before testing.
+
+> **How tools reach the prompt**: When ARIA processes a turn, Connect fetches the tool definitions
+> from the AgentCore Gateway and substitutes them into the system prompt at `{{$.toolConfigurationList}}`.
+> The model sees a structured list of available tools and their schemas, then decides which to call
+> based on the customer's request.
 
 ---
 
@@ -1301,9 +1381,25 @@ Nova Sonic.
 
 4. **AI Guardrail**: select `ARIA-Banking-Guardrail (v1)`
 
-5. **Locale**: `en_GB`
+5. **Tools** section — Self-service agents use a different tool model from Orchestration:
 
-6. Click **Save** → **Publish**
+   - The Self-service pre-processing prompt routes conversations using its built-in XML tag
+     output (`<routing_decision>`) — it does **not** call MCP tools directly.
+   - The Self-service answer generation prompt answers KB queries using `{{$.contentExcerpt}}`
+     — it also does **not** call MCP tools.
+   - **Leave the Tools section empty** for this agent type unless you specifically want to add
+     out-of-the-box Connect tools (e.g. Update contact attributes).
+   - Do **not** add the `ARIA-Banking-MCP-Gateway` here — it is only used by the Orchestration agent.
+
+   > **Note**: Amazon Connect does not support locale selection for Self-service agents — only
+   > English (`en_GB` / `en_US`) is supported regardless of what you configure.
+
+6. **Locale**: `en_GB`
+
+   > ⚠️ Locale setting has no effect on Self-service agents — only English is supported by this
+   > agent type at the time of writing. The locale field is shown but ignored at runtime.
+
+7. Click **Save** → **Publish**
 
 > The Self-service agent does **not** use the Orchestration prompt — it uses the pre-processing and
 > answer generation prompts together. The Orchestration agent handles complex multi-turn queries with
