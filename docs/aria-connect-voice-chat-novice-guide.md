@@ -54,6 +54,18 @@
 10. [Part F — Connect Channels to the Unified Flow](#part-f--connect-channels-to-the-unified-flow)
 11. [Part G — Test Voice (Call the Number)](#part-g--test-voice-call-the-number)
 12. [Part H — Set Up and Test Chat](#part-h--set-up-and-test-chat)
+13. [Part I — Cross-Channel Transfers (Voice → Chat Deflection & Chat → Voice Callback)](#part-i--cross-channel-transfers-voice--chat-deflection--chat--voice-callback)
+    - [Step I.1 — Create the aria-transcript-store DynamoDB Table](#step-i1--create-the-aria-transcript-store-dynamodb-table)
+    - [Step I.2 — Provision an SMS Number (Voice → Chat only)](#step-i2--provision-an-sms-number-voice--chat-only)
+    - [Step I.3 — Create IAM Roles for the Transfer Lambdas](#step-i3--create-iam-roles-for-the-transfer-lambdas)
+    - [Step I.4 — Deploy the voice_to_chat_transfer Lambda](#step-i4--deploy-the-voice_to_chat_transfer-lambda)
+    - [Step I.5 — Deploy the chat_to_voice_transfer Lambda](#step-i5--deploy-the-chat_to_voice_transfer-lambda)
+    - [Step I.6 — Update the Unified Flow with Transfer Branches](#step-i6--update-the-unified-flow-with-transfer-branches)
+    - [Step I.7 — Add request_channel_transfer to the ARIA MCP Tool List](#step-i7--add-request_channel_transfer-to-the-aria-mcp-tool-list)
+    - [Step I.8 — Add Channel Transfer Protocol to the System Prompt](#step-i8--add-channel-transfer-protocol-to-the-system-prompt)
+    - [Step I.9 — Grant connect:UpdateContactAttributes to the Session Injector Role](#step-i9--grant-connectupdatecontactattributes-to-the-session-injector-role)
+    - [Step I.10 — Test Voice → Chat Transfer](#step-i10--test-voice--chat-transfer)
+    - [Step I.11 — Test Chat → Voice Callback](#step-i11--test-chat--voice-callback)
 14. [Nova Sonic: What It Is and How to Use It with Connect](#nova-sonic-what-it-is-and-how-to-use-it-with-connect)
     - [Three Paths to Voice AI](#three-paths-to-voice-ai-in-amazon-connect)
     - [Step C.1 — Configure Cross-Region Access for Nova Sonic 2](#step-c1--configure-cross-region-access-for-nova-sonic-2-us-east-1)
@@ -263,6 +275,7 @@ Work through these steps in order. Each phase depends on the previous one. Ticki
 | **F. Channel assignment** | Assign phone number and chat widget to the flow | Part F | ~5 min |
 | **G. Voice test** | Call the number and verify ARIA responds | Part G | ~10 min |
 | **H. Chat test** | Use the Test Chat tool and embed the widget | Parts H, I | ~10 min |
+| **I. Channel transfers** | (Optional) Voice→chat SMS deflection and chat→voice callback | Part I | ~30 min |
 
 > **The most common beginner mistake** is skipping Part D and trying to build the contact flow first. Block 8 (Connect Assistant) requires a **published** AI Agent to bind to. If the agent does not exist or is in Draft, Block 8 will fail at runtime with "Connect assistant not found."
 
@@ -2291,6 +2304,1143 @@ Before embedding the widget, test the chat connection directly from the Connect 
 
 ---
 
+## Part I — Cross-Channel Transfers (Voice → Chat Deflection & Chat → Voice Callback)
+
+Cross-channel transfer lets a customer who is speaking to ARIA on a voice call seamlessly continue their
+conversation in a chat channel — or, conversely, lets a customer chatting with ARIA receive a phone
+callback so they can finish the interaction by voice. This matters because customers do not always have the
+luxury of staying on hold; a chat link sent by SMS lets them pick up the conversation on their phone
+whenever it is convenient. Similarly, some customers find it easier to speak through a complex issue (like
+a lost card) than type long messages in a chat window.
+
+The key insight for novices is this: **you cannot live-transfer a voice call directly into an open chat
+session**. Voice and chat are separate contact types in Amazon Connect; there is no in-flight merge. What
+you CAN do is:
+
+- **Voice → Chat**: ARIA sets a flag, a Lambda creates a new chat contact, sends the customer an SMS with a
+  secure deep-link to the chat widget, the voice call ends politely, and the customer taps the link at
+  their leisure. The chat session loads with a transcript summary so ARIA knows what was already discussed.
+- **Chat → Voice**: ARIA sets a flag, a Lambda calls the customer's phone number using
+  `StartOutboundVoiceContact`, the chat session ends (or stays open briefly), and when the customer
+  answers, ARIA greets them with full context from the chat transcript.
+
+Customer context — what was said or typed before the transfer — is preserved via a DynamoDB table called
+`aria-transcript-store`. The receiving channel's Session Injector Lambda reads the stored summary and
+injects it as a contact attribute (`priorSummary`) so ARIA starts the new session fully informed.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  ARIA Cross-Channel Transfer Architecture                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  VOICE → CHAT (SMS Deflection)
+  ─────────────────────────────
+  Customer dials ──► Connect Voice Flow ──► ARIA (Block 8)
+                                                │
+                                    customer says "send me a chat link"
+                                                │
+                                    request_channel_transfer()
+                                    sets requestChatTransfer=true
+                                                │
+                     Session Injector (Block 9) ──► DynamoDB
+                                                │         (stores transcript)
+                     Block 9A: Check requestChatTransfer=true
+                                                │ Match
+                                 voice_to_chat_transfer Lambda
+                                 ├─ StartChatContact ──► new chat contact
+                                 ├─ SendTextMessage  ──► SMS with deep-link
+                                 └─ returns chatContactId + chatLink
+                                                │
+                     Play Prompt: "We've sent a secure chat link..."
+                                                │
+                                           Disconnect
+                                                │
+                     Customer taps SMS link ──► Chat Widget
+                     ├─ Session Injector reads DynamoDB priorSummary
+                     └─ ARIA: "Continuing from your voice call: [summary]"
+
+
+  CHAT → VOICE (Callback)
+  ───────────────────────
+  Customer opens chat widget ──► Connect Chat Flow ──► ARIA (Block 8)
+                                                           │
+                                       customer says "call me back on 07..."
+                                                           │
+                                           request_channel_transfer()
+                                           sets requestVoiceTransfer=true
+                                                           │
+                                Session Injector (Block 9) ──► DynamoDB
+                                                           │  (stores transcript)
+                                Block 9B: Check requestVoiceTransfer=true
+                                                           │ Match
+                                     chat_to_voice_transfer Lambda
+                                     ├─ StartOutboundVoiceContact ──► rings customer
+                                     └─ returns voiceContactId + callbackNumber
+                                                           │
+                           Send Message: "We're calling you now..."
+                                                           │
+                                                  Disconnect chat
+                                                           │
+                             Customer answers phone ──► Voice Flow
+                             ├─ Session Injector reads DynamoDB priorSummary
+                             └─ ARIA: "Continuing from your chat: [summary]"
+```
+
+> **What Is and Isn't Possible**
+>
+> ✅ **Supported — Voice → Chat SMS Deflection**: ARIA sends the customer an SMS containing a secure link.
+> The customer taps it and opens a chat session. Context (transcript summary) is carried across via
+> DynamoDB.
+>
+> ✅ **Supported — Chat → Voice Callback**: ARIA calls the customer's phone. When they answer, context from
+> the chat is injected as a contact attribute. The chat contact ends cleanly.
+>
+> ❌ **Not Supported — Live bridging**: You cannot merge a live voice call into an active chat in real time.
+> They remain separate contact records in Connect. The DynamoDB bridge is the only context-passing
+> mechanism.
+>
+> ❌ **Not Supported — Transfer while mid-transaction**: Never offer a channel transfer if the customer is
+> authenticated and mid-transaction (e.g., a card block is in progress). ARIA's system prompt enforces
+> this constraint — do not remove that guard.
+
+---
+
+### Prerequisites for Part I
+
+Before starting any step below, ensure the following are already complete:
+
+| Prerequisite | Where to complete it | Status check |
+|---|---|---|
+| ARIA Unified Inbound Flow published (Blocks 1–12 working) | Part E of this guide | Call the number — ARIA must answer |
+| ARIA MCP Gateway deployed (all domain Lambdas) | Phase 0 | MCP Gateway health check passes |
+| Session Injector Lambda deployed and working | Phase 0 | Block 9 in flow must succeed |
+| Amazon Connect instance running in `eu-west-2` | Part A | Instance status: Active |
+| Contact Lens enabled on the instance | Part B | Contact Lens toggle is On |
+| `voice_to_chat_transfer.py` in `scripts/lambdas/` | This repository | File must be present |
+| `chat_to_voice_transfer.py` in `scripts/lambdas/` | This repository | File must be present |
+| `aria/tools/channels/request_transfer.py` created | This repository | File must be present |
+| AWS CLI configured for `eu-west-2` | Your workstation | `aws sts get-caller-identity` returns your account |
+| IAM permissions to create Lambdas, DynamoDB tables, and IAM roles | Your AWS account | Try `aws lambda list-functions` — must not deny |
+
+---
+
+### Step I.1 — Create the `aria-transcript-store` DynamoDB Table
+
+**Why this table exists**: Contact Lens stores real-time voice transcripts for only 24 hours before they
+expire. When a customer transfers from voice to chat (or chat to voice), the receiving channel needs to
+know what was discussed. This DynamoDB table acts as a bridge — the sending Lambda writes a JSON summary
+when the transfer is requested, and the Session Injector on the receiving channel reads it and injects
+`priorSummary` as a contact attribute. Without this table, every cross-channel transfer starts from a
+blank slate and the customer must repeat themselves.
+
+> Official docs: [Amazon DynamoDB — Getting Started](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GettingStartedDynamoDB.html)
+
+#### Console walkthrough
+
+1. Go to [https://console.aws.amazon.com/dynamodb/](https://console.aws.amazon.com/dynamodb/)
+2. Confirm your region is **Europe (London) eu-west-2** (top-right corner of the console)
+3. In the left sidebar click **Tables**, then click **Create table** (orange button, top right)
+4. Fill in the table configuration form:
+   - **Table name**: `aria-transcript-store`
+   - **Partition key**: type `contactId`, leave the type dropdown as **String**
+   - **Sort key**: leave this **blank** — do not add a sort key
+5. Under **Table settings**, select **Customize settings**
+6. Under **Read/write capacity settings**, choose **On-demand** (pay-per-request). This is the simplest
+   choice for an event-driven workload that runs only when transfers occur. You can switch to provisioned
+   capacity later if volume grows.
+7. Scroll down to **Additional settings** → **Time to live (TTL)**:
+   - Click **Manage TTL**
+   - **Attribute name**: `ttl`
+   - Click **Save changes**
+
+   > **Why TTL?** The transfer Lambdas set the `ttl` attribute to `now + 172800` (48 hours in Unix epoch
+   > seconds). After that, DynamoDB automatically deletes the item at no cost. This keeps the table clean
+   > and prevents long-term storage charges for stale session data.
+
+8. Leave all other settings at defaults. Click **Create table** at the bottom of the page.
+9. Wait for the table status to change from **Creating** to **Active** (usually under 30 seconds). Refresh
+   the page if needed.
+10. Click on the table name to open it, then click the **Additional info** tab. Copy the **Amazon Resource
+    Name (ARN)**. It will look like:
+    ```
+    arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store
+    ```
+    Save this ARN — you will paste it into both IAM policies in Step I.3.
+
+#### CLI alternative
+
+If you prefer the command line over the console:
+
+```bash
+aws dynamodb create-table \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --attribute-definitions AttributeName=contactId,AttributeType=S \
+  --key-schema AttributeName=contactId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
+```
+
+Then enable TTL (only after the table status is ACTIVE — wait ~30 seconds):
+
+```bash
+aws dynamodb update-time-to-live \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --time-to-live-specification "Enabled=true,AttributeName=ttl"
+```
+
+Verify both commands worked:
+
+```bash
+aws dynamodb describe-table \
+  --region eu-west-2 \
+  --table-name aria-transcript-store \
+  --query "Table.{Status:TableStatus,TTL:TimeToLiveDescription}" \
+  --output json
+```
+
+Expected output:
+
+```json
+{
+  "Status": "ACTIVE",
+  "TTL": {
+    "TimeToLiveStatus": "ENABLED",
+    "AttributeName": "ttl"
+  }
+}
+```
+
+---
+
+### Step I.2 — Provision an SMS Number (Voice → Chat Only)
+
+> ⚠️ **Warning:** This step is only required for the **Voice → Chat** deflection path. If you only want
+> Chat → Voice callback, skip directly to Step I.3.
+
+When the `voice_to_chat_transfer` Lambda runs, it sends the customer an SMS containing their chat link.
+To send SMS from within an Amazon Connect flow context, you need an SMS-enabled phone number provisioned
+through **AWS End User Messaging SMS** (the service that underpins Amazon Connect SMS). Although Amazon
+Pinpoint is the underlying infrastructure, you configure SMS numbers through Connect's channel settings.
+
+> Official docs: [Set up SMS messaging in Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/setup-sms-messaging.html)
+
+#### Choosing the right number type
+
+| Country | Recommended number type | Important notes |
+|---|---|---|
+| United Kingdom | Long code (standard) | Short codes require separate OFCOM/carrier registration and take months |
+| United States | 10DLC long code or toll-free | Must register brand and campaign with carriers before sending |
+| Australia | Long code | Standard registration applies |
+| Other EU | Long code | Check local regulations for transactional SMS |
+
+> ⚠️ **Important for UK deployments**: UK long code registration with carriers can take **days to weeks**
+> depending on carrier review queues. Plan this step well in advance of your go-live date. While waiting,
+> you can test the complete transfer flow without SMS — see the note at the end of this step.
+
+#### Console walkthrough — Request the number
+
+1. Go to [https://console.aws.amazon.com/sms-voice/](https://console.aws.amazon.com/sms-voice/)
+   (AWS End User Messaging SMS — note: this is a separate console from Connect)
+2. Ensure your region is **eu-west-2** in the top-right corner
+3. In the left sidebar, click **Phone numbers** → **Request phone number**
+4. Fill in the request form:
+   - **Country**: United Kingdom
+   - **Number type**: Long code
+   - **Message type**: Transactional (your chat link is a one-time transaction, not marketing)
+5. Click **Request** and note the phone number assigned. It will be in E.164 format, for example:
+   `+447700123456`
+6. The number status will show **Pending** until carrier registration completes. Check back daily.
+
+#### Import the number into Amazon Connect
+
+Once the number status changes to **Active** in End User Messaging SMS:
+
+1. Open your Amazon Connect instance in the AWS console
+2. Left sidebar → **Channels** → **SMS**
+3. Click **Add SMS number**
+4. Select the number you provisioned from the dropdown list
+5. Click **Save**
+
+The number is now available as an origination number for `SendTextMessage` API calls from your transfer
+Lambda.
+
+> **Testing before SMS is ready**: If your number is still **Pending**, set the environment variable
+> `SMS_ORIGINATION_NUMBER` to a placeholder like `+447700000000` when deploying in Step I.4. The Lambda
+> wraps the `SendTextMessage` call in a try/except block and returns `smsSent: false` on failure, while
+> still returning a valid `chatLink`. You can copy that link from CloudWatch logs to test the end-to-end
+> chat flow manually.
+
+---
+
+### Step I.3 — Create IAM Roles for the Transfer Lambdas
+
+You need two IAM execution roles — one per Lambda function. Each role follows the **principle of least
+privilege**: it grants only the exact permissions needed for that Lambda to do its job. Granting broad
+permissions (like `"Action": "*"`) is a security risk and will be flagged by AWS Security Hub.
+
+Replace `395402194296` with your actual AWS account ID throughout this step.
+Replace `YOUR_CONNECT_INSTANCE_ID` with your Connect instance ID (a UUID like
+`a1b2c3d4-e5f6-7890-abcd-ef1234567890`).
+
+#### Role 1: `aria-voice-to-chat-lambda-role`
+
+First, create the trust policy file. This tells IAM which service is allowed to assume (use) this role.
+Save the following as `scripts/iam/voice-to-chat-trust.json`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "lambda.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+Next, create the permission policy. This defines what the Lambda can actually do. Save the following as
+`scripts/iam/voice-to-chat-policy.json`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StartChatContact",
+      "Effect": "Allow",
+      "Action": "connect:StartChatContact",
+      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/*"
+    },
+    {
+      "Sid": "ContactLensTranscript",
+      "Effect": "Allow",
+      "Action": "connect-contact-lens:ListRealtimeContactAnalysisSegments",
+      "Resource": "*"
+    },
+    {
+      "Sid": "SendSMS",
+      "Effect": "Allow",
+      "Action": "sms-voice:SendTextMessage",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDBPut",
+      "Effect": "Allow",
+      "Action": "dynamodb:PutItem",
+      "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-voice-to-chat-transfer:*"
+    }
+  ]
+}
+```
+
+Now create the role and attach the policy using the AWS CLI:
+
+```bash
+# Create the IAM role with the trust policy
+aws iam create-role \
+  --region eu-west-2 \
+  --role-name aria-voice-to-chat-lambda-role \
+  --assume-role-policy-document file://scripts/iam/voice-to-chat-trust.json
+
+# Attach the permission policy inline
+aws iam put-role-policy \
+  --role-name aria-voice-to-chat-lambda-role \
+  --policy-name aria-voice-to-chat-policy \
+  --policy-document file://scripts/iam/voice-to-chat-policy.json
+```
+
+Copy the role ARN from the `create-role` output. It looks like:
+`arn:aws:iam::395402194296:role/aria-voice-to-chat-lambda-role`
+
+#### Role 2: `aria-chat-to-voice-lambda-role`
+
+The trust policy is identical to Role 1. Save the permission policy as
+`scripts/iam/chat-to-voice-policy.json`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StartOutboundVoice",
+      "Effect": "Allow",
+      "Action": "connect:StartOutboundVoiceContact",
+      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/*"
+    },
+    {
+      "Sid": "ContactLensV2Transcript",
+      "Effect": "Allow",
+      "Action": "connect:ListRealtimeContactAnalysisSegmentsV2",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDBPut",
+      "Effect": "Allow",
+      "Action": "dynamodb:PutItem",
+      "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-chat-to-voice-transfer:*"
+    }
+  ]
+}
+```
+
+CLI commands:
+
+```bash
+# Create the IAM role (reuse the same trust policy file)
+aws iam create-role \
+  --region eu-west-2 \
+  --role-name aria-chat-to-voice-lambda-role \
+  --assume-role-policy-document file://scripts/iam/voice-to-chat-trust.json
+
+# Attach the permission policy inline
+aws iam put-role-policy \
+  --role-name aria-chat-to-voice-lambda-role \
+  --policy-name aria-chat-to-voice-policy \
+  --policy-document file://scripts/iam/chat-to-voice-policy.json
+```
+
+> **Note:** The `scripts/iam/` JSON files are not secrets — they contain no passwords or access keys. It
+> is good practice to commit them to your repository so you can recreate the roles if needed. Never
+> commit actual credentials.
+
+---
+
+### Step I.4 — Deploy the `voice_to_chat_transfer` Lambda
+
+This Lambda is invoked by the contact flow when `requestChatTransfer = true`. It retrieves the Contact
+Lens real-time transcript for the current voice contact, stores a summary in DynamoDB, creates a new chat
+contact using `StartChatContact`, and sends the customer an SMS with a deep-link to the chat widget.
+
+> Official docs: [Using Lambda functions with Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html)
+
+#### 4a — Package the function
+
+Lambda functions are deployed as ZIP archives. The `voice_to_chat_transfer.py` script uses only `boto3`
+(the AWS SDK for Python), which is pre-installed in every AWS Lambda Python runtime — no extra libraries
+needed.
+
+```bash
+cd scripts/lambdas
+zip voice-to-chat.zip voice_to_chat_transfer.py
+cd ../..
+```
+
+#### 4b — Create the Lambda function
+
+Replace the role ARN with the one you copied at the end of Step I.3:
+
+```bash
+aws lambda create-function \
+  --region eu-west-2 \
+  --function-name aria-voice-to-chat-transfer \
+  --runtime python3.12 \
+  --role arn:aws:iam::395402194296:role/aria-voice-to-chat-lambda-role \
+  --handler voice_to_chat_transfer.lambda_handler \
+  --zip-file fileb://scripts/lambdas/voice-to-chat.zip \
+  --timeout 30 \
+  --memory-size 256 \
+  --description "ARIA voice-to-chat SMS deflection transfer Lambda"
+```
+
+The `--timeout 30` is important: Contact Lens transcript retrieval can take several seconds on long calls,
+and SMS delivery confirmation adds more latency. If the timeout is too low, Connect will receive an error
+from the Lambda invocation.
+
+#### 4c — Set environment variables
+
+Run the following command, substituting your real values for each placeholder:
+
+```bash
+aws lambda update-function-configuration \
+  --region eu-west-2 \
+  --function-name aria-voice-to-chat-transfer \
+  --environment "Variables={
+    INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,
+    CONTACT_FLOW_ID=YOUR_ARIA_UNIFIED_INBOUND_FLOW_ID,
+    CHAT_WIDGET_URL=https://app.meridianbank.co.uk/chat,
+    SMS_ORIGINATION_NUMBER=+447700123456,
+    DYNAMODB_TABLE=aria-transcript-store,
+    MOBILE_APP_SCHEME=meridianbank://chat
+  }"
+```
+
+| Variable | What to put here | Where to find it |
+|---|---|---|
+| `INSTANCE_ID` | Your Connect instance ID (a UUID) | Connect console → Overview → **Instance ID** |
+| `CONTACT_FLOW_ID` | ARIA Unified Inbound flow ID | Connect → Contact flows → open your flow → ID is in the ARN after `/contact-flow/` |
+| `CHAT_WIDGET_URL` | Base URL of your chat widget page | The URL where your chat widget is embedded (no trailing slash) |
+| `SMS_ORIGINATION_NUMBER` | SMS-enabled number in E.164 format | The number provisioned in Step I.2 |
+| `DYNAMODB_TABLE` | `aria-transcript-store` | The table you created in Step I.1 |
+| `MOBILE_APP_SCHEME` | Optional — deep-link scheme for a native app | Your mobile app team can provide this (omit if no native app) |
+
+#### 4d — Allow Amazon Connect to invoke the Lambda
+
+This command adds a **resource-based policy** directly to the Lambda function. Without it, Connect cannot
+call the function — it will receive `Access denied` even if the Lambda's IAM execution role looks
+correct. The `--source-arn` scopes the permission to your specific Connect instance:
+
+```bash
+aws lambda add-permission \
+  --region eu-west-2 \
+  --function-name aria-voice-to-chat-transfer \
+  --statement-id allow-connect-invoke \
+  --action lambda:InvokeFunction \
+  --principal connect.amazonaws.com \
+  --source-account 395402194296 \
+  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID
+```
+
+#### 4e — Add the Lambda to the Connect instance allow-list
+
+Amazon Connect maintains its own approved list of Lambda functions that contact flows are allowed to
+invoke. A function must appear on this list even if the resource-based policy (step 4d) is correct.
+
+1. Open your Amazon Connect instance in the AWS console
+2. Left sidebar → **Contact flows** → **AWS Lambda**
+3. In the **Lambda functions** section, click **Add Lambda function**
+4. Select `aria-voice-to-chat-transfer` from the dropdown
+5. Click **Add Lambda function** (the confirmation button below the dropdown)
+
+You should now see `aria-voice-to-chat-transfer` listed in the table.
+
+---
+
+### Step I.5 — Deploy the `chat_to_voice_transfer` Lambda
+
+This Lambda is invoked when `requestVoiceTransfer = true`. It retrieves the Contact Lens V2 chat
+transcript, stores a summary in DynamoDB, and initiates an outbound call to the customer using
+`StartOutboundVoiceContact`.
+
+> Official docs:
+> - [StartOutboundVoiceContact API](https://docs.aws.amazon.com/connect/latest/APIReference/API_StartOutboundVoiceContact.html)
+> - [ListRealtimeContactAnalysisSegmentsV2 API](https://docs.aws.amazon.com/connect/latest/APIReference/API_ListRealtimeContactAnalysisSegmentsV2.html)
+
+#### 5a — Package the function
+
+```bash
+cd scripts/lambdas
+zip chat-to-voice.zip chat_to_voice_transfer.py
+cd ../..
+```
+
+#### 5b — Create the Lambda function
+
+```bash
+aws lambda create-function \
+  --region eu-west-2 \
+  --function-name aria-chat-to-voice-transfer \
+  --runtime python3.12 \
+  --role arn:aws:iam::395402194296:role/aria-chat-to-voice-lambda-role \
+  --handler chat_to_voice_transfer.lambda_handler \
+  --zip-file fileb://scripts/lambdas/chat-to-voice.zip \
+  --timeout 30 \
+  --memory-size 256 \
+  --description "ARIA chat-to-voice callback transfer Lambda"
+```
+
+#### 5c — Set environment variables
+
+```bash
+aws lambda update-function-configuration \
+  --region eu-west-2 \
+  --function-name aria-chat-to-voice-transfer \
+  --environment "Variables={
+    INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,
+    CONTACT_FLOW_ID=YOUR_ARIA_UNIFIED_INBOUND_FLOW_ID,
+    QUEUE_ID=YOUR_QUEUE_ARN,
+    SOURCE_PHONE_NUMBER=+441234567890,
+    DYNAMODB_TABLE=aria-transcript-store
+  }"
+```
+
+| Variable | What to put here | Where to find it |
+|---|---|---|
+| `INSTANCE_ID` | Your Connect instance ID (UUID) | Connect console → Overview → **Instance ID** |
+| `CONTACT_FLOW_ID` | ARIA Unified Inbound flow ID | Connect → Contact flows → ARN → last segment after `/contact-flow/` |
+| `QUEUE_ID` | Full ARN of your routing queue | Connect → Routing → Queues → click queue → **Show additional queue information** → copy the full ARN |
+| `SOURCE_PHONE_NUMBER` | A Connect-claimed phone number (E.164) | Connect → Channels → Phone numbers |
+| `DYNAMODB_TABLE` | `aria-transcript-store` | The table from Step I.1 |
+
+> **Finding the Queue ARN**: In the Connect console, go to **Routing** → **Queues** → click on your
+> default queue (usually called **BasicQueue**). Near the top of the details page, click **Show additional
+> queue information**. You will see: **Queue ARN**. Copy the full ARN string — it looks like:
+> `arn:aws:connect:eu-west-2:395402194296:instance/a1b2.../queue/b2c3...`
+>
+> The `QUEUE_ID` variable must be the **full ARN**, not just the UUID at the end. If you pass only the
+> UUID, `StartOutboundVoiceContact` will return `InvalidParameterException`.
+
+#### 5d — Enable outbound calling on your Connect instance (if not already done)
+
+`StartOutboundVoiceContact` will fail silently if outbound calling is disabled at the instance level.
+
+1. Go to your Amazon Connect instance in the AWS console
+2. Left sidebar → **Telephony**
+3. Under **Outbound calling**, ensure the toggle is **On**
+4. Click **Save**
+
+#### 5e — Allow Amazon Connect to invoke the Lambda
+
+```bash
+aws lambda add-permission \
+  --region eu-west-2 \
+  --function-name aria-chat-to-voice-transfer \
+  --statement-id allow-connect-invoke \
+  --action lambda:InvokeFunction \
+  --principal connect.amazonaws.com \
+  --source-account 395402194296 \
+  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID
+```
+
+#### 5f — Add the Lambda to the Connect instance allow-list
+
+Follow the identical steps as Step I.4e, but this time select `aria-chat-to-voice-transfer` from the
+dropdown.
+
+---
+
+### Step I.6 — Update the Unified Flow with Transfer Branches
+
+This is the most important structural change. You are inserting two new **Check Contact Attributes**
+blocks between Block 9 (Session Injector) and Block 10 (Set Working Queue) in the ARIA Unified Inbound
+Flow you built in Part E.
+
+> Official docs: [Create and manage contact flows](https://docs.aws.amazon.com/connect/latest/adminguide/create-contact-flow.html)
+
+#### Current flow state (after Part E)
+
+```
+[Block 8: Connect Assistant (ARIA)]
+         │
+         ▼
+[Block 9: Session Injector Lambda]
+         │
+         ▼
+[Block 10: Set Working Queue]
+         │
+         ▼
+[Block 11: Transfer to Queue]
+         │
+         ▼
+[Block 12: Disconnect]
+```
+
+#### Target flow state (after Part I)
+
+```
+[Block 8: Connect Assistant (ARIA)]
+         │
+         ▼
+[Block 9: Session Injector Lambda]
+         │
+         ▼
+[Block 9A: Check Contact Attributes]
+  requestChatTransfer = true ?
+         │ Match                          │ No Match
+         ▼                               │
+[Lambda: voice_to_chat_transfer]         │
+         │                               │
+         ▼                               ▼
+[Play Prompt: "We've sent a      [Block 9B: Check Contact Attributes]
+ secure chat link..."]             requestVoiceTransfer = true ?
+         │                               │ Match           │ No Match
+         ▼                               ▼                 │
+   [Disconnect]         [Lambda: chat_to_voice_transfer]   │
+                                         │                 │
+                                         ▼                 ▼
+                           [Play/Send: "We're calling  [Block 10: Set Working Queue]
+                            you now..."]                    │
+                                         │                  ▼
+                                         ▼          [Block 11: Transfer to Queue]
+                                   [Disconnect]             │
+                                                            ▼
+                                                     [Block 12: Disconnect]
+```
+
+#### Console walkthrough
+
+1. Open your Amazon Connect instance console
+2. Left sidebar → **Contact flows** → click on **ARIA Unified Inbound** (the flow from Part E)
+3. The flow opens in the visual canvas editor
+
+**Disconnect the wire between Block 9 and Block 10:**
+
+4. Click on the wire (arrow) connecting Block 9 (Session Injector) to Block 10 (Set Working Queue)
+5. Press the **Delete** key (or right-click → **Delete connection**)
+
+**Add Block 9A — Check Contact Attributes (requestChatTransfer):**
+
+6. In the block search bar (left panel, type to filter), search for **Check contact attributes**
+7. Drag a **Check contact attributes** block onto the canvas, placing it between Block 9 and Block 10
+8. Click the block to open its configuration panel on the right side
+9. Configure the block:
+   - **Attribute to check**: select **User defined**
+   - **Attribute**: type `requestChatTransfer` (exact case, no spaces)
+   - **Condition**: select **Equals** → in the value box type `true` (lowercase)
+10. Click the pencil icon on the block's title bar and rename it to **9A: Check Chat Transfer**
+11. Draw a wire from Block 9's **Success** output → Block 9A's input
+
+**Add the `voice_to_chat_transfer` Lambda invocation block:**
+
+12. Search for **Invoke AWS Lambda function**, drag it onto the canvas
+13. Click to configure:
+    - **Function**: select `aria-voice-to-chat-transfer` from the dropdown
+    - Under **Function input parameters**, click **Add parameter** for each row below:
+
+    | Parameter name | Source type | Value |
+    |---|---|---|
+    | `contactId` | Contact attribute | `$.ContactData.ContactId` |
+    | `customerId` | Contact attribute | `$.ContactData.Attributes.customerId` |
+    | `authStatus` | Contact attribute | `$.ContactData.Attributes.authStatus` |
+    | `locale` | Contact attribute | `$.ContactData.Attributes.locale` |
+    | `customerPhone` | Contact attribute | `$.ContactData.Attributes.customerPhone` |
+    | `transferMode` | Static value | `aria` |
+
+14. Connect Block 9A's **Match** output → this Lambda block
+
+**Add the voice→chat Play Prompt:**
+
+15. Search for **Play prompt**, drag it onto the canvas
+16. Configure:
+    - Select **Text-to-speech** as the prompt type
+    - **Message**: `We've sent a secure chat link to your mobile. The link is valid for 48 hours.`
+    - Leave the SSML toggle off unless you want to customise prosody
+17. Connect the Lambda block's **Success** output → this Play Prompt block
+
+**Add a Disconnect after the voice→chat Play Prompt:**
+
+18. Search for **Disconnect / hang up**, drag it onto the canvas
+19. Connect the Play Prompt's output → this Disconnect block
+
+**Add Block 9B — Check Contact Attributes (requestVoiceTransfer):**
+
+20. Search for **Check contact attributes**, drag another one onto the canvas
+21. Configure:
+    - **Attribute to check**: **User defined**
+    - **Attribute**: `requestVoiceTransfer` (exact case)
+    - **Condition**: **Equals** → `true`
+22. Rename it to **9B: Check Voice Transfer**
+23. Connect Block 9A's **No match** output → Block 9B's input
+
+**Add the `chat_to_voice_transfer` Lambda invocation block:**
+
+24. Search for **Invoke AWS Lambda function**, drag it onto the canvas
+25. Configure:
+    - **Function**: select `aria-chat-to-voice-transfer`
+    - **Function input parameters** (identical set to step 13 above):
+
+    | Parameter name | Source type | Value |
+    |---|---|---|
+    | `contactId` | Contact attribute | `$.ContactData.ContactId` |
+    | `customerId` | Contact attribute | `$.ContactData.Attributes.customerId` |
+    | `authStatus` | Contact attribute | `$.ContactData.Attributes.authStatus` |
+    | `locale` | Contact attribute | `$.ContactData.Attributes.locale` |
+    | `customerPhone` | Contact attribute | `$.ContactData.Attributes.customerPhone` |
+    | `transferMode` | Static value | `aria` |
+
+26. Connect Block 9B's **Match** output → this Lambda block
+
+**Add the chat→voice confirmation message:**
+
+27. Search for **Play prompt** and drag one onto the canvas
+    - **Message**: `We're calling you now on the number you provided. Please keep your phone nearby.`
+
+    > **Note:** **Play prompt** works for both voice (speaks the text) and chat (sends it as a system
+    > message). Using a single block type here keeps the flow simpler.
+
+28. Connect the Lambda block's **Success** output → this Play Prompt block
+
+**Add a Disconnect after the chat→voice confirmation:**
+
+29. Search for **Disconnect / hang up**, drag it onto the canvas
+30. Connect the Play Prompt's output → this Disconnect block
+
+**Connect the normal (no transfer) path back to Block 10:**
+
+31. Connect Block 9B's **No match** output → Block 10 (Set Working Queue)
+    This is the path for all contacts that do not request any channel transfer — normal escalation to a
+    human agent.
+
+**Handle Lambda error paths (important!):**
+
+32. Connect both Lambda blocks' **Error** outputs → Block 10 (Set Working Queue)
+    If either transfer Lambda fails for any reason (SMS service down, DynamoDB unavailable, etc.), the
+    contact will fall through to a human agent queue rather than dropping silently. Never leave an Error
+    output unwired.
+
+**Republish the flow:**
+
+33. Click **Save** (top right of the canvas)
+34. Click **Publish** → confirm the publish action
+35. Wait for the green **"Flow published successfully"** banner
+
+> **Testing the branching logic**: After publishing, use the flow's built-in **Test** button (if
+> available in your Connect version). Set a test contact attribute `requestChatTransfer = true` to verify
+> the flow routes to Block 9A's Match branch instead of Block 10.
+
+---
+
+### Step I.7 — Add `request_channel_transfer` to the ARIA MCP Tool List
+
+The tool file at `aria/tools/channels/request_transfer.py` is already created and registered in
+`aria/tools/__init__.py`. This step adds the **tool schema** to the ARIA Orchestration AI Prompt in
+Amazon Connect's AI Agent Builder, so the LLM knows the tool exists and how to call it.
+
+> Official docs: [Amazon Connect AI Agent Builder](https://docs.aws.amazon.com/connect/latest/adminguide/amazon-connect-assistant.html)
+
+1. Open your Amazon Connect instance console
+2. Left sidebar → **AI Agent Builder** (under the **AI** section)
+3. Click on your **ARIA Orchestration Prompt** (the one created in Step D.3)
+4. Click **Edit**
+5. Scroll to the `tools:` section of the YAML. It will look similar to:
+
+   ```yaml
+   tools:
+     - name: get_account_balance
+       description: ...
+     - name: block_card
+       description: ...
+   ```
+
+6. Add the following tool definition at the **end** of the `tools:` list (indent with 2 spaces to match
+   the existing entries):
+
+   ```yaml
+     - name: request_channel_transfer
+       description: >
+         Transfers the customer to a different channel. Use when the customer explicitly asks to
+         continue the conversation on chat (voice to chat deflection) or requests a phone callback
+         (chat to voice). Do NOT use if the customer is currently mid-transaction (e.g. a card block
+         or payment is in progress).
+       inputSchema:
+         type: object
+         properties:
+           session_id:
+             type: string
+             description: The current Connect contact or session ID.
+           instance_id:
+             type: string
+             description: The Amazon Connect instance ID (UUID).
+           target_channel:
+             type: string
+             enum: [chat, voice]
+             description: >
+               "chat" sends the customer an SMS chat link (voice to chat deflection).
+               "voice" calls the customer back (chat to voice callback).
+           customer_phone:
+             type: string
+             description: >
+               Customer phone number in E.164 format (e.g. +447700123456).
+               Required when target_channel is "voice". For "chat", use the number
+               already on file if available.
+           reason:
+             type: string
+             description: >
+               Brief description of why the transfer is requested
+               (e.g. "customer prefers chat", "complex issue better suited to voice").
+         required:
+           - session_id
+           - instance_id
+           - target_channel
+   ```
+
+7. Click **Save changes** on the prompt editor
+8. Navigate back to **AI Agent Builder** → click on your **ARIA Orchestration AI Agent**
+9. Click **Edit** → click **Publish** to publish a new agent version
+
+> **Note:** In Connect's AI Agent Builder, a change to a prompt does not take effect until you publish a
+> new version of the agent that references it. Always republish the agent after updating any of its
+> prompts.
+
+---
+
+### Step I.8 — Add Channel Transfer Protocol to the System Prompt
+
+The system prompt in the ARIA Orchestration Prompt defines ARIA's behaviour rules. This step adds a
+`## Channel Transfer Protocol` section that tells ARIA exactly when to offer a transfer, what to say, and
+what to do if the transfer fails.
+
+1. Go to **AI Agent Builder** → **ARIA Orchestration Prompt** → **Edit**
+2. In the **System prompt** text area, scroll to the end of the existing `##` sections
+3. Add the following new section (copy and paste the entire block below):
+
+   ```
+   ## Channel Transfer Protocol
+
+   When a customer on a voice call asks to continue on chat (e.g. "can you send me a chat link?",
+   "I'd rather type", "I'm going into a meeting"), or a customer in chat requests a phone callback
+   (e.g. "can you call me?", "I'd rather speak to someone", "this is taking too long to type"):
+
+   1. **Gather the phone number first (chat→voice only, if not already in session attributes)**:
+      If target_channel is "voice" and you do not already have `customerPhone` or `phoneNumber` in
+      the session attributes, ask the customer for their number before calling the tool:
+      "Of course — what phone number would you like me to call you on?"
+
+   2. **Call request_channel_transfer in <thinking>** with:
+      - target_channel: "chat" (customer on voice wants to switch to chat)
+        OR "voice" (customer in chat wants a phone callback)
+      - customer_phone: the phone number on file or the one they just provided
+      - reason: a short description (e.g. "customer requested SMS chat link")
+
+   3. **On status = "transfer_requested", respond in <message>** with a channel-aware message:
+      - Voice → Chat:
+        "I'll send a secure chat link to [phone number] by text message right now. The link will
+        be valid for 48 hours, so you can pick up the conversation whenever suits you. Is there
+        anything urgent I should note for when you come back on chat?"
+      - Chat → Voice:
+        "I'll call you on [phone number] in the next few minutes. Please keep your phone close
+        by. Just a reminder — I'll have the full history of our chat so you won't need to
+        repeat anything."
+
+   4. **Hand off to the transfer flow**:
+      Call escalate_to_human_agent with escalation_reason='channel_transfer' and
+      priority='standard'. This exits the AI agent block and lets the contact flow's transfer
+      branches (Blocks 9A and 9B) execute the actual channel switch via Lambda.
+
+   5. **On status = "error"**:
+      Apologise and continue helping in the current channel:
+      "I'm sorry, I wasn't able to set up that transfer right now. Let's continue here — what
+      would you like to do next?"
+
+   Hard rules:
+   - NEVER offer or initiate a channel transfer if the customer is authenticated and
+     mid-transaction (e.g. a card block is in progress, a payment is being authorised).
+     Complete the transaction first, then offer the option.
+   - NEVER ask for a phone number if it is already available in session attributes
+     (customerPhone or phoneNumber).
+   - ALWAYS confirm the phone number back to the customer before initiating a voice callback,
+     e.g. "Just to confirm, I'll call you on +447700123456 — is that correct?"
+   ```
+
+4. Click **Save changes**
+5. Republish the ARIA Orchestration AI Agent (**AI Agent Builder** → your agent → **Publish**)
+
+---
+
+### Step I.9 — Grant `connect:UpdateContactAttributes` to the Session Injector Role
+
+The `request_channel_transfer` tool runs inside the ARIA AgentCore runtime. It calls the
+`connect:UpdateContactAttributes` API to set either `requestChatTransfer = "true"` or
+`requestVoiceTransfer = "true"` on the live contact. The IAM role that the AgentCore runtime uses must
+have this permission — otherwise the API call will fail with `AccessDeniedException` and the transfer
+will not be triggered.
+
+> Official docs: [UpdateContactAttributes API](https://docs.aws.amazon.com/connect/latest/APIReference/API_UpdateContactAttributes.html)
+
+#### Find the correct role name
+
+- If ARIA's AgentCore runtime shares the **same IAM role as the session injector Lambda**, the role name
+  is something like `aria-session-injector-role` or `aria-mcp-gateway-role`. Check your deployment
+  configuration or `scripts/deploy_mcp_gateway.sh` for the exact name.
+- If the AgentCore runtime uses a **dedicated separate role**, check `aria/config.py` or the deployment
+  CloudFormation/CDK stack for the role ARN.
+
+In the commands below, substitute `aria-session-injector-role` with the correct role name for your
+deployment.
+
+#### Add the permission
+
+Save the following as `scripts/iam/update-contact-attrs-policy.json`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UpdateContactAttributes",
+      "Effect": "Allow",
+      "Action": "connect:UpdateContactAttributes",
+      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/contact/*"
+    }
+  ]
+}
+```
+
+Attach the policy to the role:
+
+```bash
+aws iam put-role-policy \
+  --role-name aria-session-injector-role \
+  --policy-name aria-update-contact-attributes \
+  --policy-document file://scripts/iam/update-contact-attrs-policy.json
+```
+
+Verify the policy was attached:
+
+```bash
+aws iam get-role-policy \
+  --role-name aria-session-injector-role \
+  --policy-name aria-update-contact-attributes
+```
+
+The command should return the policy document you just attached. If it returns `NoSuchEntity`, check that
+you used the correct role name.
+
+---
+
+### Step I.10 — Test Voice → Chat Transfer
+
+With all steps complete, perform this end-to-end test to confirm the voice→chat path works correctly.
+
+#### What to do
+
+1. **Call the Connect phone number** (the number claimed in Part C)
+2. Wait for ARIA to answer and deliver its opening greeting
+3. Say one of the following phrases:
+   - *"I'd like to continue this conversation on chat"*
+   - *"Can you send me a chat link?"*
+   - *"I'd rather type — can you text me a link?"*
+4. ARIA should respond (in voice) with something like:
+   *"I'll send a secure chat link to [your number] by text message right now. The link will be valid for 48 hours..."*
+5. ARIA should then say: *"We've sent a secure chat link to your mobile. The link is valid for 48 hours."*
+6. The call should end (hang up)
+
+#### What to expect at each stage
+
+| Step | Expected result |
+|---|---|
+| Within 5 seconds of call ending | SMS arrives on the customer's phone |
+| SMS content | A URL in the format `https://app.meridianbank.co.uk/chat?token=...` |
+| Tap the link | Chat widget opens in browser or native app |
+| ARIA's first chat message | Should include a summary of what was discussed in the voice call |
+| DynamoDB table | One new item with `contactId` = voice contact ID and a `priorSummary` field |
+
+#### Check CloudWatch logs for the Lambda
+
+```bash
+aws logs tail /aws/lambda/aria-voice-to-chat-transfer \
+  --region eu-west-2 \
+  --since 5m \
+  --follow
+```
+
+Look for log lines confirming:
+- `contact_id: <voice-contact-uuid>` — Lambda received the voice contact
+- `chat_contact_id: <new-chat-uuid>` — new chat contact was created successfully
+- `sms_sent: true` — SMS was dispatched
+- `dynamodb: put_item success` — transcript summary was stored
+
+#### Common failure checklist
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| ARIA does not offer or respond to a transfer request | Tool schema not saved or agent not republished | Re-do Step I.7 and confirm agent was published |
+| Lambda is invoked but returns an error | Missing or incorrect environment variable | Check all env vars in Step I.4c are set; look for `KeyError` in Lambda logs |
+| SMS not received | Number pending registration / not active | Check End User Messaging SMS console — status must be **Active** |
+| Chat widget opens but displays blank | `CHAT_WIDGET_URL` incorrect | Open the URL in a browser manually — must load the widget |
+| Chat opens but ARIA has no context | DynamoDB write failed | Check Lambda logs for `dynamodb:PutItem` errors; verify table name and region |
+| Call drops without Play Prompt | Lambda error output not wired to fallback | Re-check Step I.6 — both Lambda Error outputs must connect to Block 10 |
+| `Access denied` in Lambda logs on `StartChatContact` | IAM policy missing `connect:StartChatContact` | Re-do Step I.3 and verify the policy was attached |
+
+---
+
+### Step I.11 — Test Chat → Voice Callback
+
+#### What to do
+
+1. **Open a chat session**: Use the Connect Test Chat tool (Connect console → **Test chat**) or open your
+   embedded chat widget on your website
+2. Wait for ARIA to greet you with its opening message
+3. Type one of the following:
+   - *"Can you call me back on +447700123456?"*
+   - *"I'd rather speak — can you call me on 07700 123456?"*
+   - *"Please call me back"* (if your phone number is not in session attributes, ARIA will ask for it)
+4. ARIA should confirm with something like:
+   *"Just to confirm, I'll call you on +447700123456 — is that correct?"* → You reply *"Yes"*
+5. ARIA responds: *"I'll call you on +447700123456 in the next few minutes. Please keep your phone close by."*
+6. A system message *"We're calling you now on the number you provided. Please keep your phone nearby."*
+   appears in chat
+7. The chat session ends (or transitions)
+
+#### What to expect at each stage
+
+| Step | Expected result |
+|---|---|
+| Within 30 seconds of chat message | Your phone rings |
+| Caller ID shown | The `SOURCE_PHONE_NUMBER` set in Step I.5c |
+| Answer the call | ARIA greets you and references the chat conversation |
+| ARIA's opening statement | Should include context like: *"Continuing from your chat — you were asking about..."* |
+| DynamoDB table | One new item with `contactId` = chat contact ID and `priorSummary` field |
+
+#### Check CloudWatch logs for the Lambda
+
+```bash
+aws logs tail /aws/lambda/aria-chat-to-voice-transfer \
+  --region eu-west-2 \
+  --since 5m \
+  --follow
+```
+
+Look for:
+- `voice_contact_id: <new-outbound-uuid>` — outbound call was created
+- `callback_number: +44...` — the number that was dialled
+- `dynamodb: put_item success` — chat transcript stored
+
+#### Common failure checklist
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| ARIA does not accept a phone number or offer callback | Tool schema not in prompt | Re-check Step I.7 — tool must be in the YAML `tools:` list |
+| Lambda runs but no call arrives | Outbound calling disabled on instance | Step I.5d — enable outbound calling in Telephony settings |
+| Lambda error: `InvalidParameterException` from `StartOutboundVoiceContact` | `QUEUE_ID` is a bare UUID, not a full ARN | Step I.5c — set `QUEUE_ID` to the full `arn:aws:connect:...` queue ARN |
+| Phone rings but ARIA has no chat context | Session injector not reading `priorSummary` from DynamoDB | Check session_injector Lambda logs for `get_item` calls; verify DynamoDB table name |
+| Call goes to voicemail, customer calls back, no context | DynamoDB TTL set too short | Default TTL is 48h — check the Lambda is using `now + 172800` |
+| Chat shows callback message but Lambda timed out | Lambda duration > 30s under load | Check Lambda logs for timeout; consider increasing timeout to 45s |
+| `LimitExceededException` on outbound call | Connect outbound call per-second quota reached | Request quota increase via AWS Service Quotas console |
+
+---
+
+### Part I — Troubleshooting Quick Reference
+
+| Problem | Channel | Likely cause | Resolution |
+|---|---|---|---|
+| `requestChatTransfer` attribute never gets set on contact | Voice→Chat | `request_channel_transfer` tool missing from agent schema | Step I.7: Add tool YAML and republish agent |
+| `requestVoiceTransfer` attribute never gets set on contact | Chat→Voice | Same as above | Step I.7: Add tool YAML and republish agent |
+| Transfer Lambda is never invoked after flag is set | Both | Lambda not on Connect instance allow-list | Step I.4e / I.5f: Add Lambda to instance allow-list |
+| `Access denied` when Lambda calls `StartChatContact` | Voice→Chat | Missing `connect:StartChatContact` permission on Lambda role | Step I.3: Verify `aria-voice-to-chat-lambda-role` policy |
+| `Access denied` when Lambda calls `StartOutboundVoiceContact` | Chat→Voice | Missing `connect:StartOutboundVoiceContact` permission | Step I.3: Verify `aria-chat-to-voice-lambda-role` policy |
+| `Access denied` when ARIA tool calls `UpdateContactAttributes` | Both | Session injector / AgentCore role missing permission | Step I.9: Add `connect:UpdateContactAttributes` policy |
+| SMS sends but chat link is a 404 error | Voice→Chat | `CHAT_WIDGET_URL` env var is incorrect or missing path | Step I.4c: Verify the URL loads the chat widget |
+| DynamoDB `ResourceNotFoundException` | Both | Table does not exist in `eu-west-2` or name is wrong | Step I.1: Verify table is **Active** in the correct region |
+| Chat transcript not injected into the voice callback session | Chat→Voice | Session injector not reading `priorSummary` contact attribute | Check session_injector code reads `priorSummary` from DynamoDB |
+| Flow routes to Block 10 even when `requestChatTransfer = true` | Voice→Chat | Block 9A condition is case-sensitive or attribute not set | Attribute value must be exactly `true` (all lowercase) |
+| Outbound call fails with `LimitExceededException` | Chat→Voice | Connect outbound calls-per-second quota exceeded | AWS Service Quotas → Amazon Connect → request increase |
+| ARIA offers a transfer while a transaction is in progress | Both | Hard rule missing from system prompt | Step I.8: Verify the "Hard rules" section is in the prompt |
+
+---
+
+> **Official reference links for Part I**:
+> - [Set up SMS messaging in Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/setup-sms-messaging.html)
+> - [StartChatContact API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_StartChatContact.html)
+> - [StartOutboundVoiceContact API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_StartOutboundVoiceContact.html)
+> - [UpdateContactAttributes API Reference](https://docs.aws.amazon.com/connect/latest/APIReference/API_UpdateContactAttributes.html)
+> - [Using Lambda functions with Amazon Connect](https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html)
+> - [AWS Architecture Blog: Channel Deflection from Voice to Chat using Amazon Connect](https://aws.amazon.com/blogs/architecture/channel-deflection-from-voice-to-chat-using-amazon-connect/)
+
+---
+
 ## Nova Sonic: What It Is and How to Use It with Connect
 
 ### What is Nova Sonic?
@@ -3125,6 +4275,37 @@ to invoke your session injector Lambda:
    ```
 3. This policy is added automatically when you add the Lambda to the Connect instance allow-list
    (Part A, Step A.2). If it is missing, add it manually.
+
+---
+
+### `aria-voice-to-chat-lambda-role` execution role
+
+| Permission | Resource scope | Reason |
+|---|---|---|
+| `connect:StartChatContact` | Connect instance ARN | Creates the new chat contact for the deflected customer |
+| `connect-contact-lens:ListRealtimeContactAnalysisSegments` | `*` | Retrieves the real-time voice transcript before it expires |
+| `sms-voice:SendTextMessage` | `*` | Sends the chat deep-link via AWS End User Messaging SMS |
+| `dynamodb:PutItem` | `aria-transcript-store` table ARN | Stores the transcript summary for the receiving chat session |
+| `logs:CreateLogGroup` | Lambda log group ARN | CloudWatch logging |
+| `logs:CreateLogStream` | Lambda log group ARN | CloudWatch logging |
+| `logs:PutLogEvents` | Lambda log group ARN | CloudWatch logging |
+
+### `aria-chat-to-voice-lambda-role` execution role
+
+| Permission | Resource scope | Reason |
+|---|---|---|
+| `connect:StartOutboundVoiceContact` | Connect instance ARN | Initiates the outbound callback call to the customer |
+| `connect:ListRealtimeContactAnalysisSegmentsV2` | `*` | Retrieves the chat transcript before the contact closes |
+| `dynamodb:PutItem` | `aria-transcript-store` table ARN | Stores the chat summary for the receiving voice session |
+| `logs:CreateLogGroup` | Lambda log group ARN | CloudWatch logging |
+| `logs:CreateLogStream` | Lambda log group ARN | CloudWatch logging |
+| `logs:PutLogEvents` | Lambda log group ARN | CloudWatch logging |
+
+### Session Injector / AgentCore runtime role (additional permission for Part I)
+
+| Permission | Resource scope | Reason |
+|---|---|---|
+| `connect:UpdateContactAttributes` | Connect instance contact ARN (`instance/*/contact/*`) | Set `requestChatTransfer` or `requestVoiceTransfer` on the live contact so the flow branches correctly |
 
 ---
 

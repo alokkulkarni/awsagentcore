@@ -20,6 +20,7 @@ from aria.tools.knowledge.feature_parity import get_feature_parity
 from aria.tools.analytics.spending_insights import analyse_spending
 from aria.tools.escalation.transcript_summary import generate_transcript_summary
 from aria.tools.escalation.human_handoff import escalate_to_human_agent
+from aria.tools.channels.request_transfer import request_channel_transfer
 
 ALL_TOOLS = [
     pii_detect_and_redact,
@@ -42,6 +43,7 @@ ALL_TOOLS = [
     get_feature_parity,
     generate_transcript_summary,
     escalate_to_human_agent,
+    request_channel_transfer,
 ]
 
 __all__ = [
@@ -66,4 +68,5 @@ __all__ = [
     "get_feature_parity",
     "generate_transcript_summary",
     "escalate_to_human_agent",
+    "request_channel_transfer",
 ]
