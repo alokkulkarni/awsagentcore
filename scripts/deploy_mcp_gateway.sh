@@ -65,6 +65,13 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Resolve the repository root regardless of where the script is invoked from.
+# All relative paths (scripts/lambdas/, scripts/iam/, etc.) are anchored here.
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ---------------------------------------------------------------------------
 # Configuration — edit these values to match your environment
 # ---------------------------------------------------------------------------
 AWS_ACCOUNT_ID="395402194296"
@@ -951,6 +958,9 @@ deploy_support_lambda() {
 
   local tmpdir
   tmpdir=$(mktemp -d)
+  # Always clean up the temp directory, even if the script exits early
+  trap "rm -rf '${tmpdir}'" RETURN
+
   local zipfile="${tmpdir}/${function_name}.zip"
 
   cp "${source_file}" "${tmpdir}/lambda_function.py"
@@ -987,7 +997,7 @@ deploy_support_lambda() {
     ok "Lambda created: ${function_name}"
   fi
 
-  rm -rf "${tmpdir}"
+  # tmpdir is cleaned by the RETURN trap above
 
   aws lambda get-function \
     --function-name "${function_name}" \
@@ -1033,7 +1043,7 @@ add_connect_resource_policy() {
 # the Unified Inbound contact flow (Block 9).
 # ---------------------------------------------------------------------------
 deploy_session_injector() {
-  local source_file="scripts/lambdas/session_injector.py"
+  local source_file="${REPO_ROOT}/scripts/lambdas/session_injector.py"
   [[ -f "${source_file}" ]] || die "Session injector source not found: ${source_file}"
 
   if [[ -z "${CONNECT_ASSISTANT_ID}" ]]; then
@@ -1073,7 +1083,7 @@ EOF
 # ---------------------------------------------------------------------------
 deploy_transfer_lambdas() {
   # ── voice_to_chat_transfer ───────────────────────────────────────────────
-  local v2c_source="scripts/lambdas/voice_to_chat_transfer.py"
+  local v2c_source="${REPO_ROOT}/scripts/lambdas/voice_to_chat_transfer.py"
   [[ -f "${v2c_source}" ]] || die "voice_to_chat_transfer source not found: ${v2c_source}"
 
   [[ -z "${CONNECT_INSTANCE_ID}" ]] \
@@ -1100,7 +1110,7 @@ EOF
   ok "voice_to_chat_transfer deployed: ${VOICE_TO_CHAT_ARN}"
 
   # ── chat_to_voice_transfer ───────────────────────────────────────────────
-  local c2v_source="scripts/lambdas/chat_to_voice_transfer.py"
+  local c2v_source="${REPO_ROOT}/scripts/lambdas/chat_to_voice_transfer.py"
   [[ -f "${c2v_source}" ]] || die "chat_to_voice_transfer source not found: ${c2v_source}"
 
   [[ -z "${SOURCE_PHONE_NUMBER}" ]] \
@@ -1492,11 +1502,14 @@ cmd_deploy() {
 # cmd_teardown — delete every resource created by cmd_deploy, in reverse order
 #
 # Deletion order (reverse of creation):
-#   1. MCP Gateway targets  (must be removed before the gateway can be deleted)
+#   1. MCP Gateway targets    (must be removed before the gateway can be deleted)
 #   2. MCP Gateway
-#   3. Lambda functions     (10 domain functions)
-#   4. Lambda IAM role      (detach managed policy, delete inline policy, delete role)
-#   5. Gateway IAM role     (delete inline policy, delete role)
+#   3. MCP domain Lambdas     (10 functions)
+#   4. Support Lambdas        (session_injector, voice_to_chat, chat_to_voice)
+#   5. DynamoDB table         (aria-transcript-store)
+#   6. MCP Lambda IAM role    (detach managed policy, delete inline policy, delete role)
+#   7. Support Lambda IAM role
+#   8. Gateway IAM role
 # ---------------------------------------------------------------------------
 cmd_teardown() {
   local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
