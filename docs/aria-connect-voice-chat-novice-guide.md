@@ -1325,11 +1325,17 @@ contact flow's Block 8 (Connect Assistant) will reference.
 
 1. In AI Agent Designer → **AI Agents** tab → **Create AI agent**
 
-> ⚠️ **Do NOT use "Copy from existing"** — copying from SelfServiceOrchestrator will cause an "Invalid request body" error because the types are incompatible. Create from scratch.
+   The console shows a **"Copy from existing"** dropdown — this is **required** and not optional.
+   Select **`SelfServiceOrchestrator`** from the list.
+
+   > ℹ️ Despite the name, `SelfServiceOrchestrator` IS the system Orchestration agent template.
+   > Selecting it creates a new custom Orchestration-type agent. This is the correct and only
+   > option in the console for creating an Orchestration agent.
+   > Previously this guide warned against it — that was incorrect. The description was too long
+   > (>255 chars) causing "Invalid request body", not the copy source.
 
 2. Fill in the **Agent details** panel:
    - **Name**: `ARIA-Banking-Orchestration-Agent`
-   - **Type**: `Orchestration`
    - **Description** *(max 255 characters — paste exactly)*:
      ```
      ARIA is Meridian Bank's AI banking assistant for voice and chat. Handles account, card, mortgage and product queries under PCI-DSS, UK GDPR and FCA obligations. Escalates fraud, advice and vulnerability cases.
@@ -1345,15 +1351,19 @@ contact flow's Block 8 (Connect Assistant) will reference.
 
 5. **Tools** section — this is where ARIA's banking capabilities are wired in:
 
+   > ⚠️ **Prerequisite**: The **Third-party MCP** option in the Tools panel only appears after
+   > Step D.5.5 (MCP server integration) is completed. If you only see **"Amazon Connect"** and
+   > **"Create new AI Tool"**, go back and complete D.5.5 first, then return here.
+
    a. Click **Add tools** (or the **+** icon in the Tools section).
 
-   b. You will see three tool categories:
+   b. The tool panel shows up to three categories depending on what is registered:
 
       | Category | What it is | Use for ARIA? |
       |---|---|---|
-      | **Out-of-the-box tools** | Prebuilt Connect tools (update contact attributes, retrieve case info) | Optional — see below |
-      | **Flow module tools** | Existing Connect flow modules promoted to MCP tools | Not used for ARIA |
-      | **Third-party MCP** | AgentCore Gateway tools registered in Step D.5.5 | **Required** |
+      | **Amazon Connect** | Prebuilt Connect tools (update contact attributes, retrieve case info, etc.) | Optional |
+      | **Create new AI Tool** | Create a new Connect flow module as an MCP tool | Not used for ARIA |
+      | **Third-party MCP** | AgentCore Gateway tools registered in Step D.5.5 | **Required** — appears only after D.5.5 |
 
    c. Under **Third-party MCP** → select `ARIA-Banking-MCP-Gateway`
       - This adds all 10 banking domain tool groups to the agent:
@@ -1362,7 +1372,7 @@ contact flow's Block 8 (Connect Assistant) will reference.
       - The tools will be injected into the orchestration prompt at runtime via
         `{{$.toolConfigurationList}}`
 
-   d. *(Optional)* Under **Out-of-the-box tools**, you may also enable:
+   d. *(Optional)* Under **Amazon Connect**, you may also enable:
       - **Update contact attributes** — allows ARIA to write session data back to the contact
         (e.g. flag a vulnerability, set resolved status)
       - Leave all others disabled unless needed
@@ -1381,7 +1391,7 @@ contact flow's Block 8 (Connect Assistant) will reference.
    - Type shows `Orchestration`
    - AI Prompt shows `ARIA-Banking-Orchestration-Prompt (v1)` or similar
    - AI Guardrail shows `ARIA-Banking-Guardrail (v1)` or similar
-   - Tools shows `ARIA-Banking-MCP-Gateway` plus any out-of-the-box tools you added
+   - Tools shows `ARIA-Banking-MCP-Gateway` plus any Amazon Connect tools you added
 
 9. Click **Publish**
 
@@ -1410,9 +1420,14 @@ Nova Sonic.
 **Steps:**
 
 1. In AI Agent Designer → **AI Agents** → **Create AI agent**
+
+   The **"Copy from existing"** dropdown is required. For a Self-service type agent, look for a
+   system agent named **`SelfServiceSuggestion`** or similar. If only `SelfServiceOrchestrator`
+   appears, try selecting it — it may still work for a Self-service type depending on your
+   region's available system agents.
+
 2. Fill in the **Agent details**:
    - **Name**: `ARIA-Banking-Selfservice-Agent`
-   - **Type**: `Self-service`
    - **Description** *(max 255 characters)*:
      ```
      ARIA is Meridian Bank's AI banking assistant for voice and chat. Handles account, card, mortgage and product queries under PCI-DSS, UK GDPR and FCA obligations. Escalates fraud, advice and vulnerability cases.
