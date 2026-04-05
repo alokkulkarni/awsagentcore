@@ -958,9 +958,6 @@ deploy_support_lambda() {
 
   local tmpdir
   tmpdir=$(mktemp -d)
-  # Always clean up the temp directory, even if the script exits early
-  trap "rm -rf '${tmpdir}'" RETURN
-
   local zipfile="${tmpdir}/${function_name}.zip"
 
   cp "${source_file}" "${tmpdir}/lambda_function.py"
@@ -997,7 +994,7 @@ deploy_support_lambda() {
     ok "Lambda created: ${function_name}"
   fi
 
-  # tmpdir is cleaned by the RETURN trap above
+  rm -rf "${tmpdir}"
 
   aws lambda get-function \
     --function-name "${function_name}" \
@@ -1055,7 +1052,7 @@ deploy_session_injector() {
 
   local env_vars
   env_vars=$(cat <<EOF
-{"Variables":{"ASSISTANT_ID":"${CONNECT_ASSISTANT_ID}","AWS_REGION":"${AWS_REGION}","CRM_API_ENDPOINT":"${CRM_API_ENDPOINT}","TRANSCRIPT_TABLE_NAME":"${TRANSCRIPT_TABLE}","INSTANCE_ID":"${CONNECT_INSTANCE_ID}"}}
+{"Variables":{"ASSISTANT_ID":"${CONNECT_ASSISTANT_ID}","CRM_API_ENDPOINT":"${CRM_API_ENDPOINT}","TRANSCRIPT_TABLE_NAME":"${TRANSCRIPT_TABLE}","INSTANCE_ID":"${CONNECT_INSTANCE_ID}"}}
 EOF
 )
 
@@ -1095,7 +1092,7 @@ deploy_transfer_lambdas() {
 
   local v2c_env
   v2c_env=$(cat <<EOF
-{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","CHAT_WIDGET_URL":"${CHAT_WIDGET_URL}","SMS_ORIGINATION_NUMBER":"${SMS_ORIGINATION_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}","AWS_REGION":"${AWS_REGION}"}}
+{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","CHAT_WIDGET_URL":"${CHAT_WIDGET_URL}","SMS_ORIGINATION_NUMBER":"${SMS_ORIGINATION_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}"}}
 EOF
 )
 
@@ -1120,7 +1117,7 @@ EOF
 
   local c2v_env
   c2v_env=$(cat <<EOF
-{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","QUEUE_ID":"${CONNECT_QUEUE_ID}","SOURCE_PHONE_NUMBER":"${SOURCE_PHONE_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}","AWS_REGION":"${AWS_REGION}"}}
+{"Variables":{"INSTANCE_ID":"${CONNECT_INSTANCE_ID}","CONTACT_FLOW_ID":"${CONNECT_CONTACT_FLOW_ID}","QUEUE_ID":"${CONNECT_QUEUE_ID}","SOURCE_PHONE_NUMBER":"${SOURCE_PHONE_NUMBER}","DYNAMODB_TABLE":"${TRANSCRIPT_TABLE}"}}
 EOF
 )
 
