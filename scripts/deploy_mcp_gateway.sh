@@ -978,16 +978,24 @@ deploy_support_lambda() {
   if aws lambda get-function \
       --function-name "${function_name}" \
       --region "${AWS_REGION}" >/dev/null 2>&1; then
-    # Update code
+    # Update code first, then wait for the update to finish before touching configuration.
+    # Lambda only allows one in-flight update at a time — calling update-function-configuration
+    # while a code update is still processing causes ResourceConflictException.
     aws lambda update-function-code \
       --function-name "${function_name}" \
       --zip-file "fileb://${zipfile}" \
       --region "${AWS_REGION}" >/dev/null
-    # Update env vars in case config changed
+    aws lambda wait function-updated-v2 \
+      --function-name "${function_name}" \
+      --region "${AWS_REGION}"
+    # Now safe to update environment variables
     aws lambda update-function-configuration \
       --function-name "${function_name}" \
       --environment "${env_vars}" \
       --region "${AWS_REGION}" >/dev/null
+    aws lambda wait function-updated-v2 \
+      --function-name "${function_name}" \
+      --region "${AWS_REGION}"
     ok "Lambda updated: ${function_name}"
   else
     aws lambda create-function \
@@ -1352,10 +1360,23 @@ add_gateway_target() {
 
   log "Adding MCP target: ${target_name} → ${lambda_arn}..."
 
-  # inputSchema takes type/properties/required directly — no 'json' wrapper
   python3 - <<PYEOF
 import boto3, sys
+from botocore.exceptions import ClientError
+
 c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+
+# Check if a target with this name already exists
+try:
+    paginator = c.get_paginator('list_gateway_targets')
+    for page in paginator.paginate(gatewayIdentifier='${GATEWAY_ID}'):
+        for t in page.get('items', []):
+            if t.get('name') == '${target_name}':
+                print(f"[INFO]  Target already exists — skipping: ${target_name}", file=sys.stderr)
+                sys.exit(0)
+except Exception:
+    pass  # list failed — try create anyway
+
 try:
     c.create_gateway_target(
         gatewayIdentifier='${GATEWAY_ID}',
@@ -1394,12 +1415,19 @@ try:
             {'credentialProviderType': 'GATEWAY_IAM_ROLE'}
         ]
     )
+except ClientError as e:
+    code = e.response.get('Error', {}).get('Code', '')
+    if code in ('ConflictException', 'ResourceAlreadyExistsException'):
+        print(f"[INFO]  Target already exists — skipping: ${target_name}", file=sys.stderr)
+    else:
+        print('ERROR: ' + str(e), file=sys.stderr)
+        sys.exit(1)
 except Exception as exc:
     print('ERROR: ' + str(exc), file=sys.stderr)
     sys.exit(1)
 PYEOF
 
-  ok "Target added: ${target_name}"
+  ok "Target added/verified: ${target_name}"
 }
 
 # ---------------------------------------------------------------------------
