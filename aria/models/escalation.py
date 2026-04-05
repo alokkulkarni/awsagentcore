@@ -43,7 +43,7 @@ class EscalateRequest(BaseModel):
 
     session_id: str
     customer_id: str
-    escalation_reason: str  # rate_switch_advice | fraud_dispute | customer_request | vulnerability | security_event | tool_failure
+    escalation_reason: str  # rate_switch_advice | fraud_dispute | customer_request | vulnerability | security_event | tool_failure | out_of_scope_redirect | mortgage_enquiry | channel_transfer
     auth_status: str
     auth_level: str
     risk_score: int

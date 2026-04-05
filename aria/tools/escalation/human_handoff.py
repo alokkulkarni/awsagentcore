@@ -22,7 +22,7 @@ def escalate_to_human_agent(
     """
     Transmits a secure handoff package to the human agent system and transfers the customer.
     escalation_reason must be one of: rate_switch_advice, fraud_dispute, customer_request,
-    vulnerability, security_event, tool_failure, out_of_scope_redirect, mortgage_enquiry.
+    vulnerability, security_event, tool_failure, out_of_scope_redirect, mortgage_enquiry, channel_transfer.
     priority must be one of: standard, urgent, safeguarding.
     Must only be called after generate_transcript_summary has been called and after
     pii_vault_retrieve with purpose='escalation_handoff' has been called to populate verified_pii.
