@@ -757,20 +757,21 @@ set **Type** to **Deny**, then click **Add topic**.
 
 > This prevents ARIA from making competitor comparisons or being prompted into discussing other banks.
 
-#### D.2e — Enable Contextual Grounding Check
+#### D.2e — Skip Contextual Grounding Check
 
-9. Scroll to **Contextual grounding check** → enable it:
-   - **Grounding threshold**: `0.70`
-   - **Relevance threshold**: `0.55`
-
-> Grounding at 0.70 means ARIA's response must be at least 70% supported by the source material
-> (knowledge base documents or customer data) to pass. Relevance at 0.55 filters responses that do
-> not sufficiently address the customer's query.
+> ⚠️ **Do NOT enable Contextual Grounding** for this guardrail.
+>
+> Contextual Grounding (Grounding threshold / Relevance threshold) is **not supported for
+> ORCHESTRATION AI Agents**. Attaching a guardrail that has this policy enabled will cause the
+> error: *"Contextual grounding guardrail policy is not allowed for ORCHESTRATION AIAgent."*
+>
+> Contextual grounding is only valid for ANSWER_RECOMMENDATION and SELF_SERVICE agent types.
+> Leave the **Contextual grounding check** section disabled (default).
 
 #### D.2f — Publish the Guardrail
 
-10. Click **Save** → then click **Publish**
-11. Note down the **Guardrail ID** (you will need it when building the AI Agent in Step D.6)
+9. Click **Save** → then click **Publish**
+10. Note down the **Guardrail ID** (you will need it when building the AI Agent in Step D.6)
 
 > After publishing, the guardrail shows **Status: Published** with a version number (e.g. `v1`). Every
 > time you edit and re-publish, a new version is created. The AI Agent will pin to the version you
@@ -1354,6 +1355,10 @@ contact flow's Block 8 (Connect Assistant) will reference.
 4. **AI Guardrail** section — click **Select AI guardrail**:
    - Select `ARIA-Banking-Guardrail`
    - Select the **published version** (e.g. `v1`)
+   - ⚠️ If you see the error *"Contextual grounding guardrail policy is not allowed for ORCHESTRATION AIAgent"*,
+     the guardrail was created with Contextual Grounding enabled. This policy is not supported for
+     Orchestration agents. Re-create the guardrail following D.2 (do NOT enable Contextual Grounding
+     in step D.2e), publish it, and re-select it here.
 
 5. **Tools** section — this is where ARIA's banking capabilities are wired in:
 
