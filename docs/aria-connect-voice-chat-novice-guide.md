@@ -1536,14 +1536,23 @@ tools:
         - target_channel
 
 messages:
-  - "{{$.conversationHistory}}"
+  - role: user
+    content: "{{$.conversationHistory}}"
   - role: assistant
-    content: <message>
+    content: "<message>"
 ```
 
-> **What is `content: <message>` at the end?** This is a **prefill** — it forces the model to begin
-> every response with the `<message>` tag. Without it, the model might occasionally start with
-> `<thinking>` or free text. The prefill is the Connect standard way of enforcing structured output.
+> **What is the `messages` section at the end?**
+>
+> - **`role: user / content: "{{$.conversationHistory}}"`** — This injects the full multi-turn
+>   conversation history as the current user message. Connect expands `{{$.conversationHistory}}`
+>   at runtime before calling the model. The `MESSAGES` schema requires every list item to have
+>   both a `role` field (`user` or `assistant`) and a `content` field — a bare string like
+>   `- "{{$.conversationHistory}}"` will fail Connect's YAML schema validation.
+> - **`role: assistant / content: "<message>"`** — This is an **assistant prefill**. It forces the
+>   model to begin every response with the `<message>` tag. Without it, the model may occasionally
+>   start with `<thinking>` or free text. The angle brackets must be quoted to satisfy Connect's
+>   schema validation.
 
 5. Click **Save** → then click **Publish**
 6. Note the **Prompt ID** and the **Version number** (e.g. `v1`)
@@ -1643,7 +1652,7 @@ messages:
 
       Based on the above, produce structured routing instructions in the required XML format.
   - role: assistant
-    content: <session_state>
+    content: "<session_state>"
 ```
 
 4. Click **Save** → **Publish**
