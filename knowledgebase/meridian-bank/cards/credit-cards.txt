@@ -1,0 +1,174 @@
+MERIDIAN BANK — CREDIT CARDS
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank offers two credit card products:
+
+1. Everyday Rewards Mastercard — earn rewards on spending, no annual fee
+2. Premium Travel Mastercard — travel benefits, no foreign transaction fees, £15/month fee
+
+Both are Mastercard credit cards accepted worldwide wherever Mastercard is displayed.
+
+=============================================================
+EVERYDAY REWARDS MASTERCARD
+=============================================================
+
+Annual fee:          £0
+Purchase APR:        22.9% APR (variable)
+Representative APR:  22.9% APR (variable) based on £1,200 credit limit
+Minimum credit limit:£500
+Maximum credit limit:£15,000 (subject to credit assessment)
+Minimum repayment:   1% of outstanding balance or £25 (whichever is greater)
+Interest-free period:Up to 56 days on purchases (if full balance paid by due date)
+Cash advance fee:    3% (min £3). Cash advances accrue interest immediately — no interest-free period.
+Balance transfer:    Available. Fee: 2.5% of amount transferred (min £5).
+Foreign transaction: 2.75% non-sterling transaction fee
+
+Rewards programme:
+- Earn 1 Meridian Point for every £1 spent on purchases (not cash advances).
+- Earn 2 Meridian Points per £1 at selected retail partners (list available at meridianbank.co.uk/rewards).
+- 1,000 Meridian Points = £10 cashback applied to your credit card statement.
+- Points expire 2 years after they are earned if not redeemed.
+- Redeem via the mobile app: Credit Card → Rewards → Redeem points.
+
+=============================================================
+PREMIUM TRAVEL MASTERCARD
+=============================================================
+
+Monthly fee:         £15 (£180 per year)
+Purchase APR:        19.9% APR (variable)
+Representative APR:  49.2% APR (variable) including the monthly fee, based on £1,200 credit limit
+Minimum credit limit:£1,000
+Maximum credit limit:£25,000 (subject to credit assessment)
+Minimum repayment:   1% or £25, whichever is greater
+Interest-free period:Up to 56 days on purchases (if full balance paid)
+Cash advance fee:    3% (min £3). Interest accrues immediately.
+Balance transfer:    Available. Fee: 1.5% of amount (min £5).
+Foreign transaction: £0 — no non-sterling transaction fee
+
+Travel benefits:
+- No foreign exchange fee on all purchases (worldwide)
+- Free overseas ATM withdrawals (up to £500/month; £1.50 per withdrawal thereafter)
+- Complimentary travel insurance (single and multi-trip, up to 31 days per trip, ages 18–74)
+  — includes medical, cancellation, curtailment, baggage, and personal liability cover
+  — pre-existing medical conditions must be declared: call 0161 900 9003
+- Airport lounge access: 4 visits per year at participating UK airports (LoungeKey network)
+  — additional visits: £25 each. Pre-book via meridianbank.co.uk/lounge
+- Concierge service: 24/7 personal assistant for restaurant bookings, event tickets, travel arrangements
+  — call the concierge line printed on the back of your card
+
+=============================================================
+CREDIT CARD STATEMENTS AND PAYMENTS
+=============================================================
+
+Statement date:
+- Statements are generated monthly on a fixed date (your statement date is shown on your card agreement and in the app/online banking).
+- The statement shows all transactions in the billing period, the total balance, the minimum payment, and the payment due date.
+- Statements are available digitally in the mobile app and online banking. Paper statements are sent by post if you have not opted for paperless.
+
+Payment due date:
+- 25 days after your statement date.
+- Example: if your statement is generated on the 5th of the month, payment is due by the 30th.
+
+Making a payment:
+- Mobile app: Home → Credit Card tile → "Make a payment" → choose amount:
+  - Minimum payment
+  - Statement balance
+  - Full balance (total outstanding, including post-statement transactions)
+  - Custom amount
+  - Payments from a Meridian Bank current account are applied same day if made before 9pm.
+  - Payments from an external bank account take 1–3 working days via Faster Payments.
+- Online banking: Cards → Credit Card → Make a payment.
+- Direct debit: set up a monthly automatic direct debit (minimum payment, statement balance, or full balance) — highly recommended to avoid missed payments. Set up in app or by calling 0161 900 9000.
+
+Minimum payment:
+- 1% of the outstanding balance or £25, whichever is greater.
+- Paying only the minimum means you will take much longer to clear your balance and will pay significantly more interest. Meridian Bank recommends paying as much above the minimum as possible.
+
+Interest-free period:
+- Up to 56 days interest-free on purchases, provided you pay the FULL statement balance by the due date every month.
+- If you do not pay the full balance: interest is charged on the entire balance (not just the unpaid portion) from the transaction date.
+- Interest is NOT applied if you have a 0% promotional offer in force — see your agreement for details.
+
+=============================================================
+MANAGING YOUR CREDIT CARD
+=============================================================
+
+Checking balance and available credit:
+- Mobile app: Home → Credit Card tile. Shows: outstanding balance, available credit, credit limit, minimum payment due, and next payment date.
+- Online banking: Cards → Credit Card → Summary.
+
+Requesting a credit limit change:
+- Increase: Mobile app → Credit Card → "Request credit limit change" → "Increase". Subject to credit assessment. Usually decided within 3 working days.
+- Decrease: Available instantly in app or by calling us. You can decrease to any amount above your current balance.
+
+Setting up a direct debit:
+- Mobile app: Credit Card → "Manage direct debit" → select payment option → enter bank details (Meridian Bank current account is pre-filled).
+- Call 0161 900 9000 to set up by phone.
+
+Blocking and unblocking your credit card:
+- Same process as debit card. Mobile app: Cards → Credit Card → Freeze card.
+- Reporting lost or stolen: Cards → Credit Card → "Report lost or stolen". Replacement in 3–5 working days.
+
+=============================================================
+BALANCE TRANSFERS
+=============================================================
+
+Transfer an existing credit card balance from another provider to your Meridian Bank credit card.
+
+Why: Meridian Bank's APR may be lower than your existing card, saving you interest.
+
+How to request:
+- Mobile app: Credit Card → "Balance transfer" → enter existing card issuer name, card number (last four digits), and amount to transfer.
+- Online banking: Cards → Credit Card → Balance transfer.
+- Call 0161 900 9000.
+
+Fee: 2.5% of transferred amount (Everyday Rewards); 1.5% (Premium Travel). Minimum £5.
+Processing time: 3–7 working days.
+The balance from the other card must be cleared (the other provider may take 5–10 days to reflect the payment).
+
+Important: a balance transfer does not close your other card — do that separately. Continue making minimum payments to your other card until the balance shows as £0.
+
+=============================================================
+CREDIT CARD DISPUTES AND SECTION 75
+=============================================================
+
+Section 75 of the Consumer Credit Act 1974:
+- Applies to credit card purchases between £100 and £30,000.
+- If a retailer fails to deliver goods or services, goes out of business, or misrepresents a product, Meridian Bank is jointly liable with the retailer.
+- You can claim a refund directly from Meridian Bank even if the retailer refuses.
+- Call 0161 900 9000 or visit a branch. Bring evidence of the purchase and the problem.
+- Section 75 does NOT apply to debit card purchases, cash advances, or transactions made through a third party (e.g. PayPal, Amazon Marketplace third-party sellers).
+
+Chargeback (debit and credit cards):
+- For transactions not covered by Section 75, a Visa/Mastercard chargeback can be raised.
+- Must be raised within 120 days of the transaction or the expected delivery date.
+- Contact us via secure message (app or online banking) or call 0161 900 9000.
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — CREDIT CARDS
+=============================================================
+
+Q: What is my APR?
+A: Your personalised APR is shown on your credit agreement and in the mobile app (Credit Card → Account details). The representative APR advertised is what at least 51% of accepted applicants receive — your rate may be higher or lower depending on your credit profile.
+
+Q: I missed my payment due date. What happens?
+A: A £12 late payment fee is charged. Your credit file may be negatively affected. Call us immediately on 0161 900 9000 — we may be able to waive the fee if it is a first occurrence. To avoid this, set up a direct debit for the minimum payment.
+
+Q: Can I use my credit card to withdraw cash?
+A: Yes, but cash advances are expensive. A 3% fee (minimum £3) is charged, and interest accrues immediately at the cash advance APR (typically higher than purchase APR). We recommend avoiding cash advances where possible.
+
+Q: How do I redeem my Rewards points?
+A: Mobile app: Home → Credit Card tile → Rewards tab → "Redeem points" → apply as statement credit. Minimum redemption: 1,000 points (£10). Redeemed credit appears on your next statement.
+
+Q: Does the credit card come with purchase protection?
+A: Purchases are protected under Section 75 (£100–£30,000). Additionally, the Premium Travel Mastercard includes purchase protection insurance covering accidental damage or theft of items purchased with the card for 90 days from purchase (up to £2,000 per item, £5,000 per year).
+
+Q: How do I check my credit limit?
+A: Mobile app: Home → Credit Card tile → the credit limit and available credit are shown at the top of the screen.
+
+Q: What is the minimum age to apply for a Meridian Bank credit card?
+A: 18. You must also be a UK resident and pass a credit assessment. Being a Meridian Bank current account holder is not required but improves eligibility.

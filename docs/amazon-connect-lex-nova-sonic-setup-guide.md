@@ -1,34 +1,85 @@
 # Step-by-Step: Connect ARIA to Amazon Connect via Lex V2 + Nova Sonic S2S
 
-> **Goal**: Route PSTN telephone calls to your existing ARIA AgentCore banking agent using Amazon Connect + Amazon Lex V2 + Amazon Nova Sonic Speech-to-Speech.  
-> **Stack**: Existing ARIA agent running on `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY`  
+> **Goal**: Route PSTN telephone calls to your existing ARIA AgentCore banking agent using Amazon Connect + Amazon Lex V2 + Amazon Nova Sonic Speech-to-Speech.
+> **Stack**: Existing ARIA agent running on `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY`
 > **Region**: eu-west-2 (London) throughout unless stated
+> **Level**: Step-by-step for beginners — every click is described
 
 ---
 
-## Architecture Recap (What You're Building)
+## How the Whole Thing Works (Read This First)
+
+Before touching the AWS console, take 2 minutes to understand what each piece does and why it exists.
 
 ```
-Phone Call (PSTN)
-    ↓
-Amazon Connect (eu-west-2)
-    ↓  Contact Flow
-Amazon Lex V2 Bot  ←→  Nova Sonic S2S (speech ↔ speech)
-    ↓  Lambda fulfillment (every turn)
-aria-connect-fulfillment (Lambda)
-    ↓  HTTP POST + SigV4
-ARIA AgentCore Runtime  (your existing stack, unchanged)
-    ↓
-ARIA Strands Agent → banking tools → response text
-    ↑
-Nova Sonic speaks the response back to the caller
++------------------------------------------------------------------------+
+|  PSTN Phone Call                                                       |
+|       |                                                                |
+|       v                                                                |
+|  Amazon Connect  ---- Contact Flow runs top-to-bottom ---->           |
+|       |                                                                |
+|       |  Block 1: Entry Point         (call arrives here)             |
+|       |  Block 2: Set Voice           (enable Nova Sonic audio)       |
+|       |  Block 3: Set Contact Attrs   (store ContactId)               |
+|       |  Block 4: Invoke Lambda  <--- aria-session-injector           |
+|       |              |                Looks up caller by phone/CRM    |
+|       |              |                Returns: customerId, authStatus  |
+|       |  Block 5: Set Contact Attrs   (store customerId + authStatus  |
+|       |                               from Lambda result)             |
+|       |  Block 6: Get Customer Input  <--- ARIA-Connect-Bot (Lex V2)  |
+|       |    |  (loops every turn)           + Nova Sonic S2S           |
+|       |    |                               + aria-lex-fulfillment     |
+|       |    |  Every turn the fulfillment Lambda:                      |
+|       |    |    - Reads contactId, customerId, authStatus             |
+|       |    |    - POSTs to AgentCore with those attributes            |
+|       |    |    - Returns ARIA response -> Nova Sonic speaks it       |
+|       |    |                                                           |
+|       |    +-- FallbackIntent --> Block 7: Check escalate flag        |
+|       |    |                          +-- escalate=true --> Transfer  |
+|       |    |                          +-- escalate=false --> loop  <--+
+|       |    +-- TransferToAgent --> Transfer to agent queue            |
+|       |    +-- Error ----------->  Play Error Prompt -> Disconnect    |
+|       |    +-- Timeout ----------> loop back                         |
++------------------------------------------------------------------------+
+```
+
+### The Two Lambdas Explained
+
+**Lambda 1 - `aria-session-injector`** (runs ONCE at call start, before Lex)
+
+This Lambda runs when the call first arrives, before any conversation starts. It:
+1. Receives the caller's **phone number** and **ContactId** from Connect
+2. Looks up whether that phone number matches a known customer in the CRM
+3. If **found**: sets `customerId = "CUST-001"` and `authStatus = "authenticated"`
+4. If **not found**: sets `customerId = ""` and `authStatus = "unauthenticated"`
+5. Returns these values to Connect, which stores them as **contact attributes**
+6. Also injects customer context (name, products, vulnerability flags) into the Q Connect session
+
+**Lambda 2 - `aria-lex-fulfillment`** (runs on EVERY conversation turn)
+
+This Lambda is called by Lex V2 each time the customer says something. It:
+1. Reads `contactId`, `customerId`, and `authStatus` from the Lex session attributes
+2. Sends the customer's words + those attributes to ARIA AgentCore
+3. ARIA processes the request (already knowing who the caller is)
+4. Returns ARIA's text response to Lex, which Nova Sonic speaks aloud
+
+### The Pre-Authentication Flow
+
+```
+Phone number matches CRM?
+  YES -> customerId = "CUST-001", authStatus = "authenticated"
+         -> ARIA greets: "Hello James, how can I help you?"
+         -> ARIA has full product context, skips identity verification
+  NO  -> customerId = "",          authStatus = "unauthenticated"
+         -> ARIA greets: "Welcome to Meridian Bank, I'm ARIA."
+         -> ARIA runs full identity verification before any account data
 ```
 
 **Nothing changes in your existing AgentCore/ARIA code.** You are adding:
-1. An Amazon Connect instance
-2. A Lex V2 bot (just a shell — ARIA handles all NLU)
-3. A Lambda function (the bridge from Lex → AgentCore)
-4. A Contact Flow in Connect
+1. An Amazon Connect instance (the phone system)
+2. A Lex V2 bot (shell for voice input - ARIA handles all understanding)
+3. Two Lambda functions (the glue between Connect and AgentCore)
+4. A Contact Flow (the IVR script)
 
 ---
 
@@ -41,425 +92,110 @@ Nova Sonic speaks the response back to the caller
 | AWS CLI | Configured with `aws configure` pointing to `eu-west-2` |
 | AgentCore runtime | Running and reachable (verified from prior deployment) |
 | Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY` |
+| Session Injector Lambda | Deployed (`aria-session-injector` - see `scripts/deploy_mcp_gateway.sh`) |
+| Fulfillment Lambda | Deployed (`aria-lex-fulfillment` - see `scripts/deploy.sh`) |
+
+> **Quick check**: Run `aws lambda get-function --function-name aria-session-injector --region eu-west-2` to verify the Lambda exists.
 
 ---
 
-## Part 1 — Create the Amazon Connect Instance
+## Part 1 - Create the Amazon Connect Instance
 
 > Official docs: [Create an Amazon Connect instance](https://docs.aws.amazon.com/connect/latest/adminguide/amazon-connect-instances.html)
 
-### Step 1.1 — Open the Connect Console
+### Step 1.1 - Open the Connect Console
 
-1. Go to [https://console.aws.amazon.com/connect/](https://console.aws.amazon.com/connect/)
+1. Go to https://console.aws.amazon.com/connect/
 2. Make sure your region selector (top right) shows **Europe (London) eu-west-2**
 3. Click **Get started** (or **Add an instance** if you have existing instances)
 
-### Step 1.2 — Configure Identity
+### Step 1.2 - Configure Identity
 
 1. Select **Store users in Amazon Connect** (simplest for initial setup)
 2. In **Access URL**, enter a unique subdomain: `meridian-aria`
    - Your Connect admin URL will be: `https://meridian-aria.my.connect.aws`
 3. Click **Next**
 
-### Step 1.3 — Add Administrator
+### Step 1.3 - Add Administrator
 
 1. Select **Specify an administrator**
 2. Fill in:
    - **First name**: Admin
    - **Last name**: Meridian
    - **Username**: `admin`
-   - **Password**: (strong password — you'll use this to log into Connect)
+   - **Password**: (strong password - you will use this to log into Connect)
    - **Email**: (your email)
 3. Click **Next**
 
-### Step 1.4 — Configure Telephony
+### Step 1.4 - Configure Telephony
 
-1. Check ✅ **Receive inbound calls with Amazon Connect**
-2. Check ✅ **Make outbound calls with Amazon Connect**
-3. Check ✅ **Enable early media**
+1. Check **Receive inbound calls with Amazon Connect**
+2. Check **Make outbound calls with Amazon Connect**
+3. Check **Enable early media**
 4. Click **Next**
 
-### Step 1.5 — Data Storage
+### Step 1.5 - Data Storage
 
 1. Leave defaults (Connect creates an S3 bucket automatically)
 2. Note the S3 bucket name shown (e.g., `amazon-connect-xxxxxxxxxxxx`)
 3. Click **Next**
 
-### Step 1.6 — Review and Create
+### Step 1.6 - Review and Create
 
 1. Review settings
 2. Click **Create instance**
-3. Wait ~2 minutes for provisioning
-4. Note your **Instance ARN** — you'll need it later:
+3. Wait about 2 minutes for provisioning
+4. Note your **Instance ARN** - you will need it later:
    - Format: `arn:aws:connect:eu-west-2:395402194296:instance/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
+   - Also note just the **Instance ID** (the UUID part after `instance/`)
 
-### Step 1.7 — Claim a Phone Number
+### Step 1.7 - Claim a Phone Number
 
 1. Once the instance is created, click **Get started** on the confirmation screen
-2. Or go to: Connect admin → **Channels** → **Phone numbers** → **Claim a number**
+2. Or go to: Connect admin -> **Channels** -> **Phone numbers** -> **Claim a number**
 3. Select:
    - **Country**: United Kingdom
    - **Type**: DID (Direct Inward Dial) for a local number, or Toll Free
    - Pick any available number
-4. Under **Flow/IVR**: leave blank for now (you'll assign it after creating the flow)
+4. Under **Flow/IVR**: leave blank for now (you will assign it after creating the flow)
 5. Click **Save**
-6. Note the phone number — this is what customers will call
+6. Note the phone number - this is what customers will call
 
 ---
 
-## Part 2 — Create the Lambda Fulfillment Function
+## Part 2 - Register Both Lambdas with Connect
 
-> Create this **before** the Lex bot, because the bot needs to reference it.
+Before any Lambda can be called from a Contact Flow, you must explicitly allow it in the Connect instance settings. This is a security whitelist. If you skip this, the flow will fail with a confusing "resource not found" error even though the Lambda exists.
 
-### Step 2.1 — Create the Lambda IAM Role
+### Step 2.1 - Add `aria-session-injector`
 
-1. Go to [https://console.aws.amazon.com/iam/](https://console.aws.amazon.com/iam/)
-2. Click **Roles** → **Create role**
-3. **Trusted entity type**: AWS service
-4. **Use case**: Lambda
-5. Click **Next**
-6. Search for and attach: **AWSLambdaBasicExecutionRole**
-7. Click **Next**, name the role: `aria-connect-fulfillment-role`
-8. Click **Create role**
+1. Go to https://console.aws.amazon.com/connect/
+2. Click on your instance alias (`meridian-aria`)
+3. In the left sidebar, click **Flows**
+4. Scroll down to the **AWS Lambda** section
+5. In the dropdown, find and select `aria-session-injector`
+   - If you do not see it, make sure it was deployed in the same region (eu-west-2)
+6. Click **Add Lambda Function**
+7. Confirm it appears in the list below the dropdown
 
-Now add the AgentCore permission:
+### Step 2.2 - Add `aria-lex-fulfillment`
 
-9. Click on the newly created role `aria-connect-fulfillment-role`
-10. Click **Add permissions** → **Create inline policy**
-11. Click the **JSON** tab and paste:
+1. Still on the same **Flows** settings page
+2. In the **AWS Lambda** dropdown, now select `aria-lex-fulfillment`
+3. Click **Add Lambda Function**
+4. Confirm both functions now appear in the list
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "InvokeARIAAgentCore",
-      "Effect": "Allow",
-      "Action": "bedrock-agentcore:InvokeAgentRuntime",
-      "Resource": "arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY"
-    }
-  ]
-}
-```
-
-12. Click **Next**, name it `aria-agentcore-invoke`, click **Create policy**
-
-### Step 2.2 — Create the Lambda Function
-
-1. Go to [https://console.aws.amazon.com/lambda/](https://console.aws.amazon.com/lambda/)
-2. Make sure region is **eu-west-2**
-3. Click **Create function**
-4. Select **Author from scratch**
-5. Configure:
-   - **Function name**: `aria-connect-fulfillment`
-   - **Runtime**: Python 3.12
-   - **Architecture**: x86_64
-   - **Execution role**: **Use an existing role** → `aria-connect-fulfillment-role`
-6. Click **Create function**
-
-### Step 2.3 — Add the Function Code
-
-1. In the Lambda console, click the **Code** tab
-2. Click the file `lambda_function.py` in the editor
-3. Replace all contents with:
-
-```python
-"""
-aria_connect_fulfillment.py
-
-Lambda fulfillment function for the ARIA-Connect-Bot Lex V2 bot.
-Called on every conversation turn by Amazon Lex V2.
-
-Flow:
-  Amazon Connect (PSTN voice) 
-    → Lex V2 + Nova Sonic S2S (speech ↔ text)
-      → This Lambda (every turn)
-        → ARIA AgentCore HTTP /invocations
-          → ARIA Strands agent response (plain text)
-        → Lex response → Nova Sonic speaks it back
-
-Environment variables required:
-  AGENTCORE_ENDPOINT  — full HTTPS URL to the AgentCore runtime invocations endpoint
-
-Session continuity:
-  ContactId from Amazon Connect is used as the AgentCore session ID.
-  This keeps the Strands agent state (auth, conversation history) consistent
-  across all turns of a single phone call.
-"""
-
-import json
-import logging
-import os
-import urllib.request
-import urllib.error
-import hashlib
-import hmac
-import datetime
-
-import boto3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
-from botocore.credentials import Credentials
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-AGENTCORE_ENDPOINT = os.environ.get(
-    "AGENTCORE_ENDPOINT",
-    "https://bedrock-agentcore.eu-west-2.amazonaws.com"
-    "/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aeu-west-2%3A395402194296"
-    "%3Aruntime%2Faria_banking_agent-ubLoKG8xsY/invocations"
-)
-AWS_REGION = os.environ.get("AWS_REGION", "eu-west-2")
-SERVICE    = "bedrock-agentcore"
-
-# Phrases that signal ARIA wants to escalate to a human agent
-ESCALATION_PHRASES = [
-    "speak to an agent",
-    "speak to someone",
-    "transfer me",
-    "transfer you",
-    "human agent",
-    "real person",
-    "talk to a person",
-    "connect you with",
-    "one of our advisors",
-    "one of our agents",
-]
-
-
-# ---------------------------------------------------------------------------
-# Lambda handler
-# ---------------------------------------------------------------------------
-def lambda_handler(event, context):
-    logger.info("Lex event: %s", json.dumps(event, default=str))
-
-    session_state  = event.get("sessionState", {})
-    intent_name    = session_state.get("intent", {}).get("name", "FallbackIntent")
-    input_transcript = event.get("inputTranscript", "").strip()
-    session_attrs  = session_state.get("sessionAttributes", {}) or {}
-
-    # ContactId from Amazon Connect → used as AgentCore session ID
-    # Connect passes ContactId inside requestAttributes
-    request_attrs  = event.get("requestAttributes", {}) or {}
-    contact_id     = (
-        request_attrs.get("ContactId")
-        or session_attrs.get("contactId")
-        or event.get("sessionId", "unknown-session")
-    )
-
-    # Store contactId in session attributes so it persists across turns
-    session_attrs["contactId"] = contact_id
-
-    logger.info(
-        "Turn: intent=%s contactId=%s transcript=%r",
-        intent_name, contact_id, input_transcript
-    )
-
-    # ------------------------------------------------------------------
-    # Handle explicit TransferToAgent intent (customer said "agent" etc.)
-    # ------------------------------------------------------------------
-    if intent_name == "TransferToAgent":
-        session_attrs["escalate"] = "true"
-        return _build_close_response(
-            "Of course. Let me connect you with one of our advisors now. "
-            "Please hold for a moment.",
-            session_attrs,
-            escalate=True,
-        )
-
-    # ------------------------------------------------------------------
-    # Nothing to say — shouldn't happen but guard anyway
-    # ------------------------------------------------------------------
-    if not input_transcript:
-        return _build_elicit_response(
-            "I'm sorry, I didn't quite catch that. Could you say that again?",
-            session_attrs,
-        )
-
-    # ------------------------------------------------------------------
-    # Call ARIA AgentCore
-    # ------------------------------------------------------------------
-    try:
-        aria_response = _call_agentcore(input_transcript, contact_id)
-    except Exception as exc:
-        logger.error("AgentCore call failed: %s", exc, exc_info=True)
-        return _build_elicit_response(
-            "I'm sorry, I'm having a technical issue right now. "
-            "Please bear with me, or press 0 to speak with an advisor.",
-            session_attrs,
-        )
-
-    logger.info("ARIA response (session=%s): %r", contact_id, aria_response[:200])
-
-    # ------------------------------------------------------------------
-    # Detect escalation in ARIA's response
-    # ------------------------------------------------------------------
-    escalate = any(phrase in aria_response.lower() for phrase in ESCALATION_PHRASES)
-    if escalate:
-        session_attrs["escalate"] = "true"
-        return _build_close_response(aria_response, session_attrs, escalate=True)
-
-    # ------------------------------------------------------------------
-    # Continue the conversation
-    # ------------------------------------------------------------------
-    return _build_elicit_response(aria_response, session_attrs)
-
-
-# ---------------------------------------------------------------------------
-# AgentCore HTTP invocation (SigV4 signed)
-# ---------------------------------------------------------------------------
-def _call_agentcore(user_message: str, session_id: str) -> str:
-    """POST to AgentCore /invocations, return ARIA's plain-text response."""
-    body = json.dumps({"message": user_message}).encode("utf-8")
-
-    # Get credentials from Lambda's execution role
-    session = boto3.Session()
-    creds   = session.get_credentials().get_frozen_credentials()
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": session_id,
-    }
-
-    # SigV4 sign the request
-    aws_request = AWSRequest(
-        method="POST",
-        url=AGENTCORE_ENDPOINT,
-        data=body,
-        headers=headers,
-    )
-    SigV4Auth(creds, SERVICE, AWS_REGION).add_auth(aws_request)
-
-    # Execute with urllib (no third-party deps needed)
-    req = urllib.request.Request(
-        AGENTCORE_ENDPOINT,
-        data=body,
-        headers=dict(aws_request.headers),
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=7) as resp:
-            raw = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        body_err = e.read().decode("utf-8", errors="replace")
-        logger.error("AgentCore HTTP %s: %s", e.code, body_err)
-        raise RuntimeError(f"AgentCore HTTP {e.code}: {body_err}") from e
-
-    # AgentCore returns the plain-text string from chat_handler directly
-    # (no JSON wrapper — response.text() in the client reads it raw)
-    return raw.strip() or "I'm processing your request. Could you give me a moment?"
-
-
-# ---------------------------------------------------------------------------
-# Lex V2 response builders
-# ---------------------------------------------------------------------------
-def _build_elicit_response(message: str, session_attrs: dict) -> dict:
-    """Keep the conversation going — ask for next customer input."""
-    return {
-        "sessionState": {
-            "dialogAction": {
-                "type": "ElicitIntent",
-            },
-            "sessionAttributes": session_attrs,
-        },
-        "messages": [
-            {"contentType": "PlainText", "content": message}
-        ],
-    }
-
-
-def _build_close_response(message: str, session_attrs: dict, escalate: bool = False) -> dict:
-    """End this intent (Connect flow will check escalate attribute)."""
-    if escalate:
-        session_attrs["escalate"] = "true"
-    return {
-        "sessionState": {
-            "dialogAction": {"type": "Close"},
-            "intent": {
-                "name": "FallbackIntent",
-                "state": "Fulfilled",
-            },
-            "sessionAttributes": session_attrs,
-        },
-        "messages": [
-            {"contentType": "PlainText", "content": message}
-        ],
-    }
-```
-
-4. Click **Deploy** (orange button)
-
-### Step 2.4 — Set Environment Variables
-
-1. Click the **Configuration** tab → **Environment variables** → **Edit**
-2. Add:
-   - **Key**: `AGENTCORE_ENDPOINT`
-   - **Value**: 
-     ```
-     https://bedrock-agentcore.eu-west-2.amazonaws.com/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aeu-west-2%3A395402194296%3Aruntime%2Faria_banking_agent-ubLoKG8xsY/invocations
-     ```
-3. Click **Save**
-
-### Step 2.5 — Set Timeout
-
-1. Still in **Configuration** tab → **General configuration** → **Edit**
-2. Set **Timeout** to `0 min 7 sec` (7 seconds — just under the Connect 8s limit)
-3. Click **Save**
-
-### Step 2.6 — Test the Lambda in Isolation
-
-1. Click the **Test** tab
-2. Click **Create new test event**
-3. Name it `lex-test-turn`
-4. Paste this test payload:
-
-```json
-{
-  "messageVersion": "1.0",
-  "invocationSource": "FulfillmentCodeHook",
-  "inputMode": "Speech",
-  "responseContentType": "audio/pcm",
-  "sessionId": "test-session-001",
-  "inputTranscript": "What is my account balance?",
-  "bot": {
-    "id": "TESTBOTID",
-    "name": "ARIA-Connect-Bot",
-    "localeId": "en_GB",
-    "version": "DRAFT",
-    "aliasId": "TSTALIASID",
-    "aliasName": "TestAlias"
-  },
-  "sessionState": {
-    "intent": {
-      "name": "FallbackIntent",
-      "state": "InProgress"
-    },
-    "sessionAttributes": {}
-  },
-  "requestAttributes": {
-    "ContactId": "test-contact-12345"
-  }
-}
-```
-
-5. Click **Test**
-6. You should see ARIA's response text in the **Response** section
-7. If you get a permissions error, verify the IAM role and inline policy are attached
+> WARNING: If you skip this step, the Contact Flow will fail when it tries to call the Lambda. The error message in CloudWatch will say "The resource you tried to access does not exist" - this is misleading. The Lambda exists, it just has not been authorised for this Connect instance.
 
 ---
 
-## Part 3 — Create the Lex V2 Bot
+## Part 3 - Create the Lex V2 Bot
 
-> Official docs: [Amazon Lex V2 Developer Guide — Creating a bot](https://docs.aws.amazon.com/lexv2/latest/dg/build-text.html)
+> Official docs: [Amazon Lex V2 Developer Guide - Creating a bot](https://docs.aws.amazon.com/lexv2/latest/dg/build-text.html)
 
-### Step 3.1 — Create the Bot
+### Step 3.1 - Create the Bot
 
-1. Go to [https://console.aws.amazon.com/lexv2/](https://console.aws.amazon.com/lexv2/)
+1. Go to https://console.aws.amazon.com/lexv2/
 2. Make sure region is **eu-west-2**
 3. Click **Create bot**
 4. Choose **Create a blank bot**
@@ -471,51 +207,52 @@ def _build_close_response(message: str, session_attrs: dict, escalate: bool = Fa
    - **Idle session timeout**: 5 minutes
 6. Click **Next**
 
-### Step 3.2 — Configure Language (Locale)
+### Step 3.2 - Configure Language (Locale)
 
 1. On the **Add language** page:
    - **Language**: English (GB)
-   - **Voice interaction**: Select `Amy` from the dropdown (we'll enable Nova Sonic S2S in Connect — Amy is the compatible voice)
-   - **Intent classification confidence score threshold**: `0.40` (lower threshold so FallbackIntent fires reliably)
+   - **Voice interaction**: Select `Amy` from the dropdown
+   - **Intent classification confidence score threshold**: `0.40`
+     (Lower threshold means FallbackIntent fires more reliably when ARIA handles all NLU)
 2. Click **Done**
 3. The bot opens in the Lex V2 console
 
-### Step 3.3 — Configure the FallbackIntent
+### Step 3.3 - Configure the FallbackIntent
 
-The FallbackIntent is Lex's catch-all — it fires when no other intent matches. Since ARIA handles all NLU, we want **every utterance** to go through FallbackIntent → Lambda → ARIA.
+The FallbackIntent fires when no other intent matches. Since ARIA handles all conversation understanding, every customer utterance should go through: FallbackIntent -> Lambda -> ARIA.
 
 1. In the left sidebar, click **Intents**
 2. Click on **FallbackIntent** (it exists by default)
 3. Scroll down to **Fulfillment**
-4. Under **Fulfillment**, check ✅ **Use a Lambda function for fulfillment**
+4. Under **Fulfillment**, check the box **Use a Lambda function for fulfillment**
 5. Click **Save intent**
 
-### Step 3.4 — Add TransferToAgent Intent (Optional but Recommended)
+### Step 3.4 - Add TransferToAgent Intent
 
-This gives customers an explicit way to request a human agent via DTMF or a keyword phrase.
+This gives callers an explicit way to request a human agent.
 
-1. Click **Add intent** → **Add empty intent**
+1. Click **Add intent** -> **Add empty intent**
 2. **Intent name**: `TransferToAgent`
-3. Under **Sample utterances**, add:
+3. Under **Sample utterances**, add each of the following (type each one and press Enter):
    - `speak to an agent`
    - `speak to someone`
    - `talk to a person`
    - `I want an agent`
    - `operator`
    - `human`
-   - `zero` *(for pressing 0)*
-4. Under **Fulfillment**, check ✅ **Use a Lambda function for fulfillment**
+   - `zero`
+4. Under **Fulfillment**, check the box **Use a Lambda function for fulfillment**
 5. Click **Save intent**
 
-### Step 3.5 — Build the Bot
+### Step 3.5 - Build the Bot
 
 1. Click **Build** (top right)
-2. Wait for the build to complete (1–2 minutes)
+2. Wait for the build to complete (1-2 minutes)
 3. You should see: **Build successful**
 
-### Step 3.6 — Create a Bot Version and Alias
+### Step 3.6 - Create a Bot Version and Alias
 
-Aliases are required for Connect integration and Lambda hooks.
+Aliases are required for Connect integration. An alias is like a pointer to a specific bot version. Connect always uses an alias, not a version directly.
 
 **Create Version:**
 1. In the left sidebar, click **Bot versions** (under the bot name)
@@ -531,31 +268,31 @@ Aliases are required for Connect integration and Lambda hooks.
    - **Associate with a version**: select the version you just created (e.g., `1`)
 4. Click **Create**
 
-### Step 3.7 — Attach Lambda to the Alias
+### Step 3.7 - Attach Lambda to the Alias
 
 1. Click on the `production` alias you just created
 2. Click the **Languages** tab
 3. Click on **English (GB)**
-4. Under **Source**, select the Lambda function `aria-connect-fulfillment`
+4. Under **Source**, select the Lambda function `aria-lex-fulfillment`
 5. Under **Lambda function version or alias**: `$LATEST`
 6. Click **Save**
 
 **Grant Lex permission to invoke Lambda:**
 
-7. Go to the Lambda console → `aria-connect-fulfillment` → **Configuration** → **Permissions**
+7. Go to the Lambda console -> `aria-lex-fulfillment` -> **Configuration** -> **Permissions**
 8. Under **Resource-based policy statements**, click **Add permissions**
 9. Configure:
-   - **Select a statement ID**: `lex-invoke-permission`
+   - **Statement ID**: `lex-invoke-permission`
    - **Principal**: `lexv2.amazonaws.com`
    - **Action**: `lambda:InvokeFunction`
-   - **Source ARN**: (your Lex bot alias ARN — find it in the Lex console under the alias details)
+   - **Source ARN**: (your Lex bot alias ARN)
      Format: `arn:aws:lex:eu-west-2:395402194296:bot-alias/BOTID/ALIASID`
 10. Click **Save**
 
-> **Tip**: Alternatively, run via CLI:
+> Tip: Alternatively, run via CLI:
 > ```bash
 > aws lambda add-permission \
->   --function-name aria-connect-fulfillment \
+>   --function-name aria-lex-fulfillment \
 >   --statement-id lex-invoke-permission \
 >   --action lambda:InvokeFunction \
 >   --principal lexv2.amazonaws.com \
@@ -565,15 +302,15 @@ Aliases are required for Connect integration and Lambda hooks.
 
 ---
 
-## Part 4 — Configure Nova Sonic Speech-to-Speech in Amazon Connect
+## Part 4 - Configure Nova Sonic Speech-to-Speech in Amazon Connect
 
 > Official docs: [Configure Amazon Nova Sonic Speech-to-Speech](https://docs.aws.amazon.com/connect/latest/adminguide/nova-sonic-speech-to-speech.html)
 
-Nova Sonic S2S is configured on the **Amazon Connect Conversational AI bot** — this is Connect's wrapper around the Lex V2 bot that enables speech processing.
+Nova Sonic S2S is configured on the **Amazon Connect Conversational AI bot** - this is Connect's wrapper around the Lex V2 bot that enables neural speech processing.
 
-### Step 4.1 — Add the Lex Bot to Your Connect Instance
+### Step 4.1 - Add the Lex Bot to Your Connect Instance
 
-1. Go to [https://console.aws.amazon.com/connect/](https://console.aws.amazon.com/connect/)
+1. Go to https://console.aws.amazon.com/connect/
 2. Click on your instance alias (`meridian-aria`)
 3. In the left sidebar, click **Flows**
 4. Scroll down to **Amazon Lex** section
@@ -582,15 +319,13 @@ Nova Sonic S2S is configured on the **Amazon Connect Conversational AI bot** —
 7. Click **Add Amazon Lex Bot**
 8. Confirm it appears in the list
 
-### Step 4.2 — Open the Bot in Connect's AI Bot Interface
+### Step 4.2 - Open the Bot in Connect's AI Bot Interface
 
-Amazon Connect has its own "Conversational AI bot" view that wraps the Lex bot.
-
-1. In the Connect admin sidebar, click **Channels** → **Bots** (or navigate to `https://meridian-aria.my.connect.aws/bots`)
+1. In the Connect admin sidebar, click **Channels** -> **Bots**
 2. You should see `ARIA-Connect-Bot` listed
 3. Click on it to open the bot configuration
 
-### Step 4.3 — Enable Nova Sonic S2S on the Locale
+### Step 4.3 - Enable Nova Sonic S2S on the Locale
 
 1. On the bot configuration page, click the **Configuration** tab
 2. Click on the **en-GB** locale row
@@ -599,308 +334,846 @@ Amazon Connect has its own "Conversational AI bot" view that wraps the Lex bot.
 5. In **Voice provider** dropdown, select: **Amazon Nova Sonic**
 6. Click **Confirm**
 
-### Step 4.4 — Build the Locale
+### Step 4.4 - Build the Locale
 
 1. If you see **Unbuilt changes** next to the en-GB locale, click **Build language**
-2. Wait for the build to complete (1–2 minutes)
+2. Wait for the build to complete (1-2 minutes)
 3. The Speech model card should now show: `Speech-to-Speech: Amazon Nova Sonic`
 
 ---
 
-## Part 5 — Create the Contact Flow
+## Part 5 - Create the Contact Flow
 
 > Official docs: [Create contact flows](https://docs.aws.amazon.com/connect/latest/adminguide/create-contact-flow.html)
 
-The Contact Flow is the visual IVR logic in Connect. It orchestrates the call: plays greetings, invokes the bot, handles escalation.
+This is the most important part. The Contact Flow is the visual IVR script - it is the logic that runs every time someone calls. We will build it block by block. For each block we explain exactly what to configure and which output arrows to connect.
 
-### Step 5.1 — Open the Flow Designer
+### Step 5.1 - Open the Flow Designer
 
-1. In the Connect admin sidebar, click **Routing** → **Flows**
+1. In the Connect admin sidebar, click **Routing** -> **Flows**
 2. Click **Create flow**
 3. Name it: `Meridian-ARIA-Inbound`
+4. Click **Create flow**
 
-### Step 5.2 — Build the Flow
-
-Connect flows use drag-and-drop blocks. Build the following flow in order:
-
----
-
-#### Block 1: Entry Point (already exists)
-- This is the starting block. Leave it as-is.
+The flow designer opens as a blank canvas with one block already present: **Entry point**. This is where every call begins.
 
 ---
 
-#### Block 2: Set Voice (enables Nova Sonic)
+### Understanding the Flow Designer Canvas
 
-1. In the left panel, search for **Set voice**
-2. Drag it onto the canvas
-3. Connect the **Entry Point** output arrow → **Set voice** input
-4. Click on the **Set voice** block to configure:
-   - **Voice provider**: Amazon
-   - **Language**: English (United Kingdom)
-   - **Voice**: Amy
-   - Scroll down to **Other settings**
-   - Check ✅ **Override speaking style**
-   - Select: **Generative** ← this is what enables Nova Sonic expressive audio
-5. Click **Save**
+Before building, here is how the designer works:
+
+- **Blocks** are dragged from the left panel onto the canvas
+- Each block has one **input** (the arrow tip on the left/top side)
+- Each block has one or more **outputs** (the dots on the right/bottom side, labelled with outcomes like "Success", "Error", "Timeout", "Match", "No match")
+- You **connect blocks** by clicking an output dot and dragging to the next block's input
+- **Every output must be connected** - unconnected outputs cause call failures
+- To **configure** a block, click on it to open its settings panel on the right side
 
 ---
 
-#### Block 3: Set Contact Attributes (stores ContactId for Lambda)
+### Step 5.2 - Build the Flow (Block by Block)
 
-1. Search for **Set contact attributes**
-2. Drag it after **Set voice**
-3. Connect **Set voice** Success → **Set contact attributes**
-4. Click the block to configure:
-   - Click **Add attribute**
+#### Block 1: Entry Point (already exists on the canvas)
+
+**What it does**: Every inbound call begins here automatically. You cannot delete this block.
+
+**Configuration**: None needed - leave it as-is.
+
+**Outputs to connect**:
+- The single output arrow on this block connects to **Block 2** (Set Voice)
+
+---
+
+#### Block 2: Set Voice
+
+**What it does**: Configures Nova Sonic as the voice engine for this call. Without this block, calls use the older Polly text-to-speech engine instead of Nova Sonic's natural-sounding voice.
+
+**How to add**:
+1. In the left panel, under the **Set** category, find **Set voice**
+2. Drag it onto the canvas to the right of the Entry Point
+3. Connect Block 1 to Block 2: click on the Entry Point block - you will see a small circle on its right edge. Click and drag from that circle to the **Set voice** block's left edge. A line (arrow) connects them.
+
+**Configuration** (click on the Set Voice block to open settings):
+1. **Voice provider**: Amazon
+2. **Language**: English (United Kingdom)
+3. **Voice**: Amy
+4. Scroll down to **Other settings**
+5. Check the box **Override speaking style**
+6. Select: **Generative** - this is the critical setting that activates Nova Sonic
+7. Click **Save**
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 3** (Set Contact Attributes - ContactId)
+- **Error** output -> connect to a Disconnect block (add one from Terminate/Transfer category)
+
+---
+
+#### Block 3: Set Contact Attributes - Store ContactId
+
+**What it does**: Saves the unique identifier for this phone call (ContactId) as a named variable. We need it stored so other blocks and Lambdas can reference it. The ContactId is used as the AgentCore session ID - it ties all conversation turns together for a single call.
+
+**How to add**:
+1. Under the **Set** category, find **Set contact attributes**
+2. Drag it onto the canvas after **Set voice**
+3. Connect: **Set voice** -> **Success** output -> **Set contact attributes** input (left side)
+
+**Configuration** (click on the block):
+1. Click **Add attribute**
+2. Fill in:
    - **Destination key**: `contactId`
-   - **Type**: System
+   - **Type**: `System`
    - **Attribute**: `Contact ID`
-5. Click **Save**
+     (This pulls the built-in Connect ContactId into your named variable)
+3. Click **Save**
+
+**In plain English**: This creates a variable called `contactId` and sets it to the system's Contact ID value. Every block after this can read it using `$.Attributes.contactId`.
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 4** (Invoke Lambda - Session Injector)
 
 ---
 
-#### Block 4: Get Customer Input (the ARIA Lex bot interaction)
+#### Block 4: Invoke AWS Lambda - Session Injector (Pre-Authentication)
 
-1. Search for **Get customer input**
-2. Drag it after **Set contact attributes**
-3. Connect **Set contact attributes** Success → **Get customer input**
-4. Click the block to configure:
+**What it does**: This is where caller identification happens. Connect calls `aria-session-injector`, which:
 
-   **Text to speech or chat text section:**
-   - Select **Enter text**
-   - Type: `Welcome to Meridian Bank. I'm ARIA, your automated banking assistant. How can I help you today?`
-   - *(This first prompt is spoken by Nova Sonic as ARIA's greeting)*
+1. Receives the caller's phone number and ContactId from Connect
+2. Looks up the phone number in the CRM
+3. **If the caller IS a known customer**: returns `customerId = "CUST-001"` and `authStatus = "authenticated"`
+4. **If the caller is NOT recognised**: returns `customerId = ""` and `authStatus = "unauthenticated"`
 
-   **Amazon Lex section:**
-   - Click the **Amazon Lex** tab
-   - **Bot**: `ARIA-Connect-Bot`
-   - **Alias**: `production`
-   
-   **Intents section:**
-   - Click **Add an intent**
-   - Type `FallbackIntent`, press Enter
-   - Click **Add another intent**
-   - Type `TransferToAgent`, press Enter
+The Lambda result is available to the NEXT block via `$.External.customerId` and `$.External.authStatus`.
 
-   **Session attributes section (passes ContactId to Lambda):**
-   - Click **Add an attribute**
-   - **Destination key**: `ContactId`
-   - **Type**: System
-   - **Attribute**: `Contact ID`
+**How to add**:
+1. Under the **Interact** category, find **Invoke AWS Lambda function**
+2. Drag it onto the canvas after **Set contact attributes**
+3. Connect: **Set contact attributes** -> **Success** output -> **Invoke AWS Lambda function** input
 
-5. Click **Save**
+**Configuration** (click on the block):
+1. **Function ARN**: Click the dropdown and select `aria-session-injector`
+   - If it does not appear, go back to Part 2 and add it to the instance allow-list first
+2. **Timeout**: Leave at the default (8 seconds)
+3. You do NOT need to add any Parameters - the Lambda reads ContactId automatically from the Connect event
+4. Click **Save**
 
-The **Get customer input** block will now have multiple output branches:
-- **FallbackIntent** (ARIA handled the turn → loop back)
-- **TransferToAgent** (customer requested human)
-- **Default** (no intent matched)
-- **Error** (something went wrong)
-- **Timeout** (customer was silent)
+**Outputs to connect**:
+- **Success** output -> connect to **Block 5** (Set Contact Attributes - Store Lambda Result)
+- **Error** output -> connect to **Block 6** (Get Customer Input) directly
+  (If the Lambda errors, we still let the call through - ARIA will handle unauthenticated callers gracefully)
 
 ---
 
-#### Block 5: Check for Escalation (Decision block)
+#### Block 5: Set Contact Attributes - Store Session Injector Result
 
-After the Lex bot turn, check whether ARIA set the escalate flag.
+**What it does**: Takes the values the Lambda returned (`customerId`, `authStatus`, `preferredName`) and stores them as permanent contact attributes so they persist for the entire call.
 
-1. Search for **Check contact attributes**
-2. Drag it after **Get customer input** (FallbackIntent branch)
-3. Connect **Get customer input** `FallbackIntent` output → **Check contact attributes**
-4. Configure:
-   - **Attribute to check**: User-defined
-   - **Attribute key**: `escalate`
+**Why this block is needed**: Lambda return values are only available as `$.External.*` immediately after the Lambda block. To make them available for the whole call - including inside Lex - you must copy them into contact attributes (`$.Attributes.*`) using this block.
+
+**How to add**:
+1. Under the **Set** category, find **Set contact attributes** (same type as Block 3)
+2. Drag it onto the canvas after **Invoke AWS Lambda function**
+3. Connect: **Invoke AWS Lambda function** -> **Success** output -> this **Set contact attributes** input
+
+**Configuration** (click on the block):
+
+Click **Add attribute** ten separate times to create all ten attributes:
+
+**Attribute 1 - Customer ID:**
+- **Destination key**: `customerId`
+- **Type**: `External`
+- **Attribute**: `customerId`
+  (Copies `$.External.customerId` into `$.Attributes.customerId`)
+
+**Attribute 2 - Auth Status:**
+- **Destination key**: `authStatus`
+- **Type**: `External`
+- **Attribute**: `authStatus`
+  (Copies `$.External.authStatus` into `$.Attributes.authStatus`)
+
+**Attribute 3 - Preferred Name:**
+- **Destination key**: `preferredName`
+- **Type**: `External`
+- **Attribute**: `preferredName`
+  (Customer's first name — ARIA uses this to greet immediately without a tool call)
+
+**Attribute 4 - Product Summary:**
+- **Destination key**: `productSummary`
+- **Type**: `External`
+- **Attribute**: `productSummary`
+  (Natural-language sentence e.g. "James has a current account ending 4821 and a Visa debit card.")
+
+**Attribute 5 - Product Context:**
+- **Destination key**: `productContext`
+- **Type**: `External`
+- **Attribute**: `productContext`
+  (JSON string of masked account/card refs. Allows ARIA to resolve "my account" before calling tools.)
+
+**Attribute 6 - Vulnerability Context:**
+- **Destination key**: `vulnerabilityContext`
+- **Type**: `External`
+- **Attribute**: `vulnerabilityContext`
+  (JSON string of vulnerability flags. ARIA reads silently — never discloses to customer.)
+
+**Attribute 7 - Prior Session Summary:**
+- **Destination key**: `priorSummary`
+- **Type**: `External`
+- **Attribute**: `priorSummary`
+  (Summary of the customer's previous interaction, from AgentCore Memory.)
+
+**Attribute 8 - Channel:**
+- **Destination key**: `channel`
+- **Type**: `External`
+- **Attribute**: `channel`
+  (Value will be "voice" — tells ARIA which communication channel this is.)
+
+**Attribute 9 - Locale:**
+- **Destination key**: `locale`
+- **Type**: `External`
+- **Attribute**: `locale`
+  (Defaults to "en-GB" — used for language and formatting context.)
+
+**Attribute 10 - Date/Time:**
+- **Destination key**: `dateTime`
+- **Type**: `External`
+- **Attribute**: `dateTime`
+  (UTC ISO timestamp for compliance logging.)
+
+Click **Save**
+
+**In plain English**: After this block runs, the call has all ten variables set for its lifetime. Every subsequent block can read them. The fulfillment Lambda will read all of them and include them in the AgentCore payload so ARIA has full context before the first word is spoken.
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 6** (Get Customer Input)
+
+---
+
+#### Block 6: Get Customer Input - ARIA Lex Bot Conversation
+
+**What it does**: This is the main conversation block. It:
+1. Plays a greeting to the caller (spoken by Nova Sonic)
+2. Listens for the caller's speech
+3. Sends the speech to the Lex V2 bot (`ARIA-Connect-Bot`)
+4. The Lex bot calls `aria-lex-fulfillment` Lambda on every turn
+5. The Lambda reads `customerId` and `authStatus` from session attributes, calls AgentCore, returns ARIA's response
+6. Nova Sonic speaks ARIA's response back to the caller
+7. The block stays active and loops through turns until an intent fires
+
+**How to add**:
+1. Under the **Interact** category, find **Get customer input**
+2. Drag it onto the canvas
+3. Connect: **Set contact attributes (Block 5)** -> **Success** output -> **Get customer input** input
+   Also connect: **Invoke AWS Lambda (Block 4)** -> **Error** output -> **Get customer input** input
+   (Two arrows can connect to the same input block)
+
+**Configuration** (click on the block):
+
+**Section: Text to speech or chat text**
+- Select **Enter text**
+- Type the greeting:
+  `Welcome to Meridian Bank. I am ARIA, your banking assistant. How can I help you today?`
+  (Nova Sonic speaks this when the call first reaches this block. On loop-back turns, this greeting is NOT replayed - only ARIA's responses are spoken.)
+
+**Section: Amazon Lex** (click the Amazon Lex tab, not Amazon Lex Classic)
+- **Bot**: `ARIA-Connect-Bot`
+- **Bot alias**: `production`
+
+**Section: Session attributes** - THIS IS CRITICAL - this is the data pipe that carries all pre-auth context from Connect into Lex and on to the fulfillment Lambda
+
+Click **Add an attribute** for each row in the table below (11 total):
+
+| Destination key | Type | Attribute | What it carries |
+|---|---|---|---|
+| `contactId` | System | `Contact ID` | Unique call ID → AgentCore session ID |
+| `customerId` | User-defined | `customerId` | CRM customer ID (blank if unauthenticated) |
+| `authStatus` | User-defined | `authStatus` | "authenticated" or "unauthenticated" |
+| `preferredName` | User-defined | `preferredName` | Customer's first name for immediate greeting |
+| `productSummary` | User-defined | `productSummary` | Natural-language product sentence |
+| `productContext` | User-defined | `productContext` | JSON of masked account/card refs |
+| `vulnerabilityContext` | User-defined | `vulnerabilityContext` | JSON vulnerability flags (ARIA reads silently) |
+| `priorSummary` | User-defined | `priorSummary` | Summary from AgentCore Memory (prior session) |
+| `channel` | User-defined | `channel` | "voice" |
+| `locale` | User-defined | `locale` | "en-GB" |
+| `dateTime` | User-defined | `dateTime` | UTC ISO timestamp |
+
+> WARNING: Without these session attributes, the fulfillment Lambda cannot read who the caller is or any of their context. ARIA will treat every caller as unauthenticated and ask them to verify their identity, even if the session injector already identified them.
+
+**Section: Intents**
+- Click **Add an intent**, type `FallbackIntent`, press Enter
+- Click **Add another intent**, type `TransferToAgent`, press Enter
+
+Click **Save**
+
+**Understanding the four outputs of this block** (you must connect ALL of them):
+
+| Output label | When it fires | Where to connect it |
+|---|---|---|
+| `FallbackIntent` | ARIA handled the turn normally | Block 7 (Check escalate flag) |
+| `TransferToAgent` | Customer said "agent", "human", etc. | Block 8 (Set escalate=true) |
+| `Timeout` | Customer was silent for too long | Play prompt "Didn't hear you" -> loop back to Block 6 |
+| `Error` | Technical error in Lex or Lambda | Play prompt "Technical issue" -> Disconnect |
+
+---
+
+#### Block 7: Check Contact Attributes - Did ARIA Request Escalation?
+
+**What it does**: After each Lex turn, ARIA's fulfillment Lambda may have set `escalate = "true"` in the Lex session attributes - this happens when ARIA's response contains phrases like "let me connect you with an advisor". This Check block reads that flag and routes accordingly.
+
+**Why it is needed**: The Lex bot returns control to Connect via the `FallbackIntent` output whether or not ARIA wants to escalate. Connect cannot inspect Lex session attributes directly - it must check the contact attribute that the Lambda wrote.
+
+**How to add**:
+1. Under the **Branch** category, find **Check contact attributes**
+2. Drag it onto the canvas
+3. Connect: **Get customer input** -> `FallbackIntent` output -> **Check contact attributes** input
+
+**Configuration** (click on the block):
+1. **Attribute to check**: User-defined
+2. **Attribute key**: `escalate`
+3. Click **Add condition**:
    - **Condition**: Equals
    - **Value**: `true`
-5. Click **Save**
+4. Click **Save**
 
-This block has two branches:
-- **Match** (escalate = true → go to human agent)
-- **No match** (normal turn → loop back to bot)
+**Outputs to connect**:
+- **Match** output -> connect to **Block 9** (Play Escalation Prompt)
+- **No match** output -> loop back to **Block 6** (Get Customer Input) input
 
----
-
-#### Block 6: Loop Back (no escalation)
-
-Connect the **Check contact attributes** → **No match** output back to the **Get customer input** block input. This creates the conversation loop.
-
-> ⚠️ In Connect flow designer, to create a loop, drag from the **No match** output of the check block back to the **Get customer input** block's top input. You may need to rearrange blocks on the canvas to make the arrow visible.
+**How to create the loop back**: Drag from the **No match** output dot of Block 7 and drop onto the input of Block 6 (Get Customer Input). A curved arrow will appear.
 
 ---
 
-#### Block 7: Escalation Path — Play Prompt
+#### Block 8: Set Contact Attributes - Store Escalation from TransferToAgent Intent
 
-1. Search for **Play prompt**
+**What it does**: When the Lex bot fires the `TransferToAgent` intent (customer explicitly said "agent" or "human"), this block marks the call for transfer by writing `escalate = true` into the contact attributes.
+
+**How to add**:
+1. Under the **Set** category, find **Set contact attributes**
 2. Drag it onto the canvas
-3. Connect both:
-   - **Check contact attributes** → **Match** output → **Play prompt**
-   - **Get customer input** → **TransferToAgent** output → **Play prompt**
-4. Configure:
-   - Select **Enter text**
-   - Type: `Let me connect you with one of our advisors. Please hold for a moment.`
-5. Click **Save**
+3. Connect: **Get customer input** -> `TransferToAgent` output -> **Set contact attributes** input
+
+**Configuration** (click on the block):
+1. Click **Add attribute**:
+   - **Destination key**: `escalate`
+   - **Type**: `Static`
+   - **Value**: `true`
+2. Click **Save**
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 9** (Play Escalation Prompt)
 
 ---
 
-#### Block 8: Set Queue (for human agent routing)
+#### Block 9: Play Prompt - Escalation Message
 
-1. Search for **Set working queue**
+**What it does**: Plays a message to the caller confirming they are being transferred to a human agent.
+
+**How to add**:
+1. Under the **Interact** category, find **Play prompt**
+2. Drag it onto the canvas
+3. Connect TWO inputs to this block:
+   - **Check contact attributes (Block 7)** -> **Match** output -> **Play prompt** input
+   - **Set contact attributes (Block 8)** -> **Success** output -> **Play prompt** input
+   (Both escalation paths - ARIA-requested and customer-requested - arrive here)
+
+**Configuration** (click on the block):
+- Select **Enter text**
+- Type: `Please hold for a moment. I am connecting you with one of our advisors now.`
+- Click **Save**
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 10** (Set Working Queue)
+
+---
+
+#### Block 10: Set Working Queue
+
+**What it does**: Selects which queue of human agents the call will be sent to.
+
+**How to add**:
+1. Under the **Set** category, find **Set working queue**
 2. Drag it after **Play prompt**
-3. Connect **Play prompt** Success → **Set working queue**
-4. Configure:
-   - **Queue**: Select **BasicQueue** (the default queue — you can create a dedicated queue later)
-5. Click **Save**
+3. Connect: **Play prompt** -> **Success** output -> **Set working queue** input
+
+**Configuration** (click on the block):
+- **Queue**: Select **BasicQueue** (the default queue - create a dedicated `CustomerService` queue later if needed)
+- Click **Save**
+
+**Outputs to connect**:
+- **Success** output -> connect to **Block 11** (Transfer to Queue)
 
 ---
 
-#### Block 9: Transfer to Queue
+#### Block 11: Transfer to Queue
 
-1. Search for **Transfer to queue**
+**What it does**: Transfers the call to human agents waiting in the selected queue.
+
+**How to add**:
+1. Under the **Terminate/Transfer** category, find **Transfer to queue**
 2. Drag it after **Set working queue**
-3. Connect **Set working queue** Success → **Transfer to queue**
-4. The **Transfer to queue** block has these outputs:
-   - **At capacity** → connect to a **Play prompt** ("All advisors are busy, please call back later") → **Disconnect**
-   - **Error** → connect to a **Disconnect** block
+3. Connect: **Set working queue** -> **Success** output -> **Transfer to queue** input
+
+**Configuration**: No configuration needed - it uses the queue set in Block 10.
+
+**Outputs to connect**:
+- **At capacity** output -> **Play prompt**: "All our advisors are currently busy. Please call back shortly." -> **Disconnect**
+- **Error** output -> **Disconnect**
 
 ---
 
-#### Block 10: Error + Timeout Handling
+#### Block 12: Timeout Handling
 
-1. Search for **Disconnect / hang up** (or **Disconnect**)
-2. Add one for the error path from **Get customer input**
-3. Optionally add a **Play prompt** before it: `I'm sorry, I encountered a technical issue. Please call back or visit our website.`
-4. Connect:
-   - **Get customer input** → **Error** → (optional prompt) → **Disconnect**
-   - **Get customer input** → **Timeout** → loop back to **Get customer input** or → **Disconnect**
+**What it does**: Handles the case where the caller did not speak when Lex was listening.
+
+**How to add**:
+1. Add a **Play prompt** block with text: `I am sorry, I did not hear you. Could you say that again?`
+2. Connect: **Get customer input** -> **Timeout** output -> **Play prompt** input
+3. Connect: **Play prompt** -> **Success** output -> loop back to **Block 6** (Get Customer Input)
 
 ---
 
-#### Complete Flow Diagram (Text)
+#### Block 13: Error Handling - Disconnect
+
+**What it does**: Gracefully ends the call on technical errors.
+
+**How to add**:
+1. Under **Terminate/Transfer**, find **Disconnect / hang up**
+2. Add one or two Disconnect blocks for error paths
+3. Connect error paths to them:
+   - **Get customer input** -> **Error** output -> (optional Play prompt: "I encountered a technical issue. Please call back.") -> **Disconnect**
+
+---
+
+### Step 5.3 - Complete Flow Connections Summary
+
+Here is every block and every output connection you need to make:
 
 ```
-[Entry Point]
-    ↓
-[Set Voice: Amy, Generative]
-    ↓
-[Set Contact Attributes: contactId = $.ContactId]
-    ↓
-[Get Customer Input: ARIA-Connect-Bot / production]  ←────────────┐
-    ↓ FallbackIntent                                               │
-[Check Contact Attributes: escalate == "true"]                    │
-    ↓ No Match ───────────────────────────────────────────────────┘
-    ↓ Match
-[Play Prompt: "Connecting you with an advisor..."]
-    ↓
-[TransferToAgent] ──→ same Play Prompt + Set Queue + Transfer
-    ↓
-[Set Working Queue: BasicQueue]
-    ↓
-[Transfer to Queue]
-    ↓ At capacity / Error
-[Play Prompt: "All advisors busy..."]
-    ↓
-[Disconnect]
+[Block 1: Entry Point]
+    | (single output)
+    v
+[Block 2: Set Voice - Amy, Generative]
+    | Success ----> [Block 3: Set Contact Attrs - contactId]
+    | Error ------> [Disconnect]
+
+[Block 3: Set Contact Attrs - contactId]
+    | Success ----> [Block 4: Invoke Lambda - aria-session-injector]
+
+[Block 4: Invoke Lambda - aria-session-injector]
+    | Success ----> [Block 5: Set Contact Attrs - customerId/authStatus/preferredName]
+    | Error ------> [Block 6: Get Customer Input]  (unauthenticated fallback)
+
+[Block 5: Set Contact Attrs - customerId/authStatus/preferredName]
+    | Success ----> [Block 6: Get Customer Input]
+
+[Block 6: Get Customer Input - ARIA-Connect-Bot/production]
+    Session attrs passed in: contactId, customerId, authStatus, preferredName
+    |
+    | FallbackIntent  -----> [Block 7: Check Contact Attrs - escalate]
+    | TransferToAgent -----> [Block 8: Set Contact Attrs - escalate=true]
+    | Timeout         -----> [Play Prompt: "Didn't hear you"] -> loop back to Block 6
+    | Error           -----> [Play Prompt: "Technical issue"] -> [Disconnect]
+
+[Block 7: Check Contact Attrs - escalate == "true"]
+    | Match    -----> [Block 9: Play Prompt - escalation message]
+    | No match -----> loop back to [Block 6: Get Customer Input]
+
+[Block 8: Set Contact Attrs - escalate=true]
+    | Success -----> [Block 9: Play Prompt - escalation message]
+
+[Block 9: Play Prompt - "Connecting you with an advisor..."]
+    | Success -----> [Block 10: Set Working Queue - BasicQueue]
+
+[Block 10: Set Working Queue - BasicQueue]
+    | Success -----> [Block 11: Transfer to Queue]
+
+[Block 11: Transfer to Queue]
+    | At capacity -----> [Play Prompt: "All advisors busy"] -> [Disconnect]
+    | Error       -----> [Disconnect]
 ```
-
-### Step 5.3 — Save and Publish the Flow
-
-1. Click **Save** (top right)
-2. Click **Publish**
-3. Confirm publish — the flow is now live
 
 ---
 
-## Part 6 — Assign the Flow to Your Phone Number
+### Step 5.4 - How the Session Attributes Flow Through the System
 
-1. In the Connect admin, go to **Channels** → **Phone numbers**
+This shows exactly where each piece of data lives at each stage of a call:
+
+```
+CALL ARRIVES: caller phone = "+447765309252", ContactId = "abc-123-def-456"
+
+Block 3 writes:
+  $.Attributes.contactId = "abc-123-def-456"
+
+Block 4 runs aria-session-injector Lambda:
+  Lambda receives: ContactId="abc-123-def-456", callerPhone="+447765309252"
+  Lambda looks up phone in CRM:
+    FOUND ->
+      Returns (all as $.External.*):
+        customerId           = "CUST-001"
+        authStatus           = "authenticated"
+        preferredName        = "James"
+        productSummary       = "James has a current account ending 4821, a savings account, and a Visa debit card."
+        productContext       = '{"accounts":[{"masked":"****4821","type":"current"}],...}'
+        vulnerabilityContext = '{"flag_type":"mental_health","suppress_promotion":true,...}'
+        priorSummary         = "Customer called last week about a standing order. Resolved."
+        channel              = "voice"
+        locale               = "en-GB"
+        dateTime             = "2026-04-06T09:35:21.833Z"
+    NOT FOUND ->
+      Returns: customerId="", authStatus="unauthenticated", all context fields=""
+
+Block 5 writes ALL External values into permanent $.Attributes.*:
+  $.Attributes.customerId           = "CUST-001"
+  $.Attributes.authStatus           = "authenticated"
+  $.Attributes.preferredName        = "James"
+  $.Attributes.productSummary       = "James has a current account..."
+  $.Attributes.productContext       = '{"accounts":[...],...}'
+  $.Attributes.vulnerabilityContext = '{"flag_type":"mental_health",...}'
+  $.Attributes.priorSummary         = "Customer called last week..."
+  $.Attributes.channel              = "voice"
+  $.Attributes.locale               = "en-GB"
+  $.Attributes.dateTime             = "2026-04-06T09:35:21.833Z"
+
+Block 6 passes ALL $.Attributes.* as Lex session attributes:
+  contactId           = "abc-123-def-456"
+  customerId          = "CUST-001"
+  authStatus          = "authenticated"
+  preferredName       = "James"
+  productSummary      = "James has a current account..."
+  productContext      = '{"accounts":[...],...}'
+  vulnerabilityContext = '{"flag_type":"mental_health",...}'
+  priorSummary        = "Customer called last week..."
+  channel             = "voice"
+  locale              = "en-GB"
+  dateTime            = "2026-04-06T09:35:21.833Z"
+
+aria-lex-fulfillment Lambda reads ALL Lex session attributes and builds:
+  AgentCore POST body = {
+    "message":            "What is my account balance?",
+    "authenticated":      true,
+    "customer_id":        "CUST-001",
+    "channel":            "voice",
+    "preferred_name":     "James",
+    "product_summary":    "James has a current account ending 4821...",
+    "product_context":    '{"accounts":[...],...}',
+    "vulnerability_context": '{"flag_type":"mental_health",...}',
+    "prior_summary":      "Customer called last week about a standing order.",
+    "locale":             "en-GB",
+    "date_time":          "2026-04-06T09:35:21.833Z"
+  }
+  AgentCore session header = X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: abc-123-def-456
+
+agentcore_app chat_handler receives payload, builds SESSION_START:
+  "SESSION_START: An authenticated customer has connected.
+   X-Channel-Auth: authenticated. X-Customer-ID: CUST-001.
+   X-Channel: voice. X-Locale: en-GB.
+   X-Preferred-Name: James. Greet the customer as James immediately.
+   X-Product-Summary: James has a current account ending 4821...
+   X-Product-Context: {"accounts":[...],...}
+   X-Vulnerability-Context: {"flag_type":"mental_health",...} [SILENT: ...]
+   X-Prior-Session-Summary: Customer called last week about a standing order.
+   Use X-Product-Context to resolve account/card references. Call get_customer_details
+   for real-time balances or detailed account data. Do not ask to re-verify identity.
+
+   Customer's first message: What is my account balance?"
+
+ARIA responds immediately:
+  "Hi James! Your current account ending 4821 has a balance of 1,245.30 pounds.
+   Would you like to see recent transactions or is there anything else I can help with?"
+
+Nova Sonic speaks ARIA's response back to the caller.
+```
+
+---
+
+### Step 5.5 - Save and Publish the Flow
+
+1. Click **Save** (top right of the flow designer)
+2. Look for any blocks with a **red warning icon** - this means an output is not connected
+3. Fix any warnings by connecting the highlighted outputs
+4. Click **Publish**
+5. Confirm the publish - the flow is now live
+
+> WARNING: If you see "One or more blocks are not connected" - every output arrow on every block must connect somewhere, even if just to a Disconnect block. A block with an unconnected output will crash the call when that output is reached.
+
+---
+
+## Part 6 - The Fulfillment Lambda and AgentCore App are Already Updated
+
+The code changes needed for the full pre-auth + context pipeline have already been implemented in:
+- `scripts/lambdas/aria_connect_fulfillment.py`
+- `aria/agentcore_app.py`
+
+This section documents what was changed and the complete payload contract for reference.
+
+### What `aria_connect_fulfillment.py` now does (per turn)
+
+1. Reads **all** session attributes from the Lex event (placed there by Block 6)
+2. Builds the AgentCore POST body with all available context
+3. Only includes non-empty fields — the React app and other callers that send only `"message"` work exactly as before
+
+**Full AgentCore payload (voice channel, authenticated):**
+```json
+{
+  "message":             "What is my account balance?",
+  "authenticated":       true,
+  "customer_id":         "CUST-001",
+  "channel":             "voice",
+  "preferred_name":      "James",
+  "product_summary":     "James has a current account ending 4821, a savings account, and a Visa debit card.",
+  "product_context":     "{\"accounts\":[{\"masked\":\"****4821\",\"type\":\"current\"}],...}",
+  "vulnerability_context": "{\"flag_type\":\"mental_health\",\"suppress_promotion\":true,...}",
+  "prior_summary":       "Customer called last week about a standing order dispute. Resolved.",
+  "locale":              "en-GB",
+  "date_time":           "2026-04-06T09:35:21.833Z"
+}
+```
+
+**Minimal payload (React app / unauthenticated):**
+```json
+{
+  "message":       "What is my account balance?",
+  "authenticated": false,
+  "channel":       "agentcore-chat"
+}
+```
+
+### What `agentcore_app.py` now does on first turn
+
+The `chat_handler` extracts all optional context fields from the payload and builds a rich `SESSION_START` injection. For voice with pre-auth context, the SESSION_START looks like:
+
+```
+SESSION_START: An authenticated customer has connected.
+X-Channel-Auth: authenticated. X-Customer-ID: CUST-001.
+X-Channel: voice. X-Locale: en-GB.
+X-Preferred-Name: James. Greet the customer as James immediately.
+X-Product-Summary: James has a current account ending 4821, a savings account, and a Visa debit card.
+X-Product-Context: {"accounts":[...],"cards":[...],"mortgages":[]}
+X-Vulnerability-Context: {"flag_type":"mental_health",...} [SILENT: read to adjust communication style only]
+X-Prior-Session-Summary: Customer called last week about a standing order. Resolved.
+Use X-Product-Context to resolve account/card references. Call get_customer_details for real-time balances.
+Do not ask the customer to re-verify their identity.
+
+Customer's first message: What is my account balance?
+```
+
+For the React app (no context fields in payload), SESSION_START is identical to the original behaviour.
+
+### Redeploy to apply the changes
+
+```bash
+bash scripts/deploy.sh deploy
+```
+
+This rebuilds and redeploys `aria-lex-fulfillment` Lambda and the AgentCore container image.
+
+
+---
+
+## Part 7 - Assign the Flow to Your Phone Number
+
+1. In the Connect admin, go to **Channels** -> **Phone numbers**
 2. Click on the phone number you claimed in Part 1
 3. Under **Flow/IVR**, select `Meridian-ARIA-Inbound`
 4. Click **Save**
 
+After saving, calls to this number immediately use the new flow. There is no additional activation step.
+
 ---
 
-## Part 7 — Test End-to-End
+## Part 8 - Test End-to-End
 
-### Step 7.1 — Test via Connect's Built-in Softphone
+### Step 8.1 - Test the Session Injector Lambda in Isolation
+
+Before making a real call, verify the Lambda works with a simulated Connect event.
+
+1. Go to AWS Lambda -> `aria-session-injector` -> **Test** tab
+2. Create a new test event named `connect-voice-test`
+3. Paste this test payload (replace YOUR-INSTANCE-ID with your Connect Instance ID):
+
+```json
+{
+  "Details": {
+    "ContactData": {
+      "ContactId": "test-contact-12345",
+      "InstanceARN": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR-INSTANCE-ID",
+      "Channel": "VOICE",
+      "Attributes": {},
+      "CustomerEndpoint": {
+        "Address": "+447765309252",
+        "Type": "TELEPHONE_NUMBER"
+      },
+      "SystemEndpoint": {
+        "Address": "+441612345678",
+        "Type": "TELEPHONE_NUMBER"
+      }
+    },
+    "Parameters": {}
+  },
+  "Name": "ContactFlowEvent",
+  "Version": "1.0"
+}
+```
+
+4. Click **Test**
+5. Expected response (phone `+447765309252` maps to `CUST-001` in the stub data):
+
+```json
+{
+  "sessionId": "test-contact-12345",
+  "customerId": "CUST-001",
+  "authStatus": "authenticated",
+  "status": "injected",
+  "injectedKeys": ["sessionId", "customerId", "authStatus", "channel", "preferredName"]
+}
+```
+
+If you see `"customerId": ""` and `"authStatus": "unauthenticated"` - the phone number was not found in the stub data. This is the expected unauthenticated result.
+
+### Step 8.2 - Test the Fulfillment Lambda in Isolation
+
+1. Go to AWS Lambda -> `aria-lex-fulfillment` -> **Test** tab
+2. Create a new test event named `lex-auth-test`
+3. Paste this payload simulating a pre-authenticated caller:
+
+```json
+{
+  "messageVersion": "1.0",
+  "invocationSource": "FulfillmentCodeHook",
+  "inputMode": "Speech",
+  "inputTranscript": "What is my account balance?",
+  "sessionId": "test-contact-12345",
+  "bot": {
+    "id": "TESTBOTID",
+    "name": "ARIA-Connect-Bot",
+    "localeId": "en_GB",
+    "version": "DRAFT",
+    "aliasId": "TSTALIASID",
+    "aliasName": "TestAlias"
+  },
+  "sessionState": {
+    "intent": {
+      "name": "FallbackIntent",
+      "state": "InProgress"
+    },
+    "sessionAttributes": {
+      "contactId":     "test-contact-12345",
+      "customerId":    "CUST-001",
+      "authStatus":    "authenticated",
+      "preferredName": "James"
+    }
+  },
+  "requestAttributes": {
+    "ContactId": "test-contact-12345"
+  }
+}
+```
+
+4. Click **Test**
+5. Expected: ARIA's response text - it should greet James by name and provide account details without asking for authentication.
+
+Test the unauthenticated path by changing `sessionAttributes` to:
+```json
+"sessionAttributes": {
+  "contactId":  "test-contact-99999",
+  "customerId": "",
+  "authStatus": "unauthenticated"
+}
+```
+Expected: ARIA asks for the customer's ID before providing any data.
+
+### Step 8.3 - Test via Real Phone Call
 
 1. Log into the Connect admin at `https://meridian-aria.my.connect.aws`
 2. Click the phone icon (top right) to open the Contact Control Panel (CCP)
 3. Set your status to **Available**
-4. Call your phone number from any external phone
-5. You should hear ARIA's greeting (Amy's voice, Nova Sonic quality)
-6. Say: *"What's my account balance?"*
-7. ARIA should respond with the authentication flow
-8. Complete auth: say your customer ID and date of birth
-9. ARIA responds with account details
+4. Call your claimed phone number from test number `+447765309252` (James Hartley in stub data)
+5. You should hear the greeting spoken by Nova Sonic
+6. Say: "What is my balance?"
+7. ARIA should respond immediately with account details (no authentication needed - pre-auth worked)
+8. Call again from an unknown number - ARIA should ask for your customer ID
 
-### Step 7.2 — Test Escalation
+### Step 8.4 - Test Escalation
 
-1. During a call, say: *"I want to speak to an agent"*
-2. ARIA should say the escalation message
-3. The call should route to the Connect queue
-4. In the CCP, you (as the agent) should receive the call
+1. During a call, say: "I want to speak to an agent"
+2. ARIA should say: "Please hold for a moment. I am connecting you with one of our advisors now."
+3. The call routes to the Connect queue
 
-### Step 7.3 — Check CloudWatch Logs
+### Step 8.5 - Verify in CloudWatch Logs
 
-Lambda logs appear in CloudWatch under:
-`/aws/lambda/aria-connect-fulfillment`
+**Session Injector logs** (`/aws/lambda/aria-session-injector`):
+```
+Contact: id=abc-123 channel=voice customerId='CUST-001' authStatus='authenticated'
+Customer context built: name='James' ...
+Session injector complete: {"sessionId": "abc-123", "customerId": "CUST-001", ...}
+```
 
-Each turn logs:
-- The input transcript
-- The ContactId (= AgentCore session ID)
-- ARIA's response (first 200 chars)
-- Any errors
+**Fulfillment Lambda logs** (`/aws/lambda/aria-lex-fulfillment`):
+```
+Turn: intent=FallbackIntent contactId=abc-123 transcript='What is my account balance?'
+ARIA response (session=abc-123): 'Hi James, your current account ending 4821...'
+```
 
-To view: AWS Console → CloudWatch → Log groups → `/aws/lambda/aria-connect-fulfillment`
-
----
-
-## Part 8 — Add the Lambda Function to Connect (Required for Direct Lambda Invocation)
-
-If you want to also invoke Lambda directly from Contact Flows (not just via Lex), register it:
-
-1. Connect admin console → your instance → **Flows**
-2. Scroll to **AWS Lambda** section
-3. Select `aria-connect-fulfillment` from the dropdown
-4. Click **Add Lambda Function**
+To view: AWS Console -> **CloudWatch** -> **Log groups** -> search for the log group name above.
 
 ---
 
 ## Troubleshooting
 
+### "Session injector returns customerId='' even for registered test numbers"
+
+The stub phone-to-customer mapping in `session_injector.py` is:
+```python
+_PHONE_TO_CUSTOMER = {
+    "+447765309252": "CUST-001",   # James Hartley
+    "+447700900001": "CUST-002",   # Sarah Chen
+    ...
+}
+```
+Call from one of these numbers, or add your own test number to the Lambda's `_PHONE_TO_CUSTOMER` dict and redeploy.
+
+### "customerId is empty in the fulfillment Lambda even though session injector found the customer"
+
+Check each step in the data chain:
+1. Session Injector returned it? - Check `aria-session-injector` CloudWatch logs: look for `customerId='CUST-001'` in the output
+2. Block 5 stored it? - In the flow designer, click Block 5 and confirm the `customerId` attribute uses Type `External` (not `Static` or `System`)
+3. Block 6 passes it to Lex? - In Block 6 (Get Customer Input), confirm the session attribute `customerId` is set to Type `User-defined`, Attribute `customerId`
+4. Lambda reads it? - Verify the Lambda code was updated as described in Part 6
+
+### "ARIA asks for customer ID even though phone was matched"
+
+The fulfillment Lambda may not be reading `customerId` from session attributes, or may not be passing it to AgentCore. Check CloudWatch logs for the fulfillment Lambda and look for the customerId in the logged session attributes.
+
+### "Lambda timeout error"
+
+- Session injector has 8 seconds. If CRM API is slow, raise Lambda timeout to 10 seconds in Lambda -> Configuration -> General configuration.
+- Fulfillment Lambda has 7 seconds. AgentCore tool calls should complete within about 5 seconds.
+
+### "Access denied from Lambda to AgentCore"
+
+- Verify `aria-lex-fulfillment` execution role has `bedrock-agentcore:InvokeAgentRuntime` permission
+- The `deploy.sh` script creates `aria-lambda-fulfillment-role` with this permission automatically
+- To verify: IAM -> Roles -> `aria-lambda-fulfillment-role` -> Permissions -> look for `AgentCoreInvoke` inline policy
+
 ### "No response / silence after greeting"
-- Check that the **Set voice** block has **Override speaking style: Generative** enabled
-- Verify the Lex bot locale shows `Speech-to-Speech: Amazon Nova Sonic` (not just ASR+Polly)
-- Check Lambda logs for errors invoking AgentCore
 
-### "Lambda timeout" error
-- Lambda timeout is 7s. AgentCore tool calls (account lookups) should complete within ~5s
-- If ARIA is calling multiple tools, consider using the async Lambda invocation mode in the flow block (60s timeout). Add a **Play prompt** ("Please hold a moment...") before the **Get customer input** block so callers don't hear silence
-
-### "Access denied" from Lambda → AgentCore
-- Verify the Lambda execution role has `bedrock-agentcore:InvokeAgentRuntime` permission on the correct runtime ARN
-- Check the IAM inline policy `aria-agentcore-invoke` is attached to `aria-connect-fulfillment-role`
-- Run a test in the Lambda console — error messages will show the exact IAM denial
+- Check that the Set Voice block has **Override speaking style: Generative** enabled
+- Verify the Lex bot locale shows `Speech-to-Speech: Amazon Nova Sonic`
+- Check `aria-lex-fulfillment` CloudWatch logs for errors invoking AgentCore
 
 ### "Lex intent not firing Lambda"
-- Verify the Lambda is attached to the **alias** (`production`), not just the bot
-- Check that the correct Lambda function version is referenced in the alias configuration
+
+- Verify the Lambda `aria-lex-fulfillment` is attached to the **alias** (`production`), not just the bot version
 - Check the resource-based policy on the Lambda allows `lexv2.amazonaws.com` to invoke it
 
-### "ARIA asks for customer ID every turn" (re-auth loop)
-- This means the ContactId is not being passed correctly → each Lambda call generates a new AgentCore session
-- Check the **Get customer input** block has the session attribute `ContactId` set
-- Check Lambda logs: `contactId` in the log output should be a fixed UUID-like value for the entire call
+### "Call goes to error branch immediately"
+
+- Check the flow connections - every output must be connected
+- Verify the Lex bot alias `production` is built and attached to the bot
 
 ### "Voice sounds like Polly, not Nova Sonic"
-- The `Set voice` block must have **Generative** style selected (not Neural or Standard)
-- The Lex bot locale in Connect must show `Speech-to-Speech: Amazon Nova Sonic`
-- If you see inconsistent voices, make sure no other `Set voice` blocks in the flow use a non-Nova-Sonic Polly voice
 
-### "Call goes to error branch immediately"
-- Check the flow connections in the designer — ensure all blocks are connected
-- Check CloudWatch Logs for the Connect instance under `aws/connect/{instance-alias}`
-- Verify the Lex bot alias `production` is built and attached to the Lambda
+- The Set Voice block must have **Generative** style selected (not Neural or Standard)
+- The Lex bot locale in Connect must show `Speech-to-Speech: Amazon Nova Sonic`
 
 ---
 
@@ -908,15 +1181,14 @@ If you want to also invoke Lambda directly from Contact Flows (not just via Lex)
 
 | Enhancement | How |
 |---|---|
-| Dedicated human agent queues | Create queues in Connect: `meridian-general`, `meridian-id-v` |
-| Call recording | Already enabled by default — review in Connect → Analytics |
-| Contact Lens (PII redaction) | Connect admin → Analytics → Contact Lens → Enable |
-| Business hours routing | Add **Check hours of operation** block before the bot |
-| Wait time announcement | Before **Transfer to queue**, add **Get queue metrics** → **Play prompt** with `$.Queue.EstimatedWaitTime` |
-| Callback when queue is full | Add **Set callback number** → **Transfer to queue** with callback enabled |
+| Real CRM lookup | Replace stub `_PHONE_TO_CUSTOMER` dict in `session_injector.py` with a real CRM API call using `CRM_API_ENDPOINT` env var |
+| IVR digit collection | Add a **Store customer input** block before Block 4 to collect account digits, then pass them as a contact attribute to the Lambda |
+| Dedicated agent queues | Create queues in Connect: `CustomerService`, `Fraud`, `Complaints` |
+| Business hours routing | Add **Check hours of operation** block before Block 6 |
+| Wait time announcement | Before **Transfer to queue**, add **Get queue metrics** then **Play prompt** with estimated wait time |
+| Call recording | Already enabled by default - review in Connect -> Analytics |
+| Contact Lens (PII redaction) | Connect admin -> Analytics -> Contact Lens -> Enable |
 | Chat channel | Create a new flow using the same Lambda (detects `channel=CHAT` from contact data) |
-| SMS via Pinpoint | Connect → Channels → SMS (attach Pinpoint) |
-| Outbound calling (payment reminders) | Amazon Connect Campaigns → Outbound dialler |
 
 ---
 
@@ -925,17 +1197,14 @@ If you want to also invoke Lambda directly from Contact Flows (not just via Lex)
 | Item | Value |
 |---|---|
 | AgentCore Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY` |
-| AgentCore Endpoint | `https://bedrock-agentcore.eu-west-2.amazonaws.com/runtimes/arn%3Aaws%3A...` |
 | Lex Bot Name | `ARIA-Connect-Bot` |
 | Lex Bot Alias | `production` |
-| Lambda Function | `aria-connect-fulfillment` |
-| Lambda IAM Role | `aria-connect-fulfillment-role` |
+| Session Injector Lambda | `aria-session-injector` |
+| Fulfillment Lambda | `aria-lex-fulfillment` |
+| Fulfillment IAM Role | `aria-lambda-fulfillment-role` |
 | Connect Instance | `meridian-aria.my.connect.aws` |
 | Connect Region | `eu-west-2` |
-| Nova Sonic Voice | `Amy` (en-GB, Feminine, Generative) |
-| AgentCore Chat Payload Key | `message` (field name in the POST body) |
+| Nova Sonic Voice | `Amy` (en-GB, Generative) |
 | AgentCore Session Header | `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` |
-
----
-
-*Based on official AWS documentation: Amazon Connect Administrator Guide (Nova Sonic S2S configuration), Amazon Lex V2 Developer Guide (Lambda integration), AWS Lambda Developer Guide, Amazon Bedrock AgentCore Developer Guide (bidirectional streaming, runtime invocation).*
+| Test phone -> CUST-001 | `+447765309252` (James Hartley) |
+| Test phone -> CUST-002 | `+447700900001` (Sarah Chen) |

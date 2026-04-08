@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "general",
+    "subcategory": "general-faq",
+    "product": "all",
+    "topics": "faq,account-opening,eligibility,payments,transfers,statements,complaint,gdpr,poa,bereavement,fscs,regulatory",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

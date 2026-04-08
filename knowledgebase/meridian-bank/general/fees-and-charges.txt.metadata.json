@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "general",
+    "subcategory": "fees-and-charges",
+    "product": "all",
+    "topics": "fees,charges,overdraft,chaps,fx,international-transfer,late-payment,credit-card-fee,mortgage-fee",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

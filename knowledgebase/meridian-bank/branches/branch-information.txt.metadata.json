@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "branches",
+    "subcategory": "branch-locations",
+    "product": "all",
+    "topics": "branch,opening-hours,location,atm,appointment,accessibility,foreign-currency,contact",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

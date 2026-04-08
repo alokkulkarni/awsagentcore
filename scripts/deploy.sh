@@ -24,9 +24,9 @@
 #    DynamoDB       aria-audit-events                 (hot audit queries, 90d TTL)
 #    EventBridge    aria-audit                        (custom audit bus)
 #    CloudTrail     aria-banking-audit (data store + channel, 7yr)
-#    Lambda ×2      audit_cloudtrail_writer, audit_dynamodb_writer
+#    Lambda ×4      audit_cloudtrail_writer, audit_dynamodb_writer, aria_connect_fulfillment, session_injector
 #    Firehose       aria-audit-firehose               (S3 WORM delivery)
-#    IAM roles      aria-lambda-audit-role, aria-firehose-audit-role
+#    IAM roles      aria-lambda-audit-role, aria-lambda-fulfillment-role, aria-lambda-session-injector-role, aria-firehose-audit-role
 #    ECR repo       bedrock-agentcore-aria-banking-agent  (auto-created by agentcore)
 #    AgentCore      aria_banking_agent runtime        (eu-west-2)
 #
@@ -44,6 +44,8 @@ ACCOUNT_ID=""      # AWS account ID (set in collect_inputs)
 AGENTCORE_REGION=""
 CF_DISTRIBUTION_ID=""
 CF_DOMAIN=""
+FULFILLMENT_LAMBDA_ARN=""       # aria-lex-fulfillment (set by deploy_fulfillment_lambda)
+SESSION_INJECTOR_LAMBDA_ARN=""  # aria-session-injector (set by deploy_session_injector_lambda)
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -273,14 +275,14 @@ collect_inputs() {
     ask_yn "Proceed with deployment?" "Y" || die "Deployment cancelled."
 
     # Persist to state file (account_id kept for ARN construction, not used in names)
-    state_set "account_id"        "$ACCOUNT_ID"
-    state_set "agentcore_region"  "$AGENTCORE_REGION"
-    state_set "claude_region"     "$CLAUDE_REGION"
-    state_set "nova_sonic_region" "$NOVA_SONIC_REGION"
-    state_set "transcript_bucket" "$TRANSCRIPT_BUCKET"
-    state_set "audit_bucket"      "$AUDIT_BUCKET"
-    state_set "client_bucket"     "$CLIENT_BUCKET"
-    state_set "agent_name"        "$AGENT_NAME"
+    state_set "account_id"           "$ACCOUNT_ID"
+    state_set "agentcore_region"     "$AGENTCORE_REGION"
+    state_set "claude_region"        "$CLAUDE_REGION"
+    state_set "nova_sonic_region"    "$NOVA_SONIC_REGION"
+    state_set "transcript_bucket"    "$TRANSCRIPT_BUCKET"
+    state_set "audit_bucket"         "$AUDIT_BUCKET"
+    state_set "client_bucket"        "$CLIENT_BUCKET"
+    state_set "agent_name"           "$AGENT_NAME"
 }
 
 create_s3_buckets() {
@@ -579,6 +581,8 @@ create_lambda_iam_role() {
 
 deploy_lambda() {
     local fn_name="$1" source_file="$2" env_vars="$3"
+    # Optional 4th arg: IAM role ARN. Defaults to the shared audit Lambda role.
+    local role_arn="${4:-${LAMBDA_ROLE_ARN}}"
     local zip_path="/tmp/${fn_name}.zip"
 
     step "Packaging ${fn_name}"
@@ -605,7 +609,7 @@ deploy_lambda() {
         aws lambda create-function \
             --function-name "$fn_name" \
             --runtime python3.12 \
-            --role "$LAMBDA_ROLE_ARN" \
+            --role "$role_arn" \
             --handler "$(basename "${source_file%.py}").handler" \
             --zip-file "fileb://${zip_path}" \
             --timeout 30 \
@@ -650,6 +654,214 @@ deploy_audit_lambdas() {
         warn "Permission already set for ${fn_name}"
     done
 }
+
+# ---------------------------------------------------------------------------
+# Lex V2 fulfillment Lambda (aria-lex-fulfillment)
+#
+# This function is called AFTER launch_agentcore so that the runtime ARN is
+# available in state.  It:
+#   1. Creates a dedicated IAM role (aria-lambda-fulfillment-role) with
+#      bedrock-agentcore:InvokeAgentRuntime permission scoped to the runtime.
+#   2. Builds the AGENTCORE_ENDPOINT URL from the runtime ARN (same formula
+#      as VITE_AGENTCORE_CHAT_URL used by the React client).
+#   3. Deploys aria_connect_fulfillment.py with AGENTCORE_ENDPOINT set.
+#   4. Grants Amazon Lex V2 permission to invoke the Lambda.
+# ---------------------------------------------------------------------------
+deploy_fulfillment_lambda() {
+    header "Lex V2 fulfillment Lambda (aria-lex-fulfillment)"
+
+    local runtime_arn
+    runtime_arn=$(state_get "runtime_arn")
+    [[ -z "$runtime_arn" ]] && die "runtime_arn not found in state — run launch_agentcore first"
+
+    # ── 1. Dedicated IAM role ────────────────────────────────────────────────
+    local role_name="aria-lambda-fulfillment-role"
+    local fulfillment_role_arn="arn:aws:iam::${ACCOUNT_ID}:role/${role_name}"
+
+    if [[ -n "$(iam_role_exists "$role_name")" ]]; then
+        warn "IAM role already exists — skipping: ${role_name}"
+    else
+        step "Creating IAM role: ${role_name}"
+        aws iam create-role \
+            --role-name "$role_name" \
+            --assume-role-policy-document '{
+                "Version":"2012-10-17",
+                "Statement":[{
+                    "Effect":"Allow",
+                    "Principal":{"Service":"lambda.amazonaws.com"},
+                    "Action":"sts:AssumeRole"
+                }]
+            }' \
+            --query "Role.RoleName" --output text > /dev/null
+
+        aws iam attach-role-policy \
+            --role-name "$role_name" \
+            --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+        # Scope InvokeAgentRuntime to the deployed runtime ARN only
+        aws iam put-role-policy \
+            --role-name "$role_name" \
+            --policy-name "AgentCoreInvoke" \
+            --policy-document "{
+                \"Version\":\"2012-10-17\",
+                \"Statement\":[{
+                    \"Sid\":\"InvokeAriaRuntime\",
+                    \"Effect\":\"Allow\",
+                    \"Action\":[\"bedrock-agentcore:InvokeAgentRuntime\"],
+                    \"Resource\":\"${runtime_arn}\"
+                }]
+            }"
+
+        ok "IAM role created: ${fulfillment_role_arn}"
+        step "Waiting 15s for IAM role propagation..."
+        sleep 15
+    fi
+
+    # ── 2. Build AGENTCORE_ENDPOINT (URL-encoded ARN path, same as chat_url) ─
+    local encoded_arn
+    encoded_arn=$(python3 -c \
+        "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" \
+        "${runtime_arn}")
+    local agentcore_endpoint="https://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${encoded_arn}/invocations"
+
+    # ── 3. Deploy the Lambda ─────────────────────────────────────────────────
+    FULFILLMENT_LAMBDA_ARN=$(deploy_lambda \
+        "aria-lex-fulfillment" \
+        "${LAMBDA_DIR}/aria_connect_fulfillment.py" \
+        "{AGENTCORE_ENDPOINT=${agentcore_endpoint},AWS_REGION=${AGENTCORE_REGION}}" \
+        "${fulfillment_role_arn}"
+    )
+    state_set "fulfillment_lambda_arn"      "$FULFILLMENT_LAMBDA_ARN"
+    state_set "fulfillment_agentcore_endpoint" "$agentcore_endpoint"
+
+    # ── 4. Grant Lex V2 permission to invoke the Lambda ──────────────────────
+    # source-account prevents confused-deputy attacks from other accounts.
+    aws lambda add-permission \
+        --function-name "aria-lex-fulfillment" \
+        --statement-id  "LexV2Invoke" \
+        --action        "lambda:InvokeFunction" \
+        --principal     "lexv2.amazonaws.com" \
+        --source-account "${ACCOUNT_ID}" \
+        --region        "$AGENTCORE_REGION" 2>/dev/null || \
+    warn "Lex V2 permission already set (non-fatal)"
+
+    ok "Fulfillment Lambda ready: ${FULFILLMENT_LAMBDA_ARN}"
+    step "AGENTCORE_ENDPOINT: ${agentcore_endpoint}"
+    echo ""
+    warn "Next: add 'aria-lex-fulfillment' to your Lex V2 bot's fulfillment Lambda"
+    warn "      in the Connect console → Lex bot → Alias → Lambda function."
+}
+
+# ---------------------------------------------------------------------------
+# Connect Session Injector Lambda (aria-session-injector)
+#
+# This Lambda is placed in the Amazon Connect contact flow BEFORE the Lex V2
+# block. It looks up the caller by phone number / contact attributes, fetches
+# customer data from CRM, and injects rich session context into Q Connect so
+# that the AI prompt template variables ({{$.Custom.*}}) are populated. It
+# also returns all context fields so the contact flow can store them as contact
+# attributes, which are then forwarded to Lex as session attributes and
+# ultimately to the AgentCore chat agent.
+#
+# IAM policy grants:
+#   connect:DescribeContact / GetContactAttributes  — read contact details
+#   qconnect:UpdateSessionData / wisdom:UpdateSessionData — populate AI prompt
+#   dynamodb:GetItem — read prior session summaries from MEMORY_TABLE_NAME
+#
+# Amazon Connect is granted lambda:InvokeFunction on the Lambda ARN.
+# ---------------------------------------------------------------------------
+deploy_session_injector_lambda() {
+    header "Connect Session Injector Lambda (aria-session-injector)"
+
+    # ── 1. Dedicated IAM role ────────────────────────────────────────────────
+    local role_name="aria-lambda-session-injector-role"
+    local injector_role_arn="arn:aws:iam::${ACCOUNT_ID}:role/${role_name}"
+
+    if [[ -n "$(iam_role_exists "$role_name")" ]]; then
+        warn "IAM role already exists — skipping: ${role_name}"
+    else
+        step "Creating IAM role: ${role_name}"
+        aws iam create-role \
+            --role-name "$role_name" \
+            --assume-role-policy-document '{
+                "Version":"2012-10-17",
+                "Statement":[{
+                    "Effect":"Allow",
+                    "Principal":{"Service":"lambda.amazonaws.com"},
+                    "Action":"sts:AssumeRole"
+                }]
+            }' \
+            --query "Role.RoleName" --output text > /dev/null
+
+        aws iam attach-role-policy \
+            --role-name "$role_name" \
+            --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+        # Inline policy: DynamoDB read for prior session summaries (memory store).
+        # Connect contact data (channel, attributes, phone) arrives in the Lambda event
+        # directly — no additional Connect API calls are needed for the primary code path.
+        # Q Connect (wisdom/qconnect) permissions are NOT included here; add them
+        # manually to this role if you later configure Q Connect with ASSISTANT_ID.
+        aws iam put-role-policy \
+            --role-name "$role_name" \
+            --policy-name "SessionInjectorPolicy" \
+            --policy-document "{
+                \"Version\":\"2012-10-17\",
+                \"Statement\":[
+                    {
+                        \"Sid\":\"DynamoDBMemoryRead\",
+                        \"Effect\":\"Allow\",
+                        \"Action\":[\"dynamodb:GetItem\"],
+                        \"Resource\":\"arn:aws:dynamodb:*:${ACCOUNT_ID}:table/*\"
+                    }
+                ]
+            }"
+
+        ok "IAM role created: ${injector_role_arn}"
+        step "Waiting 15s for IAM role propagation..."
+        sleep 15
+    fi
+
+    # ── 2. Build env vars string ─────────────────────────────────────────────
+    # ASSISTANT_ID is intentionally omitted — the Lambda works without Q Connect.
+    # If you later add Q Connect, set ASSISTANT_ID in the Lambda console and add
+    # qconnect:UpdateSessionData + wisdom:UpdateSessionData to the IAM role.
+    local env_vars="AWS_REGION=${AGENTCORE_REGION}"
+    # MEMORY_TABLE_NAME — use the DynamoDB audit table as prior-summary store if available
+    local memory_table
+    memory_table=$(state_get "dynamodb_table" 2>/dev/null || echo "")
+    [[ -n "$memory_table" ]] && env_vars="${env_vars},MEMORY_TABLE_NAME=${memory_table}"
+
+    # ── 3. Deploy the Lambda ─────────────────────────────────────────────────
+    SESSION_INJECTOR_LAMBDA_ARN=$(deploy_lambda \
+        "aria-session-injector" \
+        "${LAMBDA_DIR}/session_injector.py" \
+        "{${env_vars}}" \
+        "${injector_role_arn}"
+    )
+    state_set "session_injector_lambda_arn" "$SESSION_INJECTOR_LAMBDA_ARN"
+
+    # ── 4. Grant Amazon Connect permission to invoke the Lambda ──────────────
+    # source-account prevents confused-deputy attacks from other accounts.
+    aws lambda add-permission \
+        --function-name "aria-session-injector" \
+        --statement-id  "ConnectInvoke" \
+        --action        "lambda:InvokeFunction" \
+        --principal     "connect.amazonaws.com" \
+        --source-account "${ACCOUNT_ID}" \
+        --region        "$AGENTCORE_REGION" 2>/dev/null || \
+    warn "Connect permission already set (non-fatal)"
+
+    ok "Session Injector Lambda ready: ${SESSION_INJECTOR_LAMBDA_ARN}"
+    echo ""
+    warn "Next steps for aria-session-injector:"
+    warn "  1. In Connect admin → Contact flows → Meridian-ARIA-Inbound"
+    warn "     add an 'Invoke AWS Lambda function' block BEFORE the Lex block"
+    warn "     and select 'aria-session-injector'"
+    warn "  2. (Optional) To also populate Q Connect AI prompts:"
+    warn "     Set ASSISTANT_ID env var and add qconnect:UpdateSessionData to the IAM role"
+}
+
 
 create_firehose() {
     header "Kinesis Firehose → S3 WORM delivery stream"
@@ -1620,6 +1832,20 @@ print_summary() {
     EventBridge bus: aria-audit (${AGENTCORE_REGION})
     CloudTrail Lake: aria-banking-audit (7yr retention)
     Firehose:        aria-audit-firehose → S3 WORM
+    Lambda:          aria-lex-fulfillment (Lex V2 → AgentCore bridge)
+    Lambda:          aria-session-injector (Connect pre-auth context injector)
+
+  ${BOLD}Lex V2 fulfillment Lambda:${NC}
+    ARN:               $(state_get 'fulfillment_lambda_arn' 2>/dev/null || echo 'arn:aws:lambda:'"${AGENTCORE_REGION}:${ACCOUNT_ID}"':function:aria-lex-fulfillment')
+    AGENTCORE_ENDPOINT: $(state_get 'fulfillment_agentcore_endpoint' 2>/dev/null || echo '(see Lambda env vars)')
+    ⚠️  Attach this Lambda to your Lex V2 bot alias in the Connect console:
+       Connect → Lex bots → <bot> → Alias settings → Lambda function
+
+  ${BOLD}Connect Session Injector Lambda:${NC}
+    ARN:               $(state_get 'session_injector_lambda_arn' 2>/dev/null || echo 'arn:aws:lambda:'"${AGENTCORE_REGION}:${ACCOUNT_ID}"':function:aria-session-injector')
+    ⚠️  Add to Connect contact flow BEFORE the Lex block:
+       Connect → Contact flows → Meridian-ARIA-Inbound → 'Invoke Lambda' block → aria-session-injector
+    ℹ️  Q Connect: not configured. Set ASSISTANT_ID env var + add qconnect:UpdateSessionData to IAM role if needed.
 
   ${BOLD}Logs:${NC}
     aws logs tail /aws/bedrock-agentcore/runtimes --follow
@@ -1804,6 +2030,8 @@ cmd_deploy() {
     create_agentcore_memory
     launch_agentcore
     find_and_patch_execution_role
+    deploy_fulfillment_lambda
+    deploy_session_injector_lambda
     deploy_cognito_identity_pool
     create_react_client_bucket
     create_cloudfront_distribution
@@ -1911,21 +2139,35 @@ cmd_teardown() {
 
     # ── Step 5: Delete Lambda functions ──────────────────────────────────────
     header "Deleting Lambda functions"
-    for fn in aria-audit-cloudtrail-writer aria-audit-dynamodb-writer; do
+    for fn in aria-audit-cloudtrail-writer aria-audit-dynamodb-writer aria-lex-fulfillment aria-session-injector; do
         step "Deleting Lambda: ${fn}"
         aws lambda delete-function --function-name "$fn" \
             --region "$agentcore_region" 2>/dev/null && ok "Deleted ${fn}" || warn "Lambda not found: ${fn}"
     done
 
-    # ── Step 6: Delete Lambda IAM role ────────────────────────────────────────
-    header "Deleting Lambda IAM role"
+    # ── Step 6: Delete Lambda IAM roles ───────────────────────────────────────
+    header "Deleting Lambda IAM roles"
     step "Detaching policies from aria-lambda-audit-role"
     aws iam delete-role-policy --role-name aria-lambda-audit-role --policy-name CloudTrailLakeWrite  2>/dev/null || true
     aws iam delete-role-policy --role-name aria-lambda-audit-role --policy-name DynamoDBAuditWrite   2>/dev/null || true
     aws iam detach-role-policy --role-name aria-lambda-audit-role \
         --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
     aws iam delete-role --role-name aria-lambda-audit-role 2>/dev/null && \
-        ok "Lambda role deleted" || warn "Lambda role not found"
+        ok "Lambda audit role deleted" || warn "Lambda audit role not found"
+
+    step "Detaching policies from aria-lambda-fulfillment-role"
+    aws iam delete-role-policy --role-name aria-lambda-fulfillment-role --policy-name AgentCoreInvoke 2>/dev/null || true
+    aws iam detach-role-policy --role-name aria-lambda-fulfillment-role \
+        --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
+    aws iam delete-role --role-name aria-lambda-fulfillment-role 2>/dev/null && \
+        ok "Lambda fulfillment role deleted" || warn "Lambda fulfillment role not found"
+
+    step "Detaching policies from aria-lambda-session-injector-role"
+    aws iam delete-role-policy --role-name aria-lambda-session-injector-role --policy-name SessionInjectorPolicy 2>/dev/null || true
+    aws iam detach-role-policy --role-name aria-lambda-session-injector-role \
+        --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
+    aws iam delete-role --role-name aria-lambda-session-injector-role 2>/dev/null && \
+        ok "Lambda session-injector role deleted" || warn "Lambda session-injector role not found"
 
     # ── Step 7: Delete Firehose ───────────────────────────────────────────────
     header "Deleting Kinesis Firehose"

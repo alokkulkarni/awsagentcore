@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "general",
+    "subcategory": "digital-banking",
+    "product": "mobile-app,online-banking",
+    "topics": "mobile-app,online-banking,navigation,payments,card-controls,statements,notifications,security,biometrics,accessibility,troubleshooting",
+    "channel": "digital",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

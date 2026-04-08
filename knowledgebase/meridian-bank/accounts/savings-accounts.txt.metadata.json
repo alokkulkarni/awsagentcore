@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "accounts",
+    "subcategory": "savings-accounts",
+    "product": "savings-account,fixed-rate-bond,cash-isa,junior-isa",
+    "topics": "savings,interest-rates,isa,fixed-rate,instant-access,tax-free,allowance",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

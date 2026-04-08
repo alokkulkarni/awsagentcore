@@ -1,0 +1,108 @@
+MERIDIAN BANK — GENERAL BANKING FAQ
+Knowledge Base Document | Version 1.0
+
+=============================================================
+ACCOUNT OPENING AND ELIGIBILITY
+=============================================================
+
+Q: Who can open a Meridian Bank account?
+A: UK residents aged 18 or over. You must have a valid photo ID (passport or full driving licence) and proof of address dated within 3 months (utility bill, council tax statement, or bank statement from another provider). Non-UK nationals must present a valid passport and biometric residence permit.
+
+Q: Can I open an account if I have a poor credit history?
+A: For current accounts, we do run a soft credit check (which does not affect your credit score). If you have CCJs, IVAs, or recent bankruptcies, you may not be approved for a standard current account. We recommend asking about our Basic Bank Account (no overdraft, no credit check) — call 0161 900 9000.
+
+Q: How long does it take to open an account?
+A: Online or in-app applications: decisions usually within minutes. Your account is ready to use within 1 working day once all documents are verified. In-branch applications with all documents: same day. If further verification is needed, up to 3 working days.
+
+Q: Can I open a joint account?
+A: Yes, for current accounts and Instant Access Savings Accounts. Both applicants must meet eligibility criteria and attend the branch or complete the online process separately. Credit cards, Cash ISAs, and Fixed Rate Bonds are individual only.
+
+Q: What is a basic bank account?
+A: A no-frills account for customers who do not qualify for a standard current account. It includes a Visa debit card for purchases and ATM withdrawals but no overdraft facility, no chequebook, and no credit checks. No monthly fee. Open in branch with ID and proof of address.
+
+=============================================================
+PAYMENTS AND TRANSFERS
+=============================================================
+
+Q: What is the maximum amount I can transfer using Faster Payments?
+A: £100,000 per transaction from online banking. Lower limits apply via the mobile app: £30,000 per transaction (increase to £100,000 by calling us). Payments to new payees are limited to £5,000 for 24 hours after adding the payee (security measure). CHAPS allows unlimited transfers for same-day settlement.
+
+Q: Can I make a payment to someone who banks overseas?
+A: Yes, via SWIFT international bank transfer. You will need the recipient's IBAN (or account number and routing code for non-IBAN countries) and BIC/SWIFT code. Fees: £10 (Everyday Account) or free (Premium Account). Exchange rate margins apply.
+
+Q: How do I cancel a payment I have just made?
+A: Faster Payments cannot be recalled once sent — they arrive within seconds. However, if you made the payment in error, call the recipient (if you know them) and ask them to return the funds. If fraud is suspected, call 0161 900 9005 immediately — we can raise an indemnity claim through Faster Payments. Future-dated payments can be cancelled before the payment date in online banking or the app.
+
+Q: What happens if I send a payment to the wrong account?
+A: Call 0161 900 9000 immediately. Under the Contingent Reimbursement Model (CRM), we will contact the receiving bank on your behalf and request the return of funds. Recovery is not guaranteed — the recipient must agree to return the money. Always double-check the sort code, account number, and payee name before confirming.
+
+Q: What is Confirmation of Payee?
+A: A service that checks whether the name you enter matches the account name at the receiving bank. If it does not match, a warning is shown before you confirm. Always heed these warnings.
+
+=============================================================
+STATEMENTS AND RECORDS
+=============================================================
+
+Q: How far back can I see my transactions?
+A: 7 years on the mobile app and online banking. For records beyond 7 years, contact us on 0161 900 9000 — we retain records for up to 10 years but production may take 5–10 working days.
+
+Q: Can I get proof of my bank balance for a mortgage or rental application?
+A: Yes. A "Confirmation of Balance" letter can be requested in branch or by calling 0161 900 9000 (£10 fee on Everyday Account, free on Premium). Alternatively, most lenders and landlords accept a printed or PDF bank statement from online banking or the app — these are accepted as official documents.
+
+Q: How do I get my annual tax certificate for savings interest?
+A: Your Certificate of Interest (showing interest earned in the previous tax year) is available in the Documents section of the mobile app and online banking each April. For ISA accounts: no certificate needed as interest is tax-free.
+
+Q: Can I have paper statements?
+A: Yes. By default, accounts are set to paperless statements. To switch to paper statements: mobile app → More → Profile → Statement preferences → Paper. Or call 0161 900 9000. Paper statements are posted monthly and are free for Premium Account holders. A charge of £5 per statement applies for copies of past statements on Everyday Accounts.
+
+=============================================================
+CONTACT AND COMMUNICATION
+=============================================================
+
+Q: How do I update my phone number or address?
+A: Mobile app: More → Profile → edit your details. For address changes, you may need to upload a proof of address document. Online banking: Profile → Personal details. Or call 0161 900 9000. For changes to a mortgage correspondence address, a written request may be required — call the mortgage team.
+
+Q: How do I make a complaint?
+A: We take complaints seriously and aim to resolve them within 3 business days. Contact us first: call 0161 900 9000, visit any branch, send a secure message from the app or online banking, or write to: Customer Relations, Meridian Bank, 14 Market Square, Altrincham, WA14 1QA. If not resolved within 8 weeks, you can refer to the Financial Ombudsman Service (FOS) free of charge. Phone: 0800 023 4567. Web: financial-ombudsman.org.uk.
+
+Q: How do I request my data under GDPR (Subject Access Request)?
+A: Submit a SAR by secure message from the app or online banking, by writing to our Data Protection Officer at the Altrincham head office, or via our online SAR form at meridianbank.co.uk/privacy. We will respond within 30 days. No charge.
+
+Q: How do I close my account?
+A: Call 0161 900 9000 or visit a branch. Ensure all outstanding direct debits and standing orders are cancelled. The balance can be transferred to another account at the same time. Closure takes effect immediately — you will receive a closure confirmation letter.
+
+Q: What happens to my account when I die?
+A: The executor or next of kin should notify us as soon as possible by calling 0161 900 9000 or visiting a branch with a copy of the death certificate. We will freeze the account to protect the estate. Joint accounts remain active for the surviving account holder. For probate and estate settlement: our bereavement team will guide you through the process. Call the dedicated bereavement line on 0161 900 9007 (Monday–Friday 9am–5pm).
+
+=============================================================
+REGULATORY AND FINANCIAL PROTECTION
+=============================================================
+
+Q: Is Meridian Bank regulated?
+A: Yes. Meridian Bank is authorised by the Prudential Regulation Authority (PRA) and regulated by the Financial Conduct Authority (FCA) and PRA. FCA reference number: 987654. Registered in England and Wales. Company number: 01234567.
+
+Q: What is FSCS and how am I protected?
+A: The Financial Services Compensation Scheme (FSCS) protects eligible deposits up to £85,000 per person per banking group. Joint accounts: £170,000. This covers current accounts, savings accounts, and Cash ISAs. It does NOT cover money held in stockbroking accounts, unit trusts, or pensions (though these may be covered by other schemes). In the event of bank failure, FSCS aims to compensate within 7 working days.
+
+Q: Is Meridian Bank a UK bank?
+A: Yes. Meridian Bank is a UK-incorporated bank with its head office in Altrincham, Greater Manchester. All deposits are held in the UK. All accounts are in British Pounds (GBP) unless specifically stated otherwise.
+
+Q: How do I find out about changes to my account terms?
+A: We are required by regulation to give you at least 2 months' notice (60 days) of any changes that are to your disadvantage — such as increasing fees or reducing benefits. Notifications are sent by email, in-app message, and optionally by post. You have the right to reject changes and close your account without penalty during the notice period.
+
+=============================================================
+POWER OF ATTORNEY
+=============================================================
+
+Q: I need to manage a family member's account. How do I do this?
+A: You can be added to an account as an authorised third party (limited access — you can operate the account but cannot change address, add/remove account holders, or close the account). Visit a branch with the account holder and your photo ID.
+For Lasting Power of Attorney (LPA): provide the original LPA document (or certified copy) at a branch. We can register it within 3 working days and give you the level of access specified in the LPA. Registered LPA holders can manage the account fully.
+
+=============================================================
+BEREAVEMENT
+=============================================================
+
+Q: A family member has died and had a Meridian Bank account. What should I do?
+A: Call our bereavement team on 0161 900 9007 (Mon–Fri 9am–5pm) or visit any branch. You will need: the death certificate, your ID, and details of the deceased's account. We will freeze the account to protect the estate and guide you through the estate settlement process. We aim to make this as straightforward as possible during what is an extremely difficult time.
+
+All fees are waived for 3 months following bereavement notification.

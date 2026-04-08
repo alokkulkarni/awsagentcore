@@ -1,0 +1,157 @@
+MERIDIAN BANK — SAVINGS ACCOUNTS AND CASH ISA
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank offers three savings products:
+1. Instant Access Savings Account — flexible access, variable rate
+2. Fixed Rate Bond (1-year and 2-year terms) — higher rate, no access during term
+3. Cash ISA — tax-free savings, instant access
+
+All savings products are FSCS protected up to £85,000.
+
+=============================================================
+INSTANT ACCESS SAVINGS ACCOUNT
+=============================================================
+
+Interest rate:       3.10% AER / 3.07% gross (variable)
+Minimum deposit:     £1
+Maximum balance:     £500,000
+Access:              Unlimited withdrawals, no notice required
+Interest paid:       Annually on the account anniversary, or on closure
+Account type:        Individual or joint (2 account holders maximum)
+
+How to open:
+- Existing Meridian Bank current account holders: open via the mobile app (Home → + Add product → Savings), online banking (Accounts → Open new account), or in branch.
+- New customers without a current account: in branch only, with photo ID and proof of address.
+
+Making deposits:
+- Transfer from your linked Meridian Bank current account (instant).
+- Transfer from another bank (standard Faster Payments — within 2 hours).
+- Deposits from third parties are accepted but must be from a verified source.
+
+Making withdrawals:
+- Mobile app: Savings → Move money → enter amount → Transfer to current account (instant).
+- Online banking: Accounts → Savings → Withdraw → enter amount → confirm.
+- Same-day if requested before 4pm. Requests after 4pm are processed next working day.
+
+Interest calculation:
+- Calculated daily on the cleared balance.
+- Added to the account annually.
+- If the account is closed mid-year, interest is calculated to the closing date and paid on closure.
+
+=============================================================
+FIXED RATE BOND
+=============================================================
+
+1-YEAR FIXED RATE BOND:
+Interest rate:       4.65% AER / 4.56% gross (fixed for 12 months)
+Minimum deposit:     £1,000
+Maximum deposit:     £500,000
+Access during term:  None. You cannot withdraw or deposit during the term.
+Interest paid:       At maturity (end of 12-month term) or annually (your choice at opening)
+What happens at maturity: 14 days before maturity you will be contacted by email/SMS with options:
+  - Reinvest in a new Fixed Rate Bond at the rate available at that time
+  - Transfer to your Instant Access Savings Account
+  - Transfer to your current account
+  If no instruction is received by maturity, funds transfer automatically to your current account.
+
+2-YEAR FIXED RATE BOND:
+Interest rate:       4.90% AER / 4.79% gross (fixed for 24 months)
+Minimum deposit:     £1,000
+Maximum deposit:     £500,000
+Access during term:  None.
+Interest paid:       Annually or at maturity (your choice at opening)
+
+How to open a Fixed Rate Bond:
+- Mobile app: Home → + Add product → Fixed Rate Bond → select term → enter amount → confirm.
+- Online banking: Accounts → Open new account → Fixed Rate Bond.
+- In branch: bring photo ID.
+- Note: funds are transferred from your Meridian Bank current account. The bond activates when funds clear.
+
+Important: once the Fixed Rate Bond is opened and funded, you cannot deposit additional funds or make withdrawals until maturity. In exceptional circumstances (e.g. serious illness, bereavement), early closure may be considered — contact us on 0161 900 9000. An early closure penalty may apply.
+
+=============================================================
+CASH ISA
+=============================================================
+
+Interest rate:       3.75% AER / 3.68% gross (variable, tax-free)
+Minimum deposit:     £1
+Maximum contribution: £20,000 per tax year (2025/26 ISA allowance)
+Access:              Unlimited withdrawals. Instant access.
+Interest paid:       Annually on 5 April (end of tax year) or on closure
+Tax treatment:       Interest is completely free of UK income tax and capital gains tax.
+
+ISA allowance rules:
+- The £20,000 annual ISA allowance applies across ALL ISAs you hold (not just with Meridian Bank).
+- You can only subscribe to ONE Cash ISA per tax year across all providers.
+- Unused allowance cannot be carried forward to the next tax year.
+- The tax year runs from 6 April to 5 April.
+
+ISA transfers:
+- You can transfer a Cash ISA from another provider to Meridian Bank without losing the tax-free status.
+- To initiate a transfer: Mobile app or online banking → ISA → Transfer ISA in → provide your existing provider's details. Transfers take up to 15 working days.
+- You can also transfer your Meridian Bank Cash ISA to another provider — we will process the transfer within 5 working days of receiving the instruction.
+
+Junior ISA:
+- Available for children under 18.
+- Annual allowance: £9,000 (2025/26).
+- Managed by a parent or legal guardian.
+- Funds locked until the child turns 18.
+- Interest rate: 4.00% AER (variable).
+- Open in branch with child's birth certificate and guardian's photo ID.
+
+Flexible ISA:
+- Meridian Bank's Cash ISA is a Flexible ISA. This means you can withdraw money and re-deposit it in the same tax year without it counting twice against your annual allowance.
+- Example: if you deposit £10,000 and then withdraw £5,000, you still have £15,000 of allowance remaining that year (not £10,000).
+
+=============================================================
+INTEREST RATES SUMMARY TABLE
+=============================================================
+
+Product                    | Rate        | Type      | Min   | Max
+---------------------------|-------------|-----------|-------|--------
+Instant Access Savings     | 3.10% AER   | Variable  | £1    | £500,000
+1-Year Fixed Rate Bond     | 4.65% AER   | Fixed     | £1,000| £500,000
+2-Year Fixed Rate Bond     | 4.90% AER   | Fixed     | £1,000| £500,000
+Cash ISA                   | 3.75% AER   | Variable  | £1    | £20,000/yr
+Junior ISA                 | 4.00% AER   | Variable  | £1    | £9,000/yr
+Premium Current (credit)   | 0.50% AER   | Variable  | £1    | £2,500
+
+Note: rates correct as of April 2026. Variable rates may change. Fixed rates are guaranteed for the term.
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — SAVINGS
+=============================================================
+
+Q: How do I check my savings balance?
+A: Via the mobile app (tap your Savings Account tile on the home screen), online banking, or by calling 0161 900 9000. Balances update in real time.
+
+Q: Can I have more than one savings account with Meridian Bank?
+A: Yes. You can hold an Instant Access Savings Account, a Fixed Rate Bond, and a Cash ISA simultaneously.
+
+Q: When will I receive my interest?
+A: Instant Access Savings: annually on your account anniversary. Fixed Rate Bond: annually or at maturity (your choice). Cash ISA: annually on 5 April or on closure.
+
+Q: Is my savings interest taxed?
+A: For non-ISA accounts: interest may be taxable. Basic rate taxpayers have a £1,000 Personal Savings Allowance (PSA); higher rate taxpayers have £500; additional rate taxpayers have no allowance. Meridian Bank pays interest gross (without deducting tax). You are responsible for declaring taxable interest to HMRC if it exceeds your PSA. For Cash ISA accounts: interest is always tax-free, no matter how much you earn.
+
+Q: What is AER?
+A: AER stands for Annual Equivalent Rate. It shows what the interest rate would be if interest were compounded once a year. It is used to help you compare savings products on a like-for-like basis. Gross rate is the rate before tax.
+
+Q: Can I add money to my Fixed Rate Bond after it is opened?
+A: No. Once funded and activated, no further deposits are accepted until maturity.
+
+Q: What happens if Meridian Bank changes the variable interest rate?
+A: We will notify you at least 14 days before any rate decrease takes effect. Rate increases take effect immediately.
+
+Q: Can I open a joint savings account?
+A: Yes, for Instant Access Savings Accounts (maximum 2 account holders). Fixed Rate Bonds and Cash ISAs are individual accounts only.
+
+Q: How do I provide my savings interest details to HMRC?
+A: Meridian Bank issues a Certificate of Interest (R40 form equivalent) each April for the previous tax year. You can download this from the Documents section of the mobile app or online banking.
+
+Q: Can I open a savings account if I do not have a Meridian Bank current account?
+A: Fixed Rate Bonds and Cash ISAs are available to non-current-account customers by visiting a branch. Instant Access Savings Accounts require a linked Meridian Bank current account.

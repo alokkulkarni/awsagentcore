@@ -1,0 +1,181 @@
+MERIDIAN BANK — DEBIT CARDS
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Every Meridian Bank current account (Everyday and Premium) includes a Visa debit card. The card can be used anywhere that accepts Visa — in shops, online, abroad, and at ATMs worldwide.
+
+=============================================================
+CARD FEATURES
+=============================================================
+
+Card network:          Visa
+Contactless limit:     £100 per single transaction
+Daily ATM limit:       £500 (can be temporarily increased — see below)
+Daily debit purchase:  £5,000 (default); can be reduced via spending controls in the app
+Online payments:       Enabled by default; can be disabled via spending controls
+International use:     Enabled by default; can be disabled via spending controls
+Apple Pay / Google Pay: Supported — add via the mobile app (Cards → Add to wallet)
+Chip and PIN:          Available on all cards; PIN can be changed via the app or at ATMs
+
+Premium account cardholders also receive:
+- No foreign exchange fee on card purchases abroad (Everyday: 2.75% FX fee applies)
+- No fee on overseas ATM withdrawals up to £500/month (Everyday: £1.50 + 2.75% FX fee)
+
+=============================================================
+CONTACTLESS PAYMENTS
+=============================================================
+
+Tap your card (or phone/watch via Apple Pay/Google Pay) on any contactless terminal.
+
+Limits:
+- Per transaction: £100
+- Cumulative contactless without PIN: after 5 consecutive contactless payments (or if total contactless spending exceeds £300 since last PIN entry), the terminal will prompt for chip-and-PIN to verify identity. This is a UK financial regulation requirement.
+
+Apple Pay and Google Pay:
+- No per-transaction limit when using biometric or device passcode authentication.
+- Treat as chip-and-PIN for high-value contactless transactions.
+
+To disable contactless:
+- Mobile app: Cards → select debit card → Spending controls → toggle off Contactless.
+- Contactless can be re-enabled instantly in the same place.
+
+=============================================================
+ATM WITHDRAWALS
+=============================================================
+
+UK ATM withdrawals:
+- Free at all UK ATMs (including non-Meridian Bank ATMs — we do not charge a fee, but the ATM operator may charge a fee; this will be displayed on screen before you confirm).
+- Daily ATM limit: £500.
+
+Requesting a temporary ATM limit increase:
+- Call 0161 900 9000 (Monday–Friday 8am–8pm, Saturday 8am–4pm).
+- Verify your identity.
+- The increase is valid for one transaction on the specified day. The limit returns to £500 automatically.
+- Maximum one-off increase: up to £2,000 (subject to account balance and account standing).
+
+Overseas ATM withdrawals:
+- Everyday Account: £1.50 transaction fee plus 2.75% foreign exchange fee on the GBP equivalent.
+- Premium Account: free up to £500/month, then £1 per withdrawal, no FX fee.
+- Check terminal for any local ATM operator fees (charged by the local bank — outside our control).
+
+=============================================================
+SPENDING CONTROLS (MOBILE APP)
+=============================================================
+
+Navigation: Mobile app → Cards → select debit card → Spending controls.
+
+Toggle on/off:
+- Contactless payments
+- Online and telephone transactions (card-not-present)
+- ATM withdrawals
+- International transactions (useful when travelling — enable before you go, disable on return)
+
+Set daily spending limit:
+- Tap "Set daily limit" and enter an amount lower than the bank's default (£5,000).
+- Useful for budgeting or reducing risk if you are concerned about fraud.
+- To increase back to the default, call 0161 900 9000.
+
+=============================================================
+FREEZING YOUR CARD
+=============================================================
+
+Use freeze if you think you have temporarily misplaced your card but are not certain it is lost or stolen.
+
+How to freeze:
+- Mobile app: Cards → select debit card → tap "Freeze card" toggle (turns grey).
+- A frozen card is declined for all transactions immediately.
+- Tap again to unfreeze instantly.
+
+What freeze does NOT affect:
+- Pre-authorised direct debits linked to the card (these continue).
+- Existing pending transactions (already authorised before the freeze — these complete normally).
+- Your card number and account number remain the same.
+
+Freeze is reversible. If you find your card and are confident it has not been used by anyone else, simply unfreeze in the app.
+
+=============================================================
+REPORTING A LOST OR STOLEN CARD
+=============================================================
+
+If your card is lost or stolen:
+1. Mobile app: Cards → select debit card → "Report lost or stolen" → select "Lost" or "Stolen" → confirm.
+2. Or call the 24/7 fraud and lost/stolen line: 0161 900 9005.
+
+What happens next:
+- Your card is permanently cancelled immediately.
+- A replacement card is ordered automatically and delivered within 3–5 working days (to your registered address).
+- If you are abroad: contact us on +44 161 900 9005. Emergency cash may be arranged in exceptional circumstances.
+- Stolen card: if you believe your card has been used fraudulently, state this clearly. The fraud team will review your recent transactions and initiate a chargeback for any unauthorised payments.
+
+Emergency in-branch replacement (stolen card only):
+- Visit any Meridian Bank branch with photo ID.
+- A same-day temporary card can be issued.
+- Branches are open Monday–Friday 9am–5pm, Saturday 9am–1pm.
+
+=============================================================
+REPLACING A DAMAGED OR EXPIRED CARD
+=============================================================
+
+Expired cards:
+- Replacement cards are sent automatically 4 weeks before the expiry date to your registered address.
+- The new card arrives with the same account number (last four digits) and sort code, but a new expiry date and CVV.
+- Activate by making any chip-and-PIN purchase or ATM withdrawal (contactless requires one chip-and-PIN use first).
+
+Damaged cards:
+- Mobile app: Cards → select debit card → "Request replacement" → "Damaged card".
+- Or call 0161 900 9000.
+- Replacement arrives in 3–5 working days.
+- No fee for card replacement (one free replacement per 12-month period; subsequent replacements: £5 each).
+
+=============================================================
+CHANGING YOUR PIN
+=============================================================
+
+Option 1 (mobile app): Cards → select debit card → "PIN services" → "Change PIN" → authenticate with biometrics/passcode → a new PIN is generated securely. Activate the new PIN at any Meridian Bank ATM.
+
+Option 2 (ATM): At any Meridian Bank ATM, select "PIN services" → "Change PIN" → enter current PIN → enter new PIN twice.
+
+Option 3 (in branch): Ask a member of staff to generate a PIN reminder (sent to your registered address within 3 working days) or to assist with a PIN change at the branch terminal.
+
+Forgotten PIN:
+- Mobile app: Cards → select debit card → "View PIN" (authenticated by biometrics/passcode).
+- This shows your current PIN securely on screen. It is not stored in the app — it is fetched securely each time.
+
+=============================================================
+CARD FRAUD AND DISPUTED TRANSACTIONS
+=============================================================
+
+If you see a transaction you do not recognise:
+1. Check if it could be a merchant trading under a different name (e.g. a supermarket fuel station may show as the company's corporate name).
+2. Mobile app: Transactions → tap the transaction → tap "Dispute this transaction".
+3. Or call 0161 900 9005 (fraud line, 24/7).
+
+Types of disputes:
+- Unauthorised transaction (you did not make it): immediate card freeze, fraud investigation. Refund within 5 working days if confirmed as fraud. Provisional credit may be applied while the investigation is ongoing.
+- Transaction amount incorrect: the merchant charged you more than agreed. Evidence (receipt, screenshot) speeds up resolution.
+- Goods/services not received: e.g. you paid for an item that was not delivered. Section 75 protection applies for purchases between £100 and £30,000 made with a credit card. For debit card, chargeback through Visa applies (must be raised within 120 days of the transaction).
+- Duplicate charge: same amount charged twice by the same merchant.
+
+Do NOT dispute a transaction if: you made the purchase but regret it, or you cancelled a subscription (contact the company directly first).
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — DEBIT CARDS
+=============================================================
+
+Q: My card was declined even though I have sufficient funds. Why?
+A: Possible reasons: the merchant requires chip-and-PIN after a series of contactless taps; spending controls are restricting the transaction type; the merchant has a minimum transaction amount; your card is in an unusual location and a temporary security hold is in place. Call 0161 900 9000 for immediate assistance.
+
+Q: Can I use my debit card abroad?
+A: Yes, anywhere that accepts Visa. Fees apply for Everyday Account holders (2.75% FX + £1.50 ATM fee). Premium Account holders pay no fees up to £500/month ATM withdrawals. Notify us before travelling if you will be in a country outside your normal usage pattern — you can do this in the app (More → Travel notifications → Add trip).
+
+Q: What should I do before travelling abroad?
+A: Add a travel notification in the mobile app (More → Travel notifications) with your destination and travel dates. This reduces the chance of transactions being declined as suspicious. Enable international transactions in Spending Controls if you had them turned off.
+
+Q: Is there a charge for using my card in foreign currency?
+A: Everyday Account: 2.75% non-sterling transaction fee on purchases. Premium Account: no foreign exchange fee. Both accounts: using a dynamic currency conversion (DCC) option offered by a foreign merchant means they handle the conversion — always choose to pay in the local currency to get the better rate.
+
+Q: How quickly does a declined authorisation fee return to my account?
+A: Pre-authorisation holds (e.g. at hotels or petrol stations) are released within 7 days. Some merchants release within 1–2 days. Meridian Bank cannot speed up a hold placed by a merchant — contact the merchant directly to release it early.

@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "cards",
+    "subcategory": "credit-cards",
+    "product": "everyday-rewards-mastercard,premium-travel-mastercard",
+    "topics": "credit-card,balance,limit,payments,rewards,section-75,dispute,balance-transfer,apr,statement",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

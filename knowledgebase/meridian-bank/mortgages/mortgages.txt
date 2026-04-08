@@ -1,0 +1,150 @@
+MERIDIAN BANK — MORTGAGES
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank offers residential mortgages for property purchase, remortgaging, and further advances. Mortgage products are available for first-time buyers, home movers, and remortgage customers.
+
+Meridian Bank does not offer: buy-to-let mortgages, commercial property mortgages, or shared ownership mortgages (except where specifically stated in current product literature).
+
+Mortgage advice is regulated. Meridian Bank will refer all new mortgage enquiries to a qualified mortgage adviser — ARIA cannot provide mortgage advice.
+
+=============================================================
+PRODUCT RANGE
+=============================================================
+
+FIXED RATE MORTGAGES:
+2-Year Fixed Rate:     4.25% (followed by Standard Variable Rate)
+5-Year Fixed Rate:     4.10% (followed by Standard Variable Rate)
+10-Year Fixed Rate:    4.35% (followed by Standard Variable Rate)
+
+Standard Variable Rate (SVR): 7.49% (variable — applies after fixed term ends)
+
+TRACKER MORTGAGES:
+2-Year Tracker:        Bank of England Base Rate + 0.89% (currently 5.09% overall)
+
+Note: all rates are for illustration and subject to change. Actual rate depends on loan-to-value (LTV), credit profile, and property type. Your mortgage offer will state your specific rate.
+
+=============================================================
+LOAN-TO-VALUE (LTV) TIERS
+=============================================================
+
+LTV ≤ 60%:    Best rates available
+LTV 61–75%:   Standard rates (as advertised)
+LTV 76–85%:   Slightly higher rates; lender's mortgage indemnity may apply
+LTV 86–90%:   Higher rates; stricter affordability criteria
+LTV > 90%:    Not currently available (Meridian Bank maximum LTV is 90%)
+
+LTV = (Mortgage amount ÷ Property value) × 100
+
+=============================================================
+REPAYMENT METHODS
+=============================================================
+
+Capital and Interest (Repayment):
+- Monthly payment covers both interest and a portion of the capital.
+- The outstanding balance reduces every month.
+- At the end of the term, the mortgage is fully paid off.
+- Recommended for all borrowers.
+
+Interest Only:
+- Monthly payment covers interest only — the capital does not reduce.
+- At the end of the term, the full loan amount is still outstanding.
+- You must have a credible repayment vehicle (e.g. investment portfolio, property sale).
+- Subject to stricter eligibility criteria. Maximum LTV: 75%.
+- Available for remortgage customers only (not first-time buyers).
+
+=============================================================
+EXISTING MORTGAGE — ACCOUNT MANAGEMENT
+=============================================================
+
+Monthly payment:
+- Direct debit collected on a fixed date each month (shown in your mortgage offer).
+- Payment amount includes capital and interest (repayment mortgage) or interest only (interest-only).
+- Any change to your monthly payment (rate change at end of fixed period, overpayment adjustment) is notified 14 days in advance.
+
+Checking your mortgage details:
+- Mobile app: Home → Mortgage tile → shows outstanding balance, monthly payment, interest rate, rate expiry date, term remaining, and next payment date.
+- Online banking: Mortgages → Summary.
+
+Making an overpayment:
+- Most Meridian Bank mortgages allow overpayments of up to 10% of the outstanding balance per year (January–December) without an Early Repayment Charge (ERC). Check your mortgage offer for your specific overpayment allowance.
+- Mobile app: Home → Mortgage tile → "Make an overpayment" → enter amount → confirm.
+- Overpayments are applied within 2 working days to reduce the outstanding balance.
+- Effect of overpayment: by default, overpayments reduce the term (you pay off sooner). To reduce your monthly payment instead, call 0161 900 9000 after making the overpayment.
+- Overpayments above the annual allowance: an Early Repayment Charge applies (typically 1–5% of the overpaid amount depending on your product — check your mortgage offer).
+
+Downloading a mortgage statement:
+- Mobile app: Mortgage → "Download mortgage statement" → select date range → PDF.
+- Shows every payment made, breakdown of interest and capital, and the outstanding balance over time.
+
+Requesting a redemption statement:
+- A redemption statement shows the exact amount required to repay your mortgage in full on a specified date. It includes the outstanding balance, any accrued interest, and any ERC that applies.
+- Mobile app: Mortgage → "Request redemption statement" → select target date → enter email address → confirm.
+- Delivered by email within 2 working days.
+- A redemption statement is required when selling your property or remortgaging to another lender.
+
+=============================================================
+END OF FIXED RATE PERIOD
+=============================================================
+
+What happens when your fixed rate ends:
+- Your mortgage automatically moves to Meridian Bank's Standard Variable Rate (SVR) on the day after your fixed period ends.
+- SVR is currently 7.49% — this is significantly higher than most fixed rates.
+- Meridian Bank will contact you by email and post approximately 120 days before the end of your fixed period with remortgage options.
+
+Options at end of fixed period:
+1. Switch to a new Meridian Bank fixed rate (product transfer) — no legal fees, no new valuation required in most cases. Call 0161 900 9000 or visit a branch at least 3 months before your rate expires.
+2. Remortgage to another lender — requires a full new mortgage application, solicitor, and property valuation. ARIA will refer you to a mortgage adviser.
+3. Stay on SVR — no action needed, but monthly payments will increase. Not recommended for extended periods.
+
+=============================================================
+FURTHER ADVANCE
+=============================================================
+
+If you need to borrow additional funds against your property (e.g. for home improvements):
+- Subject to affordability assessment and LTV criteria.
+- The further advance is added to your existing mortgage.
+- Can be on a different rate/term from the existing mortgage.
+- Contact 0161 900 9000 or visit a branch to enquire. A mortgage adviser will discuss your options.
+
+=============================================================
+MORTGAGE IN FINANCIAL DIFFICULTY
+=============================================================
+
+If you are struggling to make your mortgage payments:
+- Contact Meridian Bank as soon as possible — before missing a payment if possible.
+- Options available: payment holiday (up to 3 months, subject to approval and eligibility), temporary switch to interest-only payments, term extension.
+- Missed payments are recorded on your credit file and can affect your ability to borrow in future. Meridian Bank is committed to finding an alternative before this happens.
+- Call 0161 900 9002 (mortgage support line) or visit a branch.
+- Free independent advice: StepChange (0800 138 1111), MoneyHelper (0800 138 7777), Citizens Advice.
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — MORTGAGES
+=============================================================
+
+Q: What is my current outstanding mortgage balance?
+A: Check in the mobile app (Home → Mortgage tile) or online banking (Mortgages → Summary). The balance shown is as of last night's close of business.
+
+Q: What is my mortgage interest rate?
+A: Your current rate and rate type (fixed/tracker/SVR) are shown in the mobile app and online banking. Your rate is also stated in your original mortgage offer and any product switch documentation.
+
+Q: How do I make an overpayment?
+A: Via the mobile app (Mortgage → Make an overpayment) or by calling 0161 900 9000. Bank transfer from another bank is also accepted — use your mortgage account number as the reference.
+
+Q: Will I be charged for overpaying?
+A: During a fixed or tracker rate period, overpayments up to 10% of your outstanding balance per year are fee-free. Overpayments above this attract an Early Repayment Charge (ERC) — check your mortgage offer for the ERC schedule.
+
+Q: I want to remortgage. Can ARIA help?
+A: ARIA can give you your current balance, rate, and term remaining. For remortgage advice, ARIA will transfer you to a qualified Meridian Bank mortgage adviser or you can call 0161 900 9000 and request a mortgage appointment.
+
+Q: What is the minimum mortgage term?
+A: 5 years. Maximum: 35 years (subject to age at end of term not exceeding 75).
+
+Q: Can I take a payment holiday?
+A: Payment holidays may be available, subject to eligibility (your account must be up to date and you must not have taken a payment holiday in the last 12 months). Contact the mortgage support team on 0161 900 9002 to discuss.
+
+Q: My fixed rate ends soon. What should I do?
+A: Contact us at least 3 months before the expiry to discuss product transfer options. The earlier you act, the more options are available. If your rate expires before you act, you move to the SVR (currently 7.49%), which is higher.

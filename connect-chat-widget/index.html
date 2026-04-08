@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meridian Bank — ARIA Chat</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <script type="text/javascript">
+      (function(w, d, x, id){
+        s=d.createElement('script');
+        s.src='https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js';
+        s.async=1;
+        s.id=id;
+        d.getElementsByTagName('head')[0].appendChild(s);
+        w[x] =  w[x] || function() { (w[x].ac = w[x].ac || []).push(arguments) };
+      })(window, document, 'amazon_connect', '17638a13-f2b0-4371-a593-1f81f86548e8');
+      amazon_connect('styles', {
+        iconType: 'CHAT_VOICE',
+        openChat:  { color: '#ffffff', backgroundColor: '#123456' },
+        closeChat: { color: '#ffffff', backgroundColor: '#123456' },
+      });
+      // Override the default "BOT" / "SYSTEM" participant labels in the chat panel.
+      // Documented at: https://docs.aws.amazon.com/connect/latest/adminguide/pass-custom-styles.html#pass-override-system
+      // Takes precedence over the Connect console widget "Bot Message Display Name" setting.
+      amazon_connect('customDisplayNames', {
+        transcript: {
+          botMessageDisplayName:    'ARIA',
+          systemMessageDisplayName: 'Meridian Bank',
+        },
+      });
+      amazon_connect('snippetId', 'QVFJREFIajVuODFjZG5KeGtQTUc5YXVLbVZLTTBSNlU2ZllybUx4M3ArVWtaQlRCZ1FGb25Ka0IyMXp2WUxLNmxhMlpYdzMvQUFBQWJqQnNCZ2txaGtpRzl3MEJCd2FnWHpCZEFnRUFNRmdHQ1NxR1NJYjNEUUVIQVRBZUJnbGdoa2dCWlFNRUFTNHdFUVFNZlh1QUEzU05pNVNoZy9qS0FnRVFnQ3ZTc09QU3o5Sk5xUlJVSHE0bkNWVkl1R0xjV2lJWkh4Zy9MaU5KRTdQN1Z3SHJtb1FTU0Q1N0dKQTU6Oi85NW5nY28zTFNOdHlTblJtMy9vMnhSQ05ycDZzU1BFbzdSc2NqTVZjZFNEMlNWSGJwZ09FMkpyRjJRYjZDNTdYbVNabGl6S1VKVGdPb2N3OTZkSkk5U0V0R21wYWRxSFBjZkhpcHA2TlhKMzB5anhLR01weHJ4eVIrNERJVGlTa25Hb2o1N2kyRTRNWWVkbDQzaHJYRVFkSFdPbHFuVT0=');
+      amazon_connect('supportedMessagingContentTypes', [ 'text/plain', 'text/markdown', 'application/vnd.amazonaws.connect.message.interactive', 'application/vnd.amazonaws.connect.message.interactive.response' ]);
+      amazon_connect('contactAttributes', {
+        customerId: 'CUST-001',
+        authStatus: 'authenticated',
+        locale:     'en-GB'
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

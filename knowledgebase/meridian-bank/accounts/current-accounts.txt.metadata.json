@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "accounts",
+    "subcategory": "current-accounts",
+    "product": "current-account",
+    "topics": "balance,transactions,overdraft,standing-orders,direct-debits,statements,switching,fees",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

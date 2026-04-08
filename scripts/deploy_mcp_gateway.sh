@@ -488,6 +488,26 @@ def get_credit_card_details(inp):
             {"date": "2026-03-28", "description": "NETFLIX", "amount": -17.99},
         ]
     return stub
+
+@_register("block_credit_card")
+def block_credit_card(inp):
+    # TODO: Replace with credit card management API call
+    import uuid
+    last_four   = inp.get("card_last_four", "****")
+    reason      = inp.get("reason", "lost")
+    block_ref   = f"CC-BLOCK-{last_four}-{uuid.uuid4().hex[:6].upper()}"
+    return {
+        "card_last_four": last_four,
+        "block_status": "blocked",
+        "block_reason": reason,
+        "block_ref": block_ref,
+        "replacement_ordered": True,
+        "replacement_delivery": "5-7 working days",
+        "message": (
+            f"Your credit card ending {last_four} has been blocked. "
+            "A replacement card will arrive within 5-7 working days."
+        )
+    }
 PYTHON
       ;;
 
@@ -1071,11 +1091,11 @@ deploy_session_injector() {
   # Q Connect assistants are regional — list all and take the first one whose
   # association matches our Connect instance.
   if [[ -z "${CONNECT_ASSISTANT_ID}" ]]; then
-    step "CONNECT_ASSISTANT_ID not set — attempting auto-discovery from Q Connect…"
+    ok "CONNECT_ASSISTANT_ID not set — attempting auto-discovery from Q Connect…"
     local discovered
     discovered=$(
       aws qconnect list-assistants \
-        --region "${AGENTCORE_REGION}" \
+        --region "${AWS_REGION}" \
         --query "assistantSummaries[0].assistantId" \
         --output text 2>/dev/null || true
     )
@@ -1404,7 +1424,7 @@ PYEOF
     case "${status}" in
       READY)
         ok "Gateway is READY"
-        return 0
+        break   # exit the poll loop and fall through to the audience patch below
         ;;
       FAILED)
         die "Gateway entered FAILED status — check AWS console for details"
@@ -1421,7 +1441,7 @@ PYEOF
         ;;
     esac
   done
-  die "Gateway did not reach READY after $(( max_attempts * 15 ))s — aborting"
+  [[ "${status}" != "READY" ]] && die "Gateway did not reach READY after $(( max_attempts * 15 ))s — aborting"
 
   # Patch allowedAudience = gateway ID (Connect sets aud = gateway ID in its JWTs).
   # This MUST be done after creation because the gateway ID is only known once
@@ -1443,7 +1463,8 @@ try:
         authorizerConfiguration={
             'customJWTAuthorizer': {
                 'discoveryUrl': '${CONNECT_DISCOVERY_URL}',
-                'allowedAudience': ['${GATEWAY_ID}']
+                'allowedAudience': ['${GATEWAY_ID}'],
+                'allowedClients': ['${CONNECT_INSTANCE_ID}']
             }
         }
     )
@@ -1474,14 +1495,20 @@ print(c.get_gateway(gatewayIdentifier='${GATEWAY_ID}').get('status','?'))
 }
 
 # ---------------------------------------------------------------------------
-# Step 6 — Add a Lambda target to the gateway for a domain
+# Step 6 — Add or update a Lambda target on the gateway for a domain.
+#
+# Each domain exposes its actual named tools in inlinePayload so that
+# Amazon Connect AI Agent Designer can discover and bind them when creating
+# an orchestration agent.  Previously a single generic wrapper tool was
+# registered per domain, which prevented Connect from seeing the individual
+# tool definitions.
 # ---------------------------------------------------------------------------
 add_gateway_target() {
   local domain="$1"
   local lambda_arn="$2"
   local target_name="${PROJECT}-${domain}"
 
-  log "Adding MCP target: ${target_name} → ${lambda_arn}..."
+  log "Adding/updating MCP target: ${target_name} (${lambda_arn})..."
 
   python3 - <<PYEOF
 import boto3, sys
@@ -1489,68 +1516,509 @@ from botocore.exceptions import ClientError
 
 c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
 
-# Check if a target with this name already exists
-try:
-    paginator = c.get_paginator('list_gateway_targets')
-    for page in paginator.paginate(gatewayIdentifier='${GATEWAY_ID}'):
-        for t in page.get('items', []):
-            if t.get('name') == '${target_name}':
-                print(f"[INFO]  Target already exists — skipping: ${target_name}", file=sys.stderr)
-                sys.exit(0)
-except Exception:
-    pass  # list failed — try create anyway
-
-try:
-    c.create_gateway_target(
-        gatewayIdentifier='${GATEWAY_ID}',
-        name='${target_name}',
-        description='ARIA ${domain} domain tools',
-        targetConfiguration={
-            'mcp': {
-                'lambda': {
-                    'lambdaArn': '${lambda_arn}',
-                    'toolSchema': {
-                        'inlinePayload': [
-                            {
-                                'name': '${target_name}',
-                                'description': 'ARIA banking tools for the ${domain} domain',
-                                'inputSchema': {
-                                    'type': 'object',
-                                    'properties': {
-                                        'tool_name': {
-                                            'type': 'string',
-                                            'description': 'Name of the ARIA tool to invoke'
-                                        },
-                                        'tool_input': {
-                                            'type': 'object',
-                                            'description': 'Input parameters for the tool'
-                                        }
-                                    },
-                                    'required': ['tool_name']
-                                }
-                            }
-                        ]
+# ── Individual tool definitions per domain ───────────────────────────────────
+# Each entry in inlinePayload becomes a distinct MCP tool visible to Amazon
+# Connect AI Agent Designer.  Tool names must match the TOOL_HANDLERS keys
+# registered in the domain Lambda (see build_lambda_package).
+DOMAIN_TOOLS = {
+    "auth": [
+        {
+            "name": "verify_customer_identity",
+            "description": "Verifies a customer record exists before any account data is accessed",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "requested_customer_id": {
+                        "type": "string",
+                        "description": "Customer ID to verify"
                     }
-                }
+                },
+                "required": ["requested_customer_id"]
             }
         },
-        credentialProviderConfigurations=[
-            {'credentialProviderType': 'GATEWAY_IAM_ROLE'}
-        ]
-    )
-except ClientError as e:
-    code = e.response.get('Error', {}).get('Code', '')
-    if code in ('ConflictException', 'ResourceAlreadyExistsException'):
-        print(f"[INFO]  Target already exists — skipping: ${target_name}", file=sys.stderr)
-    else:
-        print('ERROR: ' + str(e), file=sys.stderr)
+        {
+            "name": "initiate_customer_auth",
+            "description": "Begins a knowledge-based authentication session for a customer",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID to authenticate"
+                    },
+                    "auth_method": {
+                        "type": "string",
+                        "description": "Authentication method, e.g. voice_knowledge_based"
+                    }
+                },
+                "required": ["customer_id"]
+            }
+        },
+        {
+            "name": "validate_customer_auth",
+            "description": "Validates authentication challenges: date of birth and last 4 digits of mobile",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID"
+                    },
+                    "dob": {
+                        "type": "string",
+                        "description": "Date of birth in DD/MM/YYYY format"
+                    },
+                    "mobile_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the customer mobile number"
+                    }
+                },
+                "required": ["customer_id"]
+            }
+        },
+        {
+            "name": "cross_validate_session_identity",
+            "description": "Checks that the session identity is consistent with the authenticated customer",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "header_customer_id": {
+                        "type": "string",
+                        "description": "Customer ID from the session header"
+                    },
+                    "auth_verified_customer_id": {
+                        "type": "string",
+                        "description": "Customer ID confirmed during authentication"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier"
+                    }
+                },
+                "required": ["header_customer_id", "auth_verified_customer_id"]
+            }
+        }
+    ],
+    "account": [
+        {
+            "name": "get_account_details",
+            "description": "Returns account balance, recent transactions, latest statement URL, or standing orders",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "account_number": {
+                        "type": "string",
+                        "description": "Last four digits of the account number"
+                    },
+                    "query_subtype": {
+                        "type": "string",
+                        "description": "Data type: balance, transactions, statement, or standing_orders"
+                    }
+                },
+                "required": ["account_number"]
+            }
+        }
+    ],
+    "customer": [
+        {
+            "name": "get_customer_details",
+            "description": "Returns a customer profile including name, linked products, and contact preferences",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID"
+                    }
+                },
+                "required": ["customer_id"]
+            }
+        }
+    ],
+    "debit-card": [
+        {
+            "name": "get_debit_card_details",
+            "description": "Returns debit card status, spending limits, or recent transactions",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "card_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the debit card"
+                    },
+                    "query_subtype": {
+                        "type": "string",
+                        "description": "Data type: status, limits, or transactions"
+                    }
+                },
+                "required": ["card_last_four"]
+            }
+        },
+        {
+            "name": "block_debit_card",
+            "description": "Blocks a lost or stolen debit card and optionally orders a replacement",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "card_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the card to block"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Block reason: lost, stolen, or fraud"
+                    },
+                    "request_replacement": {
+                        "type": "string",
+                        "description": "Whether to order a replacement card: true or false"
+                    }
+                },
+                "required": ["card_last_four"]
+            }
+        }
+    ],
+    "credit-card": [
+        {
+            "name": "get_credit_card_details",
+            "description": "Returns credit card balance, available credit, minimum payment, or recent transactions",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "card_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the credit card"
+                    },
+                    "query_subtype": {
+                        "type": "string",
+                        "description": "Data type: balance, available_credit, minimum_payment, or transactions"
+                    }
+                },
+                "required": ["card_last_four"]
+            }
+        },
+        {
+            "name": "block_credit_card",
+            "description": "Blocks a lost or stolen credit card and initiates a replacement",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "card_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the credit card to block"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Block reason: lost, stolen, or fraud"
+                    }
+                },
+                "required": ["card_last_four"]
+            }
+        }
+    ],
+    "mortgage": [
+        {
+            "name": "get_mortgage_details",
+            "description": "Returns mortgage balance, interest rate, monthly payment, overpayment allowance, or remaining term",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mortgage_reference": {
+                        "type": "string",
+                        "description": "Last four digits of the mortgage reference number"
+                    },
+                    "query_subtype": {
+                        "type": "string",
+                        "description": "Data type: balance, rate, monthly_payment, overpayment_allowance, or term"
+                    }
+                },
+                "required": ["mortgage_reference"]
+            }
+        }
+    ],
+    "products": [
+        {
+            "name": "get_product_catalogue",
+            "description": "Returns available Meridian Bank products filtered by category",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "product_category": {
+                        "type": "string",
+                        "description": "Category: current_accounts, savings, or credit_cards"
+                    }
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "analyse_spending",
+            "description": "Analyses spending patterns for an account or card across categories and time periods",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source_type": {
+                        "type": "string",
+                        "description": "Source type: current_account or credit_card"
+                    },
+                    "source_ref_last_four": {
+                        "type": "string",
+                        "description": "Last four digits of the account or card"
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: last_month, last_2_months, or last_3_months"
+                    },
+                    "category_filter": {
+                        "type": "string",
+                        "description": "Optional spending category, e.g. groceries or utilities"
+                    }
+                },
+                "required": []
+            }
+        }
+    ],
+    "pii": [
+        {
+            "name": "pii_detect_and_redact",
+            "description": "Scans message text for PII (account numbers, sort codes, card numbers, mobile, date of birth) and returns a redacted copy",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message text to scan and redact"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier used to key vault storage"
+                    }
+                },
+                "required": ["message"]
+            }
+        },
+        {
+            "name": "pii_vault_store",
+            "description": "Stores PII tokens in the session vault for later de-tokenisation",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier"
+                    },
+                    "pii_map": {
+                        "type": "object",
+                        "description": "Map of token keys to original PII values"
+                    }
+                },
+                "required": ["session_id", "pii_map"]
+            }
+        },
+        {
+            "name": "pii_vault_retrieve",
+            "description": "Retrieves original PII values from the session vault using vault references",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier"
+                    },
+                    "vault_refs": {
+                        "type": "array",
+                        "description": "List of vault reference strings to look up",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["session_id", "vault_refs"]
+            }
+        },
+        {
+            "name": "pii_vault_purge",
+            "description": "Purges all PII stored for a session from the vault at session end",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier to purge"
+                    },
+                    "purge_reason": {
+                        "type": "string",
+                        "description": "Reason for purging the vault"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        }
+    ],
+    "escalation": [
+        {
+            "name": "generate_transcript_summary",
+            "description": "Generates a structured or narrative summary of the current session transcript",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier"
+                    },
+                    "summary_format": {
+                        "type": "string",
+                        "description": "Output format: structured or narrative"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        },
+        {
+            "name": "escalate_to_human_agent",
+            "description": "Escalates the current contact to a human agent with session context and priority routing",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier"
+                    },
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID for context handoff"
+                    },
+                    "escalation_reason": {
+                        "type": "string",
+                        "description": "Reason: customer_request, complaint, complex_query, or fraud_suspected"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Routing priority: standard or urgent"
+                    }
+                },
+                "required": ["session_id", "customer_id"]
+            }
+        }
+    ],
+    "knowledge": [
+        {
+            "name": "search_knowledge_base",
+            "description": "Searches the Meridian Bank knowledge base for product information, policies, and self-service procedures",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_feature_parity",
+            "description": "Returns which banking features are available across channels: voice, chat, mobile, and web",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "feature_area": {
+                        "type": "string",
+                        "description": "Feature area to check, e.g. card_blocking, payments, or statements"
+                    }
+                },
+                "required": []
+            }
+        }
+    ]
+}
+
+domain = "${domain}"
+tools  = DOMAIN_TOOLS.get(domain)
+if not tools:
+    # Fallback: generic wrapper for any domain not explicitly listed above
+    tools = [
+        {
+            "name": "${target_name}",
+            "description": "ARIA banking tools for the ${domain} domain",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "tool_name":  {"type": "string", "description": "Name of the tool to invoke"},
+                    "tool_input": {"type": "object", "description": "Input parameters for the tool"}
+                },
+                "required": ["tool_name"]
+            }
+        }
+    ]
+
+target_config = {
+    "mcp": {
+        "lambda": {
+            "lambdaArn": "${lambda_arn}",
+            "toolSchema": {
+                "inlinePayload": tools
+            }
+        }
+    }
+}
+cred_config = [{"credentialProviderType": "GATEWAY_IAM_ROLE"}]
+
+# Check whether a target with this name already exists
+existing_target_id = None
+try:
+    paginator = c.get_paginator("list_gateway_targets")
+    found = False
+    for page in paginator.paginate(gatewayIdentifier="${GATEWAY_ID}"):
+        for t in page.get("items", []):
+            if t.get("name") == "${target_name}":
+                existing_target_id = t["targetId"]
+                found = True
+                break
+        if found:
+            break
+except Exception:
+    pass  # list failed — fall through to create
+
+if existing_target_id:
+    # Update existing target so tool schemas are corrected in place
+    try:
+        c.update_gateway_target(
+            gatewayIdentifier="${GATEWAY_ID}",
+            targetId=existing_target_id,
+            name="${target_name}",
+            description="ARIA ${domain} domain tools",
+            targetConfiguration=target_config,
+            credentialProviderConfigurations=cred_config
+        )
+        print(f"[INFO]  Updated target: ${target_name} ({len(tools)} tools)", file=sys.stderr)
+    except ClientError as e:
+        print("ERROR updating target: " + str(e), file=sys.stderr)
         sys.exit(1)
-except Exception as exc:
-    print('ERROR: ' + str(exc), file=sys.stderr)
-    sys.exit(1)
+    except Exception as exc:
+        print("ERROR: " + str(exc), file=sys.stderr)
+        sys.exit(1)
+else:
+    # Create new target
+    try:
+        c.create_gateway_target(
+            gatewayIdentifier="${GATEWAY_ID}",
+            name="${target_name}",
+            description="ARIA ${domain} domain tools",
+            targetConfiguration=target_config,
+            credentialProviderConfigurations=cred_config
+        )
+        print(f"[INFO]  Created target: ${target_name} ({len(tools)} tools)", file=sys.stderr)
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in ("ConflictException", "ResourceAlreadyExistsException"):
+            print(f"[INFO]  Target already exists: ${target_name}", file=sys.stderr)
+        else:
+            print("ERROR: " + str(e), file=sys.stderr)
+            sys.exit(1)
+    except Exception as exc:
+        print("ERROR: " + str(exc), file=sys.stderr)
+        sys.exit(1)
 PYEOF
 
-  ok "Target added/verified: ${target_name}"
+  ok "Target added/updated: ${target_name}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1928,15 +2396,108 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# cmd_update_targets — re-register all gateway targets with the correct
+#   per-tool inlinePayload schemas without a full teardown/redeploy.
+#
+# Use this when the gateway and Lambdas are already deployed but the tool
+# schemas were the old generic wrapper form, which prevents Amazon Connect
+# AI Agent Designer from discovering the individual tools.
+#
+# Usage:
+#   ./scripts/deploy_mcp_gateway.sh update-targets [--env prod] [--region eu-west-2]
+# ---------------------------------------------------------------------------
+cmd_update_targets() {
+  local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
+
+  echo ""
+  echo -e "${BLUE}=====================================================================${NC}"
+  echo -e "${BLUE}  ARIA — Update MCP Gateway Target Tool Schemas${NC}"
+  echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
+  echo -e "${BLUE}=====================================================================${NC}"
+  echo ""
+
+  command -v python3 >/dev/null 2>&1 || die "python3 not found"
+  python3 -c "import boto3" 2>/dev/null || die "boto3 not installed. Run: pip3 install boto3"
+  aws sts get-caller-identity --region "${AWS_REGION}" >/dev/null 2>&1 \
+    || die "AWS credentials not configured."
+
+  # Look up the gateway ID
+  log "Looking up gateway: ${GATEWAY_NAME}..."
+  GATEWAY_ID=$(python3 - <<PYEOF
+import boto3, sys
+c = boto3.client('bedrock-agentcore-control', region_name='${AWS_REGION}')
+try:
+    paginator = c.get_paginator('list_gateways')
+    for page in paginator.paginate():
+        for gw in page.get('items', []):
+            if gw['name'] == '${GATEWAY_NAME}':
+                print(gw['gatewayId'])
+                sys.exit(0)
+except Exception as exc:
+    print('ERROR: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
+
+  [[ -z "${GATEWAY_ID}" ]] && die "Gateway '${GATEWAY_NAME}' not found. Deploy it first with: $0 deploy"
+  ok "Found gateway: ${GATEWAY_ID}"
+
+  # Look up each Lambda ARN — must already be deployed
+  local all_ok=true
+  declare -A LAMBDA_ARNS
+  for domain in "${DOMAINS[@]}"; do
+    local fn="${PROJECT}-mcp-${domain}-${ENV}"
+    local arn
+    arn=$(aws lambda get-function --function-name "${fn}" \
+        --region "${AWS_REGION}" \
+        --query 'Configuration.FunctionArn' --output text 2>/dev/null) || true
+    if [[ -z "${arn}" || "${arn}" == "None" ]]; then
+      warn "Lambda not found: ${fn} — skipping domain '${domain}'"
+      all_ok=false
+    else
+      LAMBDA_ARNS["${domain}"]="${arn}"
+    fi
+  done
+
+  # Update targets
+  for domain in "${DOMAINS[@]}"; do
+    [[ -z "${LAMBDA_ARNS[${domain}]:-}" ]] && continue
+    add_gateway_target "${domain}" "${LAMBDA_ARNS[${domain}]}"
+  done
+
+  echo ""
+  echo -e "${GREEN}=====================================================================${NC}"
+  echo -e "${GREEN}  Target schemas updated.${NC}"
+  echo -e "${GREEN}=====================================================================${NC}"
+  echo ""
+  echo "  Gateway ID: ${GATEWAY_ID}"
+  echo ""
+  echo "  What to do next in Amazon Connect:"
+  echo "    1. Open AI Agent Designer → your orchestration agent"
+  echo "    2. Remove and re-add the '${GATEWAY_NAME}' MCP integration"
+  echo "       (Connect caches the tool list; removing/re-adding forces a refresh)"
+  echo "    3. The individual tools should now appear:"
+  for domain in "${DOMAINS[@]}"; do
+    echo "       • aria-banking-${domain}"
+  done
+  echo ""
+  if [[ "${all_ok}" != "true" ]]; then
+    warn "Some domains were skipped (Lambda not found). Re-run deploy to create missing Lambdas."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # usage
 # ---------------------------------------------------------------------------
 usage() {
   echo ""
-  echo "  Usage: $0 [deploy|teardown] [OPTIONS]"
+  echo "  Usage: $0 [deploy|teardown|update-targets] [OPTIONS]"
   echo ""
   echo "  Subcommands:"
-  echo "    deploy   — (default) deploy all ARIA infrastructure"
-  echo "    teardown — delete all resources created by deploy"
+  echo "    deploy          — (default) deploy all ARIA infrastructure"
+  echo "    teardown        — delete all resources created by deploy"
+  echo "    update-targets  — update MCP gateway target tool schemas in-place"
+  echo "                      (use when tools are not visible in Connect AI Agent Designer)"
   echo ""
   echo "  Core options:"
   echo "    --env <env>              Environment tag              (default: prod)"
@@ -1976,6 +2537,9 @@ usage() {
   echo "          --sms-number   +441234567890 \\"
   echo "          --source-phone +441234567890"
   echo ""
+  echo "    # Update tool schemas on existing gateway (Connect AI Agent Designer fix)"
+  echo "    $0 update-targets --env prod --region eu-west-2"
+  echo ""
   echo "    # Teardown"
   echo "    $0 teardown --env dev --region eu-west-2"
   echo ""
@@ -1989,7 +2553,7 @@ main() {
 
   # Optional positional subcommand (first arg, if not a flag)
   case "${1:-}" in
-    deploy|teardown) subcmd="$1"; shift ;;
+    deploy|teardown|update-targets) subcmd="$1"; shift ;;
     --*|"")          ;;  # no subcommand given — default to deploy
     *)
       error "Unknown subcommand: $1"
@@ -2026,8 +2590,9 @@ main() {
   CHAT_TO_VOICE_LAMBDA_NAME="${PROJECT}-chat-to-voice-transfer-${ENV}"
 
   case "${subcmd}" in
-    deploy)   cmd_deploy   ;;
-    teardown) cmd_teardown ;;
+    deploy)          cmd_deploy          ;;
+    teardown)        cmd_teardown        ;;
+    update-targets)  cmd_update_targets  ;;
   esac
 }
 

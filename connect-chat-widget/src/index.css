@@ -1,0 +1,25 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --brand:        #123456;
+  --brand-light:  #1a4a7a;
+  --accent:       #0ea5e9;
+  --text:         #0f172a;
+  --text-muted:   #64748b;
+  --bg:           #f8fafc;
+  --surface:      #ffffff;
+  --border:       #e2e8f0;
+  --radius:       12px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  color: var(--text);
+}
+
+body {
+  background: var(--bg);
+  min-height: 100vh;
+}

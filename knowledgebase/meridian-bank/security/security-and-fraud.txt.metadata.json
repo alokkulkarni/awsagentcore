@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "security",
+    "subcategory": "fraud-and-security",
+    "product": "all",
+    "topics": "fraud,security,phishing,vishing,scam,unauthorised-transaction,dispute,fscs,sca,two-factor,sim-swap,app-fraud",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

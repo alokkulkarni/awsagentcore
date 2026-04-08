@@ -191,24 +191,82 @@ def _extract_escalation_from_messages(messages: list, from_index: int) -> Option
     return None
 
 def _build_session_start(
-    authenticated: bool, customer_id: Optional[str], channel: str
+    authenticated: bool,
+    customer_id: Optional[str],
+    channel: str,
+    *,
+    preferred_name: str = "",
+    product_summary: str = "",
+    product_context: str = "",
+    vulnerability_context: str = "",
+    prior_summary: str = "",
+    locale: str = "en-GB",
 ) -> str:
-    channel_line = f"X-Channel: {channel}. "
+    """Build the SESSION_START injection string for the first turn of a session.
+
+    When called from the voice channel (aria-lex-fulfillment), all context
+    fields are populated by aria-session-injector.  When called from the React
+    app or any other caller that does not supply these fields, the defaults
+    keep the prompt identical to the original behaviour.
+    """
+    parts = ["SESSION_START: "]
+
     if authenticated and customer_id:
-        return (
-            "SESSION_START: An authenticated customer has connected. "
-            "X-Channel-Auth: authenticated. "
-            f"X-Customer-ID: {customer_id}. "
-            + channel_line
-            + "Call get_customer_details with this customer ID to fetch their profile, "
-            "then greet them by their preferred_name and ask how you can help today. "
-            "Do not ask them to re-verify their identity."
-        )
+        parts.append("An authenticated customer has connected. ")
+        parts.append("X-Channel-Auth: authenticated. ")
+        parts.append(f"X-Customer-ID: {customer_id}. ")
+        parts.append(f"X-Channel: {channel}. ")
+        parts.append(f"X-Locale: {locale}. ")
+
+        if preferred_name:
+            parts.append(
+                f"X-Preferred-Name: {preferred_name}. "
+                f"Greet the customer as {preferred_name} immediately. "
+            )
+
+        if product_summary:
+            parts.append(f"X-Product-Summary: {product_summary} ")
+
+        if product_context:
+            # product_context is a JSON string of masked account/card refs.
+            # Provide it as context so ARIA can resolve "my account" / "my card"
+            # ambiguity before calling get_customer_details.
+            parts.append(f"X-Product-Context: {product_context} ")
+
+        if vulnerability_context:
+            # SILENT: ARIA reads this but NEVER discloses it to the customer.
+            parts.append(
+                f"X-Vulnerability-Context: {vulnerability_context} "
+                "[SILENT: read this to adjust your communication style only — "
+                "never mention, disclose, or reference vulnerability status to the customer.] "
+            )
+
+        if prior_summary:
+            parts.append(
+                f"X-Prior-Session-Summary: {prior_summary} "
+                "You may acknowledge prior context naturally if the customer raises it. "
+            )
+
+        if product_context:
+            parts.append(
+                "Use X-Product-Context to resolve account/card references. "
+                "Call get_customer_details for real-time balances or detailed account data. "
+            )
+        else:
+            parts.append(
+                "Call get_customer_details with this customer ID to fetch their profile, "
+                "then greet them by their preferred_name and ask how you can help today. "
+            )
+
+        parts.append("Do not ask the customer to re-verify their identity.")
+        return "".join(parts)
+
     return (
         "SESSION_START: A new customer has connected on an unauthenticated channel. "
         "X-Channel-Auth: unauthenticated. "
-        + channel_line
-        + "Greet them as ARIA from Meridian Bank and begin the identity verification flow."
+        f"X-Channel: {channel}. "
+        f"X-Locale: {locale}. "
+        "Greet them as ARIA from Meridian Bank and begin the identity verification flow."
     )
 
 
@@ -283,6 +341,20 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     customer_id: Optional[str] = payload.get("customer_id") or None
 
     # ------------------------------------------------------------------
+    # Optional context fields — populated by aria-session-injector on the
+    # voice channel; absent (defaults used) for React app / direct API calls.
+    # All fields default to safe/empty values so non-voice callers work
+    # exactly as before without any code-path changes.
+    # ------------------------------------------------------------------
+    channel               = payload.get("channel", "agentcore-chat")
+    locale                = payload.get("locale", "en-GB")
+    preferred_name        = payload.get("preferred_name", "")
+    product_summary       = payload.get("product_summary", "")
+    product_context       = payload.get("product_context", "")
+    vulnerability_context = payload.get("vulnerability_context", "")
+    prior_summary         = payload.get("prior_summary", "")
+
+    # ------------------------------------------------------------------
     # If the session ended, decide whether to resume or start fresh
     # ------------------------------------------------------------------
     if session_id in _ENDED_SESSIONS:
@@ -336,20 +408,40 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
             logger.warning("Memory load for new chat session skipped: %s", _mem_init_exc)
 
         _CHAT_AGENTS[session_id] = create_aria_agent(prior_history_block=history_block)
+
+        # Parse vulnerability_context JSON string into a dict (if provided by
+        # the voice channel); None means "not yet known — detect from tool calls".
+        import json as _json
+        vuln_preset: Optional[dict] = None
+        if vulnerability_context:
+            try:
+                vuln_preset = _json.loads(vulnerability_context)
+            except Exception:
+                logger.warning(
+                    "Could not parse vulnerability_context for session %s: %r",
+                    session_id, vulnerability_context[:100],
+                )
+
         _SESSION_META[session_id] = {
-            "authenticated": authenticated,
-            "customer_id":   customer_id,
-            "vulnerability": None,  # populated on first get_customer_details result
+            "authenticated":       authenticated,
+            "customer_id":         customer_id,
+            "channel":             channel,
+            "locale":              locale,
+            "preferred_name":      preferred_name,
+            "product_summary":     product_summary,
+            "product_context":     product_context,
+            "vulnerability":       vuln_preset,  # None = detect from tool calls; dict = pre-loaded from CRM
+            "prior_summary":       prior_summary,
         }
         _TRANSCRIPTS[session_id] = TranscriptManager(
             session_id=session_id,
             customer_id=customer_id,
-            channel="agentcore-chat",
+            channel=channel,
             authenticated=authenticated,
         )
         logger.info(
-            "Created new chat agent session: %s authenticated=%s customer_id=%s",
-            session_id, authenticated, customer_id,
+            "Created new chat agent session: %s authenticated=%s customer_id=%s channel=%s",
+            session_id, authenticated, customer_id, channel,
         )
 
     agent = _CHAT_AGENTS[session_id]
@@ -363,7 +455,15 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
     if session_id not in _SESSION_STARTED:
         _SESSION_STARTED.add(session_id)
         session_start = _build_session_start(
-            meta["authenticated"], meta["customer_id"], channel="agentcore-chat"
+            meta["authenticated"],
+            meta["customer_id"],
+            channel=meta.get("channel", "agentcore-chat"),
+            preferred_name=meta.get("preferred_name", ""),
+            product_summary=meta.get("product_summary", ""),
+            product_context=meta.get("product_context", ""),
+            vulnerability_context=vulnerability_context,  # raw string for SESSION_START
+            prior_summary=meta.get("prior_summary", ""),
+            locale=meta.get("locale", "en-GB"),
         )
         # Combine SESSION_START with the customer's first message in a single
         # LLM call to avoid an extra round-trip.
@@ -443,7 +543,7 @@ def chat_handler(payload: dict, context: RequestContext) -> str:
         agent.messages, _msg_idx,
         customer_id=meta.get("customer_id"),
         session_id=session_id,
-        channel="agentcore-chat",
+        channel=meta.get("channel", "agentcore-chat"),
         authenticated=meta.get("authenticated", False),
         vulnerability=meta.get("vulnerability"),
     )

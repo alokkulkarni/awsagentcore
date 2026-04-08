@@ -1,0 +1,146 @@
+MERIDIAN BANK — SECURITY AND FRAUD GUIDANCE
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank takes the security of your accounts very seriously. This document covers how to protect yourself, what to do if you suspect fraud, and how Meridian Bank keeps your money safe.
+
+=============================================================
+HOW TO PROTECT YOURSELF
+=============================================================
+
+PASSWORDS AND ONLINE SECURITY:
+- Use a unique, strong password for online banking — at least 10 characters with uppercase, lowercase, numbers, and special characters. Do not use the same password elsewhere.
+- Never share your online banking password, app passcode, or full card number with anyone — including people claiming to be Meridian Bank staff. Meridian Bank will never ask for your full password.
+- Enable biometric login (fingerprint, Face ID) on the mobile app — it is faster and more secure than a passcode.
+- Always log out of online banking after each session, especially on shared or public computers.
+- Keep your computer, phone, and apps updated with the latest security patches.
+
+PHISHING EMAILS AND TEXTS:
+- Meridian Bank will never ask you to click a link to verify your password, enter your full card number, or provide your 3-digit CVV code by email or text.
+- If you receive a suspicious email or text claiming to be from Meridian Bank: do not click any links. Forward it to fraud@meridianbank.co.uk then delete it.
+- Check the sender's email address carefully — fraudsters often use addresses like meridianbank-secure.com or meridianbank.verification@gmail.com. Our genuine domain is meridianbank.co.uk.
+- Our genuine SMS messages come from "MeridianBnk". They contain no links asking you to log in.
+
+PHONE FRAUD (VISHING):
+- If someone calls you claiming to be from Meridian Bank and asks you to move money to a "safe account": hang up immediately. No genuine bank will ever ask you to do this.
+- If you are unsure whether a call is genuine: hang up, wait 5 minutes (or use a different phone), and call us back on 0161 900 9000. Fraudsters can keep the line open for a short time on some networks.
+- Meridian Bank staff will never ask for your full PIN, full card number, or online banking password over the phone.
+
+CARD SECURITY:
+- Never write your PIN down or share it with anyone.
+- Always shield the PIN pad when entering your PIN at an ATM or shop.
+- Report a lost or stolen card immediately (mobile app or 0161 900 9005, 24/7).
+- Freeze your card in the app the moment you are uncertain of its whereabouts.
+- Check your transactions regularly in the app — small, unfamiliar transactions can be a sign of card testing by fraudsters.
+
+=============================================================
+TYPES OF FRAUD TO BE AWARE OF
+=============================================================
+
+AUTHORISED PUSH PAYMENT (APP) FRAUD:
+- You are tricked into authorising a payment to a fraudster.
+- Common scenario: someone poses as a builder, solicitor, HMRC, or utility company and convinces you to transfer money.
+- Before sending money to a new account: verify the recipient's details independently. Call back on a number you look up yourself — not a number provided by the requester.
+- Meridian Bank participates in the CRM Code — we will reimburse victims of APP fraud where we could not have reasonably prevented it and the customer took appropriate care.
+
+IMPERSONATION FRAUD:
+- Fraudsters impersonate bank staff, police, or government agencies.
+- They may tell you your account is compromised and ask you to transfer funds to a "safe account" or provide a one-time passcode.
+- Meridian Bank and the police will NEVER ask you to move money. If you receive such a call, hang up and call 0161 900 9005 immediately.
+
+PURCHASE FRAUD:
+- Fake goods advertised online (often via social media or marketplace sites) that are never delivered.
+- Always use a credit card for online purchases over £100 — you are protected under Section 75.
+- Be wary of prices that seem too good to be true.
+
+ROMANCE FRAUD:
+- Fraudsters build a fake relationship online over weeks or months before asking for money.
+- Meridian Bank may flag unusual transfers and call you to verify intent. Please do not be offended by this — it is for your protection.
+
+INVESTMENT FRAUD:
+- Offers of unusually high investment returns (e.g. "guaranteed 25% return").
+- Always check the FCA Register (register.fca.org.uk) before transferring money for any investment.
+- Meridian Bank will not process transfers to known fraudulent accounts.
+
+SIM SWAP FRAUD:
+- Fraudsters convince your mobile network to transfer your number to a new SIM, intercepting your one-time passcodes.
+- Signs: you suddenly lose mobile signal; SMS messages stop arriving.
+- If this happens: call your mobile network and Meridian Bank (0161 900 9005) immediately.
+
+=============================================================
+WHAT TO DO IF YOU SUSPECT FRAUD
+=============================================================
+
+STEP 1 — ACT QUICKLY:
+- If you think your account has been compromised or money has been taken without your permission: freeze your cards immediately in the mobile app (Cards → Freeze).
+- Call the 24/7 fraud line: 0161 900 9005.
+
+STEP 2 — REPORT TO MERIDIAN BANK:
+- Call 0161 900 9005 (24/7) and report the fraudulent transaction.
+- Provide: your account details, the suspicious transaction(s), and any information about how the fraud occurred.
+- We will freeze your account if necessary, investigate, and issue a refund within 5 working days for confirmed unauthorised transactions.
+
+STEP 3 — REPORT TO ACTION FRAUD:
+- Report online at actionfraud.police.uk or call 0300 123 2040.
+- Action Fraud is the UK's national fraud reporting centre.
+- Reference number provided — give this to Meridian Bank if requested.
+
+STEP 4 — CHECK YOUR CREDIT FILE:
+- If your personal details have been compromised, check your credit report (free at Equifax, Experian, or TransUnion) for any accounts opened fraudulently.
+- Consider placing a CIFAS protective registration on your credit file (cifas.org.uk) — this adds a flag requiring extra checks before credit is issued in your name.
+
+=============================================================
+HOW MERIDIAN BANK PROTECTS YOU
+=============================================================
+
+24/7 TRANSACTION MONITORING:
+- Our fraud detection system analyses every transaction in real time.
+- If we detect unusual activity (e.g. transaction in an unfamiliar country, unusually large payment, rapid sequence of transactions): we may temporarily hold the transaction and contact you immediately by push notification, SMS, or phone call.
+- You will be asked to confirm: "Was this you?" Reply yes to allow the transaction or no to block it and initiate a fraud review.
+
+STRONG CUSTOMER AUTHENTICATION (SCA):
+- Required by UK regulations for online purchases over £30 and all new payee additions.
+- You will be asked to approve via push notification in the app or OTP by SMS.
+- This makes it very difficult for fraudsters to make payments even if they know your card details.
+
+SECURE WEBSITE AND APP:
+- Online banking uses 256-bit TLS encryption — look for the padlock icon and "https://" in your browser.
+- The mobile app data is encrypted at rest and in transit. Biometric authentication is handled entirely by your device — Meridian Bank does not store biometric data.
+
+FSCS PROTECTION:
+- Your deposits are protected by the Financial Services Compensation Scheme (FSCS) up to £85,000 per person per banking group.
+- In the unlikely event that Meridian Bank fails, FSCS will compensate eligible depositors within 7 working days.
+
+=============================================================
+CONTACTING THE FRAUD TEAM
+=============================================================
+
+Fraud reporting (24/7):     0161 900 9005
+Online fraud reports:       fraud@meridianbank.co.uk
+Textphone:                  0161 900 9006
+Overseas (reverse charge):  +44 161 900 9005
+Secure message:             Available in the mobile app or online banking (response within 2 working hours during business hours)
+
+Do NOT send sensitive account information (card numbers, passwords) by email.
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — SECURITY
+=============================================================
+
+Q: Someone called me saying they are from Meridian Bank and asked me to transfer money to a safe account. Is this genuine?
+A: No. Meridian Bank will never ask you to transfer money to a "safe account". This is a known fraud tactic. Hang up and call us on 0161 900 9000 to verify and report.
+
+Q: I received a text message with a link asking me to verify my details. Is it from Meridian Bank?
+A: Meridian Bank never sends links in SMS messages asking you to log in or verify personal details. If you receive this, do not click the link. Forward it to fraud@meridianbank.co.uk and delete it.
+
+Q: I gave my one-time passcode to someone over the phone. What should I do?
+A: Call 0161 900 9005 immediately. Freeze your cards in the app. We will review recent transactions and take protective action. Do not panic — acting quickly is the most important thing.
+
+Q: What is covered by the FSCS?
+A: Your eligible deposits at Meridian Bank up to £85,000 per person. Joint accounts are covered up to £170,000 (£85,000 per person). Savings in Cash ISAs are also covered. Investments and pensions are NOT covered by FSCS but may be protected by other compensation schemes.
+
+Q: How long does it take to get a refund for an unauthorised transaction?
+A: We aim to refund confirmed unauthorised transactions within 5 working days. Where the investigation is more complex, we may apply a provisional credit while the investigation continues.

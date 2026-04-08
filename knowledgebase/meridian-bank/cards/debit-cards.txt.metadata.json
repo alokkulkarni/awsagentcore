@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "cards",
+    "subcategory": "debit-cards",
+    "product": "visa-debit-card",
+    "topics": "debit-card,contactless,atm,freeze,lost,stolen,pin,spending-controls,apple-pay,google-pay,overseas",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

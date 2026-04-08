@@ -615,14 +615,21 @@ def lambda_handler(event: dict, context: Any) -> dict:
     Entry point. Called by Amazon Connect via the "Invoke AWS Lambda function" block.
 
     The handler NEVER raises an exception. All errors are caught and logged.
-    If injection fails, we return a partial success so the contact flow continues —
+    If a step fails, we return a partial success so the contact flow continues —
     ARIA will still work, but without pre-injected context.
+
+    Q Connect / Wisdom integration is OPTIONAL. When ASSISTANT_ID is not set this
+    Lambda still performs its primary job: look up the caller, build customer context,
+    and return all fields so the contact flow can store them as contact attributes
+    (Block 5) and forward them to Lex session attributes (Block 6), from where the
+    fulfillment Lambda reads them and includes them in the AgentCore payload.
 
     Official Lambda integration reference:
         https://docs.aws.amazon.com/connect/latest/adminguide/connect-lambda-functions.html
 
     Returns:
-        Dict with keys: sessionId, status, customerId, injectedKeys
+        Dict with keys: sessionId, status, customerId, authStatus, channel, and
+        optional context fields (preferredName, productSummary, etc.)
     """
     logger.info(f"Session injector invoked: {json.dumps(event, default=str)}")
 
@@ -658,14 +665,17 @@ def lambda_handler(event: dict, context: Any) -> dict:
         else:
             logger.info(f"Caller phone {caller_phone!r} has no mapped customerId — unauthenticated session")
 
-    # Resolve the Q Connect session ID via DescribeContact.
-    # CreateWisdomSession generates a separate UUID; it is NOT the ContactId.
-    # WisdomInfo.SessionArn on the Contact object gives us the correct ARN.
-    session_id: str = _resolve_wisdom_session_id(instance_id, contact_id)
-
-    if not session_id:
-        logger.error("ContactId is missing from event. Cannot inject session data.")
+    # Use ContactId as the primary session correlator.
+    # When Q Connect is configured (ASSISTANT_ID is set), also resolve the Wisdom
+    # session ARN via DescribeContact — the Q Connect API requires it. Otherwise
+    # contact_id is sufficient for the AgentCore / Lex code path.
+    if not contact_id:
+        logger.error("ContactId is missing from event. Cannot process session.")
         return {"status": "error", "reason": "missing_contact_id"}
+
+    session_id: str = contact_id
+    if ASSISTANT_ID:
+        session_id = _resolve_wisdom_session_id(instance_id, contact_id)
 
     logger.info(
         f"Contact: id={contact_id} channel={aria_channel} "
@@ -736,29 +746,50 @@ def lambda_handler(event: dict, context: Any) -> dict:
         )
 
     # ----------------------------------------------------------------
-    # 4. Inject into Q Connect session
+    # 4. Inject into Q Connect session (only when ASSISTANT_ID is configured)
     # ----------------------------------------------------------------
-    success = _inject_session_data(
-        assistant_id=ASSISTANT_ID,
-        session_id=session_id,
-        data=session_vars,
-    )
+    q_connect_success = True
+    if ASSISTANT_ID:
+        q_connect_success = _inject_session_data(
+            assistant_id=ASSISTANT_ID,
+            session_id=session_id,
+            data=session_vars,
+        )
+        if not q_connect_success:
+            logger.error(
+                "Q Connect session injection failed. ARIA will operate without Q Connect "
+                "prompt context. The contact flow will continue normally."
+            )
+    else:
+        logger.info(
+            "ASSISTANT_ID not set — skipping Q Connect session injection. "
+            "Context will be forwarded via contact attributes (Block 5) and Lex session "
+            "attributes (Block 6) only."
+        )
 
     injected_keys = list(session_vars.keys())
+    # Expose all context fields in the return value so they can be captured as
+    # Connect contact attributes in Block 5 and forwarded to Lex session attributes
+    # in Block 6, from where the fulfillment Lambda reads them and includes them
+    # in the AgentCore payload.
     result = {
-        "sessionId":     session_id,
-        "customerId":    customer_id,
-        "status":        "injected" if success else "partial_failure",
-        "injectedKeys":  injected_keys,
-        "channel":       aria_channel,
-        "authStatus":    auth_status,
+        "sessionId":             session_id,
+        "customerId":            customer_id,
+        "status":                "ok" if not ASSISTANT_ID else ("injected" if q_connect_success else "partial_failure"),
+        "injectedKeys":          injected_keys,
+        "channel":               aria_channel,
+        "authStatus":            auth_status,
+        # Context variables — populated when customerId is resolved
+        "preferredName":         session_vars.get("preferredName", ""),
+        "productSummary":        session_vars.get("productSummary", ""),
+        "productContext":        session_vars.get("productContext", ""),
+        "vulnerabilityContext":  session_vars.get("vulnerabilityContext", ""),
+        "priorSummary":          session_vars.get("priorSummary", ""),
+        # Core metadata
+        "locale":                session_vars.get("locale", locale),
+        "dateTime":              session_vars.get("dateTime", ""),
+        "instanceId":            session_vars.get("instanceId", instance_id),
     }
-
-    if not success:
-        logger.error(
-            "Session data injection failed. ARIA will operate without pre-injected context. "
-            "The contact flow will continue normally. Check CloudWatch logs for the error."
-        )
 
     logger.info(f"Session injector complete: {json.dumps(result, default=str)}")
     return result

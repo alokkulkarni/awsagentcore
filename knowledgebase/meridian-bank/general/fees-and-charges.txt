@@ -1,0 +1,150 @@
+MERIDIAN BANK — FEES AND CHARGES
+Knowledge Base Document | Version 1.0
+
+=============================================================
+CURRENT ACCOUNT FEES
+=============================================================
+
+EVERYDAY CURRENT ACCOUNT:
+Monthly fee:                          £0
+Replacement debit card:               £0 (first replacement); £5 (subsequent in same 12 months)
+Duplicate statement (paper):          £5 per statement
+CHAPS payment (same-day transfer):    £20
+Unarranged overdraft fee:             £5 per day (capped at £35 per month)
+Arranged overdraft interest:          19.9% EAR (variable)
+Returned payment (insufficient funds):£10 per item (capped at £30 per month)
+Foreign transaction (card purchase):  2.75% of GBP equivalent
+Overseas ATM withdrawal:              £1.50 + 2.75% FX fee
+Stopping a cheque:                    £10
+Sending a SWIFT international payment:£10 flat fee
+
+PREMIUM CURRENT ACCOUNT:
+Monthly fee:                          £12
+Replacement debit card:               £0 (unlimited replacements)
+Duplicate statement (paper):          £0
+CHAPS payment:                        £0 (free, unlimited)
+Unarranged overdraft fee:             £0 (no unarranged fee)
+Arranged overdraft interest:          15.9% EAR (variable)
+Returned payment:                     £0 (first two per year); £10 per item thereafter
+Foreign transaction (card purchase):  £0 (no fee)
+Overseas ATM withdrawal:              £0 up to £500/month; £1 per withdrawal thereafter
+SWIFT international payment:          £0 (free, unlimited)
+
+=============================================================
+SAVINGS ACCOUNT FEES
+=============================================================
+
+Instant Access Savings:               £0 monthly fee, £0 withdrawal fee
+Fixed Rate Bond early closure:        Interest reduction penalty (see product terms); request considered in exceptional circumstances only
+Cash ISA:                             £0 monthly fee
+ISA transfer in from another provider:£0
+ISA transfer out to another provider: £0
+
+=============================================================
+CREDIT CARD FEES
+=============================================================
+
+EVERYDAY REWARDS MASTERCARD:
+Annual fee:                           £0
+Late payment fee:                     £12
+Returned payment fee:                 £12
+Overlimit fee:                        £0 (we decline the transaction rather than allowing overlimit)
+Balance transfer fee:                 2.5% of amount (minimum £5)
+Cash advance fee:                     3% of amount (minimum £3)
+Foreign transaction fee:              2.75% of GBP equivalent
+Replacement card:                     £0
+
+PREMIUM TRAVEL MASTERCARD:
+Monthly fee:                          £15
+Late payment fee:                     £12
+Returned payment fee:                 £12
+Balance transfer fee:                 1.5% of amount (minimum £5)
+Cash advance fee:                     3% (minimum £3)
+Foreign transaction fee:              £0
+Replacement card:                     £0
+
+=============================================================
+MORTGAGE FEES
+=============================================================
+
+Product arrangement fee (some products): £995 (can be added to mortgage or paid upfront)
+Valuation fee:                            From £300 (based on property value)
+Legal fee (for remortgage):               From £450 (Meridian Bank panel solicitor)
+Early Repayment Charge (ERC):             1–5% of overpaid/repaid amount above annual allowance (see offer)
+Mortgage account fee (annual):            £0
+Deeds release fee (on full redemption):   £50
+Duplicate mortgage statement:             £0
+
+=============================================================
+PAYMENT AND TRANSFER FEES
+=============================================================
+
+UK Faster Payments (online/app):          £0
+UK Faster Payments (over the phone):      £0
+CHAPS (Everyday account):                 £20
+CHAPS (Premium account):                  £0
+BACS/Standing order setup (online/app):   £0
+International SWIFT payment:              £10 (Everyday); £0 (Premium)
+Receiving international payment (SWIFT):  £0 (we absorb the fee; sender's bank may charge)
+Currency exchange (travel cash):          2.75% margin above interbank rate (Everyday); 0.75% (Premium)
+
+=============================================================
+CHEQUE FEES
+=============================================================
+
+Issuing a cheque book (by post):          £0
+Processing a cheque payment:              £0
+Stopping a cheque:                        £10
+Returned cheque (unpaid):                 £10 to payer's account
+Banker's draft:                           £10
+
+=============================================================
+COPY DOCUMENTS AND ADMIN FEES
+=============================================================
+
+Duplicate bank statement (printed):       £5 per statement (Everyday); £0 (Premium)
+Confirmation of balance letter:           £10
+Subject Access Request (SAR):             £0 (statutory right)
+Land registry search fee:                 £3 (mortgage customers only; passed through at cost)
+Consent to let (mortgage):                £50 per application
+
+=============================================================
+HOW FEES ARE CHARGED
+=============================================================
+
+- Monthly account fees are collected by direct debit on the last working day of each month.
+- Transaction fees (e.g. CHAPS, card replacement) are debited from your current account on the day of the transaction.
+- Credit card fees (late payment, balance transfer) appear on your next monthly statement.
+- Mortgage fees (ERC, deeds release) are deducted from the mortgage account or redemption proceeds.
+
+If a fee charge causes your account to go overdrawn, the standard overdraft terms apply.
+
+=============================================================
+FEE WAIVERS AND EXCEPTIONS
+=============================================================
+
+Meridian Bank may waive fees in the following circumstances:
+- First-time late payment fee (credit card): may be waived on request if account is otherwise in good standing. Call 0161 900 9000.
+- Returned payment fee: first occurrence may be waived if payment is subsequently made within 24 hours.
+- Customers experiencing financial difficulty: contact 0161 900 9000. Our team has discretion to waive or defer charges.
+- Bereavement: all fees are waived for a period of 3 months following the notification of a deceased account holder.
+- Vulnerable customers: fee decisions are made with appropriate consideration for vulnerability flags.
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — FEES
+=============================================================
+
+Q: Is there a fee for making bank transfers online?
+A: No. UK Faster Payments made via the mobile app or online banking are free on all accounts. CHAPS (same-day guaranteed transfer) costs £20 on the Everyday Account and is free on Premium.
+
+Q: Am I charged for using my Meridian Bank card at another bank's ATM?
+A: Meridian Bank does not charge a fee for using your card at any UK ATM. The ATM operator (another bank) may charge their own fee — if so, it will be displayed on screen before you confirm the withdrawal.
+
+Q: What is the unarranged overdraft cap?
+A: For Everyday Account customers, the unarranged overdraft fee of £5 per day is capped at £35 per month. You will never pay more than £35 in a single month from unarranged overdraft fees, regardless of how many days the account is in unarranged overdraft.
+
+Q: Are there any fees for having a savings account?
+A: No. Instant Access Savings Accounts and Cash ISAs have no monthly fees, no withdrawal fees, and no closure fees.
+
+Q: How much does it cost to make an international payment?
+A: £10 flat fee for SWIFT international transfers on the Everyday Account. Free on the Premium Account. The exchange rate includes a 2.75% margin (Everyday) or 0.75% margin (Premium) above the interbank rate.

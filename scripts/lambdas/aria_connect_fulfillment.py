@@ -69,15 +69,16 @@ ESCALATION_PHRASES = [
 # ---------------------------------------------------------------------------
 # Lambda handler
 # ---------------------------------------------------------------------------
-def lambda_handler(event, context):
+def handler(event, context):
     logger.info("Lex event: %s", json.dumps(event, default=str))
 
-    session_state = event.get("sessionState", {})
-    intent_name = session_state.get("intent", {}).get("name", "FallbackIntent")
+    session_state    = event.get("sessionState", {})
+    intent_name      = session_state.get("intent", {}).get("name", "FallbackIntent")
     input_transcript = event.get("inputTranscript", "").strip()
-    session_attrs = session_state.get("sessionAttributes", {}) or {}
+    session_attrs    = session_state.get("sessionAttributes", {}) or {}
 
-    # ContactId from Amazon Connect is passed inside requestAttributes
+    # ContactId from Amazon Connect — used as the AgentCore session ID so all
+    # turns within a single call share the same Strands agent state.
     request_attrs = event.get("requestAttributes", {}) or {}
     contact_id = (
         request_attrs.get("ContactId")
@@ -85,14 +86,28 @@ def lambda_handler(event, context):
         or event.get("sessionId", "unknown-session")
     )
 
+    # ------------------------------------------------------------------
+    # Pre-auth context injected by aria-session-injector via Connect
+    # contact attributes → Lex session attributes (Block 5 + Block 6).
+    # All fields are optional — defaults keep unauthenticated calls safe.
+    # ------------------------------------------------------------------
+    customer_id           = session_attrs.get("customerId", "")
+    auth_status           = session_attrs.get("authStatus", "unauthenticated")
+    preferred_name        = session_attrs.get("preferredName", "")
+    product_summary       = session_attrs.get("productSummary", "")
+    product_context       = session_attrs.get("productContext", "")
+    vulnerability_context = session_attrs.get("vulnerabilityContext", "")
+    prior_summary         = session_attrs.get("priorSummary", "")
+    channel               = session_attrs.get("channel", "voice")
+    locale                = session_attrs.get("locale", "en-GB")
+    date_time             = session_attrs.get("dateTime", "")
+
     # Persist contactId in session attributes so it survives across turns
     session_attrs["contactId"] = contact_id
 
     logger.info(
-        "Turn: intent=%s contactId=%s transcript=%r",
-        intent_name,
-        contact_id,
-        input_transcript,
+        "Turn: intent=%s contactId=%s customerId=%r authStatus=%s transcript=%r",
+        intent_name, contact_id, customer_id, auth_status, input_transcript,
     )
 
     # Handle explicit TransferToAgent intent
@@ -112,9 +127,22 @@ def lambda_handler(event, context):
             session_attrs,
         )
 
-    # Call ARIA AgentCore
+    # Call ARIA AgentCore with full pre-auth context
     try:
-        aria_response = _call_agentcore(input_transcript, contact_id)
+        aria_response = _call_agentcore(
+            input_transcript,
+            contact_id,
+            customer_id=customer_id,
+            auth_status=auth_status,
+            preferred_name=preferred_name,
+            product_summary=product_summary,
+            product_context=product_context,
+            vulnerability_context=vulnerability_context,
+            prior_summary=prior_summary,
+            channel=channel,
+            locale=locale,
+            date_time=date_time,
+        )
     except Exception as exc:
         logger.error("AgentCore call failed: %s", exc, exc_info=True)
         return _build_elicit_response(
@@ -137,9 +165,51 @@ def lambda_handler(event, context):
 # ---------------------------------------------------------------------------
 # AgentCore HTTP invocation (SigV4 signed)
 # ---------------------------------------------------------------------------
-def _call_agentcore(user_message: str, session_id: str) -> str:
-    """POST to AgentCore /invocations, return ARIA's plain-text response."""
-    body = json.dumps({"message": user_message}).encode("utf-8")
+def _call_agentcore(
+    user_message: str,
+    session_id: str,
+    customer_id: str = "",
+    auth_status: str = "unauthenticated",
+    preferred_name: str = "",
+    product_summary: str = "",
+    product_context: str = "",
+    vulnerability_context: str = "",
+    prior_summary: str = "",
+    channel: str = "voice",
+    locale: str = "en-GB",
+    date_time: str = "",
+) -> str:
+    """POST to AgentCore /invocations with full pre-auth context, return ARIA's plain-text response.
+
+    All context fields beyond ``user_message`` and ``session_id`` are optional —
+    missing / empty values are omitted from the payload so the agentcore_app
+    chat_handler receives clean input and falls back gracefully for non-voice
+    callers (e.g. the React chat app which sends only ``message``).
+    """
+    payload: dict = {
+        "message":       user_message,
+        "authenticated": auth_status == "authenticated",
+        "channel":       channel,
+    }
+    # Only include non-empty optional context fields to keep the payload compact
+    if customer_id:
+        payload["customer_id"] = customer_id
+    if preferred_name:
+        payload["preferred_name"] = preferred_name
+    if product_summary:
+        payload["product_summary"] = product_summary
+    if product_context:
+        payload["product_context"] = product_context
+    if vulnerability_context:
+        payload["vulnerability_context"] = vulnerability_context
+    if prior_summary:
+        payload["prior_summary"] = prior_summary
+    if locale and locale != "en-GB":
+        payload["locale"] = locale
+    if date_time:
+        payload["date_time"] = date_time
+
+    body = json.dumps(payload).encode("utf-8")
 
     session = boto3.Session()
     creds = session.get_credentials().get_frozen_credentials()

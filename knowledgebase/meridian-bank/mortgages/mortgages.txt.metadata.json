@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "mortgages",
+    "subcategory": "residential-mortgages",
+    "product": "fixed-rate-mortgage,tracker-mortgage",
+    "topics": "mortgage,balance,payment,rate,overpayment,redemption,fixed-rate,remortgage,erc,term",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

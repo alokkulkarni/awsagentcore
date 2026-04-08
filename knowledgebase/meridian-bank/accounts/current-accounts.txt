@@ -1,0 +1,108 @@
+MERIDIAN BANK — CURRENT ACCOUNTS
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank offers two current account products: the Everyday Current Account (no monthly fee) and the Premium Current Account (£12 per month). Both accounts include a Visa debit card, online banking, mobile banking app, contactless payments, and FSCS deposit protection up to £85,000.
+
+=============================================================
+EVERYDAY CURRENT ACCOUNT
+=============================================================
+
+Monthly fee: £0
+Minimum opening deposit: £1
+Overdraft: Available subject to credit check. Arranged overdraft interest rate: 19.9% EAR (variable). Unarranged overdraft fee: £5 per day, capped at £35 per month.
+
+Features:
+- Visa debit card (contactless, Apple Pay, Google Pay compatible)
+- Online and mobile banking
+- Direct debits and standing orders
+- UK cash withdrawals at ATMs — free
+- Overseas cash withdrawals — £1.50 per transaction plus 2.75% foreign exchange fee
+- Cheque book available on request
+- FSCS protected up to £85,000
+
+Who it's for: Customers who want straightforward day-to-day banking with no monthly fee.
+
+How to apply: Online at meridianbank.co.uk, via the mobile app, or in branch. You will need photo ID (passport or driving licence) and proof of address (utility bill or bank statement dated within 3 months). Minimum age: 18.
+
+=============================================================
+PREMIUM CURRENT ACCOUNT
+=============================================================
+
+Monthly fee: £12
+Minimum opening deposit: £1
+Overdraft: Available subject to credit check. Arranged overdraft interest rate: 15.9% EAR (variable). No unarranged overdraft fee.
+
+Additional benefits over Everyday account:
+- 0.5% AER credit interest on balances up to £2,500
+- Free overseas cash withdrawals (up to £500/month, then £1 per withdrawal)
+- No foreign exchange fee on card purchases abroad
+- Travel insurance included (single and multi-trip, up to 31 days per trip, ages 18–74)
+- Mobile phone insurance included (up to £1,500 handset value, subject to £50 excess)
+- Priority customer service line: 0161 900 9001
+- Exclusive rate discounts on Meridian Bank savings and mortgage products
+
+Who it's for: Customers who travel regularly or want added protection and a slightly better interest rate on their balance.
+
+How to switch from Everyday: Call 0161 900 9000, visit a branch, or upgrade via online banking. No new credit check needed if you already hold an Everyday account in good standing.
+
+=============================================================
+SWITCHING TO MERIDIAN BANK
+=============================================================
+
+Meridian Bank participates in the Current Account Switch Service (CASS). The switch takes 7 working days. All direct debits, standing orders, and incoming payments are moved automatically. If a payment goes to your old account in error for 36 months after the switch date, it will be forwarded to your Meridian Bank account automatically.
+
+=============================================================
+SORT CODE AND ACCOUNT NUMBER
+=============================================================
+
+Meridian Bank sort code: 60-00-01
+Account numbers are 8 digits.
+IBAN format: GB29 MERI 6000 01XXXXXXXX (where X is your 8-digit account number).
+
+=============================================================
+OVERDRAFT INFORMATION
+=============================================================
+
+An arranged overdraft lets you spend more than is in your account up to an agreed limit. You must apply and be approved. Interest is charged daily on the amount used.
+
+To apply for or increase an overdraft: log in to online banking or the mobile app, call 0161 900 9000, or visit a branch.
+
+To reduce financial difficulty: Meridian Bank recommends contacting us as soon as you think you may struggle to manage your overdraft. We can discuss a repayment plan or refer you to free independent debt advice from StepChange (0800 138 1111) or MoneyHelper (0800 138 7777).
+
+=============================================================
+FREQUENTLY ASKED QUESTIONS — CURRENT ACCOUNTS
+=============================================================
+
+Q: How do I check my balance?
+A: Via the Meridian Bank mobile app, online banking at meridianbank.co.uk, by calling 0161 900 9000 (automated service available 24/7), or at any Meridian Bank ATM.
+
+Q: How do I set up a standing order?
+A: Log in to online banking or the mobile app, go to Payments, select Standing Orders, and follow the steps. You can also set one up in branch or by calling us.
+
+Q: How do I cancel a direct debit?
+A: Log in to online banking or the mobile app, go to Payments, then Direct Debits, and cancel. Note: cancelling a direct debit does not cancel your contract with the company collecting the payment — contact them separately.
+
+Q: What happens if I go over my arranged overdraft limit?
+A: If you exceed your arranged overdraft limit, a £5 daily unarranged overdraft fee applies (Everyday Account), capped at £35 per month. We will try to contact you to help you bring your account back within limit.
+
+Q: How do I get a statement?
+A: Paperless statements are available in online banking and the mobile app going back 7 years. Paper statements can be requested by calling 0161 900 9000 or visiting a branch.
+
+Q: Can I have two current accounts with Meridian Bank?
+A: Yes. You may hold one Everyday and one Premium account simultaneously.
+
+Q: What is the maximum daily ATM withdrawal limit?
+A: £500 per day at ATMs. This can be temporarily increased by calling 0161 900 9000 for a one-off higher limit withdrawal.
+
+Q: How long does a bank transfer take?
+A: Transfers within the UK using Faster Payments are usually instant (within 2 hours at most). CHAPS payments are same working day if submitted before 3pm. International transfers (SWIFT) typically take 2–4 working days.
+
+Q: What should I do if I think there is a fraudulent transaction on my account?
+A: Call our fraud team immediately on 0161 900 9005 (24/7). You can also freeze your debit card instantly via the mobile app. We will investigate and, if the transaction is confirmed as fraudulent, you will receive a refund within 5 working days.
+
+Q: How do I close my account?
+A: Call 0161 900 9000 or visit a branch. If you are switching to another bank, use the Current Account Switch Service (CASS) rather than closing manually — this ensures all payments are redirected automatically.

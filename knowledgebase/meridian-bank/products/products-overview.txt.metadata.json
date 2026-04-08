@@ -1,0 +1,14 @@
+{
+  "metadataAttributes": {
+    "category": "products",
+    "subcategory": "product-catalogue",
+    "product": "all",
+    "topics": "products,overview,eligibility,accounts,cards,mortgages,savings,isa,interest-rates,contact",
+    "channel": "all",
+    "audience": "customer",
+    "language": "en-GB",
+    "bank": "meridian",
+    "source": "meridian-bank-internal-kb",
+    "version": "1.0"
+  }
+}

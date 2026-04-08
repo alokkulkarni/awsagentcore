@@ -1,0 +1,331 @@
+MERIDIAN BANK — MOBILE APP AND ONLINE BANKING
+Knowledge Base Document | Version 1.0
+
+=============================================================
+OVERVIEW
+=============================================================
+
+Meridian Bank provides two digital banking channels:
+
+1. Meridian Bank Mobile App — available free on iOS (iPhone/iPad, iOS 14+) and Android (6.0+). Download from the Apple App Store or Google Play Store by searching "Meridian Bank".
+2. Meridian Bank Online Banking — browser-based at https://online.meridianbank.co.uk. Supported browsers: Chrome 90+, Safari 14+, Firefox 88+, Edge 90+.
+
+Both channels offer the same core features. The mobile app has additional features such as instant card freeze, mobile cheque deposit, and biometric login.
+
+=============================================================
+GETTING STARTED — MOBILE APP
+=============================================================
+
+DOWNLOADING AND INSTALLING:
+1. Open the App Store (iPhone) or Google Play Store (Android).
+2. Search for "Meridian Bank" — look for the teal and white logo.
+3. Tap "Get" (iOS) or "Install" (Android). The app is free.
+4. Once installed, tap the app icon on your home screen.
+
+REGISTERING FOR THE FIRST TIME:
+1. On the app home screen, tap "Register".
+2. Enter your 8-digit account number and 6-digit sort code (60-00-01).
+3. Enter your date of birth and the postcode registered on your account.
+4. Create a 6-digit app passcode (used to log in quickly each time).
+5. You will receive a one-time passcode (OTP) by SMS to your registered mobile number. Enter it to verify.
+6. Optionally, set up biometric login (Face ID, Touch ID, or fingerprint) when prompted.
+7. You are now registered. Tap "Continue" to go to your account overview.
+
+If you do not receive the SMS OTP within 3 minutes: check your signal and tap "Resend code". If the problem continues, call 0161 900 9000.
+
+LOGGING IN (RETURNING USERS):
+- Enter your 6-digit passcode, OR
+- Use Face ID / Touch ID / fingerprint if enabled.
+- After 3 incorrect passcode attempts, the app locks. Unlock by calling 0161 900 9000 or visiting a branch.
+
+=============================================================
+GETTING STARTED — ONLINE BANKING
+=============================================================
+
+REGISTERING FOR THE FIRST TIME:
+1. Go to https://online.meridianbank.co.uk.
+2. Click "Register" on the homepage.
+3. Enter your account number, sort code, date of birth, and registered postcode.
+4. Choose a username (6–20 characters, letters and numbers only).
+5. Create a password (minimum 10 characters; must include uppercase, lowercase, a number, and a special character).
+6. Set up three memorable questions for account recovery.
+7. Verify via OTP sent to your registered mobile number or email.
+8. Registration is complete. Click "Continue to login".
+
+LOGGING IN (RETURNING USERS):
+1. Go to https://online.meridianbank.co.uk.
+2. Enter your username and password.
+3. For high-value actions (payments over £500, adding new payees), you will be asked to complete a second factor: OTP via SMS or the mobile app's in-app approval notification.
+
+=============================================================
+MOBILE APP — NAVIGATION AND FEATURES
+=============================================================
+
+HOME SCREEN (DASHBOARD):
+- Shows all accounts and cards linked to your profile: current account, savings account, credit card, and mortgage (if applicable).
+- Each product tile shows the current balance or outstanding amount.
+- Tap any product tile to open its detail screen.
+- A quick-action bar at the bottom of the home screen shows: Home | Payments | Cards | More.
+
+ACCOUNTS SECTION:
+Navigation: Home screen → tap your Current Account or Savings Account tile.
+
+Features available:
+- Balance: current balance and available balance shown at the top.
+- Transactions: scrollable list of transactions in date order (most recent first). Each transaction shows: date, merchant name, amount (debit/credit), and running balance.
+  - Tap any transaction to see full detail: category, merchant logo, location (if available), and a "Dispute this transaction" option.
+  - Search: tap the magnifying glass icon to search transactions by keyword, merchant name, or amount.
+  - Filter: tap the filter icon to filter by date range, transaction type (debit/credit), or amount range.
+- Sort code and account number: scroll to the bottom of the account detail screen. Tap "Show account details" to reveal full sort code and account number. This can be copied or shared.
+- Statements: tap "Statements" → select the month and year → the PDF opens in-app. Tap the share icon to email or save the PDF.
+- Download transactions: tap "Download" → choose CSV or PDF format and date range.
+
+SAVINGS ACCOUNT:
+Navigation: Home screen → tap your Savings Account tile.
+- Shows current balance, interest rate (AER), and interest earned this year.
+- Tap "Move money" to transfer funds between your current and savings account.
+- Tap "Transactions" for a full history of deposits and withdrawals.
+- Tap "Account details" for sort code, account number, and IBAN (for receiving international transfers into savings).
+
+PAYMENTS:
+Navigation: Bottom navigation bar → "Payments".
+
+Sub-sections:
+1. New payment: Pay someone new or an existing payee.
+   - Enter payee sort code and account number, or select from saved payees.
+   - Enter amount and optional reference.
+   - Tap "Confirm" → authenticate with passcode/biometrics.
+   - Payments under £500 to saved payees complete instantly (Faster Payments).
+   - Payments over £500 or to new payees require OTP approval.
+2. Standing orders: View, edit, or cancel existing standing orders. Set up a new one by tapping "+".
+   - New standing order fields: Payee, sort code, account number, amount, start date, frequency (weekly/monthly/annually), end date (optional).
+3. Direct debits: View all active direct debits. Tap any to see the mandate details and cancel if needed. Note: cancelling does not cancel the underlying contract with the company.
+4. International payments: Send money abroad via SWIFT. Enter IBAN, BIC, recipient name, address, currency, and amount. Exchange rates are shown before confirmation. £10 flat fee for SWIFT transfers. Available for amounts up to £25,000 per transaction.
+5. Bill payments: Pay utility bills, council tax, and HMRC directly using the billers' reference numbers. Separate from bank transfers — uses the Bacs billing system.
+
+CARD CONTROLS (DEBIT AND CREDIT CARDS):
+Navigation: Bottom navigation bar → "Cards".
+
+Features:
+- View all cards (debit and credit) linked to your profile.
+- Tap a card to see:
+  - Card status (Active / Frozen / Blocked)
+  - Card number (last four digits shown; full number never displayed)
+  - Expiry date (masked)
+  - Available limit or balance
+
+FREEZE / UNFREEZE CARD:
+- Tap the card → tap "Freeze card" toggle (green = active, grey = frozen).
+- A frozen card cannot be used for payments, ATM withdrawals, or online purchases.
+- Freezing is instant and reversible. It does not affect direct debits linked to the card.
+- Use freeze if you have temporarily misplaced your card but are not certain it is lost or stolen.
+
+REPORT LOST OR STOLEN:
+- Tap the card → tap "Report lost or stolen" → select "Lost" or "Stolen".
+- Confirm the action. The card is permanently cancelled and a replacement ordered.
+- Replacement card arrives in 3–5 working days (7–10 for international addresses).
+- Emergency same-day card collection available at branches for Stolen cards — call 0161 900 9000.
+
+PIN SERVICES:
+- Tap "View PIN" to display your PIN securely in the app (authenticated with biometrics/passcode).
+- Tap "Change PIN" to generate a new PIN. The new PIN activates when you next use your card at an ATM or chip-and-PIN terminal.
+
+SPENDING CONTROLS:
+- Tap "Spending controls" on a debit or credit card.
+- Toggle on/off: contactless payments, online transactions, ATM withdrawals, international transactions.
+- Set a daily spending limit (can be set lower than the bank's default; cannot be set higher without calling us).
+
+APPLE PAY / GOOGLE PAY:
+- Tap "Add to Apple Wallet" or "Add to Google Pay" directly from the card detail screen.
+- Follow the wallet prompts. A verification OTP is sent by SMS.
+
+CREDIT CARD FEATURES:
+Navigation: Home screen → tap your Credit Card tile.
+- Balance and available credit shown at the top.
+- Minimum payment due and next payment date.
+- Tap "Make a payment" to pay off some or all of the balance from your Meridian Bank current account.
+  - Options: minimum payment, statement balance, full balance, or custom amount.
+  - Payments made before 9pm on a business day are credited the same day.
+- Tap "Transactions" for a full transaction history.
+- Tap "Manage direct debit" to set up or change an automatic monthly payment.
+- Tap "Request credit limit change" — applications are subject to credit assessment.
+
+MORTGAGE FEATURES:
+Navigation: Home screen → tap your Mortgage tile.
+- Shows outstanding balance, next monthly payment date and amount, interest rate, and remaining term.
+- Tap "Payment history" to see the last 24 months of mortgage payments.
+- Tap "Make an overpayment" to pay extra off your mortgage. Your annual overpayment allowance is shown (typically 10% of outstanding balance per year without early repayment charge).
+  - Enter overpayment amount → confirm. Overpayments are applied within 2 working days.
+- Tap "Download mortgage statement" to get a PDF showing the full mortgage account history.
+- Tap "Request redemption statement" — a formal statement of the amount required to repay your mortgage in full. Delivered by email within 2 working days.
+
+NOTIFICATIONS:
+Navigation: More → Notifications → Notification preferences.
+- Toggle on/off: transaction alerts (every payment in/out), low balance alerts (set your own threshold), payment due reminders (credit card and mortgage), promotional messages.
+- Notifications appear as push notifications on your phone and/or in the in-app notification centre.
+- Tap any notification to jump directly to the related account or transaction.
+
+INBOX / SECURE MESSAGES:
+Navigation: More → Inbox.
+- Send and receive secure messages to/from Meridian Bank (alternative to calling).
+- Response time: within 2 working hours during business hours (Monday–Friday 8am–8pm, Saturday 8am–4pm).
+- Attach documents or screenshots (max 10MB per message).
+- All messages are stored securely and encrypted. Never send passwords or full card numbers via secure message.
+
+DOCUMENTS AND LETTERS:
+Navigation: More → Documents.
+- Access all letters and notices sent by Meridian Bank: annual summaries, tax certificates (for savings and ISAs), overdraft notices, credit limit change letters, and general correspondence.
+- Documents available going back 7 years.
+- Download as PDF.
+
+PROFILE AND SETTINGS:
+Navigation: More → Profile.
+- View and update: registered email address, registered mobile number, correspondence address.
+  - Address change requires identity verification (upload a document or visit branch for high-value changes).
+- Change app passcode: More → Security → Change passcode.
+- Manage biometric login: More → Security → Biometric settings.
+- Linked accounts: see all accounts tied to your profile and request to add or remove products.
+
+HELP AND SUPPORT IN-APP:
+Navigation: More → Help.
+- Searchable FAQ covering the most common questions.
+- Live chat: tap "Chat with us" (available Monday–Friday 8am–8pm, Saturday 8am–4pm).
+- Call us: tap "Call us" to be connected directly to 0161 900 9000 without having to dial.
+- Locate branch: tap "Find a branch" → enter postcode → shows nearest branches with opening hours and directions (opens in Maps).
+
+=============================================================
+ONLINE BANKING — NAVIGATION AND FEATURES
+=============================================================
+
+DASHBOARD (HOME PAGE AFTER LOGIN):
+- Left-hand navigation menu: Accounts | Payments | Cards | Mortgages | Messages | Documents | Profile.
+- Main area shows account summary tiles for all products.
+- Alerts banner at top shows any important messages (e.g. pending payments, overdraft warnings).
+
+ACCOUNTS:
+Navigation: Left menu → "Accounts" → select Current Account or Savings Account.
+- Balance summary panel at top (available balance, current balance, overdraft limit if applicable).
+- Transactions table: date, description, debit, credit, balance. Default shows last 30 days.
+  - Change date range: use the date pickers above the table.
+  - Search: type in the search box to filter transactions by keyword or amount.
+  - Export: click "Download" → CSV, OFX (for accounting software), or PDF. OFX format is compatible with QuickBooks, Xero, Sage.
+- Account details: click "Account details" tab to see sort code, account number, IBAN, and BIC.
+- Statements: click "Statements" tab → select month from dropdown → view or download PDF.
+
+PAYMENTS:
+Navigation: Left menu → "Payments".
+
+Sub-sections (tabs at the top of the Payments page):
+1. New payment:
+   - Pay a saved payee or add a new payee.
+   - New payee: enter name, sort code, and account number. An OTP is required to add a new payee (security step).
+   - After payee is added, enter amount, reference, and payment date (today or a future date).
+   - For payments over £500: OTP from SMS or mobile app in-app approval required.
+2. Manage payees: view, edit, or delete saved payees.
+3. Standing orders: view active standing orders. Click "New standing order" to set one up.
+4. Direct debits: view active direct debits. Click "Cancel" next to any to remove.
+5. Scheduled payments: view all future-dated payments and standing orders due in the next 30 days.
+6. International transfers: full SWIFT transfer form. Currency calculator built in; shows exchange rate and total GBP cost before you confirm.
+
+CARDS:
+Navigation: Left menu → "Cards".
+- View all cards: debit and credit, with current status.
+- Online banking card controls are a subset of the mobile app. Full freeze/unfreeze is only available in the mobile app for security reasons.
+- On the web you can: report a card as lost or stolen, request a replacement, view PIN reminder (sent by post), and set spending controls.
+
+MORTGAGE:
+Navigation: Left menu → "Mortgages".
+- All information from the app is also available here.
+- Additional feature in online banking: mortgage calculator — enter a hypothetical balance, rate, and term to see what your payments would be. Useful when considering overpayments.
+
+MESSAGES:
+Navigation: Left menu → "Messages".
+- Same secure messaging as the app inbox. Replies are sent here and to the email on your profile.
+
+DOCUMENTS:
+Navigation: Left menu → "Documents".
+- All letters and notices available here, organised by date. Filter by document type.
+
+PROFILE:
+Navigation: Left menu → "Profile".
+- Update personal details: contact number, email, address.
+- Security settings: change password, update memorable questions, manage trusted devices.
+- Trusted devices: devices that are pre-approved for login without OTP. Remove a device here if a device is lost or you no longer recognise it.
+- Paperless preferences: opt in/out of paperless statements and letters.
+
+=============================================================
+SECURITY FEATURES
+=============================================================
+
+BIOMETRIC LOGIN (APP ONLY):
+Set up via More → Security → Biometric settings. Uses the device's built-in Face ID, Touch ID, or fingerprint scanner. Meridian Bank never stores your biometric data — this is handled entirely by your device.
+
+TWO-FACTOR AUTHENTICATION (2FA):
+Active on all accounts for high-value payments, new payee additions, and profile changes. OTP delivered via SMS or via in-app notification (push notification that you approve on the mobile app, faster than SMS).
+
+FRAUD ALERTS:
+Meridian Bank's systems monitor all accounts 24/7. If unusual activity is detected you will receive an immediate push notification or SMS. Respond "Yes it was me" or "No it was not me" directly in the message. If "No": your card is temporarily frozen and the fraud team is alerted.
+
+STRONG CUSTOMER AUTHENTICATION (SCA):
+Required by UK financial regulations for online purchases over £30 and for all new payee setups. You will be redirected to a 3D Secure screen for card-not-present purchases, where you approve the transaction via push notification or OTP.
+
+=============================================================
+ACCESSIBILITY
+=============================================================
+
+MOBILE APP ACCESSIBILITY FEATURES:
+- Full VoiceOver (iOS) and TalkBack (Android) compatibility.
+- Large text mode: automatically adjusts if system font size is increased.
+- High contrast mode available: More → Display → High contrast.
+- Simple mode: More → Display → Simple mode — reduces the number of on-screen options for customers who prefer a simpler interface.
+
+ONLINE BANKING ACCESSIBILITY:
+- WCAG 2.1 AA compliant.
+- Keyboard navigation fully supported.
+- Screen reader compatible (ARIA attributes implemented throughout).
+- Font size adjustable via browser zoom — all layouts remain functional at 200% zoom.
+
+=============================================================
+TROUBLESHOOTING
+=============================================================
+
+APP NOT LOADING:
+1. Check your internet connection.
+2. Close and reopen the app.
+3. Check whether a Meridian Bank service update is in progress at status.meridianbank.co.uk.
+4. Delete and reinstall the app (your account data is not stored locally; you will need to re-register but your transactions are not affected).
+
+FORGOTTEN PASSCODE:
+1. On the app login screen, tap "Forgot passcode".
+2. Re-verify your identity (account number, sort code, date of birth, postcode).
+3. Receive OTP by SMS.
+4. Create a new 6-digit passcode.
+
+FORGOTTEN ONLINE BANKING PASSWORD:
+1. On the login page, click "Forgot password".
+2. Enter your username.
+3. Answer your memorable questions.
+4. Receive a reset link by email (valid 30 minutes).
+5. Create a new password.
+If you cannot remember your memorable questions: call 0161 900 9000.
+
+NOT RECEIVING OTP:
+1. Check your mobile signal.
+2. Verify that your registered mobile number is correct (log in to online banking → Profile, or call us).
+3. Request the OTP to be resent (wait 60 seconds before retrying).
+4. As an alternative, use the in-app approval notification if you have the mobile app installed.
+
+SUSPECTED FRAUD OR UNAUTHORISED ACCESS:
+Call the 24/7 fraud line: 0161 900 9005. You can also freeze all cards immediately in the mobile app (Cards → select card → Freeze).
+
+=============================================================
+CONTACT AND SUPPORT
+=============================================================
+
+General enquiries:        0161 900 9000 (Mon–Fri 8am–8pm, Sat 8am–4pm)
+Premium account priority: 0161 900 9001
+Fraud (24/7):             0161 900 9005
+Textphone (minicom):      0161 900 9006
+Online banking help:      https://online.meridianbank.co.uk/help
+Mobile app support:       https://meridianbank.co.uk/app-support
+Secure message:           Available in app and online banking
