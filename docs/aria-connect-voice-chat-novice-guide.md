@@ -34,6 +34,8 @@
     - [Step D.5 — Create the Self-service Answer Generation AI Prompt](#step-d5--create-the-self-service-answer-generation-ai-prompt)
     - [Step D.6 — Assemble and Publish the Orchestration AI Agent](#step-d6--assemble-and-publish-the-orchestration-ai-agent)
     - [Step D.6a — Configure the TransferToAgent Intent on the AI Agent](#step-d6a--configure-the-transfertoagent-intent-on-the-ai-agent)
+    - [Step D.6b — Proficiency-Based Queue Routing & Agent Handoff Summary](#step-d6b--proficiency-based-queue-routing-after-escalation)
+      📄 *Full detail in companion guide: [aria-connect-proficiency-routing-handoff-guide.md](./aria-connect-proficiency-routing-handoff-guide.md)*
     - [Step D.7 — Create the Self-Service AI Agent (Optional — Nova Sonic)](#step-d7--create-the-self-service-ai-agent-optional--nova-sonic)
     - [Step D.8 — Verify and Record Your ARNs](#step-d8--verify-and-record-your-arns)
 9. [Part E — Create the ARIA Unified Inbound Flow (Block by Block)](#part-e--create-the-aria-unified-inbound-flow-block-by-block)
@@ -1918,6 +1920,655 @@ giving the receiving agent full context without the customer needing to repeat t
 4. The contact should transfer to the **BasicQueue** and appear in the agent CCP
 5. Check **Contact Trace Records** (CTR) in Connect → the **Disconnect reason** should show `TRANSFERRED`
    and the **initiationMethod** on the new connected contact should show `TRANSFER`
+
+---
+
+### Step D.6b — Proficiency-Based Queue Routing After Escalation
+
+> 📄 **Full companion guide for this step (including agent summary handoff):**
+> **[aria-connect-proficiency-routing-handoff-guide.md](./aria-connect-proficiency-routing-handoff-guide.md)**
+>
+> That document contains the complete step-by-step walkthrough including the Lambda code,
+> DynamoDB table setup, all contact flow blocks, the Agent Whisper Flow for voice, the
+> SYSTEM message injection Lambda for chat, and the CCP screen pop configuration.
+> The section below is a summary overview — follow the companion guide for implementation.
+
+> **What this step does and why it matters**
+>
+> Step D.6a covered how to transfer a customer to a human agent. But sending every escalated
+> customer to a single general queue ignores the fact that your contact centre likely has
+> **specialist teams** — a mortgage team, a fraud team, a cards team — each with agents trained
+> (proficient) in specific topics. This step routes the customer to the **right queue
+> automatically**, based on what they were actually asking ARIA about, before the handoff.
+>
+> For example: a customer asking about their mortgage mid-conversation and then requesting a
+> human agent should land in the **Mortgage Advisors** queue — not the general queue — without
+> the customer having to explain their issue again.
+
+---
+
+#### How It Works — The Big Picture
+
+When ARIA escalates, it does three things in sequence:
+
+```
+1. ARIA finishes its last message and invokes the "Escalate" tool
+2. ARIA writes the conversation topic + reason into the Escalate tool's output
+   (e.g. topicCategory = "mortgage", escalationReason = "customer_requested")
+3. Control returns to your Contact Flow
+```
+
+Your Contact Flow then does:
+
+```
+4. Copies the topic from ARIA's output into contact attributes (so Lambda can read it)
+5. Calls a Lambda function, passing the topic
+6. Lambda looks up the correct queue in DynamoDB and returns the queue's ID
+7. Contact Flow sets that queue as the working queue
+8. Contact is transferred to the right specialist team
+```
+
+There are **four components** you need to configure:
+
+| Component | What you change | Where |
+|---|---|---|
+| ARIA AI Agent | Add topic fields to the Escalate tool schema | AI Agent Designer |
+| Contact Flow | Add 4 blocks after the Escalate branch | Flow Designer |
+| Lambda function | Write the DynamoDB lookup logic | AWS Lambda |
+| DynamoDB table | Create the routing table | AWS DynamoDB |
+
+---
+
+#### Part 1 — Update the Escalate Tool in Your AI Agent
+
+> **What is the Escalate tool?**
+> The Escalate tool is a **Return to Control** tool built into your ARIA orchestration agent.
+> When ARIA decides a customer needs a human, it "calls" this tool, which tells Connect to
+> stop the AI conversation and hand control back to your contact flow. By adding an **input
+> schema** to this tool, you force ARIA to fill in structured information (the topic, the
+> reason) every time it escalates — like a structured handoff form.
+
+**Steps:**
+
+1. In Amazon Connect console → **AI Agent Designer** → **AI Agents**
+2. Open your **ARIA-Banking-Orchestration-Agent**
+3. Under **Tools**, find the **Escalate** tool and click **Edit**
+4. Click **Edit input schema** and replace the contents with:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "topicCategory": {
+      "type": "string",
+      "description": "The primary banking topic the customer was enquiring about",
+      "enum": [
+        "current_account",
+        "savings_account",
+        "mortgage",
+        "credit_card",
+        "debit_card",
+        "fraud_security",
+        "complaint",
+        "general_banking"
+      ]
+    },
+    "escalationReason": {
+      "type": "string",
+      "description": "Why ARIA is escalating to a human agent",
+      "enum": [
+        "customer_requested",
+        "complex_request",
+        "complaint",
+        "technical_issue",
+        "out_of_scope"
+      ]
+    },
+    "conversationSummary": {
+      "type": "string",
+      "description": "One or two sentence summary of the conversation for the human agent to read when they pick up",
+      "maxLength": 500
+    },
+    "customerIntent": {
+      "type": "string",
+      "description": "Brief phrase describing what the customer was trying to accomplish"
+    }
+  },
+  "required": ["topicCategory", "escalationReason", "customerIntent"]
+}
+```
+
+5. In the **Instructions** field for the Escalate tool, add the following text so ARIA knows
+   how to populate the schema correctly:
+
+```
+When escalating to a human agent, always populate the input fields as follows:
+
+- topicCategory: choose the closest match to the primary subject of the customer's
+  enquiry (e.g. "mortgage" if they were asking about their mortgage balance or
+  overpayments, "fraud_security" if they reported suspicious activity).
+
+- escalationReason: set to "customer_requested" if the customer explicitly asked for
+  a human. Set to "complaint" if they expressed dissatisfaction or used complaint
+  language. Set to "complex_request" if the issue is beyond your available tools.
+  Set to "technical_issue" if a tool returned repeated errors.
+
+- customerIntent: a brief phrase, e.g. "wants to discuss mortgage overpayment options"
+  or "reporting suspected card fraud".
+
+- conversationSummary: one or two sentences summarising what was discussed and what
+  the customer needs, so the human agent does not have to ask the customer to repeat
+  themselves.
+```
+
+6. Click **Save** → **Publish** the agent
+
+> ✅ **What happens now:** Every time ARIA escalates, Connect automatically stores
+> `topicCategory`, `escalationReason`, `customerIntent`, and `conversationSummary`
+> as **Amazon Lex session attributes** — named exactly as defined in the schema.
+> Your contact flow can read these in the very next block.
+
+---
+
+#### Part 2 — DynamoDB Routing Table
+
+> **What is this table?**
+> A simple lookup table. Each row maps one topic (e.g. "mortgage") to a specific queue
+> in your Connect instance. The Lambda function reads this table to decide which queue
+> to send the customer to.
+
+**Create the table:**
+
+1. Go to **AWS Console → DynamoDB → Create table**
+2. Fill in:
+   - **Table name**: `aria-routing-config`
+   - **Partition key**: `topicCategory` (type: **String**)
+   - Leave all other settings as default
+3. Click **Create table**
+
+**Add rows (one per topic):**
+
+Once the table is created, click **Explore table items** → **Create item** and add the
+following rows. You need to add each one individually using the **JSON view** in the item
+editor:
+
+> 🔑 **Finding your Queue ID:**
+> In Amazon Connect console → **Routing** → **Queues** → click a queue → look at the
+> browser URL bar. The last part after `/queue/` is your Queue ID (a UUID like
+> `aaaaaaaa-bbbb-cccc-dddd-111111111111`). Copy this — you need the **ID, not the name**.
+
+```json
+{ "topicCategory": "mortgage",        "queueId": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",    "queueName": "Mortgage Advisors",   "proficiencyLevel": "3", "proficiencySkill": "Mortgage" }
+{ "topicCategory": "credit_card",     "queueId": "d3037cfb-f265-47ff-a28e-f96bf6ab1279",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
+{ "topicCategory": "debit_card",      "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
+{ "topicCategory": "fraud_security",  "queueId": "Y42646d26-77fb-49f7-a525-a40856c97539",   "queueName": "Fraud Team",          "proficiencyLevel": "4", "proficiencySkill": "Fraud" }
+{ "topicCategory": "complaint",       "queueId": "YOUR-COMPLAINTS-QUEUE-UUID",  "queueName": "Senior Advisors",     "proficiencyLevel": "3", "proficiencySkill": "Complaints" }
+{ "topicCategory": "current_account", "queueId": "YOUR-RETAIL-QUEUE-UUID",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
+{ "topicCategory": "savings_account", "queueId": "YOUR-RETAIL-QUEUE-UUID",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
+{ "topicCategory": "general_banking", "queueId": "YOUR-DEFAULT-QUEUE-UUID",     "queueName": "General Queue",       "proficiencyLevel": "1", "proficiencySkill": "General" }
+```
+
+> Replace every `YOUR-...-UUID` with the actual Queue ID from your Connect instance.
+> `general_banking` is your **fallback** row — always have this one even if you only have
+> one queue. If ARIA cannot determine the topic, it defaults to `general_banking`.
+
+---
+
+#### Part 3 — Lambda Function (Routing Lookup)
+
+> **What does this Lambda do?**
+> It receives the topic that ARIA identified, looks it up in DynamoDB, and returns the
+> matching Queue ID back to Connect. Connect then uses that Queue ID to set the working
+> queue before transferring the customer.
+
+**Create a new Lambda function:**
+
+1. AWS Console → **Lambda** → **Create function**
+2. **Name**: `aria-routing-lookup`
+3. **Runtime**: Python 3.12
+4. **Execution role**: create a new role, then add the DynamoDB permission below
+
+**IAM permissions needed** (add to the Lambda execution role):
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["dynamodb:GetItem"],
+  "Resource": "arn:aws:dynamodb:eu-west-2:YOUR-ACCOUNT-ID:table/aria-routing-config"
+}
+```
+
+**Lambda code** — paste this into the function editor and click **Deploy**:
+
+```python
+import boto3
+import os
+
+dynamodb = boto3.resource('dynamodb')
+TABLE_NAME = os.environ.get('ROUTING_TABLE', 'aria-routing-config')
+DEFAULT_TOPIC = 'general_banking'
+
+def handler(event, context):
+    """
+    Called by Amazon Connect after ARIA escalates.
+    Reads topicCategory from contact attributes, looks up the correct
+    queue in DynamoDB, and returns the queue ID to Connect.
+    """
+    # Connect passes all contact attributes inside event.Details.ContactData.Attributes
+    attrs = event.get('Details', {}).get('ContactData', {}).get('Attributes', {})
+    topic = attrs.get('topicCategory', DEFAULT_TOPIC).strip().lower()
+
+    table = dynamodb.Table(TABLE_NAME)
+
+    # Try the specific topic first, fall back to general_banking
+    item = _get_item(table, topic)
+    if not item:
+        print(f"No routing config for topic '{topic}', falling back to '{DEFAULT_TOPIC}'")
+        item = _get_item(table, DEFAULT_TOPIC)
+
+    if not item:
+        # Last resort: return empty — contact flow will use its own fallback
+        print("ERROR: No fallback routing config found in DynamoDB")
+        return {'routingError': 'true'}
+
+    return {
+        'queueId':           item.get('queueId', ''),
+        'queueName':         item.get('queueName', 'General Queue'),
+        'proficiencyLevel':  str(item.get('proficiencyLevel', '1')),
+        'proficiencySkill':  item.get('proficiencySkill', 'General'),
+        'topicCategory':     topic,
+        # Pass the summary through so the flow can write it to contact attributes
+        'conversationSummary': attrs.get('conversationSummary', ''),
+    }
+
+def _get_item(table, topic):
+    response = table.get_item(Key={'topicCategory': topic})
+    return response.get('Item')
+```
+
+> ⚠️ **Important:** The response must be a **flat dictionary of strings**. Do not return
+> nested objects — Connect cannot read them in STRING_MAP mode.
+
+**Add the Lambda to your Connect instance:**
+
+1. Amazon Connect console → your instance → **AWS Lambda** (left menu)
+2. Click **Add Lambda function** → select `aria-routing-lookup` → **Add Lambda**
+
+---
+
+#### Part 4 — Contact Flow Changes
+
+> **Where to make these changes:**
+> Open your **Inbound Contact Flow** (the one built in Part E of this guide) in the
+> Flow Designer. Find the **Check Contact Attributes** block that tests `Tool = Escalate`.
+> Everything below describes what to connect **after** the `Escalate` condition output
+> of that block.
+
+**The full chain you are building looks like this:**
+
+```
+[Check Contact Attributes]
+   │  Tool = "Escalate"
+   ▼
+[Set Contact Attributes]              ← Step 4a: copy ARIA's output to contact attributes
+   │
+   ▼
+[Invoke AWS Lambda: aria-routing-lookup]   ← Step 4b: look up queue in DynamoDB
+   │                │
+ Success          Error
+   │                └──→ [Set Working Queue: DefaultQueue] → [Transfer to Queue]
+   ▼
+[Set Working Queue: dynamic]          ← Step 4c: use the queue ID Lambda returned
+   │
+   ▼
+[Set Contact Attributes]              ← Step 4d: save summary for agent screen pop
+   │
+   ▼
+[Transfer to Queue]                   ← Step 4e: transfer
+```
+
+---
+
+##### Step 4a — Set Contact Attributes (copy ARIA output)
+
+> **Why this block is needed:** ARIA's output is stored as *Lex session attributes*.
+> Lambda functions can only read *contact attributes*. This block bridges the two —
+> it copies the Lex session attributes into contact attributes so that Lambda can
+> read them.
+
+Add a **Set contact attributes** block immediately after the `Escalate` condition output.
+
+Configure each attribute as **Set dynamically** using the following mapping:
+
+| Destination key (User Defined) | Source Namespace | Source Key |
+|---|---|---|
+| `topicCategory` | Lex – Session attributes | `topicCategory` |
+| `escalationReason` | Lex – Session attributes | `escalationReason` |
+| `customerIntent` | Lex – Session attributes | `customerIntent` |
+| `conversationSummary` | Lex – Session attributes | `conversationSummary` |
+
+Click **Save**.
+
+---
+
+##### Step 4b — Invoke Lambda Block
+
+Add an **AWS Lambda function** block after the Set Contact Attributes block.
+
+Configure it as:
+
+| Field | Value |
+|---|---|
+| Function | `aria-routing-lookup` (select from dropdown) |
+| Execution mode | Synchronous |
+| Timeout | 5 seconds |
+| Response validation | STRING_MAP |
+
+This block has two output branches:
+- **Success** → connect to the Set Working Queue block (Step 4c)
+- **Error** → connect to a **Set Working Queue** block pre-configured with your default
+  fallback queue, then to **Transfer to Queue**
+
+> The Error branch fires if Lambda fails (timeout, DynamoDB unavailable, etc.). Always
+> connect it somewhere sensible — a default general queue is the safest fallback.
+
+---
+
+##### Step 4c — Set Working Queue (dynamic)
+
+Add a **Set working queue** block after the Lambda Success branch.
+
+Configure it as:
+
+| Field | Value |
+|---|---|
+| By queue | Set dynamically |
+| Namespace | External |
+| Key | `queueId` |
+
+> **What is "External"?** When a Lambda function returns values to a contact flow,
+> Connect stores them under the **External** namespace. `$.External.queueId` refers to
+> the `queueId` key that your Lambda function returned.
+
+> ⚠️ This block requires the **Queue ID (UUID)** — not the queue name or ARN. This is
+> why the Lambda returns the `queueId` value from DynamoDB, which you populated with
+> the UUID found in the queue URL.
+
+---
+
+##### Step 4d — Set Contact Attributes (agent screen pop, optional but recommended)
+
+Add another **Set contact attributes** block after Set Working Queue.
+
+This copies the escalation context into contact attributes that will be visible to the
+human agent in their **Contact Control Panel (CCP)** when they accept the contact. It
+means the agent knows exactly what the customer was doing and why they were transferred,
+without asking the customer to repeat themselves.
+
+| Destination key (User Defined) | Source Namespace | Source Key |
+|---|---|---|
+| `ariaSummary` | External | `conversationSummary` |
+| `ariaTopicCategory` | External | `topicCategory` |
+| `ariaEscalationReason` | External | `escalationReason` |
+| `ariaCustomerIntent` | External | `customerIntent` |
+
+> **What happens next with these attributes?**
+> The four values are now stored as contact attributes on this contact. They travel with
+> the contact for its entire lifetime — visible in the Contact Trace Record (CTR), in
+> the agent's CCP, and readable by any downstream flow or Lambda. Two things make them
+> visible to the human agent at the moment they accept the contact:
+>
+> 1. **Agent Whisper Flow** — plays an audio summary to the agent only (voice) or injects
+>    a SYSTEM chat message (chat). Covered in the companion guide Part E.
+> 2. **CCP Screen Pop** (Agent Event Flow) — a sidebar panel in the CCP that shows the
+>    attributes as text. Detailed step-by-step below.
+
+---
+
+###### How to build the CCP Screen Pop (Agent Event Flow)
+
+> **What is a screen pop?**
+> When an agent accepts a contact, Amazon Connect can automatically open a panel in their
+> CCP sidebar showing key information. You design exactly what appears in that panel using
+> a flow of type **Default agent UI**. The agent sees it the moment they click "Accept".
+>
+> **This works for both voice and chat contacts.**
+
+**Step 1 — Create the Agent UI Flow**
+
+1. Go to **Amazon Connect console → Routing → Flows → Create flow**
+2. In the top-right corner, click the flow-type dropdown (it usually defaults to
+   "Inbound flow") and change it to **Default agent UI**
+
+   > ⚠️ This step is critical. Only a **Default agent UI** flow can be used as a screen
+   > pop. If you leave it as any other type it will not appear in the Set event flow
+   > block's dropdown later.
+
+3. Name the flow: `ARIA-Agent-Screen-Pop`
+4. Click **Save**
+
+**Step 2 — Add a "Show view" block**
+
+The block that renders information in the agent's CCP is called **Show view**.
+
+1. In the search box on the left panel, type `Show view` and drag it onto the canvas
+2. Connect the **Entry** point → **Show view** block
+3. Double-click the **Show view** block to open its settings
+4. Under **View**, select **Detail page**
+
+   > The Detail page view is a pre-built CCP template that shows a title, a list of
+   > key/value attribute rows, and an optional action button. You do not need to write
+   > any HTML or UI code.
+
+5. Configure the Detail page fields:
+
+   | Field | Value to enter |
+   |---|---|
+   | **Title** | `ARIA Handoff Summary` |
+   | **Subtitle** | Select **Contact attribute** → Namespace: `User Defined` → Key: `ariaTopicCategory` |
+   | **Attribute 1 — Label** | `Customer Intent` |
+   | **Attribute 1 — Value** | Contact attribute → User Defined → `ariaCustomerIntent` |
+   | **Attribute 2 — Label** | `Escalation Reason` |
+   | **Attribute 2 — Value** | Contact attribute → User Defined → `ariaEscalationReason` |
+   | **Attribute 3 — Label** | `Conversation Summary` |
+   | **Attribute 3 — Value** | Contact attribute → User Defined → `ariaSummary` |
+
+   > You can add up to 10 attribute rows. Add `ariaQueueName` as a fourth row if you
+   > want the agent to see which queue they are in.
+
+6. Click **Save** on the block
+
+**Step 3 — Add an End flow block**
+
+1. Drag an **End flow** block onto the canvas
+2. Connect the **Show view** block's **Success** output → **End flow**
+3. Connect the **Show view** block's **Error** output → **End flow** as well
+   (so the flow does not stall if an attribute is missing)
+
+**Step 4 — Save and Publish**
+
+1. Click **Save** (top right)
+2. Click **Publish**
+
+   > The flow must be **Published** (not just saved) before it appears in the
+   > Set event flow block. If you cannot find it in the dropdown in Step 5 below,
+   > check that you published it.
+
+**Step 5 — Add a "Set event flow" block to your Inbound Contact Flow**
+
+Now wire the screen pop into the same inbound contact flow where you added Steps 4a–4d.
+
+1. Open your **Inbound Contact Flow** in the Flow Designer
+2. In the block search, type `Set event flow` and drag it onto the canvas
+3. Place it **after the Set Contact Attributes block (Step 4d)** and
+   **before the Transfer to Queue block (Step 4e)**
+
+   ```
+   [Set Contact Attributes — Step 4d]
+          │
+          ▼
+   [Set event flow]          ← ADD THIS BLOCK HERE
+          │
+          ▼
+   [Transfer to Queue — Step 4e]
+   ```
+
+4. Double-click the **Set event flow** block to configure it:
+
+   | Field | Value |
+   |---|---|
+   | **Event** | Default flow for agent UI |
+   | **Flow** | `ARIA-Agent-Screen-Pop` |
+
+5. Click **Save** on the block
+6. Connect the **Set event flow** Success output → **Transfer to Queue**
+7. Connect the **Set event flow** Error output → **Transfer to Queue** as well
+   (so a missing flow does not block the transfer)
+8. **Save** and **Publish** the inbound contact flow
+
+**What the agent sees**
+
+When the agent clicks **Accept** on the incoming contact, a panel appears in their
+CCP sidebar immediately:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ARIA Handoff Summary                               │
+│  mortgage                                           │
+│                                                     │
+│  Customer Intent:   Discuss overpayment options     │
+│  Escalation Reason: customer_requested              │
+│  Conversation Summary:                              │
+│    Customer asked about the 10% overpayment         │
+│    allowance on their 5-year fixed rate mortgage.   │
+│    They want to know if they can make a lump sum    │
+│    payment this month without a penalty charge.     │
+└─────────────────────────────────────────────────────┘
+```
+
+> The panel appears on **both voice and chat** contacts. The agent does not need to
+> click any tab — it opens automatically when they accept the contact.
+
+**Fallback: Contact Attributes tab (zero configuration)**
+
+Even if you skip the screen pop entirely, every attribute set in Step 4d is **always
+visible** in the agent's CCP under the **Contact attributes** tab (the small info icon
+in the CCP toolbar). The agent must click it manually, but the data is always there.
+This is useful as a fallback while you are setting up the screen pop flow.
+
+**Troubleshooting**
+
+| Problem | Likely cause | Fix |
+|---|---|---|
+| Screen pop panel does not appear | Set event flow block not added, or flow not Published | Confirm block is in the inbound flow and `ARIA-Agent-Screen-Pop` is Published |
+| Panel appears but fields show "null" or blank | Set Contact Attributes block (Step 4d) is missing or runs after Set event flow | Ensure Step 4d runs **before** the Set event flow block |
+| `ARIA-Agent-Screen-Pop` not in the dropdown | Flow saved but not Published, or wrong flow type | Publish the flow; confirm type is **Default agent UI** not "Inbound flow" |
+| Error output fires on Set event flow | Flow name typo, or flow was unpublished | Re-publish `ARIA-Agent-Screen-Pop` and check the flow name matches exactly |
+
+---
+
+##### Step 4e — Transfer to Queue
+
+Add a **Transfer to queue** block and connect it from Step 4d.
+
+No special configuration needed here — the queue has already been set by the
+Set Working Queue block in Step 4c.
+
+---
+
+#### Part 5 — Optional: Check Queue Hours and Agent Availability
+
+> **Why you might need this:**
+> If no agents with the right proficiency are online (e.g. the Mortgage team has gone
+> home), you do not want customers sitting in an empty queue indefinitely. This optional
+> chain checks whether the target queue is within operating hours and has staff before
+> transferring.
+
+Insert these two blocks **between Step 4c (Set Working Queue) and Step 4e (Transfer to Queue)**:
+
+```
+[Set Working Queue: dynamic]
+   │
+   ▼
+[Check Hours of Operation]
+   │              │
+ In hours       Out of hours
+   │                └──→ [Play prompt: "Our team is available Mon-Fri 8am-8pm."]
+   ▼                         └──→ [Set Working Queue: Voicemail queue] → [Transfer to Queue]
+[Check queue status]
+   │              │
+ Agents         No agents
+ available         └──→ [Set Working Queue: overflow queue] → [Transfer to Queue]
+   │
+   ▼
+[Set Contact Attributes]  ← Step 4d
+   │
+   ▼
+[Transfer to Queue]
+```
+
+**Check queue status block configuration:**
+
+| Field | Value |
+|---|---|
+| Attribute to check | Staff |
+| Condition | > 0 (agents available) |
+
+---
+
+#### Complete Flow Diagram for Proficiency Routing
+
+```
+[Get Customer Input — Lex / Q in Connect]
+   │
+   └── Default output
+          │
+          ▼
+   [Check Contact Attributes]
+      Namespace: Lex
+      Key: Session attributes → Tool
+          │
+          ├── = "Complete"  ──────────────────────────────→ [Disconnect]
+          │
+          └── = "Escalate"
+                 │
+                 ▼
+          [Set Contact Attributes]       copies topicCategory, escalationReason,
+                 │                       customerIntent, conversationSummary
+                 │                       from Lex session → contact attributes
+                 ▼
+          [Invoke Lambda]                aria-routing-lookup
+          (synchronous, 5s)              reads topicCategory → queries DynamoDB
+                 │                       → returns queueId, queueName, etc.
+           ┌─────┴─────┐
+         Success      Error
+           │            └──→ [Set Working Queue: DefaultQueue]
+           ▼                        │
+    [Set Working Queue]             ▼
+    (dynamic: $.External.queueId)  [Transfer to Queue]  ← fallback path
+           │
+           ▼
+    [Set Contact Attributes]       stores ariaSummary, ariaTopicCategory,
+           │                       ariaEscalationReason for agent screen pop
+           ▼
+    [Transfer to Queue]            ← happy path
+```
+
+---
+
+#### Troubleshooting This Step
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Customer always goes to default queue | `topicCategory` is empty | Check that ARIA is publishing the Escalate tool with the schema — confirm in CloudWatch that the Lex session attribute `Tool` has `topicCategory` alongside it |
+| "Set Working Queue" block fails | Wrong value type in `queueId` | The DynamoDB `queueId` column must contain the Queue **UUID** (36-char string), not the queue name or ARN |
+| Lambda returns empty | DynamoDB row missing for that topic | Add the missing row to `aria-routing-config` table or ensure `general_banking` fallback row exists |
+| Agent sees no summary on screen pop | Agent event flow not configured | The attributes are stored but not displayed — configure an Agent whisper flow to surface them in the CCP |
+| Escalate fires but `topicCategory` is null | AI agent did not populate schema | Check the Escalate tool Instructions in AI Agent Designer — ensure the required fields list includes `topicCategory` |
+
+> 📄 **For the complete implementation guide including agent summary handoff (whisper flow,
+> chat system message, CCP screen pop) and all Lambda code, see the companion document:**
+> **[aria-connect-proficiency-routing-handoff-guide.md](./aria-connect-proficiency-routing-handoff-guide.md)**
 
 ---
 
