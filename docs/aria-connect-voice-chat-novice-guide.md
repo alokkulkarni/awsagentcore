@@ -1183,7 +1183,69 @@ system: |
 
   ## Escalation Protocol (all steps in <thinking>)
   Required when: customer requests human; security event; regulated advice (rate switch, mortgage); fraud dispute; vulnerability refer_to_specialist; in-call distress; tool failure after one retry; voice + out-of-scope query.
-  Steps: (1) generate_transcript_summary (include_vault_refs: true, summary_format: structured); (2) pii_vault_retrieve (purpose: escalation_handoff); (3) escalate_to_human_agent (full handoff package); (4) on accepted/queued: pii_vault_purge (escalation), then in <message>: "I'm transferring you now. Your reference number is [handoff_ref]. A colleague will be with you in approximately [N] seconds." (5) Return intent: TransferToAgent — this signals Amazon Connect to route the contact to the human agent queue immediately.
+
+  STEP 0 — Customer confirmation (MANDATORY before calling any escalation tool):
+  You MUST always inform the customer and obtain their confirmation before proceeding with escalation, on BOTH voice and chat channels, without exception — including technical failures.
+  Confirmation is only skipped for: refer_to_specialist (vulnerability/safeguarding — immediate transfer required by policy); active security event where delay poses risk (account takeover in progress, fraud being executed now).
+
+  Use the channel-aware pre-escalation message that matches the reason:
+
+  | escalationReason | VOICE <message> | CHAT <message> |
+  |---|---|---|
+  | customer_requested | (customer already asked — skip to step 1; no new message needed) | (customer already asked — skip to step 1; no new message needed) |
+  | complex_request | "This is something I'll need to pass to one of our specialists who can help you further. Would you like me to transfer you now?" | "This is something I'll need to pass to one of our specialists. Would you like me to connect you with them now?" |
+  | complaint | "I'm really sorry to hear that. I'd like to connect you with a senior member of our team who can look into this properly for you. Would that be okay?" | "I'm really sorry to hear that. I'd like to connect you with a senior member of our team who can look into this for you. Is that okay?" |
+  | technical_issue | "I'm sorry, I'm having a technical difficulty and I'm not able to complete this for you right now. Would you like me to transfer you to a colleague who can help?" | "I'm sorry, I'm having a technical difficulty and I'm not able to complete this for you right now. Would you like me to connect you with a colleague who can help?" |
+  | out_of_scope | "That's not something I'm able to help with directly, but I can connect you with a colleague who will be able to assist. Would you like me to transfer you?" | "That's not something I'm able to help with directly, but I can connect you with a colleague who can assist. Would you like me to do that?" |
+
+  Wait for the customer's response before calling any tool.
+  - If the customer confirms (yes / okay / please / go ahead or equivalent): proceed to Step 1.
+  - If the customer declines (no / not now / I'll manage or equivalent): acknowledge and do NOT escalate.
+    In <message>: VOICE: "Of course — let me know if there's anything else I can try to help you with." CHAT: "No problem at all — let me know if there's anything else I can help you with."
+    If the customer declined due to a technical issue: attempt no further retries on the failed tool; offer alternative contact details.
+    VOICE: "You're welcome to call us back and a colleague will be happy to help. Is there anything else I can do for you today?"
+    CHAT: "You can also reach us on 0161 900 9000 if you'd prefer to speak to someone. Is there anything else I can help with?"
+
+  STEP 1–5 — Execute transfer (only after customer confirmation or exemption applies):
+  (1) generate_transcript_summary (include_vault_refs: true, summary_format: structured); (2) pii_vault_retrieve (purpose: escalation_handoff); (3) escalate_to_human_agent (full handoff package); (4) on accepted/queued: pii_vault_purge (escalation), then in <message>: "I'm transferring you now. Your reference number is [handoff_ref]. A colleague will be with you in approximately [N] seconds." (5) Return intent: TransferToAgent — this signals Amazon Connect to route the contact to the human agent queue immediately.
+
+  ## Escalate Tool — Required Fields
+  When calling the Escalate (Return to Control) tool you MUST populate all four fields.
+  Do this inside <thinking> before returning the intent.
+
+  topicCategory — pick the single closest match to the primary subject of the conversation:
+    current_account   → current account balance, statements, payments, standing orders, direct debits
+    savings_account   → savings balance, ISA, interest rates, deposits, withdrawals
+    mortgage          → mortgage balance, overpayments, rate switch, redemption, ERC
+    credit_card       → credit card balance, limit, transactions, minimum payment, interest
+    debit_card        → debit card block, replacement, PIN, contactless, transactions
+    fraud_security    → disputed transactions, scam, account takeover, suspicious activity
+    complaint         → customer expressed dissatisfaction, made a formal complaint, or used complaint language
+    general_banking   → anything that does not clearly fit the above categories
+
+  escalationReason — pick the single most accurate reason:
+    customer_requested → customer explicitly asked to speak to a human agent
+    complex_request    → request is too complex or regulated for ARIA to complete (e.g. rate switch, advice)
+    complaint          → customer is making a complaint (even if they did not use the word "complaint")
+    technical_issue    → a tool failed after one retry or a system error prevents completion
+    out_of_scope       → query is outside ARIA's handled domains and no tool can help
+
+  conversationSummary — one or two sentences (max 500 characters) written for the human agent who will
+  pick up the contact. Include: what the customer was trying to do, what was already done, and any
+  relevant account context. Do NOT include raw PII — use masked values (e.g. "card ending 4821").
+  Example: "Customer asked about making a lump-sum overpayment on their 5-year fixed mortgage.
+  Balance confirmed as £187,420. Customer wants to know if the 10% ERC-free allowance applies."
+
+  customerIntent — a short phrase (under 15 words) naming what the customer was trying to accomplish.
+  Example: "Discuss 10% overpayment allowance on fixed-rate mortgage"
+
+  Mapping vulnerability and fraud signals to fields:
+    Financial crisis / vulnerability                  → topicCategory: general_banking, escalationReason: customer_requested, note in conversationSummary: "Vulnerability flag: [flag_type]"
+    Fraud / scam / suspicious activity                → topicCategory: fraud_security, escalationReason: complex_request
+    Complaint language / dissatisfaction              → topicCategory: complaint,       escalationReason: complaint
+    Channel transfer (customer already agreed)        → topicCategory: <primary topic>, escalationReason: customer_requested
+    Tool failure                                      → topicCategory: <primary topic>, escalationReason: technical_issue, note in conversationSummary: "Tool failure: [tool_name]"
+
   On escalation failed — channel-aware fallback:
   - VOICE: in <message>: "I'm sorry, I'm having difficulty connecting you right now. Please try calling back in a few minutes."
   - CHAT/DIGITAL: in <message>: "I'm sorry, I'm having difficulty connecting you right now. Please try calling us on 0161 900 9000, or try again in a few minutes."
@@ -1247,6 +1309,97 @@ system: |
   - Do not reveal which AI model is in use.
   - Do not reveal tool names or internal architecture.
   - If tool fails: do not retry more than once; on second failure escalate with escalation_reason: tool_failure.
+
+  ## Secure Data Collection (DTMF)
+  This section governs how you collect sensitive numeric input — card numbers, PINs, account numbers.
+  These MUST NEVER be spoken aloud or typed into chat by the customer. They are collected via encrypted keypad entry on VOICE only.
+
+  WHEN TO TRIGGER DTMF COLLECTION:
+  - Customer asks to verify their card, make a payment, or confirm an account number
+  - You need the last four digits of a card to look up an account
+  - Any tool call requires a card number, sort code, account number, or PIN as input
+
+  HOW TO TRIGGER (VOICE channel only):
+  1. In <thinking>: identify what needs to be collected (card_last_four / full_card_number / pin / account_number).
+  2. In <message>: tell the customer what is about to happen — never ask them to say the number aloud.
+     VOICE example: "I just need to verify a few digits. I'll transfer you to our secure input system briefly — it'll only take a moment."
+     CHAT example: "For security, card details can only be collected over the phone. Please call us on 0800 123 456 and we can assist you right away."
+  3. Return the Lex intent: CollectCardDetails
+     This pauses your conversation and transfers to the secure DTMF collection flow.
+     You NEVER see the raw digits. You will receive back session attributes with the result.
+  4. Do NOT attempt to collect card or PIN details via voice conversation or chat text. This violates PCI-DSS.
+
+  CHAT CHANNEL RULE:
+  - DTMF collection is VOICE ONLY. Never attempt to collect card/PIN details in chat.
+  - On chat: in <message>: "For your security, I'm unable to collect card details through chat. Please call us on 0800 123 456 where our team can assist you securely."
+
+  AFTER DTMF COLLECTION RETURNS (session attributes will contain):
+  - dtmf_result = "success" | "failed" | "lambda_error"
+  - dtmf_masked = "****4821"  (e.g. last four digits, masked)
+  - dtmf_last_four = "4821"   (for card look-up tools — never reveal in <message>)
+  - dtmf_purpose = "card_last_four" | "full_card_number" | "pin" | "account_number"
+
+  ON SUCCESS (dtmf_result = "success"):
+  - Proceed with the action the customer requested.
+  - Always refer to the card as "your card ending [dtmf_masked]" — never say the raw digits.
+  - Example: "I can see your card ending ****4821. Let me check that for you now."
+  - Use dtmf_last_four only as input to tool calls, not in spoken/chat responses.
+
+  ON FAILURE (dtmf_result = "failed" or "lambda_error"):
+  - Apologise and offer alternatives. Do NOT retry immediately — ask first.
+  - Example: "I'm sorry, I wasn't able to collect your card details securely. Would you like to try again, or shall I arrange a callback from one of our specialists?"
+  - If customer declines retry: escalate with escalation_reason: "complex_request", topicCategory: current topic.
+  - NEVER ask the customer to say or type the number instead — this is a hard security rule.
+
+  ## Callback Handling
+  A callback is when the customer prefers to be called back by a human advisor rather than
+  waiting on hold or accepting that no agents are available right now.
+
+  WHEN TO OFFER OR TRIGGER A CALLBACK:
+  - Customer says "call me back", "can someone call me", "I'd like a callback",
+    "I'll wait for a call", "is there another way to reach you", or equivalent.
+  - Customer has been told agents are unavailable and asks for an alternative.
+  - After DTMF collection fails and customer declines retry (offer callback as alternative).
+  - You cannot resolve the customer's issue and they request human assistance.
+
+  BEFORE RETURNING THE CALLBACK INTENT — ALWAYS CONFIRM THESE THREE THINGS:
+  1. What the callback is for (so the agent has context):
+     "I will arrange a callback for you regarding your [current topic]."
+  2. The callback number (confirm or collect):
+     VOICE: "Shall we call you back on the number you are calling from, or would you prefer
+             to use a different number?"
+     CHAT:  "Please let me know the phone number you would like us to call you back on."
+  3. Final confirmation:
+     "Just to confirm — I will arrange a callback regarding [topic] on [number]. Is that right?"
+
+  TRIGGERING THE CALLBACK INTENT:
+  - Return the Lex intent: RequestCallback
+  - Set session attribute: callbackReason = "customer_request"
+  - This hands control to the Connect callback flow. The conversation ends here.
+  - Final message before returning intent (VOICE):
+    "I have registered your callback request. An advisor from our [relevant] team will call
+     you back shortly during business hours. Thank you for calling Meridian Bank. Goodbye!"
+  - Final message before returning intent (CHAT):
+    "I have registered your callback request. An advisor will call you on [number] shortly
+     during business hours. Is there anything else I can help you with before we close this chat?"
+
+  QUEUE FULL / OUT OF HOURS — HANDLED AUTOMATICALLY BY CONNECT FLOW:
+  - You do NOT need to detect whether queues are full or whether it is out of business hours.
+  - The Connect flow handles this automatically and redirects to the callback offer.
+  - If a customer asks about wait times: "I don't have access to live wait time information,
+    but if our team is very busy you will be offered a callback option automatically."
+
+  CHAT CHANNEL — VOICE CALLBACK:
+  - Native Connect queued callbacks are VOICE ONLY (not available in chat natively).
+  - On chat, if a customer requests a callback: collect their phone number and trigger
+    the voice callback using the chat-to-voice transfer tool (target_channel='voice').
+  - Example: "I can arrange for one of our advisors to call you. What number shall we
+    call you on?" Then trigger the callback tool with that number.
+
+  WHAT THE RECEIVING AGENT WILL KNOW:
+  - The advisor who accepts your callback will hear a spoken briefing with the conversation
+    summary, topic category, and reason before they are connected to the customer.
+  - They are already briefed. The customer does not need to repeat themselves.
 
   ## Tone & Voice Guidelines
   - Natural, conversational British English.
@@ -2101,11 +2254,11 @@ editor:
 { "topicCategory": "mortgage",        "queueId": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",    "queueName": "Mortgage Advisors",   "proficiencyLevel": "3", "proficiencySkill": "Mortgage" }
 { "topicCategory": "credit_card",     "queueId": "d3037cfb-f265-47ff-a28e-f96bf6ab1279",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
 { "topicCategory": "debit_card",      "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
-{ "topicCategory": "fraud_security",  "queueId": "Y42646d26-77fb-49f7-a525-a40856c97539",   "queueName": "Fraud Team",          "proficiencyLevel": "4", "proficiencySkill": "Fraud" }
-{ "topicCategory": "complaint",       "queueId": "YOUR-COMPLAINTS-QUEUE-UUID",  "queueName": "Senior Advisors",     "proficiencyLevel": "3", "proficiencySkill": "Complaints" }
-{ "topicCategory": "current_account", "queueId": "YOUR-RETAIL-QUEUE-UUID",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
-{ "topicCategory": "savings_account", "queueId": "YOUR-RETAIL-QUEUE-UUID",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
-{ "topicCategory": "general_banking", "queueId": "YOUR-DEFAULT-QUEUE-UUID",     "queueName": "General Queue",       "proficiencyLevel": "1", "proficiencySkill": "General" }
+{ "topicCategory": "fraud_security",  "queueId": "42646d26-77fb-49f7-a525-a40856c97539",   "queueName": "Fraud Team",          "proficiencyLevel": "4", "proficiencySkill": "Fraud" }
+{ "topicCategory": "complaint",       "queueId": "ac5724b6-3602-4045-bb60-1fa81a6fa22c",  "queueName": "Senior Advisors",     "proficiencyLevel": "3", "proficiencySkill": "Complaints" }
+{ "topicCategory": "current_account", "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
+{ "topicCategory": "savings_account", "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
+{ "topicCategory": "general_banking", "queueId": "ae9b5b06-06e6-487c-945e-e67dc1462ea9",     "queueName": "General Queue",       "proficiencyLevel": "1", "proficiencySkill": "General" }
 ```
 
 > Replace every `YOUR-...-UUID` with the actual Queue ID from your Connect instance.
@@ -2231,23 +2384,78 @@ def _get_item(table, topic):
 
 ##### Step 4a — Set Contact Attributes (copy ARIA output)
 
-> **Why this block is needed:** ARIA's output is stored as *Lex session attributes*.
-> Lambda functions can only read *contact attributes*. This block bridges the two —
-> it copies the Lex session attributes into contact attributes so that Lambda can
-> read them.
+> **What is happening here — explained simply**
+>
+> When ARIA (the AI agent) decides to escalate, it fills in four pieces of information
+> before handing over — the topic it was discussing, the reason for escalating, a
+> summary of the conversation, and what the customer was trying to do. ARIA writes
+> these into something called **Lex session attributes** — a temporary holding area
+> that only exists while the bot conversation is active.
+>
+> The problem is that the Lambda function you are about to call (the routing lookup)
+> cannot read Lex session attributes directly. Lambda can only read **contact
+> attributes** — a different store that travels with the contact for its entire
+> lifetime in Connect.
+>
+> This **Set contact attributes** block is the bridge. It copies the four values
+> out of the Lex session attribute store and writes them into contact attributes,
+> where Lambda (and all downstream blocks) can read them.
+>
+> **Without this block, the routing Lambda receives empty values and falls back
+> to the general_banking queue for every contact.**
 
-Add a **Set contact attributes** block immediately after the `Escalate` condition output.
+---
 
-Configure each attribute as **Set dynamically** using the following mapping:
+**How to add the block**
 
-| Destination key (User Defined) | Source Namespace | Source Key |
-|---|---|---|
-| `topicCategory` | Lex – Session attributes | `topicCategory` |
-| `escalationReason` | Lex – Session attributes | `escalationReason` |
-| `customerIntent` | Lex – Session attributes | `customerIntent` |
-| `conversationSummary` | Lex – Session attributes | `conversationSummary` |
+In the Flow Designer, drag a **Set contact attributes** block onto the canvas and
+connect the **Escalate** condition output directly into it.
 
-Click **Save**.
+---
+
+**How to configure it — step by step**
+
+Open the block. You will see a list of attribute rows. For each row you need to:
+1. Set the **Destination** to `User Defined` and type the destination key name
+2. Set the **Type** to `Dynamic` (not "Static" — Static would hard-code a fixed value)
+3. Set the **Namespace** to `Lex – Session attributes`
+4. Set the **Attribute** (source key) to the matching Lex session attribute name
+
+Add **four rows** as shown below:
+
+| # | Destination — Type | Destination — Key | Source — Namespace | Source — Attribute | What this stores |
+|---|---|---|---|---|---|
+| 1 | User Defined | `topicCategory` | Lex – Session attributes | `topicCategory` | The banking topic ARIA was discussing (e.g. `mortgage`, `fraud_security`) |
+| 2 | User Defined | `escalationReason` | Lex – Session attributes | `escalationReason` | Why ARIA escalated (e.g. `customer_requested`, `complaint`) |
+| 3 | User Defined | `customerIntent` | Lex – Session attributes | `customerIntent` | Short phrase — what the customer was trying to do |
+| 4 | User Defined | `conversationSummary` | Lex – Session attributes | `conversationSummary` | 1–2 sentence summary written by ARIA for the human agent |
+
+> **Tip — what "Dynamic" means vs "Static":**
+> - **Static** = you type a fixed value in the block itself. Every contact gets the same value. Not useful here.
+> - **Dynamic** = the block reads the value from another part of Connect at runtime (in this case, from Lex). Each contact gets the actual value ARIA wrote. This is what you want.
+
+> **Tip — why the Namespace is "Lex – Session attributes":**
+> Amazon Connect separates data into different *namespaces* depending on where it came from.
+> The AI agent (ARIA/Lex) stores its output under the `Lex – Session attributes` namespace.
+> Other namespaces you may see are `System` (built-in Connect data like phone number, channel)
+> and `External` (data returned by a Lambda function). Each namespace has its own set of keys.
+
+Click **Save** on the block.
+
+---
+
+**What the data looks like after this block runs**
+
+After this block executes, the contact attributes store will contain:
+
+| Contact attribute key | Example value |
+|---|---|
+| `topicCategory` | `mortgage` |
+| `escalationReason` | `customer_requested` |
+| `customerIntent` | `Discuss 10% overpayment allowance on fixed-rate mortgage` |
+| `conversationSummary` | `Customer asked about lump-sum overpayment on 5-year fixed mortgage. Balance confirmed as £187,420. Wants to know if ERC-free allowance applies.` |
+
+These values are now readable by the Lambda function in the next block.
 
 ---
 
@@ -2311,6 +2519,7 @@ without asking the customer to repeat themselves.
 | `ariaTopicCategory` | External | `topicCategory` |
 | `ariaEscalationReason` | External | `escalationReason` |
 | `ariaCustomerIntent` | External | `customerIntent` |
+| `ariaQueueName` | External | `queueName` |
 
 > **What happens next with these attributes?**
 > The four values are now stored as contact attributes on this contact. They travel with
@@ -2328,78 +2537,189 @@ without asking the customer to repeat themselves.
 ###### How to build the CCP Screen Pop (Agent Event Flow)
 
 > **What is a screen pop?**
-> When an agent accepts a contact, Amazon Connect can automatically open a panel in their
-> CCP sidebar showing key information. You design exactly what appears in that panel using
-> a flow of type **Default agent UI**. The agent sees it the moment they click "Accept".
+> When a contact is offered to an agent in the Amazon Connect Agent Workspace, you can
+> automatically display a panel showing the handoff context — topic, queue, intent,
+> and summary. The agent sees this panel as soon as the contact arrives in their
+> workspace, before they even accept it.
+>
+> **How it works:** You create a regular **Inbound flow** (the default type) that
+> contains a **Show view** block. That block renders a UI page in the agent workspace.
+> You then use a **Set event flow** block in your inbound contact flow to tell Connect
+> to run that guide flow when the contact reaches an agent.
+>
+> ⚠️ **There is no "Default agent UI" flow type.** The guide flow is a standard
+> **Inbound flow** — do not try to find or change the flow type.
 >
 > **This works for both voice and chat contacts.**
 
-**Step 1 — Create the Agent UI Flow**
+---
 
-1. Go to **Amazon Connect console → Routing → Flows → Create flow**
-2. In the top-right corner, click the flow-type dropdown (it usually defaults to
-   "Inbound flow") and change it to **Default agent UI**
+**Step 1 — Create the guide flow**
 
-   > ⚠️ This step is critical. Only a **Default agent UI** flow can be used as a screen
-   > pop. If you leave it as any other type it will not appear in the Set event flow
-   > block's dropdown later.
-
-3. Name the flow: `ARIA-Agent-Screen-Pop`
+1. Go to **Amazon Connect console → Routing → Flows**
+2. Click the **Create flow** button (the plain button — do NOT use the dropdown arrow
+   next to it). This creates a standard **Inbound flow**, which is correct.
+3. Click the pencil icon next to the flow name at the top and name it:
+   `ARIA-Agent-Screen-Pop`
 4. Click **Save**
 
-**Step 2 — Add a "Show view" block**
+---
 
-The block that renders information in the agent's CCP is called **Show view**.
+**Step 2 — Add a Show view block**
 
-1. In the search box on the left panel, type `Show view` and drag it onto the canvas
-2. Connect the **Entry** point → **Show view** block
+The **Show view** block renders the screen pop panel in the agent workspace.
+
+1. In the **Search** bar on the left, type `Show view` and drag the block onto the canvas
+2. Click the **Entry** point and drag its arrow to connect it to the **Show view** block
 3. Double-click the **Show view** block to open its settings
-4. Under **View**, select **Detail page**
+4. In the **View** dropdown, select **Detail**
 
-   > The Detail page view is a pre-built CCP template that shows a title, a list of
-   > key/value attribute rows, and an optional action button. You do not need to write
-   > any HTML or UI code.
+   > **What is the Detail view?**
+   > A pre-built AWS template that displays a heading, a description subtitle, a compact
+   > attribute bar across the top, and a main body of labelled rows (Sections). You
+   > configure it by pasting a JSON object — no HTML or UI code required. This is the
+   > correct view for an agent handoff screen pop.
 
-5. Configure the Detail page fields:
+5. **Understand the Detail view input parameters**
 
-   | Field | Value to enter |
-   |---|---|
-   | **Title** | `ARIA Handoff Summary` |
-   | **Subtitle** | Select **Contact attribute** → Namespace: `User Defined` → Key: `ariaTopicCategory` |
-   | **Attribute 1 — Label** | `Customer Intent` |
-   | **Attribute 1 — Value** | Contact attribute → User Defined → `ariaCustomerIntent` |
-   | **Attribute 2 — Label** | `Escalation Reason` |
-   | **Attribute 2 — Value** | Contact attribute → User Defined → `ariaEscalationReason` |
-   | **Attribute 3 — Label** | `Conversation Summary` |
-   | **Attribute 3 — Value** | Contact attribute → User Defined → `ariaSummary` |
+   The Detail view has these named parameters — they do not match simple Title/Label/Value
+   fields; you need to know which one does what:
 
-   > You can add up to 10 attribute rows. Add `ariaQueueName` as a fourth row if you
-   > want the agent to see which queue they are in.
+   | Parameter | What it renders | Used for our screen pop? |
+   |---|---|---|
+   | **Heading** | Large title at the very top | ✅ Yes — `ARIA Handoff Summary` |
+   | **SubHeading** | Smaller subtitle line below the heading | ✅ Yes — topic category |
+   | **AttributesBar** | Compact badge strip above the heading — best for 1–3 key facts | ✅ Yes — queue name |
+   | **Sections** | Main body content — an **array** of rows with label + value | ✅ Yes — intent, reason, summary |
+   | **Back** | A "Back" navigation button | ❌ Not needed for a screen pop |
+   | **Actions** | Buttons the agent can click (each becomes a flow branch) | ❌ Not needed |
+   | **Components** | Custom UI components | ❌ Not needed |
+   | **Style** | Visual theme overrides | ❌ Not needed |
 
-6. Click **Save** on the block
+   > **Important:** `Sections` is a JSON array — you cannot configure it row-by-row in
+   > the UI. You must use the **Set JSON** option for the whole block. This is the
+   > recommended approach by AWS for the Detail view.
 
-**Step 3 — Add an End flow block**
+6. Configure using **Set JSON**
 
-1. Drag an **End flow** block onto the canvas
-2. Connect the **Show view** block's **Success** output → **End flow**
-3. Connect the **Show view** block's **Error** output → **End flow** as well
-   (so the flow does not stall if an attribute is missing)
+   Instead of configuring fields one-by-one, choose **Set using JSON** at the top of
+   the Show view properties pane. Paste the following JSON exactly:
+
+   > **Two versions of this JSON are needed** — one for Preview testing (static
+   > placeholder strings) and one for production (runtime attribute references).
+   > The `$.Attributes.*` path expressions only resolve when a real contact is
+   > flowing through the system — the Preview button cannot resolve them and will
+   > show an error if you use them. This is expected and does not mean the flow is broken.
+
+   **Step 6a — Paste this to test the Preview (static values):**
+
+   ```json
+   {
+     "Heading": "ARIA Handoff Summary",
+     "SubHeading": "mortgage",
+     "AttributesBar": [
+       { "Label": "Queue", "Value": "Mortgage Advisors" }
+     ],
+     "Sections": [
+       {
+         "Items": [
+           { "Label": "Customer Intent",   "Value": "Discuss overpayment options" },
+           { "Label": "Escalation Reason", "Value": "customer_requested" },
+           { "Label": "Summary",           "Value": "Customer asked about their 10% overpayment allowance." }
+         ]
+       }
+     ],
+     "Actions": ["Got it"]
+   }
+   ```
+
+   Once Preview renders the layout correctly, replace with the production JSON below.
+
+   **Step 6b — Replace with this for production (runtime attribute references):**
+
+   ```json
+   {
+     "Heading": "ARIA Handoff Summary",
+     "SubHeading": "$.Attributes.ariaTopicCategory",
+     "AttributesBar": [
+       { "Label": "Queue", "Value": "$.Attributes.ariaQueueName" }
+     ],
+     "Sections": [
+       {
+         "Items": [
+           { "Label": "Customer Intent",   "Value": "$.Attributes.ariaCustomerIntent" },
+           { "Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason" },
+           { "Label": "Summary",           "Value": "$.Attributes.ariaSummary" }
+         ]
+       }
+     ],
+     "Actions": ["Got it"]
+   }
+   ```
+
+   > **Why `Actions` is required:** Without an action button, the Show view block
+   > completes immediately and the panel disappears with "workflow completed". Adding
+   > `"Actions": ["Got it"]` keeps the panel on screen until the agent clicks the
+   > button to dismiss it.
+
+   > **What does `$.Attributes.<key>` mean?**
+   > This is the JSONPath syntax the Show view block uses to read **User Defined**
+   > contact attributes at runtime. The `ariaQueueName`, `ariaTopicCategory` etc.
+   > values are set in Step 4d of the main inbound flow. If any attribute is missing
+   > (e.g., contact was not escalated by ARIA), the field renders blank — no error.
+
+7. Click **Save** on the block
+
+---
+
+**Step 3 — Add an End flow block and connect everything**
+
+1. In the Search bar, type `End flow` and drag it onto the canvas
+2. Connect **Show view → Got it** output → **End flow**
+   (this is the branch the agent triggers by clicking the "Got it" button)
+3. Connect **Show view → Error** output → **End flow**
+4. Connect **Show view → Timeout** output → **End flow**
+   (if the agent doesn't click within the timeout, flow still completes cleanly)
+
+Canvas layout:
+```
+[Entry]
+   │
+   ▼
+[Show view — Detail]
+   │          │          │
+ Got it     Error     Timeout
+   └────┬────┘           │
+        │                │
+        └────────┬────────┘
+                 ▼
+             [End flow]
+```
+
+> **Why "Got it" and not "Success":** Once you add `"Actions": ["Got it"]` to the
+> JSON, the Show view block replaces the generic "Success" branch with a named
+> branch matching the action label. You must re-open the block and reconnect this
+> new "Got it" branch to End flow after saving the JSON.
+
+---
 
 **Step 4 — Save and Publish**
 
 1. Click **Save** (top right)
 2. Click **Publish**
 
-   > The flow must be **Published** (not just saved) before it appears in the
-   > Set event flow block. If you cannot find it in the dropdown in Step 5 below,
-   > check that you published it.
+   > ⚠️ The flow **must be Published** — not just Saved — before it appears as an
+   > option in the Set event flow block. If it does not appear in the dropdown in
+   > Step 5, come back here and confirm you clicked Publish.
 
-**Step 5 — Add a "Set event flow" block to your Inbound Contact Flow**
+---
 
-Now wire the screen pop into the same inbound contact flow where you added Steps 4a–4d.
+**Step 5 — Add a Set event flow block to your Inbound Contact Flow**
 
-1. Open your **Inbound Contact Flow** in the Flow Designer
-2. In the block search, type `Set event flow` and drag it onto the canvas
+This wires the guide flow to run when the contact reaches an agent.
+
+1. Open your **Inbound Contact Flow** (the main flow, not the guide flow you just created)
+2. In the Search bar, type `Set event flow` and drag it onto the canvas
 3. Place it **after the Set Contact Attributes block (Step 4d)** and
    **before the Transfer to Queue block (Step 4e)**
 
@@ -2420,22 +2740,27 @@ Now wire the screen pop into the same inbound contact flow where you added Steps
    | **Event** | Default flow for agent UI |
    | **Flow** | `ARIA-Agent-Screen-Pop` |
 
+   > If `ARIA-Agent-Screen-Pop` does not appear in the Flow dropdown, go back and
+   > confirm you clicked **Publish** (not just Save) on the guide flow in Step 4.
+
 5. Click **Save** on the block
-6. Connect the **Set event flow** Success output → **Transfer to Queue**
-7. Connect the **Set event flow** Error output → **Transfer to Queue** as well
-   (so a missing flow does not block the transfer)
+6. Connect **Set event flow → Success** output → **Transfer to Queue**
+7. Connect **Set event flow → Error** output → **Transfer to Queue**
 8. **Save** and **Publish** the inbound contact flow
+
+---
 
 **What the agent sees**
 
-When the agent clicks **Accept** on the incoming contact, a panel appears in their
-CCP sidebar immediately:
+The panel appears in the agent workspace as soon as the contact is offered —
+they do not need to accept it first or click any tab:
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  ARIA Handoff Summary                               │
 │  mortgage                                           │
 │                                                     │
+│  Queue:             Mortgage Advisors               │
 │  Customer Intent:   Discuss overpayment options     │
 │  Escalation Reason: customer_requested              │
 │  Conversation Summary:                              │
@@ -2446,24 +2771,20 @@ CCP sidebar immediately:
 └─────────────────────────────────────────────────────┘
 ```
 
-> The panel appears on **both voice and chat** contacts. The agent does not need to
-> click any tab — it opens automatically when they accept the contact.
-
 **Fallback: Contact Attributes tab (zero configuration)**
 
-Even if you skip the screen pop entirely, every attribute set in Step 4d is **always
-visible** in the agent's CCP under the **Contact attributes** tab (the small info icon
-in the CCP toolbar). The agent must click it manually, but the data is always there.
-This is useful as a fallback while you are setting up the screen pop flow.
+Every attribute set in Step 4d is always visible in the agent's CCP under the
+**Contact attributes** tab. The agent must click it manually, but the data is always
+there. Use this as a fallback while setting up the screen pop flow.
 
 **Troubleshooting**
 
 | Problem | Likely cause | Fix |
 |---|---|---|
-| Screen pop panel does not appear | Set event flow block not added, or flow not Published | Confirm block is in the inbound flow and `ARIA-Agent-Screen-Pop` is Published |
-| Panel appears but fields show "null" or blank | Set Contact Attributes block (Step 4d) is missing or runs after Set event flow | Ensure Step 4d runs **before** the Set event flow block |
-| `ARIA-Agent-Screen-Pop` not in the dropdown | Flow saved but not Published, or wrong flow type | Publish the flow; confirm type is **Default agent UI** not "Inbound flow" |
-| Error output fires on Set event flow | Flow name typo, or flow was unpublished | Re-publish `ARIA-Agent-Screen-Pop` and check the flow name matches exactly |
+| Screen pop panel does not appear | Set event flow block missing or flow not Published | Confirm block is in the inbound flow and `ARIA-Agent-Screen-Pop` is Published |
+| Panel appears but fields show blank | Step 4d (Set Contact Attributes) runs after Set event flow, or was skipped | Ensure Step 4d runs **before** the Set event flow block |
+| `ARIA-Agent-Screen-Pop` not in the Flow dropdown | Flow saved but not Published | Click Publish on the guide flow, then re-open Set event flow block |
+| Error output fires on Set event flow | Flow name typo or flow was unpublished | Re-publish `ARIA-Agent-Screen-Pop` and verify name matches exactly |
 
 ---
 
@@ -6486,6 +6807,2141 @@ to invoke your session injector Lambda:
 | Permission | Resource scope | Reason |
 |---|---|---|
 | `connect:UpdateContactAttributes` | Connect instance contact ARN (`instance/*/contact/*`) | Set `requestChatTransfer` or `requestVoiceTransfer` on the live contact so the flow branches correctly |
+
+---
+
+## Part K — DTMF Masking with KMS Encryption (Secure Data Collection)
+
+> **What this Part covers:**
+> How to collect sensitive digits from a customer — card numbers, PINs, account numbers —
+> without any agent (human or AI) ever seeing the raw digits.  Amazon Connect encrypts
+> each keypress immediately using RSA public-key cryptography.  A Lambda function decrypts
+> the result using a private key that is itself protected by AWS KMS.
+>
+> **The key insight for this Part:**
+> The blocks that actually collect and decrypt the digits are **the same regardless of
+> whether an AI agent or a human agent is on the call**.  You build the secure collection
+> logic once (Section K.5) and then connect it to whichever invoker needs it:
+> - **AI agent (ARIA):** the main inbound flow transfers to the collection sub-flow
+>   when ARIA signals it needs secure input; results come back via Lex session attributes.
+> - **Human agent:** the agent clicks a Quick Connect in their CCP; a wrapper flow
+>   puts the agent on mute, runs the same collection logic, then brings the agent back.
+
+---
+
+### K.1 — What is DTMF Masking? (Plain English)
+
+**What is DTMF?**
+DTMF stands for **Dual-Tone Multi-Frequency**.  It is the technical name for the
+tones your phone produces when you press a digit key.  Each digit (0–9, *, #) produces
+a unique combination of two audio frequencies.  Amazon Connect can detect these tones
+and capture the digit — without recording the actual audio — so the agent never hears
+"beep beep beep four eight two one" on the call.
+
+**Why do we need masking?**
+Regulations like PCI-DSS (Payment Card Industry Data Security Standard) require that
+card numbers must not be audible to agents or recorded in call recordings.  If a customer
+says their card number out loud, that violates PCI.  If a customer types it into their
+keypad and a human agent can hear the tones, that also violates PCI.
+
+**How masking solves this:**
+When "Encrypt entry" is enabled on the `Store customer input` block:
+
+1. The customer presses digits on their keypad.
+2. Connect captures the DTMF tones silently — they do **not** go out over the audio stream.
+3. Connect encrypts the digits immediately, before storing them anywhere.
+4. The encrypted result is stored as a contact attribute (`$.StoredCustomerInput`).
+5. A Lambda function decrypts the result and returns a **masked display value** like `****4821`.
+6. The masked value is shown to the agent.  The raw digits are never stored, logged, or
+   transmitted after decryption — they live only in Lambda memory for milliseconds.
+
+**Analogy:** Imagine a sealed envelope.  The customer writes their card number inside,
+seals it with a special lock only the bank's vault can open, and hands you the envelope.
+You can see that an envelope was received, but you cannot read what is inside.
+The vault (Lambda + KMS) opens it in private, confirms "yes, the card ends in 4821",
+and hands you just that confirmation.
+
+---
+
+### K.2 — How the Full Encryption Chain Works
+
+Read this section carefully before building anything.  It shows how every piece fits
+together so that nothing is unclear when you configure the flow blocks.
+
+```
+ ┌─────────────────────────────────────────────────────────────────┐
+ │                    ONE-TIME SETUP (do this first)               │
+ │                                                                 │
+ │  1. Generate RSA key pair (openssl) on your secure machine      │
+ │     ├── Private key (.pem) → AWS Secrets Manager (KMS encrypts) │
+ │     └── Public key  (.pem) → Amazon Connect instance settings   │
+ └─────────────────────────────────────────────────────────────────┘
+
+ ┌─────────────────────────────────────────────────────────────────┐
+ │                  AT CALL TIME (every call)                      │
+ │                                                                 │
+ │  Customer presses digits on their keypad                        │
+ │         │                                                       │
+ │         ▼                                                       │
+ │  [Store customer input — Encrypt entry: ON]                     │
+ │   Connect reads the public key you uploaded                     │
+ │   Encrypts digits:  RSA-OAEP-SHA512  →  base64 ciphertext      │
+ │         │                                                       │
+ │         ▼                                                       │
+ │   $.StoredCustomerInput = "ABCDef123...=="  (ciphertext)        │
+ │         │                                                       │
+ │         ▼                                                       │
+ │  [Lambda block — aria-dtmf-decrypt]                             │
+ │   1. Lambda calls Secrets Manager for private key               │
+ │   2. Secrets Manager calls KMS → KMS decrypts the secret        │
+ │   3. Lambda holds private key in memory (never logged)          │
+ │   4. Lambda uses AWS Encryption SDK to decrypt ciphertext       │
+ │   5. Lambda returns: status="success", maskedValue="****4821"   │
+ │         │                                                       │
+ │         ▼                                                       │
+ │  [Set contact attributes]                                       │
+ │   dtmf_masked = "****4821"   ← safe to show to anyone          │
+ │   dtmf_result = "success"                                       │
+ │         │                                                       │
+ │         ▼                                                       │
+ │  [Human agent CCP shows "****4821"]                             │
+ │  [AI agent receives dtmf_result=success in session attributes]  │
+ └─────────────────────────────────────────────────────────────────┘
+```
+
+**Where KMS fits — explained in plain English:**
+
+| What | KMS role | Plain English |
+|---|---|---|
+| RSA public key | ❌ KMS not involved | You upload the .pem to Connect directly |
+| RSA private key | ✅ KMS encrypts it at rest in Secrets Manager | The private key is stored locked in a vault; KMS holds the vault key |
+| DTMF ciphertext ($.StoredCustomerInput) | ❌ KMS not involved | Connect encrypted this with RSA, not KMS |
+| Lambda retrieves private key | ✅ KMS decrypts the Secrets Manager secret | When Lambda asks for the private key, KMS quietly decrypts it first |
+| Contact Trace Record (CTR) | ❌ Raw digits never there | CTR only stores the masked value or the ciphertext — never plaintext digits |
+
+**Important: Voice only**
+
+The `Store customer input` block with "Encrypt entry" only works on **voice** calls.
+If a chat customer reaches this block, it immediately takes the **Error** branch.
+Every flow you build must check the channel first and give chat customers an alternative
+(e.g. "Please call us to provide card details securely").
+
+---
+
+### K.3 — One-Time Setup (Do This Before Building Any Flows)
+
+This section is done once per AWS environment.  If you are setting up a development
+environment and a production environment, repeat these steps for each.
+
+#### Step 1 — Generate the RSA Key Pair
+
+> **Do this on your own laptop or a dedicated secure machine.  Not a shared CI server.**
+
+Open a terminal and run:
+
+```bash
+# Create a directory to work in (keep it away from git repos)
+mkdir ~/meridian-dtmf-keys && cd ~/meridian-dtmf-keys
+
+# Generate the RSA private key (4096-bit — required for banking grade security)
+openssl genrsa -out meridian-connect-private.pem 4096
+
+# Generate the public key as a self-signed X.509 certificate (.pem format)
+# Connect requires a certificate, not just a raw public key
+openssl req -new -x509 \
+  -key meridian-connect-private.pem \
+  -out meridian-connect-public.pem \
+  -days 1825 \
+  -subj "/CN=meridian-connect-dtmf/O=Meridian Bank/C=GB"
+```
+
+You will now have two files:
+- `meridian-connect-private.pem` — **NEVER share this.  Never commit it to git.**
+- `meridian-connect-public.pem` — safe to share; this goes to Connect.
+
+#### Step 2 — Create the KMS Customer Managed Key (CMK)
+
+The KMS CMK will protect the private key when it is stored in Secrets Manager.
+
+```bash
+# Create the KMS key
+KEY_OUTPUT=$(aws kms create-key \
+  --description "Meridian Bank Connect DTMF private key protection" \
+  --key-usage ENCRYPT_DECRYPT \
+  --region eu-west-2 \
+  --output json)
+
+# Extract the key ID
+KEY_ID=$(echo $KEY_OUTPUT | python3 -c "import sys,json; print(json.load(sys.stdin)['KeyMetadata']['KeyId'])")
+echo "KMS Key ID: $KEY_ID"
+
+# Create a human-readable alias so you can reference it by name
+aws kms create-alias \
+  --alias-name alias/meridian-connect-dtmf \
+  --target-key-id "$KEY_ID" \
+  --region eu-west-2
+```
+
+Note the key ARN — you will need it for the Lambda IAM policy.
+
+#### Step 3 — Store the Private Key in Secrets Manager
+
+```bash
+# Store the private key PEM in Secrets Manager, encrypted by the KMS CMK you just created
+aws secretsmanager create-secret \
+  --name "meridian/connect/dtmf-private-key" \
+  --description "RSA private key for Connect DTMF decryption — Meridian Bank" \
+  --secret-string file://meridian-connect-private.pem \
+  --kms-key-id "alias/meridian-connect-dtmf" \
+  --region eu-west-2
+```
+
+> **After this command succeeds:**
+> 1. Note the full ARN from the response (starts with `arn:aws:secretsmanager:...`)
+> 2. **Securely delete** the local .pem file: `rm -P ~/meridian-dtmf-keys/meridian-connect-private.pem`
+>    The `-P` flag overwrites the file before deleting.  The private key now lives **only**
+>    in Secrets Manager.
+
+#### Step 4 — Upload the Public Key to Amazon Connect
+
+1. Go to **AWS Console → Amazon Connect → Your instance name**
+2. In the left panel, click **Security keys**
+3. Click **Add key**
+4. Click **Choose file** and select `meridian-connect-public.pem`
+5. Click **Add**
+6. Connect assigns a **Key ID** (a short UUID-style string) — note this down.
+   It will look like: `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+
+> **This Key ID must match in every `Store customer input` block in your flows.**
+> Write it down somewhere safe.  You will reference it many times.
+
+You can now delete the public .pem file from your local machine — it is already in Connect.
+
+---
+
+### K.4 — Deploy the Decryption Lambda
+
+The Lambda code is at: `scripts/lambdas/aria_dtmf_decrypt.py`
+
+#### Step 1 — Create the Lambda IAM Role
+
+1. Go to **IAM → Roles → Create role**
+2. **Trusted entity:** Lambda
+3. **Role name:** `aria-dtmf-decrypt-role`
+4. Attach a custom inline policy with this JSON (replace the ARNs):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GetPrivateKey",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:eu-west-2:395402194296:secret:meridian/connect/dtmf-private-key-*"
+    },
+    {
+      "Sid": "KMSDecryptForSecrets",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:eu-west-2:395402194296:key/<YOUR_KMS_KEY_ID>"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-dtmf-decrypt:*"
+    }
+  ]
+}
+```
+
+Replace `<YOUR_KMS_KEY_ID>` with the key ID from Step 2 in the previous section.
+
+#### Step 2 — Create a Lambda Layer for Dependencies
+
+The Lambda needs two Python packages that are not in the default Lambda runtime:
+
+```bash
+# Create a temporary directory
+mkdir -p /tmp/dtmf-layer/python
+
+# Install the packages into it
+pip install aws-encryption-sdk cryptography \
+  --target /tmp/dtmf-layer/python \
+  --platform manylinux2014_x86_64 \
+  --python-version 3.11 \
+  --only-binary=:all:
+
+# Zip it up
+cd /tmp/dtmf-layer && zip -r dtmf-layer.zip python/
+
+# Create the Lambda Layer
+aws lambda publish-layer-version \
+  --layer-name aria-dtmf-dependencies \
+  --description "AWS Encryption SDK + cryptography for DTMF decryption" \
+  --zip-file fileb:///tmp/dtmf-layer/dtmf-layer.zip \
+  --compatible-runtimes python3.11 \
+  --region eu-west-2
+```
+
+Note the **Layer Version ARN** from the response.
+
+#### Step 3 — Create the Lambda Function
+
+```bash
+# Zip the Lambda code
+cd /path/to/awsagentcore
+zip -j /tmp/aria_dtmf_decrypt.zip scripts/lambdas/aria_dtmf_decrypt.py
+
+# Create the Lambda
+aws lambda create-function \
+  --function-name aria-dtmf-decrypt \
+  --runtime python3.11 \
+  --role arn:aws:iam::395402194296:role/aria-dtmf-decrypt-role \
+  --handler aria_dtmf_decrypt.handler \
+  --zip-file fileb:///tmp/aria_dtmf_decrypt.zip \
+  --timeout 10 \
+  --memory-size 256 \
+  --environment "Variables={
+    PRIVATE_KEY_SECRET_ARN=arn:aws:secretsmanager:eu-west-2:395402194296:secret:meridian/connect/dtmf-private-key-XXXXXX,
+    CONNECT_KEY_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
+  }" \
+  --layers arn:aws:lambda:eu-west-2:395402194296:layer:aria-dtmf-dependencies:1 \
+  --region eu-west-2
+```
+
+Replace `XXXXXX` with the actual suffix from the Secrets Manager ARN and the Key ID
+with the one from Step 4 of the setup above.
+
+#### Step 4 — Give Amazon Connect Permission to Invoke the Lambda
+
+```bash
+aws lambda add-permission \
+  --function-name aria-dtmf-decrypt \
+  --statement-id AllowConnectInvoke \
+  --action lambda:InvokeFunction \
+  --principal connect.amazonaws.com \
+  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/<YOUR_CONNECT_INSTANCE_ID> \
+  --region eu-west-2
+```
+
+Then add the function to your Connect instance:
+1. **Amazon Connect console → Your instance → Flows → AWS Lambda**
+2. Click **Add Lambda function**
+3. Select `aria-dtmf-decrypt` from the dropdown
+4. Click **Add Lambda function** to confirm
+
+#### What the Lambda returns to Connect
+
+When the Lambda block completes in the flow, Connect stores the return values as
+**External namespace** attributes.  You reference them in later blocks like:
+
+| To reference this | Use namespace | Use key |
+|---|---|---|
+| `status` | External | `status` |
+| `maskedValue` | External | `maskedValue` |
+| `digitCount` | External | `digitCount` |
+| `lastFour` | External | `lastFour` |
+| `errorMessage` | External | `errorMessage` |
+
+---
+
+### K.5 — The Shared DTMF Collection Sub-Flow (Build This Once, Use Twice)
+
+> **This is the heart of Part K.**  The blocks in this sub-flow are the same whether
+> an AI agent or a human agent triggered the collection.  You build this flow once.
+> The AI agent path and human agent path each have a small wrapper that invokes this
+> same sub-flow.
+
+**Flow name:** `ARIA-DTMF-SecureCollection`
+**Flow type:** Inbound flow (standard type — choose "Create flow" without changing the type)
+
+#### What this flow does (plain English)
+
+1. Checks the channel — if chat, plays a message and ends (DTMF is voice-only).
+2. Plays a prompt telling the customer what to enter.
+3. Silently captures the DTMF digits — encrypted immediately.
+4. Calls the decrypt Lambda.
+5. Checks whether decryption succeeded.
+6. If success: stores the masked result, plays a thank-you prompt.
+7. If failure: tries again up to 3 times total; after 3 failures stores a "failed" result.
+8. Ends the sub-flow — control returns to whatever invoked it (AI agent flow or human
+   agent wrapper).
+
+#### Step-by-step: Building the flow in the Connect Flow Designer
+
+**To open the flow designer:**
+1. Go to **Routing → Flows** in the left navigation
+2. Click **Create flow** (the blue button, top right)
+3. A blank canvas opens with just an **Entry point** block
+4. Click the flow name at the top left (it says "Untitled") and type:
+   `ARIA-DTMF-SecureCollection`
+
+---
+
+**Block 1 — Check Contact Attributes (channel check)**
+
+> **Why:** DTMF encryption only works on voice.  Chat customers must be told to call instead.
+
+1. In the search bar on the left panel, type: `Check contact`
+2. Drag **Check contact attributes** onto the canvas
+3. Connect the **Entry point** block's output arrow to this block
+4. Double-click the block to open its settings
+5. Configure:
+   - **Attribute to check:** Select **System** from the namespace dropdown, then select **Channel**
+   - Click **Add condition**
+   - Condition: **Equals** | Value: `VOICE`
+6. Click **Save**
+
+This block now has two output branches: **= VOICE** (the voice path) and **No match** (chat/task path).
+
+---
+
+**Block 2a — Play prompt (chat rejection message)**
+
+> **Why:** Chat customers reaching this block need a friendly explanation.
+
+1. Drag a **Play prompt** block onto the canvas
+2. Connect the **No match** output of Block 1 to this block
+3. Double-click to configure:
+   - Select **Text to speech**
+   - Language: **English (British) — Joanna** (or your preferred voice)
+   - Text:
+     ```
+     I'm sorry, secure card entry is only available over the phone.
+     Please call us on 0800 123 456 to provide your card details securely.
+     ```
+4. Click **Save**
+
+---
+
+**Block 2b — Disconnect (after chat rejection)**
+
+1. Drag a **Disconnect / hang up** block onto the canvas
+2. Connect Block 2a's output to this block
+
+---
+
+**Block 3 — Set contact attributes (initialise retry counter)**
+
+> **Why:** We want to retry up to 3 times if the customer doesn't enter digits.
+> We track how many attempts have been made using a contact attribute called `dtmfRetries`.
+
+1. Drag **Set contact attributes** onto the canvas
+2. Connect the **= VOICE** output of Block 1 to this block
+3. Double-click to configure:
+   - Click **Add attribute**
+   - Type: **User Defined** | Destination key: `dtmfRetries` | Value: `0`
+   - Click **Add attribute** again
+   - Type: **User Defined** | Destination key: `dtmf_result` | Value: `pending`
+4. Click **Save**
+
+---
+
+**Block 4 — Play prompt (instruction to customer)**
+
+> **Why:** Tell the customer exactly what to enter.
+
+1. Drag a **Play prompt** block onto the canvas
+2. Connect Block 3's output to this block
+3. Double-click to configure:
+   - Select **Text to speech**
+   - Text:
+     ```
+     Please enter the last four digits of your card number,
+     followed by the hash key.
+     ```
+     *(Adjust wording to match what you are collecting — PIN, full card, account number, etc.)*
+4. Click **Save**
+
+---
+
+**Block 5 — Store customer input (the encryption block)**
+
+> **Why:** This is the block that collects and encrypts the DTMF digits.
+> This is the core of DTMF masking.
+
+1. In the search bar, type: `Store customer`
+2. Drag **Store customer input** onto the canvas
+3. Connect Block 4's output to this block
+4. Double-click to configure:
+
+   **Prompts tab:**
+   - Set type: **Text to speech**
+   - Text: *(leave blank — Block 4 already played the instruction)*
+     OR enter a short repeat: `Enter your digits followed by hash.`
+
+   **DTMF tab:**
+   - ✅ **Encrypt entry** — tick this checkbox
+   - **Key:** Select the key ID you uploaded to Connect in K.3 Step 4
+     (it appears in the dropdown by name)
+   - **Maximum number of digits:** `4`  *(or 16 for full card, 4 for PIN, etc.)*
+   - **Terminating keypress:** `#`
+   - **Timeout before first entry (seconds):** `15`
+   - **Timeout between entries (seconds):** `5`
+
+5. Click **Save**
+
+This block has three output branches:
+- **Stored** — digits were successfully captured
+- **No entry** — customer didn't press anything within the timeout
+- **Error** — something went wrong with the block itself
+
+---
+
+**Block 6 — Invoke AWS Lambda function (decrypt)**
+
+> **Why:** The digits are encrypted.  We call the Lambda to decrypt them and
+> return a safe masked value.
+
+1. Drag **Invoke AWS Lambda function** onto the canvas
+2. Connect the **Stored** output of Block 5 to this block
+3. Double-click to configure:
+   - **Function:** Select `aria-dtmf-decrypt` from the dropdown
+   - **Timeout:** `8` seconds
+   - Under **Function input parameters**, click **Add parameter** and add:
+     - Key: `encryptedValue` | Type: **System** | Attribute: **Stored customer input**
+     - Key: `purpose` | Type: **User Defined** | Attribute: `collectionPurpose`
+       *(if you set this attribute before entering the sub-flow, e.g. "card_last_four")*
+     - Key: `keyId` | Type: **User Defined** | Attribute: `connectKeyId`
+       *(or type the key ID directly as a static value if you only have one key)*
+4. Click **Save**
+
+---
+
+**Block 7 — Check contact attributes (did Lambda succeed?)**
+
+> **Why:** The Lambda returns `status = "success"` or `status = "failed"`.
+> We check this to branch the flow.
+
+1. Drag **Check contact attributes** onto the canvas
+2. Connect Block 6's **Success** output to this block
+3. Double-click to configure:
+   - Namespace: **External** | Attribute: `status`
+   - Add condition: **Equals** | Value: `success`
+4. Click **Save**
+
+---
+
+**Block 8 — Set contact attributes (store the result)**
+
+> **Why:** Copy the Lambda's return values from the External namespace into
+> User Defined attributes.  This is how they persist on the contact record.
+
+1. Drag **Set contact attributes** onto the canvas
+2. Connect the **= success** output of Block 7 to this block
+3. Double-click and add these attributes (all **Set dynamically**):
+
+   | Destination key (User Defined) | Source namespace | Source key |
+   |---|---|---|
+   | `dtmf_result` | User Defined (static value) | `success` |
+   | `dtmf_masked` | External | `maskedValue` |
+   | `dtmf_last_four` | External | `lastFour` |
+   | `dtmf_digit_count` | External | `digitCount` |
+
+4. Click **Save**
+
+---
+
+**Block 9 — Play prompt (success confirmation)**
+
+1. Drag **Play prompt** onto the canvas
+2. Connect Block 8's output to this block
+3. Configure:
+   - Text: `Thank you. I have securely captured your details.`
+4. Click **Save**
+
+---
+
+**Block 10 — End flow (success path)**
+
+1. Drag **End flow** onto the canvas
+2. Connect Block 9's output to this block
+
+---
+
+**Block 11 — Set contact attributes (retry increment)**
+
+> **Why:** When the customer doesn't enter digits or there's an error, we increment
+> the retry counter and try again — up to 3 times.
+
+1. Drag **Set contact attributes** onto the canvas
+2. Connect **both** the **No entry** output of Block 5
+   **and** the **No match** output of Block 7 (Lambda said "failed") to this block
+3. Double-click and add one attribute:
+   - Destination key: `dtmfRetries`
+   - Type: **Increment by** (if available) — if not available, use a separate
+     **Check → Set** pattern described below
+
+   > **Note on incrementing:** The Set contact attributes block cannot do arithmetic.
+   > Use this workaround: create separate paths for retry 1, 2, and 3 by checking
+   > the value of `dtmfRetries` with a **Check contact attributes** block.
+   > See the retry sub-pattern below.
+
+---
+
+**Retry sub-pattern (blocks 11a–11d):**
+
+Because Connect cannot increment a number in a single block, the retry logic uses a
+check-and-branch approach:
+
+```
+[Block 5 — No entry output]
+    │
+    ▼
+[Block 11a — Check contact attributes]
+  dtmfRetries = "0" ?
+  dtmfRetries = "1" ?
+  dtmfRetries = "2" ?
+  No match (3rd failure)
+    │              │              │              │
+  = "0"          = "1"          = "2"         No match
+    │              │              │              │
+    ▼              ▼              ▼              ▼
+[Block 11b]   [Block 11c]   [Block 11d]   [Block 12 — final failure]
+ Set retries=1  Set retries=2  Set retries=3
+ Play "please    Play "please   Play "I'm sorry,
+ try again"      try again"     I was unable to
+    │              │             collect your details."
+    └──────────────┘                   │
+           │                           ▼
+           └──────────────────────►[Block 12 — End flow (failure)]
+           loop back to Block 4          Set dtmf_result = "failed"
+```
+
+**To build Block 11a (Check retries):**
+1. Drag **Check contact attributes** onto the canvas
+2. Connect **No entry** and **Error** from Block 5 to this block
+3. Also connect **No match** from Block 7 (Lambda returned "failed") to this block
+4. Configure:
+   - Namespace: **User Defined** | Attribute: `dtmfRetries`
+   - Add condition: **Equals** | Value: `0`
+   - Add condition: **Equals** | Value: `1`
+   - Add condition: **Equals** | Value: `2`
+5. Click **Save**
+
+**Block 11b — Set retry count (after first failure):**
+1. Drag **Set contact attributes**
+2. Connect **= 0** from Block 11a to this block
+3. Set `dtmfRetries` = `1` (static value)
+4. Add a **Play prompt**: `"I'm sorry, I didn't catch that. Please try again."`
+5. Connect Play prompt output → back to Block 4 (the instruction prompt)
+
+**Block 11c — Set retry count (after second failure):**
+1. Same as 11b, connect **= 1** → set `dtmfRetries` = `2`
+2. Play prompt: `"Please try again — enter your digits followed by the hash key."`
+3. Connect back to Block 4
+
+**Block 11d — Set retry count (after third failure):**
+1. Connect **= 2** → set `dtmfRetries` = `3`
+2. Play prompt: `"One more attempt."`
+3. Connect back to Block 4
+
+**Block 12 — Final failure handling:**
+1. Connect **No match** from Block 11a (that's the 4th attempt = 3 retries exhausted)
+2. Drag **Set contact attributes**:
+   - `dtmf_result` = `failed`
+   - `dtmf_masked` = `` (empty)
+3. Drag **Play prompt**:
+   `"I'm sorry, I wasn't able to collect your details securely.
+    Your agent will continue to assist you."`
+4. Connect to **End flow**
+
+---
+
+**Block 13 — Lambda block Error handling:**
+
+1. Connect **Error** output of Block 6 (Lambda) to a **Set contact attributes** block:
+   - `dtmf_result` = `lambda_error`
+   - `dtmf_masked` = `` (empty)
+2. Connect to **End flow**
+
+---
+
+**Final step: Publish the sub-flow**
+
+Click **Save** (top right) and then **Publish**.
+
+> You cannot test a flow that has not been Published.  Saving creates a draft;
+> Publish makes it active and available for other flows to transfer into.
+
+---
+
+### K.6 — AI Agent Path: How ARIA Triggers DTMF Collection and Receives Results
+
+#### How the AI agent flow integrates with the sub-flow
+
+```
+ CUSTOMER: "I'd like to check my credit card balance"
+         │
+         ▼
+ ARIA: "I need to verify your card.  Please stay on the line while I
+        transfer you to our secure input system."
+         │
+ Lex intent returned: CollectCardDetails
+         │
+         ▼
+ [Main inbound flow — Check intent]
+   Intent = CollectCardDetails
+         │
+         ▼
+ [Set contact attributes]  ← prepare the sub-flow
+   collectionPurpose = "card_last_four"
+   connectKeyId = "a1b2c3d4-..."
+         │
+         ▼
+ [Transfer to flow: ARIA-DTMF-SecureCollection]  ← enters the shared sub-flow
+         │
+         │  (sub-flow runs, customer enters digits, Lambda decrypts)
+         │
+         ▼
+ [Back in main flow — contact attributes now contain dtmf_result, dtmf_masked]
+         │
+         ▼
+ [Set session attributes on Lex]  ← pass results back to the AI agent
+   dtmf_result    = $.Attributes.dtmf_result
+   dtmf_masked    = $.Attributes.dtmf_masked
+   dtmf_last_four = $.Attributes.dtmf_last_four
+   dtmf_purpose   = $.Attributes.collectionPurpose
+         │
+         ▼
+ [Get customer input → ARIA (Lex bot)]  ← AI agent RESUMES with results in context
+         │
+ ARIA: "I can see your card ending in 4821 has a balance of £1,247.50."
+```
+
+#### Step-by-step: Adding the trigger to the Main Inbound Flow
+
+> **Open the flow:** Routing → Flows → `ARIA-Unified-Inbound-Flow` → Edit
+
+**Block A — Check intent (after the main Get customer input block)**
+
+After your existing `Get customer input → ARIA Lex bot` block, you will already
+have branches for intents like `Escalate`.  Add a new branch:
+
+1. Double-click the **Get customer input** block
+2. Scroll to the **Intents** section
+3. Click **Add intent**
+4. Type: `CollectCardDetails`
+5. Click **Save**
+
+You will now see a new branch on the block labelled `CollectCardDetails`.
+
+**Block B — Set contact attributes (pre-fill sub-flow parameters)**
+
+1. Drag **Set contact attributes** onto the canvas
+2. Connect the `CollectCardDetails` output to this block
+3. Configure:
+   - `collectionPurpose` = `card_last_four` (static)
+   - `connectKeyId` = `a1b2c3d4-e5f6-7890-abcd-ef1234567890` (your key ID, static)
+4. Click **Save**
+
+**Block C — Transfer to flow**
+
+1. Drag **Transfer to flow** onto the canvas
+2. Connect Block B's output to this block
+3. Double-click to configure:
+   - Select **ARIA-DTMF-SecureCollection** from the dropdown
+4. Click **Save**
+
+**Block D — Set session attributes (after sub-flow returns)**
+
+> **How does control return?**  When the sub-flow ends with an **End flow** block,
+> Amazon Connect returns execution to the block *after* the Transfer to flow block
+> in the calling flow.
+
+1. Drag **Set contact attributes** after Block C's **Success** output
+2. Configure (all **Set dynamically**, source: **User Defined**):
+   - This block doesn't add new attributes — the sub-flow already set them.
+   - But you need a **Get customer input** block here to resume ARIA.
+
+**Block E — Get customer input (resume ARIA)**
+
+1. Drag **Get customer input** onto the canvas
+2. Connect Block D's output to this block
+3. Configure exactly like your existing ARIA bot block:
+   - **Lex bot:** ARIA Meridian Bank bot
+   - **Alias:** your published alias
+4. Under **Session attributes**, add dynamic mappings so the sub-flow results are
+   passed to ARIA as Lex session attributes:
+
+   | Session attribute key | Source namespace | Source key |
+   |---|---|---|
+   | `dtmf_result` | User Defined | `dtmf_result` |
+   | `dtmf_masked` | User Defined | `dtmf_masked` |
+   | `dtmf_last_four` | User Defined | `dtmf_last_four` |
+   | `dtmf_purpose` | User Defined | `collectionPurpose` |
+
+5. Click **Save**
+
+ARIA will now receive these as session attributes in its next invocation and can
+act on them accordingly.
+
+#### System prompt addition for ARIA (add to Section D.3)
+
+Find the system prompt in `docs/aria-connect-voice-chat-novice-guide.md` Section D.3
+and add this block to the tool behaviour section:
+
+```yaml
+## Secure data collection (DTMF)
+
+When you need to verify a card or collect a sensitive number:
+1. Tell the customer you will transfer them to a secure input system briefly.
+   Example: "I'll just transfer you to our secure input system to collect
+             your card details — it will only take a moment."
+2. Return the Lex intent: CollectCardDetails
+   Do NOT ask the customer to say or type the number in conversation.
+
+When the conversation resumes and session attributes contain dtmf_result:
+- If dtmf_result = "success":
+    Proceed with the action using dtmf_last_four for internal lookups.
+    Always refer to the card as "your card ending [dtmf_masked]" — never say the digits.
+    Example: "I can see your card ending ****4821..."
+
+- If dtmf_result = "failed":
+    Apologise and offer alternatives.
+    Example: "I'm sorry, I wasn't able to collect your card details securely.
+               Would you like to try again, or shall I arrange a callback from
+               a specialist?"
+    Do NOT ask the customer to say the number aloud.
+```
+
+---
+
+### K.7 — Human Agent Path: Triggering DTMF Collection from the CCP
+
+#### Overview: what the human agent does
+
+The human agent is on a live call with a customer.  At some point they need the
+customer's card number (for a payment, for identity verification, etc.).
+The agent clicks a **Quick Connect** button in their CCP — a single click.
+Connect automatically:
+1. Puts the agent on mute (agent cannot hear the customer, customer cannot hear agent)
+2. Transfers to the shared DTMF collection sub-flow
+3. Brings the agent back onto the call when complete
+4. Shows the masked card number in the agent's Contact Attributes panel
+
+The agent never hears a single DTMF tone.
+
+#### The wrapper flow: `ARIA-DTMF-HumanAgentWrapper`
+
+> **Flow type: Transfer to Queue**
+> This flow type is required for Quick Connects.  It is a thin wrapper:
+> it puts the agent on hold, runs the shared sub-flow, and brings the agent back.
+
+**Create the flow:**
+1. **Routing → Flows → Create flow**
+2. Click the **type dropdown arrow** next to "Create flow" and select
+   **Transfer to queue flow**
+3. Name it: `ARIA-DTMF-HumanAgentWrapper`
+
+---
+
+**Block 1 — Set contact attributes (tag this as a human agent session)**
+
+1. Connect to the **Entry point**
+2. Configure:
+   - `collectionPurpose` = `full_card_number` (or the appropriate purpose)
+   - `connectKeyId` = `a1b2c3d4-...` (your key ID)
+   - `agentMode` = `human` (useful for the sub-flow to know)
+3. Click **Save**
+
+---
+
+**Block 2 — Play prompt (announcement to both parties)**
+
+> **Why:** The customer and agent should both hear that the agent is going on hold.
+
+1. Drag **Play prompt**
+2. Connect Block 1's output
+3. Configure:
+   - Text:
+     ```
+     Your agent will now be placed on hold while you enter your card details securely.
+     Your conversation will resume automatically when the process is complete.
+     ```
+4. Click **Save**
+
+---
+
+**Block 3 — Hold customer or agent (agent goes on mute)**
+
+> **Why:** This is the critical step that ensures the agent cannot hear the digits.
+>
+> **"Agent on hold"** means:
+> - The **customer** is still active on the call — they can hear prompts.
+> - The **agent** is on hold — they hear hold music (or silence) and cannot hear the customer.
+
+1. Drag **Hold customer or agent**
+2. Connect Block 2's output
+3. Double-click to configure:
+   - **Option:** Select **Agent on hold**
+4. Click **Save**
+
+---
+
+**Block 4 — Transfer to flow (enter the shared sub-flow)**
+
+1. Drag **Transfer to flow**
+2. Connect Block 3's **Success** output
+3. Configure:
+   - Select **ARIA-DTMF-SecureCollection** from the dropdown
+4. Click **Save**
+
+---
+
+**Block 5 — Hold customer or agent (bring agent back)**
+
+> **Why:** The sub-flow has completed.  Time to bring the agent back on the call.
+> **"Conference all"** means both the agent and customer are active again.
+
+1. Drag **Hold customer or agent**
+2. Connect Block 4's **Success** output (returned from sub-flow)
+3. Configure:
+   - **Option:** Select **Conference all**
+4. Click **Save**
+
+---
+
+**Block 6 — Play prompt (confirmation to both parties)**
+
+1. Drag **Play prompt**
+2. Connect Block 5's output
+3. Configure:
+   - Text:
+     ```
+     Card details have been collected securely.
+     Your agent will now continue assisting you.
+     ```
+4. Click **Save**
+
+---
+
+**Block 7 — End flow**
+
+1. Connect Block 6's output to **End flow**
+2. This returns the call to the agent's active conversation
+
+---
+
+**Error path (if agent hold fails):**
+
+1. Connect the **Error** branch of Block 3 to a **Play prompt**:
+   - Text: `"I'm sorry, I was unable to place your agent on hold. Please try again."`
+2. Connect to **End flow**
+
+---
+
+**Publish the wrapper flow:**
+Click **Save**, then **Publish**.
+
+---
+
+#### Setting Up the Quick Connect (the button in the CCP)
+
+> **What is a Quick Connect?**
+> A Quick Connect is a shortcut button visible to agents in their CCP.
+> When clicked, it triggers a specific flow.  For DTMF collection, the agent
+> clicks "Collect Card (Secure)" and the wrapper flow runs automatically.
+
+**Step 1 — Create the Quick Connect:**
+
+1. Go to **Routing → Quick connects**
+2. Click **Add Quick connect**
+3. Configure:
+   - **Name:** `Collect Card — Secure`
+   - **Type:** Transfer to queue
+   - **Flow:** `ARIA-DTMF-HumanAgentWrapper`
+   - **Queue:** Select the queue the agents work in (e.g. `general_banking`)
+4. Click **Save**
+
+**Step 2 — Add the Quick Connect to your Routing Profile:**
+
+Agents only see Quick Connects that are enabled in their routing profile.
+
+1. Go to **Routing → Routing profiles**
+2. Click the profile assigned to your agents (e.g. `Meridian-Bank-Agents`)
+3. Scroll to the **Quick connects** section
+4. Search for and add: `Collect Card — Secure`
+5. Click **Save**
+
+**Step 3 — Verify the agent can see it in CCP:**
+
+1. Log in to the CCP as an agent
+2. Accept an incoming test call
+3. Look for the **Quick connects** button (phone icon with a star or transfer icon)
+4. You should see `Collect Card — Secure` in the list
+
+**What the agent sees after the flow runs:**
+
+When the sub-flow completes and control returns to the agent, the **Contact Attributes**
+panel in the CCP (or the screen pop Show view if configured) will show:
+
+| Attribute | Example value | What it means |
+|---|---|---|
+| `dtmf_result` | `success` | Digits were collected and decrypted successfully |
+| `dtmf_masked` | `****4821` | The masked card number — safe to read aloud to customer |
+| `dtmf_digit_count` | `16` | How many digits were collected |
+| `collectionPurpose` | `full_card_number` | What was collected |
+
+If you have the **screen pop Show view** configured (from Part D), add these keys
+to the `Sections.Items` array so they appear in the agent panel automatically.
+
+---
+
+### K.8 — How to Handle the "No DTMF in Chat" Case
+
+As noted earlier, chat customers cannot use DTMF.  When a chat customer reaches
+anything in this flow, the `Store customer input` block takes the **Error** branch.
+
+**Options for chat customers:**
+
+| Option | When to use | How to implement |
+|---|---|---|
+| Direct to callback | For sensitive collections — safest | After Error branch: set `chatAction=requestVoiceCallback` and trigger the voice-to-chat deflection Lambda |
+| Offer live agent | When a human agent can handle it | Transfer to queue — agent collects via secure web form outside Connect |
+| Decline and explain | For simple verification | Play/send: "For security, card details can only be provided by phone. Please call 0800 123 456." |
+
+Add a channel check before the sub-flow entry point (or handle the Error branch inside
+the sub-flow as shown in Block 2a/2b above) so chat customers receive one of these
+alternatives rather than a silent error.
+
+---
+
+### K.9 — Key Rotation (Keeping Encryption Secure Long-Term)
+
+> **Why rotate?**  Security best practice requires rotating encryption keys regularly
+> (at minimum annually for banking environments).  Connect supports up to **2 active
+> security keys simultaneously**, which allows zero-downtime rotation.
+
+**Rotation procedure:**
+
+| Step | What to do | Command / Console action |
+|---|---|---|
+| 1 | Generate a new RSA key pair | `openssl genrsa -out meridian-connect-private-v2.pem 4096` and cert |
+| 2 | Store new private key in Secrets Manager | New secret: `meridian/connect/dtmf-private-key-v2` |
+| 3 | Upload new public key to Connect | Connect console → Security keys → Add key → note new Key ID |
+| 4 | Update Lambda env var `CONNECT_KEY_ID` | Point to new Key ID — new calls use new key from this point |
+| 5 | Update all `Store customer input` blocks | Change the key selection in each block to the new Key ID |
+| 6 | Wait for all old contacts to close | Check Contact Trace Records — no contacts should remain encrypted with old key |
+| 7 | Remove old key from Connect | Connect console → Security keys → Delete old key |
+| 8 | Delete old Secrets Manager secret | `aws secretsmanager delete-secret --secret-id meridian/connect/dtmf-private-key` |
+
+> **Important:** Do not delete the old key from Connect until all contacts that were
+> encrypted with it have been resolved.  The Lambda will fail to decrypt any contact
+> that was encrypted with the old key if you delete it first.
+>
+> The Lambda automatically uses the Key ID stored in the encryption envelope to
+> select the right key.  You can run both secrets side by side during the transition
+> period by extending the Lambda to try both keys.
+
+---
+
+### K.10 — Testing the End-to-End Flow
+
+#### Test the decryption Lambda directly (no call needed)
+
+Use the AWS Console → Lambda → Test tab with this test event:
+
+```json
+{
+  "Details": {
+    "ContactData": {
+      "ContactId": "test-contact-001",
+      "Attributes": {
+        "collectionPurpose": "card_last_four"
+      },
+      "Parameters": {}
+    },
+    "Parameters": {
+      "encryptedValue": "REPLACE_WITH_REAL_CIPHERTEXT",
+      "purpose": "card_last_four"
+    }
+  }
+}
+```
+
+> **Note:** You cannot test decryption with a made-up ciphertext.  The ciphertext must
+> have been produced by the real Connect `Store customer input` block using your actual
+> public key.  To get a real ciphertext for testing: run the flow once in Connect and
+> check the Contact Trace Record for the `StoredCustomerInput` value.
+
+#### Test the full flow (voice call)
+
+1. Call your Connect number
+2. When ARIA answers, say "I want to check my card balance"
+3. ARIA should say "I'll transfer you to our secure input system"
+4. You should hear "Please enter the last four digits..."
+5. Press four digits then `#`
+6. You should hear "Thank you. I have securely captured your details."
+7. ARIA should resume: "I can see your card ending ****XXXX..."
+
+**If something goes wrong — check these first:**
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Flow goes straight to Error after pressing digits | Wrong Key ID in the Store block | Re-select the key in the block config |
+| Lambda returns `errorMessage: "Decryption error"` | Private key mismatch — wrong key in Secrets Manager | Verify secret ARN and that public/private keys are from same pair |
+| Lambda timeout | Layer not attached | Check Lambda configuration → Layers includes `aria-dtmf-dependencies` |
+| Chat customer reaches the store block | Channel check missing | Ensure the channel check is before Block 4 (instruction prompt) |
+| Agent cannot see the masked card in CCP | Set contact attributes block missing | Verify Block 8 is wired correctly after Lambda success |
+
+---
+
+*Guide authored for ARIA Banking Agent — AWS Account `395402194296`, region `eu-west-2`.*
+*Always verify against the latest [Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/).*
+
+---
+
+## Part L — Callback Flows (Customer Requests, Queue Full & Out of Hours)
+
+### L.1 — What Is a Callback? (Plain English)
+
+Imagine a customer calls their bank and is told "all advisors are busy — your estimated wait
+is 25 minutes." Most customers hang up and never call back. That is a lost contact.
+
+A **callback** solves this by doing three things:
+
+1. The customer says "yes, call me back" (or the system offers it automatically when queues
+   are full or outside business hours).
+2. Amazon Connect **remembers their place in the queue** — their original call-in time is
+   preserved, so they are not sent to the back of the queue.
+3. When an agent becomes free, Connect **calls the customer** — the customer's phone rings
+   and they are connected to the agent.
+
+The customer never has to wait on hold, yet they are served in the same order as if they
+had stayed on the line.
+
+> **The sealed letter analogy:**  A queued callback is like leaving a note at the bank: "Please call
+> me when someone is free. I'll be at this number." The bank keeps your place in the queue (your
+> arrival time) and calls you when it's your turn.
+
+#### What about the conversation summary?
+
+When ARIA (the AI agent) escalates to a human advisor, it creates a summary of the entire
+conversation — what the customer wanted, what was tried, and why they need human help. This
+summary travels with the callback:
+
+- The **outbound whisper flow** plays a spoken version to the customer when they answer.
+- The **agent whisper flow** plays a spoken briefing to the advisor before they are connected.
+- The **CCP screen pop** shows the summary as text in the agent's browser.
+
+The advisor is fully briefed before the first word is spoken. The customer does not have to
+repeat themselves.
+
+---
+
+### L.2 — Three Situations That Trigger a Callback
+
+| # | Trigger | Who detects it | How it works |
+|---|---|---|---|
+| **1** | **Customer explicitly requests it** — "call me back", "can someone phone me" | ARIA (AI agent) returns `RequestCallback` Lex intent | Main inbound flow detects the intent and transfers to `ARIA-Callback-Offer` flow |
+| **2** | **Queue is full** — all spots in the queue are taken | Connect `Transfer to queue` block — **At capacity** branch | The At capacity branch transfers to `ARIA-Callback-Offer` instead of rejecting the caller |
+| **3** | **Out of business hours** — customer calls after closing time | Connect `Check hours of operation` block — **Out of hours** branch | The Out of hours branch transfers to `ARIA-Callback-Offer` instead of just playing a closing message |
+
+All three paths lead to the same shared flow: **ARIA-Callback-Offer**. You build it once.
+
+---
+
+### L.3 — How the Full Callback Architecture Works
+
+```
+CALLER ARRIVES
+      │
+      ▼
+ARIA Unified Inbound Flow
+      │
+      ├─── AI bot (Lex/ARIA) ──► RequestCallback intent
+      │                                    │
+      ├─── Check hours of operation        │
+      │         └─ Out of hours ───────────┤
+      │                                    │
+      ├─── Set working queue               │
+      │    Transfer to queue               │
+      │         └─ At capacity ────────────┤
+      │                                    │
+      │                                    ▼
+      │                       ARIA-Callback-Offer Flow
+      │                       (voice only — chat follows different path)
+      │                                    │
+      │              ┌─── Out of hours message
+      │              ├─── Queue full message
+      │              └─── Customer request message
+      │                                    │
+      │                       [Press 1] Use current number
+      │                       [Press 2] Enter different number
+      │                       [Press 3] Decline → Disconnect
+      │                                    │
+      │                       Set callback number block
+      │                       Lambda: aria-callback-scheduler
+      │                         (looks up callbackQueueId from DynamoDB)
+      │                       Set working queue → Dynamic → callbackQueueId
+      │                                    │
+      │                       Transfer to queue (Callback tab)
+      │                         Initial delay: 99 s
+      │                         Max retries: 2
+      │                         Min between retries: 10 min
+      │                         Creation flow: ARIA-Callback-Creation
+      │                         ├─ Success ──► Play confirmation ──► Disconnect
+      │                         └─ Error   ──► Play error message ──► Disconnect
+      │
+      │    LATER — when agent becomes available:
+      │
+      ├─── Agent accepts callback in CCP
+      │
+      ├─── Agent whisper flow plays to AGENT:
+      │    "You are about to connect to a callback customer.
+      │     Topic: [topicCategory]. Intent: [customerIntent].
+      │     Summary: [conversationSummary]."
+      │
+      ├─── Outbound whisper flow plays to CUSTOMER (when they answer):
+      │    "Hello, this is Meridian Bank returning your call.
+      │     Please hold while we connect you to an advisor."
+      │
+      └─── Agent and customer are connected
+```
+
+#### The contact chain (C1 → C2)
+
+Amazon Connect creates two separate contact records for a queued callback:
+
+| Contact | Name | Created when | What it represents |
+|---|---|---|---|
+| **C1** | Inbound contact | Customer first calls | The original voice call — lasts until the callback is registered and the customer hangs up |
+| **C2** | Callback contact | `Transfer to queue` (callback) block runs | The queued callback — stays in queue up to 7 days waiting for an available agent |
+
+C2's `InitialContactId` points back to C1, creating a chain. The `conversationSummary`,
+`customerIntent`, and `escalationReason` attributes must be set on C1 before `Transfer to queue`
+is called, so they are available when C2 is connected to the agent.
+
+#### Dynamic callback queue — how it works
+
+Instead of one global callback queue, ARIA uses a **dedicated callback queue per topic category**.
+This means your real-time metrics reports clearly show how many mortgage callbacks, fraud callbacks,
+etc. are waiting — and the right specialist team handles each callback.
+
+The mapping lives in the same DynamoDB table (`aria-routing-config`) that already drives queue
+routing. The `aria-callback-scheduler` Lambda reads the customer's `topicCategory` attribute,
+looks up the matching `callbackQueueId`, and returns it. The flow then uses `Set working queue`
+dynamically with that ID before `Transfer to queue`.
+
+---
+
+### L.4 — Key AWS Connect Concepts for Callbacks
+
+Read this before building anything. These terms appear throughout the rest of Part L.
+
+| Concept | What it means in plain English |
+|---|---|
+| **Queued callback** | A contact type in Amazon Connect that holds a phone number in a queue. When an agent is free, Connect calls the number, the agent accepts, and they are connected. |
+| **Agent-first mode** (default) | Connect offers the callback to an agent first. The agent accepts. Then Connect dials the customer. The customer's phone rings only after an agent is ready. |
+| **Initial delay** | How many seconds Connect waits after registering the callback before putting it into the queue. Set to 99 seconds — gives the customer time to finish the current call before being called back. |
+| **Max retries** | If the customer doesn't answer the first callback, how many more times should Connect try? Setting `2` means a total of 3 attempts (1 initial + 2 retries). |
+| **Min time between attempts** | If the callback rings but isn't answered, how long to wait before the next attempt. Set to 10 minutes. |
+| **Voicemail = connected** | If the callback reaches voicemail, Amazon Connect counts it as answered and does NOT retry. You cannot change this behaviour. |
+| **Set callback number block** | Sets the phone number Connect will dial for the callback. Must come before `Transfer to queue` (callback). |
+| **Set creation flow** | Optional: a flow that runs when the callback contact (C2) is created. Used for dedup checks or to set a customer queue flow. Must include its own `Transfer to queue` block. |
+| **Outbound whisper flow** | Plays audio to the **customer** when they answer the callback, before they hear the agent. Typically: "Hello, this is Meridian Bank returning your call…" |
+| **Agent whisper flow** | Plays audio to the **agent** after they accept the callback, before they are connected to the customer. Carries the conversation summary. |
+| **Callbacks stay in queue 7 days** | If no agent accepts the callback within 7 days, Amazon Connect automatically removes it from the queue. |
+| **Priority preservation** | Set the callback queue at the **same priority** as the inbound queue in the routing profile. Connect then uses the original call-in time (not the callback registration time) to determine order. |
+| **callbackQueueId vs callbackQueueArn** | `Set working queue` (dynamic) requires the **UUID only** (e.g. `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`), not the full ARN. The Lambda returns both. |
+
+---
+
+### L.5 — One-Time Setup Prerequisites
+
+Do all of these steps **before** building any flows. Each step must be done in the
+Amazon Connect admin console (unless stated otherwise).
+
+#### L.5.1 — Create dedicated callback queues
+
+You need one callback queue per topic category. A dedicated queue means your real-time
+metrics clearly show how many callbacks are waiting for each specialist team.
+
+> **Why not use the same queue?**  You could. But then your real-time report shows
+> inbound calls and callbacks mixed together — you cannot tell at a glance how many callbacks
+> are waiting vs live calls. Separate queues give you clean visibility.
+
+Go to **Amazon Connect console → Routing → Queues → Add new queue** for each of these:
+
+| Queue name | Purpose | Suggested hours of operation |
+|---|---|---|
+| `aria-callback-mortgage` | Mortgage team callbacks | Mon–Fri 9am–5pm |
+| `aria-callback-cards` | Card team callbacks (credit + debit) | Mon–Fri 8am–8pm, Sat 9am–1pm |
+| `aria-callback-fraud` | Fraud team callbacks | Mon–Fri 8am–8pm |
+| `aria-callback-complaints` | Complaints team callbacks | Mon–Fri 9am–5pm |
+| `aria-callback-retail` | Retail banking callbacks (current + savings) | Mon–Fri 8am–8pm, Sat 9am–1pm |
+| `aria-callback-general` | General banking callbacks | Mon–Fri 8am–8pm |
+
+For each queue, fill in:
+
+| Field | Value |
+|---|---|
+| **Name** | As in the table above |
+| **Description** | e.g. "Queued callbacks for Mortgage team" |
+| **Hours of operation** | Select the matching hours entry |
+| **Outbound caller ID name** | `Meridian Bank` |
+| **Outbound caller ID number** | Select your claimed UK number (e.g. +44 161 900 9002) |
+| **Maximum contacts in queue** | Leave blank (uses service quota default) |
+
+Click **Add new queue** to save.
+
+> **After creating each queue**, click into it. The UUID at the end of the browser URL
+> is the `callbackQueueId`. Copy and save each UUID — you will need them in Step L.6.
+>
+> Example URL: `https://your-instance.my.connect.aws/routing/queues/`**`a1b2c3d4-e5f6-...`**
+
+#### L.5.2 — Set outbound caller ID on each callback queue
+
+The outbound caller ID controls what number appears on the customer's phone when Connect
+calls them back. If it is blank, customers may not answer (unknown number).
+
+1. In **Routing → Queues**, click each callback queue you just created.
+2. Under **Outbound caller ID**, set both:
+   - **Caller ID name**: `Meridian Bank`
+   - **Caller ID number**: select a claimed phone number from the dropdown.
+3. Click **Save**.
+
+#### L.5.3 — Add callback queues to routing profiles
+
+A queue must be in a routing profile for agents to receive contacts from it.
+Agents in the `ARIA Banking` routing profile should handle both inbound and callback contacts.
+
+1. Go to **Users → Routing profiles → ARIA Banking** (or the profile your agents use).
+2. Under **Queues**, click **Add queue**.
+3. Add each callback queue with these settings:
+
+| Queue | Channel | Priority | Delay |
+|---|---|---|---|
+| `aria-callback-mortgage` | Voice | **2** | 0 s |
+| `aria-callback-cards` | Voice | **2** | 0 s |
+| `aria-callback-fraud` | Voice | **2** | 0 s |
+| `aria-callback-complaints` | Voice | **2** | 0 s |
+| `aria-callback-retail` | Voice | **2** | 0 s |
+| `aria-callback-general` | Voice | **2** | 0 s |
+
+> **Priority 2 for callbacks** means agents work on live inbound calls (priority 1) first.
+> Callbacks are only offered to agents when the inbound queue is quiet. This is the
+> recommended pattern from AWS.
+
+4. Click **Save**.
+
+#### L.5.4 — Verify hours of operation are configured
+
+The `Check hours of operation` block in the main inbound flow checks the hours attached
+to the **current working queue**. Make sure your main queues (not the callback queues)
+have hours of operation set.
+
+1. Go to **Routing → Queues**, click your main queue (e.g. `Mortgage Advisors`).
+2. Confirm **Hours of operation** is set.
+3. If blank, go to **Routing → Hours of operation → Add hours** and create them.
+4. Return to the queue and set the hours.
+
+---
+
+### L.6 — Add Callback Queue IDs to DynamoDB
+
+The `aria-routing-config` DynamoDB table already has one row per topic category with the
+main queue IDs. You need to add three new fields to each row:
+
+| Field name | What it contains | Example value |
+|---|---|---|
+| `callbackQueueId` | UUID of the dedicated callback queue | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
+| `callbackQueueArn` | Full ARN of the callback queue | `arn:aws:connect:eu-west-2:395402194296:instance/.../queue/...` |
+| `callbackQueueName` | Human-readable name | `Mortgage Callback` |
+
+#### Step 1: Run the deploy script to add placeholder fields
+
+```bash
+./scripts/deploy_callback_lambda.sh deploy --instance-id <your-connect-instance-uuid>
+```
+
+This adds `PLACEHOLDER` values to each DynamoDB row. The Lambda will use the main queue
+as a fallback while you update these placeholders.
+
+#### Step 2: Update with real queue IDs
+
+After creating your callback queues (Step L.5.1), run:
+
+```bash
+./scripts/deploy_callback_lambda.sh update-queues
+```
+
+The script will prompt you for each topic category:
+
+```
+? Connect instance ID (for ARN construction) []: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+?   mortgage → Mortgage Callback — queue UUID []: <paste-uuid-here>
+?   credit_card → Cards Callback — queue UUID []: <paste-uuid-here>
+...
+```
+
+> **Where to find the UUID**: In Connect console, go to Routing → Queues → click the
+> callback queue. The UUID is the last segment of the URL.
+
+#### Step 3: Verify the update
+
+Open DynamoDB in the AWS console:
+
+1. Go to **DynamoDB → Tables → aria-routing-config**
+2. Click **Explore table items**
+3. Click on the `mortgage` row
+4. Confirm `callbackQueueId`, `callbackQueueArn`, `callbackQueueName` are present and real
+   (not PLACEHOLDER)
+
+---
+
+### L.7 — Deploy the Callback Scheduler Lambda
+
+The `aria-callback-scheduler` Lambda is the engine that maps `topicCategory → callbackQueueId`
+at runtime. It reads DynamoDB and returns the callback queue ID for the flow to use dynamically.
+
+#### Deploy
+
+```bash
+# Basic deploy (no Connect permission)
+./scripts/deploy_callback_lambda.sh deploy
+
+# With Connect permission added automatically
+./scripts/deploy_callback_lambda.sh deploy --instance-id <connect-instance-uuid>
+
+# After deploying: view status
+./scripts/deploy_callback_lambda.sh status
+```
+
+#### Add Lambda to Connect instance allow-list
+
+Even after the deploy script grants a resource-based policy, you must also add the Lambda
+to the Connect instance's allow-list:
+
+1. Open **Amazon Connect console**
+2. Click your Connect instance (not the admin site — the instance settings page)
+3. In the left panel, click **AWS Lambda**
+4. Click **Add Lambda function**
+5. Find `aria-callback-scheduler` and click **Add Lambda function**
+
+> Until you do this step, the flow will reach the Lambda block and immediately go to the
+> Error branch — the Lambda appears to not exist from Connect's perspective.
+
+#### What the Lambda does (summary)
+
+| Input | Output |
+|---|---|
+| `topicCategory` from contact attributes | `callbackQueueId` — UUID for Set working queue |
+| `callbackReason` from contact attributes | `callbackQueueArn` — full ARN (informational) |
+| `conversationSummary` from contact attributes | `callbackQueueName` — name for confirmation prompt |
+| `customerIntent` from contact attributes | `schedulingError` — "true" if DynamoDB lookup failed |
+| `escalationReason` from contact attributes | All input attrs echoed back for whisper flows |
+
+---
+
+### L.8 — Build the ARIA-Callback-Offer Flow (Block by Block)
+
+This is the shared flow that all three callback triggers (customer request, queue full,
+out of hours) transfer to. You build it once and wire it from three different places.
+
+**Flow type**: Inbound flow (Contact flow)
+**Flow name**: `ARIA-Callback-Offer`
+
+Go to **Routing → Flows → Create flow**. Make sure the flow type (top-right dropdown)
+is set to **Inbound flow**. Give it the name `ARIA-Callback-Offer`.
+
+---
+
+#### Block 1 — Check contact attributes (channel gate)
+
+> **Why**: Connect's native `Set callback number` and `Transfer to queue (callback)` blocks
+> only work on the **voice** channel. Chat contacts cannot be queued for a callback using this
+> mechanism. This block sends chat contacts to a different path.
+
+| Setting | Value |
+|---|---|
+| Block type | **Check contact attributes** |
+| Attribute to check | **System** → **Channel** |
+| Condition | **Equals** → `VOICE` |
+| Matched branch output | → connects to Block 2 |
+| No match branch output | → connects to Block 1b |
+
+---
+
+#### Block 1b — Play prompt (chat cannot use native callback)
+
+> **Why**: Tell the chat customer they need to call to request a callback.
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, arranging a callback is currently only available on voice calls. To request a callback, please call us on 0800 123 456 and our team can arrange one for you.` |
+| Output | → **Disconnect / hang up** |
+
+---
+
+#### Block 2 — Check contact attributes (which callback reason?)
+
+> **Why**: The message we play to the customer depends on *why* they are in this callback
+> flow. A customer who chose to call back should hear something different from a customer who
+> was told the office is closed.
+
+| Setting | Value |
+|---|---|
+| Block type | **Check contact attributes** |
+| Attribute to check | **User defined** → `callbackReason` |
+| Condition 1 | **Equals** → `out_of_hours` → connects to Block 3a |
+| Condition 2 | **Equals** → `queue_full` → connects to Block 3b |
+| No match | → connects to Block 3c (customer_request) |
+
+---
+
+#### Block 3a — Play prompt (out of hours message)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `Thank you for calling Meridian Bank. Our banking advisors are not available right now. We are open Monday to Friday, 8am to 8pm, and Saturday, 9am to 1pm. We would like to arrange a callback for you.` |
+| Output | → Block 4 |
+
+---
+
+#### Block 3b — Play prompt (queue full message)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `Thank you for calling Meridian Bank. Our advisors are all currently helping other customers. Rather than keeping you waiting on hold, we would like to arrange a callback for you.` |
+| Output | → Block 4 |
+
+---
+
+#### Block 3c — Play prompt (customer request message)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `Of course. We would be happy to arrange a callback for you.` |
+| Output | → Block 4 |
+
+---
+
+#### Block 4 — Get customer input (offer callback options)
+
+> **Why**: Give the customer three clear choices — use their current number, enter a
+> different number, or decline. This is the key decision point.
+
+| Setting | Value |
+|---|---|
+| Block type | **Get customer input** |
+| Type | Text to speech |
+| Text | `Press 1 to receive a callback on the number you are calling from. Press 2 to enter a different callback number. Press 3 to decline and end the call.` |
+| Input type | DTMF |
+| DTMF timeout | 8 seconds |
+
+Add conditions at the bottom of the block:
+
+| Condition | Branch output |
+|---|---|
+| **Pressed 1** | → Block 5a |
+| **Pressed 2** | → Block 5b |
+| **Pressed 3** | → Block 5d |
+| **Timeout** | → Block 5e |
+| **No match** | → Block 5e |
+
+---
+
+#### Block 5a — Set callback number (use caller's current number)
+
+> **Why**: The customer pressed 1 — they want us to call back on the number they are calling
+> from. This block tells Connect which number to dial.
+
+| Setting | Value |
+|---|---|
+| Block type | **Set callback number** |
+| Type | **System** |
+| Attribute | **Customer number** |
+| Success output | → Block 6 |
+| Invalid number output | → Block 5b (send to enter a number manually) |
+| Not dialable output | → Block 5b (number exists but we can't call it) |
+
+---
+
+#### Block 5b — Store customer input (ask for a different number)
+
+> **Why**: The customer pressed 2, or their current number is invalid/undialable. Prompt them
+> to enter the number they want us to call.
+
+| Setting | Value |
+|---|---|
+| Block type | **Store customer input** |
+| Type | Text to speech |
+| Text | `Please enter your callback phone number followed by the hash key.` |
+| Customer input | **Phone number** |
+| Format | **International format / Enforce E.164** |
+| Output | → Block 5c |
+| Error output | → Block 5f |
+
+---
+
+#### Block 5c — Set callback number (use entered number)
+
+| Setting | Value |
+|---|---|
+| Block type | **Set callback number** |
+| Type | **System** |
+| Attribute | **Store customer input** |
+| Success output | → Block 6 |
+| Invalid number output | → Block 5g |
+| Not dialable output | → Block 5g |
+
+---
+
+#### Block 5d — Play prompt (customer declined)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `No problem at all. Thank you for calling Meridian Bank. We hope to speak with you soon. Goodbye!` |
+| Output | → **Disconnect / hang up** |
+
+---
+
+#### Block 5e — Play prompt (timeout / no match)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, I did not receive a valid selection. Let me try once more.` |
+| Output | → Block 4 |
+
+> **Note**: For production use, add a counter attribute to limit to 2 retries before
+> automatically proceeding to Block 5a (call back on current number).
+
+---
+
+#### Block 5f — Play prompt (store customer input error)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, I was not able to capture that number. Let me try once more.` |
+| Output | → Block 5b |
+
+---
+
+#### Block 5g — Play prompt (number not dialable)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, we are unable to call that number. Please enter a different number followed by the hash key.` |
+| Output | → Block 5b |
+
+---
+
+#### Block 6 — Invoke AWS Lambda (aria-callback-scheduler)
+
+> **Why**: This Lambda reads the customer's `topicCategory` from the contact attributes,
+> looks it up in DynamoDB, and returns the `callbackQueueId` for the correct callback queue.
+> It also echoes the conversation summary so whisper flows can use it.
+
+| Setting | Value |
+|---|---|
+| Block type | **Invoke AWS Lambda function** |
+| Function ARN | `arn:aws:lambda:eu-west-2:395402194296:function:aria-callback-scheduler:prod` |
+| Success output | → Block 7 |
+| Error / Lambda error output | → Block 6b |
+
+No parameters need to be passed manually — the Lambda reads directly from the contact attributes.
+
+---
+
+#### Block 6b — Play prompt (Lambda error)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, we were unable to schedule your callback at this time. Please call us on 0800 123 456 and our team can arrange a callback for you directly. Goodbye!` |
+| Output | → **Disconnect / hang up** |
+
+---
+
+#### Block 7 — Check contact attributes (Lambda scheduling error?)
+
+> **Why**: The Lambda may succeed (HTTP 200) but return `schedulingError = true` if the
+> DynamoDB table has no row for the customer's topic. This block catches that case.
+
+| Setting | Value |
+|---|---|
+| Block type | **Check contact attributes** |
+| Attribute to check | **External** → `schedulingError` |
+| Condition | **Equals** → `true` |
+| Matched branch output | → Block 6b (play error, disconnect) |
+| No match output | → Block 8 |
+
+---
+
+#### Block 8 — Set working queue (dynamic — callback queue)
+
+> **Why**: This tells Connect which queue the callback contact (C2) should be placed in.
+> Using the UUID returned by the Lambda means the right specialist team gets the callback.
+
+| Setting | Value |
+|---|---|
+| Block type | **Set working queue** |
+| Queue | **Set dynamically** |
+| Namespace | **External** |
+| Attribute | `callbackQueueId` |
+| Success output | → Block 9 |
+| Error output | → Block 6b |
+
+> **Important**: `Set working queue` needs the **UUID only** (e.g.
+> `a1b2c3d4-e5f6-7890-abcd-ef1234567890`), not the full ARN. The Lambda returns the UUID
+> in `callbackQueueId`. Do not use `callbackQueueArn` here.
+
+---
+
+#### Block 9 — Set contact attributes (copy Lambda output for whisper flows)
+
+> **Why**: The Lambda's response is in the **External** namespace. Contact attributes in
+> the callback contact (C2) must be in the **User defined** namespace. This block copies
+> them so the agent whisper flow and outbound whisper flow can read them.
+
+Add a **Set contact attributes** block. Configure each attribute as **Set dynamically**:
+
+| Destination key (User Defined) | Source namespace | Source key |
+|---|---|---|
+| `callbackQueueName` | External | `callbackQueueName` |
+| `callbackReason` | External | `callbackReason` |
+| `conversationSummary` | External | `conversationSummary` |
+| `customerIntent` | External | `customerIntent` |
+| `escalationReason` | External | `escalationReason` |
+| `topicCategory` | External | `topicCategory` |
+
+Output: → Block 10
+
+---
+
+#### Block 10 — Transfer to queue (Transfer to Callback tab)
+
+> **Why**: This is the block that actually creates the callback contact (C2) and places it
+> in the queue. The customer will be disconnected after this and called back later.
+
+| Setting | Value |
+|---|---|
+| Block type | **Transfer to queue** |
+| **Tab to use** | **Transfer to Callback queue** (not "Transfer to queue") |
+
+On the **Transfer to Callback queue** tab, configure:
+
+| Setting | Value | Explanation |
+|---|---|---|
+| **Initial delay** | `99` seconds | Gives the customer time to finish this call before Connect tries to call back. |
+| **Maximum number of retries** | `2` | Connect will try 3 times total: first attempt + 2 retries. |
+| **Minimum time between attempts** | `10` minutes | If the customer doesn't answer, wait 10 min before the next attempt. |
+| **Set working queue** | Leave blank | Already set in Block 8 — Connect uses it automatically. |
+| **Set creation flow** | `ARIA-Callback-Creation` | Optional. Set if you built it (see L.9). Leave blank to skip. |
+| **Caller ID number to display** | Set dynamically → System → Outbound caller ID | Uses the caller ID set on the callback queue. |
+
+Under **Output branches**:
+
+| Branch | Output |
+|---|---|
+| **Success** | → Block 11 (play confirmation) |
+| **Error** | → Block 10b (play error) |
+
+---
+
+#### Block 10b — Play prompt (Transfer to Callback failed)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `I'm sorry, we were unable to register your callback request. This may be because the callback queue is full. Please call us on 0800 123 456 and our team can arrange a callback for you directly. Goodbye!` |
+| Output | → **Disconnect / hang up** |
+
+---
+
+#### Block 11 — Play prompt (callback confirmed)
+
+> **Why**: The customer is still on the line when the callback is registered. This is the
+> last thing they hear before the line disconnects. Make it warm and informative.
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `Your callback has been successfully registered. One of our advisors will call you back on the number you provided. Thank you for calling Meridian Bank, and we look forward to speaking with you. Goodbye!` |
+| Output | → **Disconnect / hang up** |
+
+---
+
+Click **Save and publish** in the top-right corner of the flow designer.
+
+---
+
+### L.9 — Build the ARIA-Callback-Creation Flow (Optional but Recommended)
+
+The **callback creation flow** runs when the callback contact (C2) is created — before it
+is placed into the callback queue. If you do not set a creation flow, the callback is queued
+directly with no extra processing.
+
+The creation flow is useful for:
+- Carrying the conversation attributes (summary, intent) forward to C2
+- Deduplication (preventing the same customer from having two callbacks in queue)
+- Setting a custom customer queue flow
+
+> **Important**: If you specify a creation flow, it **must** contain a `Transfer to queue`
+> block. Without it, the callback contact will be created but never queued — the customer
+> will never be called back.
+
+**Flow type**: Inbound flow (Contact flow)
+**Flow name**: `ARIA-Callback-Creation`
+
+#### Block 1 — Set contact attributes (carry through conversation context)
+
+| Setting | Value |
+|---|---|
+| Block type | **Set contact attributes** |
+| Configure | Set dynamically for each: |
+
+| Destination key (User Defined) | Source namespace | Source key |
+|---|---|---|
+| `conversationSummary` | System | `conversationSummary` |
+| `customerIntent` | System | `customerIntent` |
+| `escalationReason` | System | `escalationReason` |
+| `topicCategory` | System | `topicCategory` |
+| `callbackQueueName` | System | `callbackQueueName` |
+
+> **Note**: Using `System` namespace here because in the creation flow, the attributes
+> set on the original contact (C1) are available via `$.Attributes` which maps to System.
+
+Output: → Block 2
+
+#### Block 2 — Transfer to queue (required)
+
+| Setting | Value |
+|---|---|
+| Block type | **Transfer to queue** |
+| Tab | **Transfer to queue** (not callback — this queues C2 in the callback queue already set) |
+| Output | → Disconnect |
+
+Click **Save and publish**.
+
+---
+
+### L.10 — Build the ARIA-Callback-Outbound-Whisper Flow
+
+This flow plays to the **customer** when they answer the callback call — before they are
+connected to the agent. It serves two purposes:
+
+1. The customer knows this is a genuine Meridian Bank callback (not spam).
+2. A brief reminder of why they requested the call sets expectations.
+
+**Flow type**: Outbound whisper flow
+**Flow name**: `ARIA-Callback-Outbound-Whisper`
+
+Go to **Routing → Flows → Create flow**. Change the flow type dropdown to
+**Outbound whisper flow**.
+
+#### Block 1 — Play prompt (customer greeting)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `Hello, this is Meridian Bank returning your call. Please hold for a moment while we connect you to one of our advisors.` |
+| Output | → End flow / Resume |
+
+> **Tip**: For a more personalised message, use a Set contact attributes block before this
+> and then check the `topicCategory` attribute to play a topic-specific greeting.
+> For example: "Hello, this is Meridian Bank calling about your mortgage enquiry."
+
+Click **Save and publish**.
+
+---
+
+### L.11 — Build the ARIA-Callback-Agent-Whisper Flow
+
+This flow plays to the **agent** after they accept the callback in the CCP, before they
+are connected to the customer. It tells the agent everything they need to know:
+
+- Why the customer called
+- What ARIA discussed with them
+- Why they requested a callback or human help
+
+**Flow type**: Agent whisper flow
+**Flow name**: `ARIA-Callback-Agent-Whisper`
+
+Go to **Routing → Flows → Create flow**. Change the flow type dropdown to
+**Agent whisper flow**.
+
+> **Can I reuse the existing agent whisper flows from Part J?**
+> Yes, if the contact attributes (`conversationSummary`, `customerIntent`, `topicCategory`)
+> are present on the callback contact (C2) — which they will be if you built the creation
+> flow in L.9. However, a dedicated callback whisper is recommended because it can include
+> callback-specific context like the callback reason.
+
+#### Block 1 — Check contact attributes (has summary?)
+
+> **Why**: The conversation summary may be empty if the customer called out of hours before
+> talking to ARIA. This block handles both cases.
+
+| Setting | Value |
+|---|---|
+| Block type | **Check contact attributes** |
+| Attribute to check | **User defined** → `conversationSummary` |
+| Condition | **Not equal to** → `` (empty string — leave condition value blank) |
+| Matched branch output | → Block 2 (has summary) |
+| No match output | → Block 3 (no summary) |
+
+#### Block 2 — Play prompt (whisper with summary)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `You are about to be connected to a callback customer. Topic: $.Attributes.topicCategory. Customer intent: $.Attributes.customerIntent. Conversation summary: $.Attributes.conversationSummary. Escalation reason: $.Attributes.escalationReason.` |
+| Output | → End flow / Resume |
+
+> **How attribute substitution works in Play prompt**: Amazon Connect substitutes
+> `$.Attributes.attributeName` with the contact attribute value at runtime. If the attribute
+> is empty, it plays nothing (not the literal text `$.Attributes...`).
+
+#### Block 3 — Play prompt (whisper without summary — e.g. out of hours contact)
+
+| Setting | Value |
+|---|---|
+| Block type | **Play prompt** |
+| Type | Text to speech |
+| Text | `You are about to be connected to a customer who requested a callback. Topic: $.Attributes.topicCategory. The customer contacted us outside business hours and an AI summary is not available.` |
+| Output | → End flow / Resume |
+
+Click **Save and publish**.
+
+#### Attach whisper flows to the callback queues
+
+You need to tell each callback queue which agent whisper and outbound whisper flows to use:
+
+1. Go to **Routing → Queues**
+2. Click each callback queue (`aria-callback-mortgage`, etc.)
+3. Under **Quick connects** (or **Contact flow settings** depending on instance version):
+   - **Agent whisper flow**: `ARIA-Callback-Agent-Whisper`
+   - **Outbound whisper flow**: `ARIA-Callback-Outbound-Whisper`
+4. Click **Save**
+
+> **Alternative**: You can also set the whisper flows inside the `Transfer to queue` block
+> in the creation flow (L.9) or inside the `ARIA-Callback-Offer` flow itself using
+> `Set customer queue flow`.
+
+---
+
+### L.12 — Wire Callback into the Main Inbound Flow
+
+The `ARIA Unified Inbound Flow` (built in Part E) needs three new branches wired up.
+
+#### L.12.1 — Customer requests callback via ARIA (RequestCallback intent)
+
+ARIA detects when a customer says "call me back" and returns a `RequestCallback` Lex intent.
+The main inbound flow must check for this intent and branch to the callback offer.
+
+**In the main inbound flow**, find the `Get customer input` block that talks to the Lex bot
+(the ARIA bot block). This block already has branches for `Escalate`, `CollectCardDetails`,
+etc. Add a new condition for the callback intent.
+
+**Step 1**: Add `RequestCallback` as a recognised intent in the Lex bot block:
+
+1. Open the `Get customer input` block (ARIA bot block) in the flow designer.
+2. Under **Intents**, click **Add another condition**.
+3. Set condition: `RequestCallback`
+4. Click **Save**.
+
+**Step 2**: Connect the `RequestCallback` branch:
+
+1. Find the `RequestCallback` output branch on the `Get customer input` block.
+2. Add a **Set contact attributes** block before transferring to the callback offer:
+
+| Destination key (User Defined) | Source namespace | Source key |
+|---|---|---|
+| `callbackReason` | Lex → Session attributes | `callbackReason` |
+
+> If ARIA always sets `callbackReason = customer_request` in the session attribute, this
+> copies it into the contact attributes. If not set, you can hard-code it:
+> Destination: `callbackReason`, Value: `customer_request` (static).
+
+3. Add a **Set contact attributes** block to also copy the conversation context:
+
+| Destination key (User Defined) | Source namespace | Source key |
+|---|---|---|
+| `conversationSummary` | Lex → Session attributes | `conversationSummary` |
+| `customerIntent` | Lex → Session attributes | `customerIntent` |
+| `topicCategory` | Lex → Session attributes | `topicCategory` |
+
+4. Add a **Transfer to flow** block:
+   - Transfer to: `ARIA-Callback-Offer`
+
+**Step 3**: Add `RequestCallback` to the Lex bot's intent list (if not already there):
+
+1. In Amazon Lex, open your bot.
+2. Create a new intent named `RequestCallback`.
+3. Add sample utterances:
+   - "call me back"
+   - "I'd like a callback"
+   - "can someone call me"
+   - "I'll wait for a call"
+   - "can you call me back please"
+   - "I want a callback"
+4. The intent needs no slots — just the utterances.
+5. Build and publish the bot version.
+6. In the Lex alias settings, ensure the new bot version is active.
+
+#### L.12.2 — Queue full (At capacity branch)
+
+When the specialist queue is full, the `Transfer to queue` block takes the **At capacity**
+branch. Instead of losing the customer, redirect them to the callback offer.
+
+Find the `Transfer to queue` block in the main inbound flow (the one that routes to the
+specialist queue after routing lookup). It currently has two branches: **At capacity**
+and **Error**.
+
+Wire the **At capacity** branch:
+
+1. Add a **Set contact attributes** block:
+
+| Destination key (User Defined) | Value type | Value |
+|---|---|---|
+| `callbackReason` | **Static** | `queue_full` |
+
+2. Connect this block's output to a **Transfer to flow** block:
+   - Transfer to: `ARIA-Callback-Offer`
+
+> **Tip**: Also wire the **Error** branch similarly — an error usually means the queue ID
+> is wrong, but offering a callback is better than disconnecting the customer.
+
+#### L.12.3 — Out of business hours (Check hours of operation)
+
+The `Check hours of operation` block should already exist in the main inbound flow (if
+not, add it before the ARIA Lex bot, so out-of-hours calls are caught before spending
+tokens on the AI). It has three branches: **In hours**, **Out of hours**, **Error**.
+
+Currently the **Out of hours** branch probably plays a closing message and disconnects.
+Change it to offer a callback instead:
+
+1. Find the `Check hours of operation` block in the main inbound flow.
+2. Find the **Out of hours** output branch.
+3. **Remove** the current path (or leave the existing message play first — your choice).
+4. Add a **Set contact attributes** block:
+
+| Destination key (User Defined) | Value type | Value |
+|---|---|---|
+| `callbackReason` | **Static** | `out_of_hours` |
+
+5. Connect to a **Transfer to flow** block:
+   - Transfer to: `ARIA-Callback-Offer`
+
+> **Example out-of-hours path with callback**:
+>
+> `Check hours of operation`
+> ↓ Out of hours
+> `Play prompt` — "Thank you for calling Meridian Bank."
+> ↓
+> `Set contact attributes` — callbackReason = out_of_hours
+> ↓
+> `Transfer to flow` → `ARIA-Callback-Offer`
+
+Click **Save and publish** the main inbound flow.
+
+---
+
+### L.13 — Update the ARIA System Prompt
+
+The system prompt was updated as part of deploying this guide (Section D.3 now includes
+a `## Callback Handling` section). Verify the update was applied:
+
+1. Open `docs/aria-connect-voice-chat-novice-guide.md`
+2. Search for `## Callback Handling` in the D.3 system prompt YAML block
+3. Confirm the following rules are present:
+   - ARIA returns `RequestCallback` Lex intent when customer asks for callback
+   - ARIA confirms topic and phone number before returning the intent
+   - Queue-full / out-of-hours is handled by the flow — ARIA does not detect this
+   - Chat callbacks use the chat-to-voice transfer tool
+
+If re-deploying the AgentCore agent, the updated system prompt in the YAML will be
+automatically used.
+
+> **Add RequestCallback intent to the Lex bot's allowed intents in the main flow**:
+> The `Get customer input` block in the main inbound flow must explicitly list
+> `RequestCallback` in its Intents list (alongside `Escalate`, `CollectCardDetails`, etc.).
+> Without this, even if ARIA returns the intent, the flow will not have a branch for it.
+
+---
+
+### L.14 — Testing the End-to-End Callback Flow
+
+#### Test scenario 1: Customer requests callback (voice)
+
+1. Call your Connect number.
+2. When ARIA responds, say "I'd like a callback please."
+3. ARIA should confirm the topic and ask about the phone number.
+4. ARIA returns the `RequestCallback` intent.
+5. The main flow should branch to `ARIA-Callback-Offer`.
+6. You should hear: "Press 1 to receive a callback on the number you are calling from…"
+7. Press 1.
+8. You should hear the confirmation message.
+9. Hang up.
+10. Check the **Real-time metrics** report in Connect — you should see a contact in the
+    relevant callback queue (e.g. `aria-callback-general`).
+11. As an agent: accept the callback in the CCP. You should hear the agent whisper briefing.
+12. Connect will call your number back. When you answer, you should hear the outbound whisper.
+13. You are connected to the agent.
+
+#### Test scenario 2: Queue full (at capacity)
+
+1. Set the max contacts for a queue to 0 (temporarily — to force At capacity):
+   - Connect → Routing → Queues → click a queue → Maximum contacts in queue → set to `0`.
+2. Call and go through ARIA until it tries to escalate to that queue.
+3. The `Transfer to queue` block should hit the **At capacity** branch.
+4. You should be routed to `ARIA-Callback-Offer`.
+5. Confirm the callback flow works as in Test 1.
+6. Reset the queue maximum back to blank (unlimited).
+
+#### Test scenario 3: Out of hours (hours check)
+
+1. Temporarily change your queue's hours of operation to be closed at the current time:
+   - Connect → Routing → Hours of operation → edit → remove current day's hours.
+2. Call your Connect number.
+3. The `Check hours of operation` block should return **Out of hours**.
+4. You should reach `ARIA-Callback-Offer` with an out-of-hours message.
+5. Restore hours of operation.
+
+#### Troubleshooting table
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Flow goes to Error branch after Lambda block | Lambda not in Connect allow-list | Connect console → instance → AWS Lambda → add `aria-callback-scheduler` |
+| Lambda returns `schedulingError: true` | DynamoDB row missing or PLACEHOLDERs not updated | Run `./scripts/deploy_callback_lambda.sh update-queues` |
+| `Set working queue` block goes to Error | `callbackQueueId` is a PLACEHOLDER UUID (not real) | Update DynamoDB with real queue UUIDs first |
+| `Transfer to queue` block goes to Error branch (not At capacity) | Queue ID does not exist or queue is disabled | Verify the UUID in DynamoDB matches a live queue in Connect |
+| Customer never gets called back | Callback queue not in any routing profile | Add callback queue to routing profile at priority 2 |
+| Agent doesn't hear whisper briefing | Agent whisper flow not attached to callback queue | Edit callback queue → attach `ARIA-Callback-Agent-Whisper` |
+| Customer hears silence instead of outbound whisper | Outbound whisper flow not set on callback queue | Edit callback queue → attach `ARIA-Callback-Outbound-Whisper` |
+| ARIA doesn't respond to "call me back" | `RequestCallback` intent not in Lex bot | Create the intent in Lex and rebuild + publish the bot |
+| `RequestCallback` branch missing in main flow | Intent not added to Get customer input block | Add `RequestCallback` condition to the ARIA Lex bot block in the main flow |
+| Callback summary empty in whisper | Attributes not copied to contact before Transfer to queue | Add Set contact attributes block before ARIA-Callback-Offer entry point |
+| Callbacks and live calls mixed in metrics | Callback queues not separate from main queues | Create dedicated `aria-callback-*` queues (L.5.1) |
 
 ---
 

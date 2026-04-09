@@ -215,23 +215,21 @@ ensure_dynamodb_table() {
 }
 
 seed_dynamodb_table() {
-    header "Seeding routing rows (placeholder Queue UUIDs)"
-    warn "All queueId values are placeholders — update them with real Queue UUIDs"
-    warn "from: Connect console → Routing → Queues → <queue> → URL bar (last segment)"
-    echo ""
+    header "Seeding routing rows (Meridian Bank Queue UUIDs)"
 
-    # Each row: topicCategory, queueId (placeholder), queueName, proficiencyLevel, proficiencySkill
-    # All attribute values are stored as DynamoDB String type (S) so Lambda reads
-    # them back as plain strings — no Decimal conversion needed from DynamoDB side.
+    # Real Meridian Bank Connect Queue UUIDs — sourced from docs/aria-connect-voice-chat-novice-guide.md
+    # Format: topicCategory|queueId|queueName|proficiencyLevel|proficiencySkill
+    # All values stored as DynamoDB String (S) — Lambda reads them back as plain strings,
+    # no Decimal conversion required.
     local rows=(
-        'mortgage|YOUR-MORTGAGE-QUEUE-UUID|Mortgage Advisors|3|Mortgage'
-        'credit_card|YOUR-CARDS-QUEUE-UUID|Cards Team|2|Cards'
-        'debit_card|YOUR-CARDS-QUEUE-UUID|Cards Team|2|Cards'
-        'fraud_security|YOUR-FRAUD-QUEUE-UUID|Fraud Team|4|Fraud'
-        'complaint|YOUR-COMPLAINTS-QUEUE-UUID|Senior Advisors|3|Complaints'
-        'current_account|YOUR-RETAIL-QUEUE-UUID|Retail Banking|1|Retail'
-        'savings_account|YOUR-RETAIL-QUEUE-UUID|Retail Banking|1|Retail'
-        'general_banking|YOUR-DEFAULT-QUEUE-UUID|General Queue|1|General'
+        'mortgage|a87c313c-53dc-4272-8a20-03b7f2cce4a7|Mortgage Advisors|3|Mortgage'
+        'credit_card|d3037cfb-f265-47ff-a28e-f96bf6ab1279|Cards Team|2|Cards'
+        'debit_card|846c08b2-574a-415f-84d3-11d46a5f8a16|Cards Team|2|Cards'
+        'fraud_security|42646d26-77fb-49f7-a525-a40856c97539|Fraud Team|4|Fraud'
+        'complaint|ac5724b6-3602-4045-bb60-1fa81a6fa22c|Senior Advisors|3|Complaints'
+        'current_account|846c08b2-574a-415f-84d3-11d46a5f8a16|Retail Banking|1|Retail'
+        'savings_account|846c08b2-574a-415f-84d3-11d46a5f8a16|Retail Banking|1|Retail'
+        'general_banking|ae9b5b06-06e6-487c-945e-e67dc1462ea9|General Queue|1|General'
     )
 
     for row in "${rows[@]}"; do
@@ -241,21 +239,16 @@ seed_dynamodb_table() {
             --table-name "$TABLE_NAME" \
             --region     "$REGION" \
             --item "{
-                \"topicCategory\":   {\"S\": \"${topic}\"},
-                \"queueId\":         {\"S\": \"${queue_id}\"},
-                \"queueName\":       {\"S\": \"${queue_name}\"},
+                \"topicCategory\":    {\"S\": \"${topic}\"},
+                \"queueId\":          {\"S\": \"${queue_id}\"},
+                \"queueName\":        {\"S\": \"${queue_name}\"},
                 \"proficiencyLevel\": {\"S\": \"${prof_level}\"},
                 \"proficiencySkill\": {\"S\": \"${prof_skill}\"}
             }"
-        step "  seeded: ${topic} → ${queue_name} (L${prof_level} ${prof_skill})"
+        step "  seeded: ${topic} → ${queue_name} (id=${queue_id}, L${prof_level} ${prof_skill})"
     done
 
     ok "8 routing rows seeded"
-    echo ""
-    warn "NEXT STEP: Replace placeholder Queue UUIDs in the table."
-    warn "  Connect console → Routing → Queues → click a queue"
-    warn "  Copy the UUID from the browser URL bar (last path segment)"
-    warn "  Update each row: DynamoDB → Explore table items → Edit item"
 }
 
 # =============================================================================
@@ -418,20 +411,15 @@ print_summary() {
     echo -e "  ${BOLD}State file:${NC}  ${STATE_FILE}"
     echo ""
     echo -e "${BOLD}${YELLOW}  Required manual steps:${NC}"
-    echo -e "  ${YELLOW}1. Update placeholder Queue UUIDs in DynamoDB:${NC}"
-    echo -e "     DynamoDB → Tables → ${TABLE_NAME} → Explore items"
-    echo -e "     Replace every YOUR-...-QUEUE-UUID with the real UUID from:"
-    echo -e "     Connect console → Routing → Queues → <queue name> → URL bar"
-    echo ""
-    echo -e "  ${YELLOW}2. Add Lambda to Connect instance allow-list:${NC}"
+    echo -e "  ${YELLOW}1. Add Lambda to Connect instance allow-list:${NC}"
     echo -e "     Connect console → <instance> → AWS Lambda → Add Lambda function"
     echo -e "     Function name: ${FUNCTION_NAME}"
     echo ""
-    echo -e "  ${YELLOW}3. In your Contact Flow — after the Escalate branch:${NC}"
+    echo -e "  ${YELLOW}2. In your Contact Flow — after the Escalate branch:${NC}"
     echo -e "     'Invoke AWS Lambda' block → select ${FUNCTION_NAME}"
     echo -e "     (Connect resolves the :prod alias automatically)"
     echo ""
-    echo -e "  ${YELLOW}4. 'Set Working Queue' block:${NC}"
+    echo -e "  ${YELLOW}3. 'Set Working Queue' block:${NC}"
     echo -e "     Set queue to → Dynamic → $.External.queueId"
     echo ""
     echo -e "${BOLD}${GREEN}  Re-run this script after every Lambda code change.${NC}"
@@ -498,10 +486,12 @@ cmd_teardown() {
 }
 
 # =============================================================================
-#  Argument parsing
+#  Argument parsing  (called directly — NOT in a subshell — so variable
+#  assignments to CONNECT_INSTANCE_ID, REGION etc. persist in the caller)
 # =============================================================================
 parse_args() {
-    local cmd="${1:-}"
+    # $1 is the command (deploy|teardown); shift it off then process flags
+    COMMAND="${1:-}"
     shift || true
 
     while [[ $# -gt 0 ]]; do
@@ -513,26 +503,23 @@ parse_args() {
             *) die "Unknown argument: $1. Usage: $0 deploy|teardown [--instance-id <uuid>] [--region <region>]" ;;
         esac
     done
-
-    echo "$cmd"
 }
 
 # =============================================================================
 #  Entry point
 # =============================================================================
 main() {
-    local raw_cmd="${1:-}"
-    if [[ -z "$raw_cmd" ]]; then
+    if [[ $# -eq 0 ]]; then
         echo "Usage: $0 deploy|teardown [--instance-id <connect-uuid>] [--region <region>]"
         exit 1
     fi
 
-    local cmd
-    cmd=$(parse_args "$@")
+    # parse_args sets COMMAND and optional overrides directly (no subshell)
+    parse_args "$@"
 
     state_init
 
-    case "$cmd" in
+    case "$COMMAND" in
         deploy)
             echo ""
             echo -e "${BOLD}${BLUE}ARIA — Proficiency Routing Lambda Deploy${NC}"
@@ -555,7 +542,7 @@ main() {
             ;;
 
         *)
-            die "Unknown command '${cmd}'. Use: deploy | teardown"
+            die "Unknown command '${COMMAND}'. Use: deploy | teardown"
             ;;
     esac
 }

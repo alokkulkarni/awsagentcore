@@ -1,0 +1,7 @@
+{
+  "role_arn": "arn:aws:iam::395402194296:role/aria-routing-lookup-role",
+  "dynamodb_table_arn": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-routing-config",
+  "lambda_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-routing-lookup",
+  "lambda_alias_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-routing-lookup:prod",
+  "lambda_version": "2"
+}
