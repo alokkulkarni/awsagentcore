@@ -741,7 +741,7 @@ set **Type** to **Deny**, then click **Add topic**.
 | UK_NATIONAL_INSURANCE_NUMBER | Block |
 | UK_UNIQUE_TAXPAYER_REFERENCE | Block |
 | UK_SORT_CODE | Anonymize |
-| DATE_OF_BIRTH | Block |
+| DATE_OF_BIRTH | Anonymize |
 | EMAIL | Anonymize |
 | PHONE | Anonymize |
 | NAME | Anonymize |
@@ -750,8 +750,17 @@ set **Type** to **Deny**, then click **Add topic**.
 
 > **Block vs Anonymize**: Block replaces the value with `[BLOCKED]` and stops the response entirely if
 > it cannot be removed. Anonymize replaces the value with `[REDACTED]` but lets the response through.
-> Use Block for values that must never appear in any response (card numbers, CVV, NI number, DOB,
+> Use Block for values that must never appear in any response (card numbers, CVV, NI number,
 > passwords). Use Anonymize for values that can appear in masked form.
+>
+> ⚠️ **Why `DATE_OF_BIRTH` is Anonymize, not Block**: AWS Bedrock's PII detector classifies **any
+> date in DD/MM/YYYY format** as a potential date of birth — including payment due dates, rate expiry
+> dates, and transaction dates that ARIA legitimately includes in responses. Setting `DATE_OF_BIRTH`
+> to Block causes the guardrail to replace the entire response with "Blocked output text by guardrail"
+> whenever a date appears in ARIA's output. Anonymize is the correct setting: if a real DOB somehow
+> appears in a response it is replaced with `[REDACTED]`, but legitimate dates pass through normally.
+> DOB entered by customers during authentication is protected by ARIA's own PII pipeline tools
+> (`pii_detect_and_redact` → `pii_vault_store`) — the guardrail PII filter is a secondary backstop only.
 
 #### D.2d — Set Word Filters
 
@@ -1013,13 +1022,13 @@ system: |
   7. On success: call cross_validate_session_identity in <thinking>. On mismatch: terminate + escalate.
 
   ## Query Handling (all tool calls in <thinking>)
-  Account queries (get_account_details): confirm account using last-four; balance.
+  Account queries: use get_account_balance for balance, get_recent_transactions for transactions (default limit 5 on voice, unlimited on chat), get_account_details for sort code / account number. Always use the customerId from the session context, not a value provided by the customer.
   - Statements: VOICE — advise customer to check via the Meridian Bank mobile app or online banking (do NOT read a URL aloud). CHAT — provide the statement URL directly from the tool response.
   - Transactions: VOICE — speak a maximum of 5; use analyse_spending for more. CHAT — present as a formatted numbered list; no hard limit.
   - Standing orders: VOICE — speak a maximum of 3; advise them to check online banking for the full list. CHAT — present as a numbered list with payee, amount, and frequency.
   - Spending analysis (analyse_spending): VOICE — summarise the top 3 categories by spend; state the date range. CHAT — list all categories in a table or formatted list.
   Debit card queries (get_debit_card_details / block_debit_card): confirm card using last-four; status, limits; lost/stolen block REQUIRES verbal confirmation before calling block_debit_card; never reveal full card number, CVV, or unmasked expiry.
-  Credit card queries (get_credit_card_details): confirm card using last-four; balance, available credit, minimum payment, APR (only when asked — never volunteer), dispute (provide dispute_team_ref, never promise outcomes).
+  Credit card queries (get_credit_card_details / block_credit_card): confirm card using last-four; balance, available credit, minimum payment, APR (only when asked — never volunteer), dispute (provide dispute_team_ref, never promise outcomes). Lost/stolen block REQUIRES verbal confirmation before calling block_credit_card; never reveal full card number, CVV, or unmasked expiry.
   Mortgage queries (get_mortgage_details): confirm mortgage ref last-four; balance, rate (if remortgage query: escalate), monthly payment, overpayment allowance, term. Redemption statement: advise it will be emailed within 2 working days.
   Product catalogue (get_product_catalogue): name, tagline, top 2-3 features. Never recommend mortgages — escalate. Never volunteer APR.
   KB and self-service (Retrieve / search_knowledge_base / get_feature_parity): MUST call Retrieve OR search_knowledge_base before saying "I cannot help". Use Retrieve (Bedrock Knowledge Base) for general policy, FAQ, fees, how-to, branch, mobile app, and product feature questions — it queries the Meridian Bank Knowledge Base directly. Use search_knowledge_base (MCP Gateway) for real-time product catalogue and channel-specific feature lookups; keep it active alongside Retrieve. Use get_feature_parity for channel availability. Quote journey steps from tool response. Never mention the knowledge base, document retrieval, or source references to the customer.
@@ -1027,8 +1036,8 @@ system: |
   <tool_usage_strategy>
   Before using any tool, review what is available via the tool configuration list. You can ONLY help with tasks your available tools support — do not claim capabilities you cannot fulfil through tools.
   - Identity and PII: verify_customer_identity, initiate_customer_auth, pii_detect_and_redact, pii_vault_store/retrieve/purge, cross_validate_session_identity
-  - Account inquiries: get_account_details — always use the customerId from the session context, not a value provided by the customer
-  - Card queries: get_debit_card_details, get_credit_card_details, block_debit_card (requires explicit confirmation)
+  - Account inquiries: get_account_balance (balance), get_recent_transactions (transactions), get_account_details (sort code / account number) — always use the customerId from the session context, not a value provided by the customer
+  - Card queries: get_debit_card_details, get_credit_card_details, block_debit_card, block_credit_card (both block tools require explicit verbal confirmation before calling)
   - Mortgage queries: get_mortgage_details
   - Product information: get_product_catalogue, Retrieve, search_knowledge_base, get_feature_parity
   - Bedrock Knowledge Base: Retrieve — call for any general question about banking policies, procedures, fees, product features, branch info, mobile app navigation, or security guidance. Always call Retrieve BEFORE saying "I cannot help". search_knowledge_base remains active for real-time product catalogue queries — use both as complementary tools, not alternatives.
@@ -1178,7 +1187,7 @@ system: |
   - If productSummary identifies a single product: skip product disambiguation and go straight to their query.
   - If vulnerabilityContext contains active flags: adjust tone and pace immediately without prompting the customer about their vulnerability or disclosing the flags.
   - If preferredName is set: use it naturally in the opening message and at moments that benefit from personal acknowledgement — not mechanically on every sentence.
-  - For authenticated customers: always call get_account_details or the relevant product tool in <thinking> before their first turn completes, so you have their data ready.
+  - For authenticated customers: always call get_account_balance or the relevant product tool in <thinking> before their first turn completes, so you have their data ready.
   </proactive_assistance>
 
   ## Escalation Protocol (all steps in <thinking>)
@@ -1338,11 +1347,29 @@ system: |
   - dtmf_masked = "****4821"  (e.g. last four digits, masked)
   - dtmf_last_four = "4821"   (for card look-up tools — never reveal in <message>)
   - dtmf_purpose = "card_last_four" | "full_card_number" | "pin" | "account_number"
+  - dtmf_validation_status = "valid" | "invalid_luhn" | "invalid_bin" | "not_customer_card" | "validation_service_error"
+  - dtmf_card_type = "VISA_DEBIT" | "MC_DEBIT" | "VISA_CREDIT" | etc. (blank if unknown)
+  - dtmf_requires_escalation = "true" | "false"
 
   ON SUCCESS (dtmf_result = "success"):
-  - Proceed with the action the customer requested.
+  - Check dtmf_validation_status before proceeding.
+  - If dtmf_validation_status = "valid" or blank: proceed normally.
+  - If dtmf_validation_status = "invalid_luhn": the customer may have miskeyed.
+    Say: "I'm sorry, I wasn't able to recognise those card details. Could you try entering them again?"
+    Return intent: CollectCardDetails to retry.
+  - If dtmf_validation_status = "invalid_bin": card type is not recognised.
+    Say: "I'm sorry, I wasn't able to recognise that card with us. Could you try a different card, or would you like to speak with one of our advisors?"
+    Offer retry or escalation — do not force either.
+  - If dtmf_validation_status = "not_customer_card": ALWAYS escalate immediately. No retry.
+    In <thinking>: log fraud signal. Do not mention "fraud" to customer.
+    Say: "I need to transfer you to one of our advisors who can help you with this."
+    Call escalate_to_human_agent with escalation_reason: "security_review", priority: "high".
+    Return intent: TransferToAgent.
+  - If dtmf_validation_status = "validation_service_error": technical issue — do NOT penalise customer.
+    Continue processing as normal. Do not mention the technical issue unless customer asks.
+  - If dtmf_requires_escalation = "true": escalate immediately regardless of other attributes.
+    Treat as "not_customer_card" path above.
   - Always refer to the card as "your card ending [dtmf_masked]" — never say the raw digits.
-  - Example: "I can see your card ending ****4821. Let me check that for you now."
   - Use dtmf_last_four only as input to tool calls, not in spoken/chat responses.
 
   ON FAILURE (dtmf_result = "failed" or "lambda_error"):
@@ -1350,6 +1377,43 @@ system: |
   - Example: "I'm sorry, I wasn't able to collect your card details securely. Would you like to try again, or shall I arrange a callback from one of our specialists?"
   - If customer declines retry: escalate with escalation_reason: "complex_request", topicCategory: current topic.
   - NEVER ask the customer to say or type the number instead — this is a hard security rule.
+
+  ## ARIA Processing Status Awareness
+  When you receive these session attributes, they tell you about the state of previous actions.
+  Use them to communicate naturally and avoid confusing the customer.
+
+  ARIA AI PROCESSING STATUS:
+  - aria_status = "thinking": Your last response is being processed. Normal — do not mention it.
+  - aria_status = "retrying": There was a temporary connection issue. If customer notices a delay:
+    Say: "I'm just retrieving that information for you — apologies for the brief pause."
+  - aria_status = "complete": Normal successful response. Do not mention it.
+  - aria_status = "error": The AI service failed. ALWAYS escalate.
+    Say: "I'm sorry, I'm experiencing a technical difficulty right now.
+    Let me connect you with one of our advisors who can assist you immediately."
+    Call escalate_to_human_agent with escalation_reason: "technical_failure", priority: "normal".
+    Return intent: TransferToAgent.
+  - aria_retry_count = "1" or "2" and aria_status = "complete":
+    If customer comments on a delay, you may say: "I apologise for the brief pause — I just needed
+    to double-check that for you. Everything is looking good."
+  - Never mention "retry", "error code", or technical details to the customer.
+
+  PAYMENT AND API STATUS:
+  - payment_status = "failed" or api_last_status = "error":
+    Do NOT assume the payment went through. Check payment_error_code.
+    Common error codes: INSUFFICIENT_FUNDS, CARD_BLOCKED, TIMEOUT, INVALID_ACCOUNT.
+    For INSUFFICIENT_FUNDS: "I'm sorry, that payment wasn't successful — it looks like there
+    may not be enough funds available. Would you like to discuss your options?"
+    For TIMEOUT or server errors: "I'm sorry, the payment request timed out. Let me try that
+    again for you." — then retry the payment tool call once.
+    For CARD_BLOCKED: "I'm sorry, that card appears to be blocked. Would you like me to
+    look into this for you?"
+    For unknown errors: escalate with escalation_reason: "payment_issue".
+  - payment_retry_count = "1" or "2" and payment_status = "complete":
+    If customer asks: "There was a brief connection issue but the payment has gone through
+    successfully. Your reference number is [payment_ref]."
+  - payment_status = "processing" or "retrying": payment is still in progress — do not
+    tell the customer it succeeded yet. If they ask: "I'm just confirming that with our
+    payment system now — it should only take a moment."
 
   ## Callback Handling
   A callback is when the customer prefers to be called back by a human advisor rather than
@@ -4533,9 +4597,11 @@ Amazon Connect's AI Agent Builder, so the LLM knows the tool exists and how to c
    ```yaml
    tools:
      - name: get_account_balance
-       description: ...
-     - name: block_card
-       description: ...
+       description: Returns current and available balance for a customer's bank account
+     - name: get_recent_transactions
+       description: Returns recent transactions for a customer's account
+     - name: get_account_details
+       description: Returns account details including sort code, account number, and account type
    ```
 
 6. Add the following tool definition at the **end** of the `tools:` list (indent with 2 spaces to match
@@ -7890,6 +7956,735 @@ Use the AWS Console → Lambda → Test tab with this test event:
 | Lambda timeout | Layer not attached | Check Lambda configuration → Layers includes `aria-dtmf-dependencies` |
 | Chat customer reaches the store block | Channel check missing | Ensure the channel check is before Block 4 (instruction prompt) |
 | Agent cannot see the masked card in CCP | Set contact attributes block missing | Verify Block 8 is wired correctly after Lambda success |
+
+---
+
+## K.11 — Real-Time Card Validation During DTMF Collection
+
+### What This Section Adds (Plain English)
+
+When a customer keys in their card number using the phone keypad, ARIA currently just masks the digits and passes them to your backend.  K.11 adds a **live validation layer** that runs while the customer is still on the call:
+
+1. **Luhn check** — Is this a mathematically valid card number? (Catches most keypad mis-presses.)
+2. **BIN check** — Does the first 6 digits match a card type Meridian Bank recognises? (Rejects card ranges you don't support.)
+3. **Ownership check** — Does this card actually belong to the authenticated customer? (Fraud guard — triggers escalation to a human agent.)
+
+If validation fails the customer is given a chance to re-enter (for Luhn/BIN errors) or is seamlessly escalated to a human agent (for ownership mismatch).  If the validation service itself is unavailable the flow **fails open** — the customer is never blocked by a technical outage.
+
+Both the **AI agent (ARIA)** and the **human agent's CCP panel** receive live status updates throughout so neither party is left guessing.
+
+---
+
+### K.11.1 — One-Time Infrastructure Setup
+
+#### Step 1 — Update the Decrypt Lambda to Return `cardBin`
+
+The existing `aria-dtmf-decrypt` Lambda already exists from K.3.  We need to add one field to its response so the new validation Lambda can do a BIN check without ever seeing the full card number.
+
+Open `scripts/lambdas/aria_dtmf_decrypt.py`.  Find the `result` dict in the `handler()` function and verify it now includes:
+
+```python
+# Return the BIN (first 6 digits) for real-time BIN validation.
+# BINs are not PCI-sensitive — they are publicly used by all payment
+# processors for card type identification and routing.
+if len(plaintext) >= 6:
+    result["cardBin"] = plaintext[:6]
+```
+
+> **Why is this safe?**  Bank Identification Numbers (BINs) are published publicly — every card terminal in the world looks them up.  They identify the card *type* (Visa/Mastercard/Amex) and *issuing bank* but contain no customer information.  Logging a BIN is not a PCI violation.
+
+Redeploy the Lambda to pick up the change:
+
+```bash
+cd /path/to/awsagentcore
+bash scripts/deploy.sh   # choose option: Update Lambda → aria-dtmf-decrypt
+```
+
+Or update just this one Lambda manually:
+
+```bash
+zip /tmp/dtmf_decrypt.zip scripts/lambdas/aria_dtmf_decrypt.py
+aws lambda update-function-code \
+    --function-name aria-dtmf-decrypt \
+    --zip-file fileb:///tmp/dtmf_decrypt.zip \
+    --region eu-west-2
+```
+
+---
+
+#### Step 2 — Create DynamoDB Table: `aria-card-bins`
+
+This table maps BIN prefixes (first 6 digits of a card) to card type and whether Meridian Bank supports that BIN range.
+
+```bash
+aws dynamodb create-table \
+  --table-name aria-card-bins \
+  --attribute-definitions AttributeName=binPrefix,AttributeType=S \
+  --key-schema AttributeName=binPrefix,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region eu-west-2
+```
+
+**Seed the table** with BIN ranges your bank issues or accepts.  Your card operations team will have a list.  Example seed command:
+
+```bash
+# Visa debit BINs (example — replace with your actual BIN ranges)
+aws dynamodb put-item --table-name aria-card-bins --region eu-west-2 --item \
+  '{"binPrefix":{"S":"412345"},"cardType":{"S":"VISA_DEBIT"},"isActive":{"BOOL":true},"validationEnabled":{"BOOL":true}}'
+
+# Mastercard debit BIN (example)
+aws dynamodb put-item --table-name aria-card-bins --region eu-west-2 --item \
+  '{"binPrefix":{"S":"512345"},"cardType":{"S":"MC_DEBIT"},"isActive":{"BOOL":true},"validationEnabled":{"BOOL":true}}'
+```
+
+> **Tip:** If you have hundreds of BINs, write a short CSV-to-DynamoDB import script.  The table schema is simple: `binPrefix` (string, 6 digits) is the only required field.
+
+---
+
+#### Step 3 — Create DynamoDB Table: `aria-customer-cards`
+
+This table records which cards belong to which customer.  It can be pre-populated by a nightly sync from your core banking system, or replaced entirely by an external API (set `CARD_OWNERSHIP_API_URL` env var on the Lambda).
+
+```bash
+aws dynamodb create-table \
+  --table-name aria-customer-cards \
+  --attribute-definitions \
+      AttributeName=customerId,AttributeType=S \
+      AttributeName=cardLastFour,AttributeType=S \
+  --key-schema \
+      AttributeName=customerId,KeyType=HASH \
+      AttributeName=cardLastFour,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST \
+  --region eu-west-2
+```
+
+**Example record:**
+
+```bash
+aws dynamodb put-item --table-name aria-customer-cards --region eu-west-2 --item \
+  '{"customerId":{"S":"CUST-123456"},"cardLastFour":{"S":"4321"},"isActive":{"BOOL":true},"cardType":{"S":"VISA_DEBIT"}}'
+```
+
+---
+
+#### Step 4 — Deploy the Validation Lambda
+
+The Lambda source is at `scripts/lambdas/aria_dtmf_validate.py`.
+
+**Create the IAM role:**
+
+```bash
+aws iam create-role \
+  --role-name aria-lambda-dtmf-validate-role \
+  --assume-role-policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[{"Effect":"Allow",
+        "Principal":{"Service":"lambda.amazonaws.com"},
+        "Action":"sts:AssumeRole"}]
+  }'
+
+aws iam attach-role-policy \
+  --role-name aria-lambda-dtmf-validate-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+aws iam put-role-policy \
+  --role-name aria-lambda-dtmf-validate-role \
+  --policy-name DTMFValidatePolicy \
+  --policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[
+          {
+              "Sid":"DynamoDBRead",
+              "Effect":"Allow",
+              "Action":["dynamodb:GetItem"],
+              "Resource":[
+                  "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-card-bins",
+                  "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-customer-cards"
+              ]
+          },
+          {
+              "Sid":"ConnectStatusUpdate",
+              "Effect":"Allow",
+              "Action":["connect:UpdateContactAttributes"],
+              "Resource":"*"
+          }
+      ]
+  }'
+
+# Wait for role to propagate
+sleep 15
+```
+
+**Package and deploy:**
+
+```bash
+zip /tmp/dtmf_validate.zip scripts/lambdas/aria_dtmf_validate.py
+
+ROLE_ARN="arn:aws:iam::395402194296:role/aria-lambda-dtmf-validate-role"
+
+aws lambda create-function \
+  --function-name aria-dtmf-validate \
+  --runtime python3.12 \
+  --role "$ROLE_ARN" \
+  --handler aria_dtmf_validate.handler \
+  --zip-file fileb:///tmp/dtmf_validate.zip \
+  --timeout 10 \
+  --memory-size 256 \
+  --environment "Variables={
+      AWS_REGION=eu-west-2,
+      BIN_TABLE_NAME=aria-card-bins,
+      CUSTOMER_CARDS_TABLE_NAME=aria-customer-cards,
+      CONNECT_INSTANCE_ID=YOUR-CONNECT-INSTANCE-ID,
+      SKIP_OWNERSHIP_IF_UNAUTH=true
+  }" \
+  --region eu-west-2
+```
+
+> Replace `YOUR-CONNECT-INSTANCE-ID` with the UUID from **Connect → Overview → Instance ARN** (the last segment after `instance/`).
+
+**Grant Connect permission to invoke it** (needed when invoking directly from a contact flow):
+
+```bash
+aws lambda add-permission \
+  --function-name aria-dtmf-validate \
+  --statement-id ConnectInvoke \
+  --action lambda:InvokeFunction \
+  --principal connect.amazonaws.com \
+  --source-account 395402194296 \
+  --region eu-west-2
+```
+
+---
+
+#### Step 5 — Grant the KMS Key Access to the Validate Lambda
+
+The validate Lambda does **not** decrypt cards itself (the decrypt Lambda does that), but it may call the decrypt Lambda's output.  However, to be safe, grant the validate role `kms:Decrypt` on your DTMF key:
+
+```bash
+# Get the existing key policy and add the new role
+KEY_ID=$(aws kms describe-key --key-id alias/aria-dtmf-key --query KeyMetadata.KeyId --output text --region eu-west-2)
+
+# Add the validate role to the key policy via the KMS console:
+# KMS → Customer managed keys → aria-dtmf-key → Key policy → Edit
+# Add: "arn:aws:iam::395402194296:role/aria-lambda-dtmf-validate-role"
+# with actions: ["kms:Decrypt", "kms:DescribeKey"]
+```
+
+---
+
+### K.11.2 — Update the `ARIA-DTMF-SecureCollection` Sub-Flow
+
+You built the sub-flow in K.5.  Now you will add **four new blocks** after Block 6 (the decrypt Lambda call).  Here is the updated block sequence with the new blocks highlighted:
+
+```
+Block 1  → Prompt customer for card number
+Block 2  → Store input action (DTMF capture)
+Block 3  → Check retry counter
+Block 4  → Set attributes: dtmf_status = "waiting_for_input"   ← NEW (add after Block 3)
+Block 5  → Play "Please enter your card number" prompt
+Block 6  → Get customer input (DTMF, 16 digits)
+Block 7  → Set attributes: dtmf_status = "processing"          ← NEW (add after Block 6 success)
+Block 8  → Invoke Lambda: aria-dtmf-decrypt
+Block 9  → Set attributes: dtmf_status = "validating"          ← NEW (add after Block 8 success)
+Block 10 → Invoke Lambda: aria-dtmf-validate                   ← NEW
+Block 11 → Check Contact Attribute: isValid = "true"           ← NEW
+Block 12 → Set contact attributes (card details for agent)     ← was Block 8
+Block 13 → Return to parent flow                               ← was Block 9
+```
+
+#### Adding Block 4 — Set `dtmf_status = waiting_for_input`
+
+1. In your sub-flow editor, click the **+** icon between Block 3 (retry counter check) and Block 5 (the DTMF prompt).
+2. Add a **Set contact attributes** block.
+3. Click **Add an attribute**.
+4. Set: **Destination key** = `dtmf_status` | **Value** = `waiting_for_input`.
+5. Connect: **Success** → Block 5 (DTMF prompt).
+
+> **Why?**  The human agent can now see "waiting_for_input" in their CCP panel and knows the customer is being prompted.
+
+---
+
+#### Adding Block 7 — Set `dtmf_status = processing`
+
+1. Click the **+** icon on the **Success** output of Block 6 (DTMF capture).
+2. Add a **Set contact attributes** block.
+3. Set: **Destination key** = `dtmf_status` | **Value** = `processing`.
+4. Connect: **Success** → Block 8 (decrypt Lambda).
+
+---
+
+#### Adding Block 9 — Set `dtmf_status = validating`
+
+1. Click the **+** icon on the **Success** output of Block 8 (decrypt Lambda).
+2. Add a **Set contact attributes** block.
+3. Set **two** attributes:
+   - `dtmf_status` = `validating`
+   - `dtmf_card_bin` = `$.External.cardBin`   (this passes the BIN from the decrypt result)
+4. Connect: **Success** → Block 10 (validate Lambda).
+
+> **Why `$.External.cardBin`?**  After a Lambda invocation block succeeds, Connect stores the Lambda response in the `$.External` namespace.  `cardBin` is the field we added to the decrypt Lambda in Step 1 above.
+
+---
+
+#### Adding Block 10 — Invoke `aria-dtmf-validate`
+
+1. Click the **+** icon on the **Success** output of Block 9 (Set validating).
+2. Add an **Invoke AWS Lambda function** block.
+3. Select function: **aria-dtmf-validate**.
+4. Under **Function input parameters**, click **Add a parameter** for each:
+
+| Parameter key | Value type | Value |
+|---|---|---|
+| `customerId` | Contact attribute | `customerId` |
+| `cardLastFour` | External attribute | `lastFour` |
+| `cardBin` | External attribute | `cardBin` |
+| `cardFull` | External attribute | `maskedValue` |
+| `contactId` | System | `Contact ID` |
+| `authStatus` | Contact attribute | `authStatus` |
+
+> **Note:** `cardFull` is passed as the masked value — the validate Lambda only uses it for the Luhn check on the digit count, not for storage.  It never logs or persists the masked value.
+
+5. Set **Timeout** to `8 seconds`.
+6. Connect:
+   - **Success** → Block 11 (Check `isValid`).
+   - **Error** → Block 12 (Set attributes) with `dtmf_status = validation_error` then continue as if `isValid = "true"` (**fail open**).
+
+---
+
+#### Adding Block 11 — Check `isValid`
+
+1. Add a **Check contact attributes** block after Block 10.
+2. Set: **Attribute to check** = `isValid` (from External namespace, i.e. `$.External.isValid`).
+3. Add a condition: **Equals** → `true`.
+4. Connect:
+   - **Matches** → Block 12 (Set card attributes — the existing success path).
+   - **No match** → New sub-branch (see below).
+
+**No-match sub-branch (validation failed):**
+
+Add a **Check contact attributes** block:
+- Check `$.External.validationStatus`:
+  - **Equals** `not_customer_card` → go to "Escalate" path (see below).
+  - **Equals** `invalid_luhn` → go to "Retry" path.
+  - **Equals** `invalid_bin` → go to "Retry" path (with a different message).
+  - **No match / default** → go to "Retry" path (service error — fail open → treat as success).
+
+**Escalate path** (card belongs to a different customer — potential fraud):
+
+1. Add a **Set contact attributes** block:
+   - `dtmf_result` = `card_not_authorised`
+   - `dtmf_status` = `escalating`
+   - `requiresEscalation` = `true`
+2. Add a **Play prompt** block: *"I'm sorry, the card details you entered could not be verified. I'm connecting you with an advisor now."*
+3. Add a **Transfer to queue** block → route to your `Meridian-Fraud-Review` queue (or your default escalation queue).
+
+**Retry path** (Luhn or BIN error — likely a keypad mistake):
+
+1. Add a **Set contact attributes** block:
+   - `dtmf_status` = `retry_validation_error`
+   - `dtmf_error_msg` = `$.External.validationStatus`
+2. Add a **Play prompt** block: *"I'm sorry, I wasn't able to recognise those card details. Please try entering them again."*
+3. Wire back to the retry counter block (Block 3) — the existing retry limit logic handles max attempts.
+
+---
+
+#### Updating Block 12 — Set Contact Attributes (Add Validation Fields)
+
+Block 12 was the original "Set contact attributes" block that stores card details for the agent.  Add two more attributes:
+
+| Key | Value |
+|---|---|
+| `dtmf_validation_status` | `$.External.validationStatus` |
+| `dtmf_card_type` | `$.External.cardType` |
+| `dtmf_status` | `complete` |
+| `dtmf_requires_escalation` | `$.External.requiresEscalation` |
+
+> These appear in the human agent's CCP panel and are also passed as Lex session attributes to ARIA on the next turn.
+
+---
+
+### K.11.3 — How ARIA (AI Agent) Uses Validation Results
+
+When the sub-flow completes and control returns to the main flow's **Get customer input** (Lex) block, the session attribute mappings (configured in K.6) automatically pass these new attributes to ARIA as session attributes.
+
+ARIA reads them via its `event["sessionState"]["sessionAttributes"]` dict in the fulfillment Lambda.  Add the following to your **Lex session attribute mappings** in the `Get customer input` block (same place as the existing `customerId`, `authStatus` mappings):
+
+| Session attribute key | Contact attribute source |
+|---|---|
+| `dtmf_validation_status` | Contact attribute → `dtmf_validation_status` |
+| `dtmf_card_type` | Contact attribute → `dtmf_card_type` |
+| `dtmf_requires_escalation` | Contact attribute → `dtmf_requires_escalation` |
+| `dtmf_status` | Contact attribute → `dtmf_status` |
+
+**System prompt addition for ARIA** (add to Section D.3, `DTMF and card handling` sub-section):
+
+```
+DTMF Validation status handling:
+- dtmf_validation_status = "valid": Card passed all checks. Proceed normally.
+- dtmf_validation_status = "invalid_luhn": Customer likely miskeyed digits.
+  Say: "It looks like there may have been a typo with the card number. 
+  Could you try entering it again?"
+- dtmf_validation_status = "invalid_bin": Card type not recognised.
+  Say: "I'm sorry, I wasn't able to recognise that card. Could you try a 
+  different card, or would you like to speak with an advisor?"
+- dtmf_validation_status = "not_customer_card": Ownership check failed.
+  ALWAYS escalate to human agent immediately. Say: "I need to transfer 
+  you to one of our advisors to help with this."
+- dtmf_validation_status = "validation_service_error": Technical issue.
+  Continue processing as normal — do not mention the technical issue 
+  unless the customer asks.
+- dtmf_requires_escalation = "true": Escalate immediately regardless of 
+  other attributes.
+```
+
+---
+
+### K.11.4 — Troubleshooting Card Validation
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| All cards show `invalid_bin` | `aria-card-bins` table is empty | Seed the table with your BIN ranges (Step 2) |
+| Ownership check always fails | `aria-customer-cards` table empty or wrong `customerId` format | Verify `customerId` format matches table PK; check session injector output |
+| `validation_service_error` in logs | DynamoDB throttling or Lambda timeout | Increase Lambda timeout to 10s; check DynamoDB capacity |
+| Block 10 shows "Error" in flow | Lambda not granted Connect permission | Re-run the `add-permission` command in Step 4 |
+| Agent sees `dtmf_card_type` is blank | Block 12 attribute mapping missing | Add `dtmf_card_type = $.External.cardType` to Block 12 |
+| Fraud escalation queue not ringing | Transfer block pointing to wrong queue | Verify queue name in escalate path matches Connect queue exactly |
+
+---
+
+## K.12 — Real-Time Status Feedback to AI Agent and Human Agent
+
+### What This Section Covers (Plain English)
+
+When ARIA or a Lambda does something that takes time — calling the AgentCore AI, processing a payment, running card validation — both the **human agent watching on their screen** and **ARIA itself** need live feedback about what is happening.
+
+Without this:
+- A human agent covering the call sees nothing happening and may accidentally intervene.
+- If ARIA retries a failed payment API call, it has no way to tell the customer "I'm just double-checking that for you" without knowing it retried.
+
+With the feedback architecture in this section:
+- **Human agent CCP panel** shows a live status bar updating every few seconds: `thinking → retrying → complete` or `error: timeout`.
+- **ARIA AI** receives the same information as session attributes on its next Lex turn, so it can say things like: *"I did need to try that twice, but it's gone through now."*
+
+The mechanism is a single AWS API call — `connect:UpdateContactAttributes` — that both audiences read from.
+
+---
+
+### K.12.1 — How the Dual-Channel Architecture Works
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Lambda / MCP Tool executing (e.g. payment, validation, ARIA call)  │
+└────────────────────────┬────────────────────────────────────────────┘
+                         │  boto3: connect.update_contact_attributes()
+                         │  (non-blocking, fire-and-forget)
+                         ▼
+          ┌──────────────────────────────┐
+          │  Amazon Connect              │
+          │  Contact Attributes Store    │
+          │  (live, per-contact)         │
+          └──────┬───────────────────────┘
+                 │                        │
+        ┌────────▼─────────┐    ┌─────────▼──────────────────┐
+        │  Human Agent CCP │    │  Lex V2 "Get customer       │
+        │  Contact         │    │  input" block session       │
+        │  Attributes tab  │    │  attribute mappings         │
+        │  (refreshes      │    │  (passes attrs to ARIA      │
+        │   automatically) │    │   on next turn as           │
+        └──────────────────┘    │   sessionAttributes)        │
+                                └─────────────────────────────┘
+                                          │
+                                 ┌────────▼──────────────────┐
+                                 │  ARIA reads attrs from    │
+                                 │  event["sessionState"]    │
+                                 │  ["sessionAttributes"]    │
+                                 │  and responds accordingly │
+                                 └───────────────────────────┘
+```
+
+**Key points:**
+- The same `update_contact_attributes` call serves both audiences simultaneously.
+- Contact attributes are **strings only** — booleans and numbers must be converted: `str(retry_count)`.
+- Connect limits attribute values to **32,767 characters** — truncate error messages if needed.
+- The call is **non-critical**: if it fails (network blip, Connect throttle) the flow must continue. Always `try/except` with a warning log, never raise.
+
+---
+
+### K.12.2 — Complete Status Attributes Reference
+
+These are all the contact attributes written by the ARIA stack.  They appear in the human agent's CCP panel under "Contact Attributes" and are also forwarded to ARIA as session attributes.
+
+#### ARIA AI Processing Status
+
+| Attribute | Written by | Values | Meaning |
+|---|---|---|---|
+| `aria_status` | Fulfillment Lambda | `thinking` / `retrying` / `complete` / `error` | Current state of the ARIA AI call |
+| `aria_step` | Fulfillment Lambda | Free text, e.g. "Processing request..." | Human-readable step description |
+| `aria_retry_count` | Fulfillment Lambda | `"0"`, `"1"`, `"2"` | Number of retries attempted so far |
+| `aria_error_msg` | Fulfillment Lambda | Error description or blank | Last error message if status = error |
+
+#### DTMF / Card Collection Status
+
+| Attribute | Written by | Values | Meaning |
+|---|---|---|---|
+| `dtmf_status` | Flow blocks + validate Lambda | `waiting_for_input` / `processing` / `validating` / `complete` / `escalating` / `retry_validation_error` | Current step of card collection |
+| `dtmf_step` | Validate Lambda | Free text | Detail of the validation step in progress |
+| `dtmf_error_msg` | Validate Lambda | Error description or blank | Validation failure reason |
+| `dtmf_retry_count` | Validate Lambda | `"0"` to `"3"` | How many times customer has re-entered |
+| `dtmf_validation_status` | Validate Lambda | `valid` / `invalid_luhn` / `invalid_bin` / `not_customer_card` / `validation_service_error` | Result of the last validation attempt |
+| `dtmf_card_type` | Validate Lambda | `VISA_DEBIT` / `MC_DEBIT` etc. | Card type identified from BIN |
+| `dtmf_requires_escalation` | Validate Lambda | `"true"` / `"false"` | Whether fraud escalation is required |
+
+#### Payment / API Call Status
+
+| Attribute | Written by | Values | Meaning |
+|---|---|---|---|
+| `payment_status` | Payment MCP tool | `initiated` / `processing` / `retrying` / `complete` / `failed` | Payment state |
+| `payment_step` | Payment MCP tool | Free text | Current payment step |
+| `payment_error_code` | Payment MCP tool | Bank API error code | Error from payment API |
+| `payment_error_msg` | Payment MCP tool | Human-readable error | Why the payment failed |
+| `payment_retry_count` | Payment MCP tool | `"0"` to `"3"` | Number of payment retries |
+| `payment_retry_reason` | Payment MCP tool | `timeout` / `server_error` / etc. | Why a retry was triggered |
+| `payment_amount` | Payment MCP tool | `"250.00"` | Amount being processed (for agent context) |
+| `payment_ref` | Payment MCP tool | Transaction reference | Payment reference number |
+| `api_last_call` | Any MCP tool | Tool/API name | Name of the last API called |
+| `api_last_status` | Any MCP tool | `success` / `error` / `timeout` | Status of the last API call |
+| `api_step` | Any MCP tool | Free text | What the API call was trying to do |
+| `api_error_summary` | Any MCP tool | Short error description | For agent to guide the customer |
+| `api_retry_count` | Any MCP tool | `"0"` to `"3"` | Retries on the last API call |
+
+---
+
+### K.12.3 — The `connect_status.py` Shared Utility
+
+Rather than copy-pasting the `update_contact_attributes` call into every MCP tool and Lambda, the file `aria/tools/connect_status.py` provides a single shared helper.
+
+**How to import and use it in an MCP tool:**
+
+```python
+from aria.tools.connect_status import push_status, make_payment_status, make_api_status
+
+# In your tool function:
+async def process_payment(session_id: str, amount: float, ...):
+
+    # 1. Tell both channels the payment has started
+    push_status(session_id, INSTANCE_ID, make_payment_status(
+        status="initiated",
+        step="Sending payment request to bank",
+        amount=str(amount),
+    ))
+
+    try:
+        result = call_payment_api(amount)
+
+        # 2. Success — update both channels
+        push_status(session_id, INSTANCE_ID, make_payment_status(
+            status="complete",
+            step="Payment authorised",
+            payment_ref=result["reference"],
+        ))
+        return {"success": True, "reference": result["reference"]}
+
+    except TimeoutError:
+        # 3. Failure — agent and ARIA both get the error
+        push_status(session_id, INSTANCE_ID, make_payment_status(
+            status="failed",
+            step="Payment API timed out",
+            error_code="TIMEOUT",
+            error_msg="Bank API did not respond within 8 seconds",
+        ))
+        return {
+            "success": False,
+            "error_code": "TIMEOUT",
+            "error_msg": "Payment timed out",
+            "retry_count": 0,
+        }
+```
+
+**Key rule:** `session_id` in all MCP tools equals the Amazon Connect `ContactId`.  This is set by the session injector Lambda and passed through Lex as the session ID.
+
+---
+
+### K.12.4 — Fulfillment Lambda: Retry + Status Pattern
+
+The `aria-lex-fulfillment` Lambda now includes:
+
+1. **`CONNECT_INSTANCE_ID` env var** — set at deploy time by `deploy.sh` (collected as a configuration input).
+2. **`_push_aria_status()` helper** — calls `connect.update_contact_attributes` with `aria_status`, `aria_step`, `aria_retry_count`, `aria_error_msg`.
+3. **`_call_agentcore_with_retry()` wrapper** — runs up to 3 attempts with exponential backoff (1s, 2s), pushing status updates between each attempt.
+
+**Status progression visible to both agent and ARIA:**
+
+```
+Customer sends message
+       ↓
+aria_status = "thinking"          ← human agent sees "thinking"
+       ↓
+AgentCore call attempt 1
+       ↓  (if fails)
+aria_status = "retrying"          ← agent sees "retrying (1 of 3)"
+       ↓  (1 second wait)
+AgentCore call attempt 2
+       ↓  (if succeeds)
+aria_status = "complete"          ← agent sees "complete"
+       ↓
+Lex returns ARIA's response to customer
+```
+
+If **all retries fail**, the status becomes `aria_status = "error"` and `aria_error_msg` explains why.  The Lex response prompts the customer to press 0 for an advisor, and the agent sees the error in their CCP panel.
+
+**ARIA reads its own status on the next turn** via session attributes.  Add these to the `Get customer input` Lex session attribute mappings:
+
+| Session attribute key | Source |
+|---|---|
+| `aria_status` | Contact attribute → `aria_status` |
+| `aria_retry_count` | Contact attribute → `aria_retry_count` |
+| `aria_error_msg` | Contact attribute → `aria_error_msg` |
+
+**System prompt addition for ARIA** (add to Section D.3):
+
+```
+ARIA processing status awareness:
+- If aria_retry_count is "1" or "2" and aria_status is "complete":
+  You may acknowledge the brief delay naturally: "Sorry for the 
+  brief pause — I just needed to double-check that for you."
+- If aria_status is "error":
+  Say: "I'm sorry, I'm having a technical difficulty right now. 
+  Let me connect you with one of our advisors who can help."
+  Then use the transfer_to_agent tool.
+- Do not mention retries or technical issues unless aria_status 
+  indicates an error or the customer directly asks.
+```
+
+---
+
+### K.12.5 — Human Agent CCP Panel: What They See
+
+The CCP (Contact Control Panel) shows a **Contact Attributes** section that refreshes automatically as attributes change.  No custom code is needed for basic display — it is built into Amazon Connect.
+
+**To make it more prominent**, you can create a custom CCP using the Connect Streams API that highlights status changes with colour coding.  This is optional but recommended for high-volume contact centres.
+
+**Basic setup (no custom CCP needed):**
+
+1. In **Connect → Routing → Queues**, open each queue your agents use.
+2. Ensure agents are set to **"Use the CCP"** as their softphone.
+3. When on a call, agents click **"Contact Attributes"** tab in CCP to see the live attributes.
+
+**Enhanced custom CCP (optional):**
+
+```javascript
+// In your custom CCP JavaScript (Connect Streams API)
+connect.contact(function(contact) {
+  contact.onRefreshContact(function(contact) {
+    const attrs = contact.getAttributes();
+
+    // Colour-code the ARIA status bar
+    const ariaStatus = attrs.aria_status?.value || '';
+    const statusEl = document.getElementById('aria-status-bar');
+    if (statusEl) {
+      statusEl.textContent = ariaStatus;
+      statusEl.className = `status-${ariaStatus}`; // CSS: .status-thinking, .status-error etc.
+    }
+
+    // Payment status
+    const paymentStatus = attrs.payment_status?.value || '';
+    if (paymentStatus === 'failed') {
+      showAlert(`Payment failed: ${attrs.payment_error_msg?.value}`);
+    }
+
+    // DTMF validation
+    const dtmfStatus = attrs.dtmf_status?.value || '';
+    if (dtmfStatus === 'escalating') {
+      showAlert('⚠️ Card ownership check failed — fraud review required');
+    }
+  });
+});
+```
+
+---
+
+### K.12.6 — IAM Permissions Summary
+
+Every Lambda and MCP tool that calls `update_contact_attributes` needs:
+
+```json
+{
+    "Sid": "ConnectStatusUpdate",
+    "Effect": "Allow",
+    "Action": ["connect:UpdateContactAttributes"],
+    "Resource": "*"
+}
+```
+
+> **Why `Resource: *`?**  Connect does not support resource-level conditions on `UpdateContactAttributes`.  The call is always scoped to a specific `InitialContactId` at runtime — there is no way to pre-enumerate contact IDs in an IAM policy.
+
+**Lambdas that need this permission (add to their IAM roles):**
+
+| Lambda / Tool | IAM role name |
+|---|---|
+| `aria-lex-fulfillment` | `aria-lambda-fulfillment-role` ← already added by `deploy.sh` |
+| `aria-dtmf-validate` | `aria-lambda-dtmf-validate-role` ← added in K.11.1 Step 4 |
+| Any MCP tool using `connect_status.py` | The AgentCore execution role (`aria-agentcore-execution-role`) |
+
+To add to the AgentCore execution role:
+
+```bash
+aws iam put-role-policy \
+  --role-name aria-agentcore-execution-role \
+  --policy-name ConnectStatusUpdate \
+  --policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[{
+          "Sid":"ConnectStatusUpdate",
+          "Effect":"Allow",
+          "Action":["connect:UpdateContactAttributes"],
+          "Resource":"*"
+      }]
+  }'
+```
+
+---
+
+### K.12.7 — Session Attribute Mapping: Full Reference
+
+In every **Get customer input** block in your Connect flows that invokes Lex, add these session attribute mappings so ARIA receives live status context on every turn:
+
+| Session attribute key | Contact attribute key | Why ARIA needs it |
+|---|---|---|
+| `aria_status` | `aria_status` | ARIA knows if it recovered from an error |
+| `aria_retry_count` | `aria_retry_count` | ARIA can acknowledge delays naturally |
+| `aria_error_msg` | `aria_error_msg` | ARIA can explain what went wrong |
+| `dtmf_validation_status` | `dtmf_validation_status` | ARIA knows card check result |
+| `dtmf_card_type` | `dtmf_card_type` | ARIA knows which card type was used |
+| `dtmf_requires_escalation` | `dtmf_requires_escalation` | ARIA knows to escalate immediately |
+| `payment_status` | `payment_status` | ARIA knows payment outcome |
+| `payment_error_code` | `payment_error_code` | ARIA can give specific error guidance |
+| `payment_error_msg` | `payment_error_msg` | ARIA explains failure to customer |
+| `payment_retry_count` | `payment_retry_count` | ARIA can say "I tried twice" |
+| `api_error_summary` | `api_error_summary` | ARIA can explain API failures |
+
+**How to add session attribute mappings** (same method as K.6):
+
+1. Open the main contact flow in Amazon Connect.
+2. Click the **Get customer input** block (the Lex V2 block).
+3. Scroll to the **Session attributes** section.
+4. Click **Add an attribute** for each row in the table above.
+5. Set **Key** to the session attribute key, **Type** to `Contact attribute`, **Attribute** to the contact attribute key.
+6. Save and Publish the flow.
+
+---
+
+### K.12.8 — Troubleshooting: Status Updates Not Visible
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| CCP Contact Attributes tab shows nothing | Agent opened CCP before the call was connected | Refresh CCP; attributes only appear once the call is active |
+| Attributes appear but never update | Lambda missing `ConnectStatusUpdate` IAM policy | Add the policy to the Lambda's execution role |
+| `aria_status` always blank in ARIA session | Lex session attribute mapping missing | Add `aria_status` → contact attribute mapping in the `Get customer input` block |
+| `aria_status = "retrying"` stays forever | Fulfillment Lambda crashed before setting `complete` | Check Lambda logs in CloudWatch for the `aria-lex-fulfillment` function |
+| Payment attributes visible to agent but ARIA doesn't react | Payment MCP tool not returning `error_code` in its result dict | Ensure the tool returns `{"error_code": "...", "retry_count": ...}` |
+| Human agent sees escalation alert but no call arrives | Escalation queue transfer block wired incorrectly | In the DTMF sub-flow escalate path, verify the Transfer to queue block names the correct queue |
+| `dtmf_requires_escalation = "true"` but ARIA ignores it | System prompt not updated | Add the `dtmf_requires_escalation` handling to Section D.3 of the system prompt |
 
 ---
 

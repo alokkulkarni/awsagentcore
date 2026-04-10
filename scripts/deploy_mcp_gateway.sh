@@ -227,6 +227,14 @@ EOF
 # ---------------------------------------------------------------------------
 # Step 2 — Build Lambda package for a domain
 # ---------------------------------------------------------------------------
+#
+# Pre-built handler lookup:
+#   scripts/lambdas/mcp_tools/aria_{domain}_handler.py
+# Domain names with hyphens (debit-card, credit-card) are mapped to underscores.
+# If a pre-built file exists it is used as-is (already contains the correct
+# JSON-RPC parsing + prefix-stripping logic).  If not, the heredoc template
+# below is used as a fallback so new domains still work without a pre-built file.
+# ---------------------------------------------------------------------------
 build_lambda_package() {
   local domain="$1"
   local build_dir="/tmp/aria-mcp-build-${domain}"
@@ -235,7 +243,28 @@ build_lambda_package() {
 
   rm -rf "${build_dir}" && mkdir -p "${build_dir}"
 
-  # Write the Lambda handler for this domain
+  # ── Resolve pre-built handler path ──────────────────────────────────────
+  # Convert domain name to the underscore-based file name convention.
+  local domain_safe="${domain//-/_}"     # debit-card → debit_card
+  # Resolve relative to the script's own location so it works from any cwd.
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local prebuilt="${script_dir}/lambdas/mcp_tools/aria_${domain_safe}_handler.py"
+
+  if [[ -f "${prebuilt}" ]]; then
+    log "  Using pre-built handler: ${prebuilt}"
+    cp "${prebuilt}" "${build_dir}/handler.py"
+    # Package and return — skip the heredoc template entirely.
+    cd "${build_dir}"
+    zip -r "aria-mcp-${domain}.zip" handler.py >/dev/null
+    cd - >/dev/null
+    echo "${build_dir}/aria-mcp-${domain}.zip"
+    return
+  fi
+
+  warn "  No pre-built handler for domain '${domain}' — using generated template."
+
+  # ── Fallback: generate handler from template ─────────────────────────────
   cat > "${build_dir}/handler.py" <<PYTHON
 """
 ARIA MCP Gateway Lambda — domain: ${domain}
@@ -261,24 +290,55 @@ DOMAIN = "${domain}"
 def lambda_handler(event, context):
     """
     Entry point for MCP Gateway tool invocations.
-    
-    The AgentCore MCP Gateway sends requests in the format:
+
+    Amazon Connect AI Agent sends JSON-RPC 2.0:
+    {
+        "jsonrpc": "2.0", "id": "1", "method": "tools/call",
+        "params": {
+            "name": "aria-banking-account___get_account_details",
+            "arguments": {"customer_id": "C123", "query_subtype": "balance"}
+        }
+    }
+
+    AgentCore direct invocation (legacy/test) format:
     {
         "tool_name": "get_account_details",
-        "tool_input": {"customer_id": "C123", "account_number": "4821", "query_subtype": "balance"}
-    }
-    
-    Returns:
-    {
-        "result": <tool result object>
+        "tool_input": {"customer_id": "C123", "query_subtype": "balance"}
     }
     """
     logger.info(f"MCP invocation [{DOMAIN}]: {json.dumps(event)}")
 
-    tool_name  = event.get("tool_name", "")
-    tool_input = event.get("tool_input", event.get("input", {}))
+    # ── Extract tool name ────────────────────────────────────────────────────
+    # JSON-RPC 2.0 path (Connect AI Agent)
+    params_block = event.get("params", {})
+    if isinstance(params_block, str):
+        try:
+            params_block = json.loads(params_block)
+        except json.JSONDecodeError:
+            params_block = {}
 
-    # Parse stringified inputs if needed (MCP sends all params as strings)
+    raw_tool_name = (
+        params_block.get("name")          # JSON-RPC: params.name
+        or event.get("tool_name")         # legacy direct invocation
+        or event.get("toolName")          # camelCase variant
+        or ""
+    )
+
+    # Strip MCP server prefix (Connect sends "{server-name}___{tool_name}")
+    if "___" in raw_tool_name:
+        tool_name = raw_tool_name.split("___", 1)[1]
+    else:
+        tool_name = raw_tool_name
+
+    # ── Extract tool input ───────────────────────────────────────────────────
+    tool_input = (
+        params_block.get("arguments")     # JSON-RPC: params.arguments
+        or event.get("tool_input")        # legacy: tool_input
+        or event.get("input")             # legacy: input
+        or {}
+    )
+
+    # Parse stringified inputs if needed (some gateways serialise arguments as a JSON string)
     if isinstance(tool_input, str):
         try:
             tool_input = json.loads(tool_input)
@@ -379,33 +439,52 @@ PYTHON
     account)
       cat >> "${build_dir}/handler.py" <<'PYTHON'
 
+@_register("get_account_balance")
+def get_account_balance(inp):
+    # TODO: Replace with core banking API call
+    customer_id  = inp.get("customer_id", "")
+    account_type = inp.get("account_type", "current")
+    return {
+        "customer_id": customer_id,
+        "account_type": account_type,
+        "account_name": "Meridian Select",
+        "available_balance": 2200.00,
+        "cleared_balance": 2450.75,
+        "currency": "GBP",
+        "account_number_last_four": "4521",
+    }
+
+@_register("get_recent_transactions")
+def get_recent_transactions(inp):
+    # TODO: Replace with core banking API call
+    customer_id  = inp.get("customer_id", "")
+    account_type = inp.get("account_type", "current")
+    limit        = int(inp.get("limit", 5))
+    transactions = [
+        {"date": "2026-03-31", "description": "TESCO STORES", "amount": -42.50, "balance": 2450.75},
+        {"date": "2026-03-30", "description": "SALARY MERIDIAN", "amount": 2800.00, "balance": 2493.25},
+        {"date": "2026-03-29", "description": "DIRECT DEBIT UTILITIES", "amount": -89.99, "balance": -306.75},
+    ]
+    return {
+        "customer_id": customer_id,
+        "account_type": account_type,
+        "transactions": transactions[:limit],
+        "total_returned": min(limit, len(transactions)),
+    }
+
 @_register("get_account_details")
 def get_account_details(inp):
     # TODO: Replace with core banking API call
-    subtype  = inp.get("query_subtype", "balance")
-    last_four = inp.get("account_number", "****")
-    stub = {
-        "account_last_four": last_four,
-        "account_type": "Current Account",
-        "sort_code": "20-**-**",
+    customer_id  = inp.get("customer_id", "")
+    account_type = inp.get("account_type", "current")
+    return {
+        "customer_id": customer_id,
+        "account_number_last_four": "4521",
+        "sort_code": "20-45-67",
+        "account_type": account_type,
+        "account_name": "Meridian Select",
+        "currency": "GBP",
     }
-    if subtype == "balance":
-        stub.update({"balance": 2450.75, "available_balance": 2200.00, "overdraft_limit": 500.00})
-    elif subtype == "transactions":
-        stub["transactions"] = [
-            {"date": "2026-03-31", "description": "TESCO STORES", "amount": -42.50, "balance": 2450.75},
-            {"date": "2026-03-30", "description": "SALARY MERIDIAN", "amount": 2800.00, "balance": 2493.25},
-            {"date": "2026-03-29", "description": "DIRECT DEBIT UTILITIES", "amount": -89.99, "balance": -306.75},
-        ]
-    elif subtype == "statement":
-        stub["statement_url"] = "https://online.meridianbank.co.uk/statements/latest"
-        stub["message"] = "Your latest statement is available in online banking."
-    elif subtype == "standing_orders":
-        stub["standing_orders"] = [
-            {"payee": "Council Tax", "amount": 145.00, "frequency": "Monthly", "next_payment": "2026-04-01"},
-            {"payee": "Gym Membership", "amount": 35.00, "frequency": "Monthly", "next_payment": "2026-04-05"},
-        ]
-    return stub
 PYTHON
       ;;
 
@@ -1601,21 +1680,61 @@ DOMAIN_TOOLS = {
     ],
     "account": [
         {
-            "name": "get_account_details",
-            "description": "Returns account balance, recent transactions, latest statement URL, or standing orders",
+            "name": "get_account_balance",
+            "description": "Returns current and available balance for a customer's bank account",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "account_number": {
+                    "customer_id": {
                         "type": "string",
-                        "description": "Last four digits of the account number"
+                        "description": "Customer ID"
                     },
-                    "query_subtype": {
+                    "account_type": {
                         "type": "string",
-                        "description": "Data type: balance, transactions, statement, or standing_orders"
+                        "description": "Account type: current or savings (default: current)"
                     }
                 },
-                "required": ["account_number"]
+                "required": ["customer_id"]
+            }
+        },
+        {
+            "name": "get_recent_transactions",
+            "description": "Returns recent transactions for a customer's account",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID"
+                    },
+                    "account_type": {
+                        "type": "string",
+                        "description": "Account type: current or savings (default: current)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of transactions to return (default: 5)"
+                    }
+                },
+                "required": ["customer_id"]
+            }
+        },
+        {
+            "name": "get_account_details",
+            "description": "Returns account details including sort code, account number, and account type",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID"
+                    },
+                    "account_type": {
+                        "type": "string",
+                        "description": "Account type: current or savings (default: current)"
+                    }
+                },
+                "required": ["customer_id"]
             }
         }
     ],
@@ -2396,7 +2515,58 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
-# cmd_update_targets — re-register all gateway targets with the correct
+# cmd_update_lambdas — rebuild and redeploy all 10 domain Lambda functions
+#   without touching the gateway, IAM roles, DynamoDB, or MCP targets.
+#
+# Use this after editing any handler in scripts/lambdas/mcp_tools/ to push
+# the changes live immediately.
+#
+# Usage:
+#   ./scripts/deploy_mcp_gateway.sh update-lambdas [--env prod] [--region eu-west-2]
+# ---------------------------------------------------------------------------
+cmd_update_lambdas() {
+  local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
+
+  echo ""
+  echo -e "${BLUE}=====================================================================${NC}"
+  echo -e "${BLUE}  ARIA — Redeploy All 10 MCP Domain Lambda Functions${NC}"
+  echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
+  echo -e "${BLUE}=====================================================================${NC}"
+  echo ""
+
+  # Resolve Lambda role ARN — must already exist (created by cmd_deploy)
+  LAMBDA_ROLE_ARN="arn:aws:iam::$(aws sts get-caller-identity \
+      --query Account --output text 2>/dev/null):role/${LAMBDA_ROLE_NAME}"
+
+  local updated=0 failed=0
+  for domain in "${DOMAINS[@]}"; do
+    zip_path=$(build_lambda_package "${domain}")
+    local function_name="${PROJECT}-mcp-${domain}-${ENV}"
+
+    if aws lambda get-function --function-name "${function_name}" \
+        --region "${AWS_REGION}" >/dev/null 2>&1; then
+      aws lambda update-function-code \
+        --function-name "${function_name}" \
+        --zip-file "fileb://${zip_path}" \
+        --region "${AWS_REGION}" >/dev/null \
+      && { ok "Updated: ${function_name}"; (( ++updated )); } \
+      || { warn "Failed to update: ${function_name}"; (( ++failed )); }
+    else
+      warn "Lambda not found (run 'deploy' first): ${function_name}"
+      (( ++failed ))
+    fi
+    rm -f "${zip_path}"
+  done
+
+  echo ""
+  echo -e "${GREEN}=====================================================${NC}"
+  echo -e "${GREEN}  Lambda update complete: ${updated} updated, ${failed} failed${NC}"
+  echo -e "${GREEN}=====================================================${NC}"
+  echo ""
+  [[ "${failed}" -eq 0 ]] || warn "Some Lambdas failed — check the errors above."
+}
+
+
 #   per-tool inlinePayload schemas without a full teardown/redeploy.
 #
 # Use this when the gateway and Lambdas are already deployed but the tool
@@ -2491,13 +2661,15 @@ PYEOF
 # ---------------------------------------------------------------------------
 usage() {
   echo ""
-  echo "  Usage: $0 [deploy|teardown|update-targets] [OPTIONS]"
+  echo "  Usage: $0 [deploy|teardown|update-targets|update-lambdas] [OPTIONS]"
   echo ""
   echo "  Subcommands:"
   echo "    deploy          — (default) deploy all ARIA infrastructure"
   echo "    teardown        — delete all resources created by deploy"
   echo "    update-targets  — update MCP gateway target tool schemas in-place"
   echo "                      (use when tools are not visible in Connect AI Agent Designer)"
+  echo "    update-lambdas  — rebuild and redeploy all 10 domain Lambda functions only"
+  echo "                      (use after editing scripts/lambdas/mcp_tools/ handler files)"
   echo ""
   echo "  Core options:"
   echo "    --env <env>              Environment tag              (default: prod)"
@@ -2537,6 +2709,9 @@ usage() {
   echo "          --sms-number   +441234567890 \\"
   echo "          --source-phone +441234567890"
   echo ""
+  echo "    # Redeploy all 10 tool Lambdas only (fastest fix after a code change)"
+  echo "    $0 update-lambdas --env prod --region eu-west-2"
+  echo ""
   echo "    # Update tool schemas on existing gateway (Connect AI Agent Designer fix)"
   echo "    $0 update-targets --env prod --region eu-west-2"
   echo ""
@@ -2553,7 +2728,7 @@ main() {
 
   # Optional positional subcommand (first arg, if not a flag)
   case "${1:-}" in
-    deploy|teardown|update-targets) subcmd="$1"; shift ;;
+    deploy|teardown|update-targets|update-lambdas) subcmd="$1"; shift ;;
     --*|"")          ;;  # no subcommand given — default to deploy
     *)
       error "Unknown subcommand: $1"
@@ -2590,9 +2765,11 @@ main() {
   CHAT_TO_VOICE_LAMBDA_NAME="${PROJECT}-chat-to-voice-transfer-${ENV}"
 
   case "${subcmd}" in
-    deploy)          cmd_deploy          ;;
-    teardown)        cmd_teardown        ;;
-    update-targets)  cmd_update_targets  ;;
+    deploy)           cmd_deploy           ;;
+    teardown)         cmd_teardown         ;;
+    update-targets)   cmd_update_targets   ;;
+    update-lambdas)   cmd_update_lambdas   ;;
+    *) warn "Unknown subcommand: ${subcmd}. Use: deploy | teardown | update-targets | update-lambdas" ;;
   esac
 }
 

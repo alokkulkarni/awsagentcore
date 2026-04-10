@@ -214,11 +214,15 @@ def handler(event: dict, context) -> dict:
             "errorMessage": "",
         }
 
-        # For card_last_four: also return the raw digits so the flow can pass
-        # them to the AI agent for card look-up (still never logged).
-        # Remove this block if you do NOT want the Lambda to ever return raw digits.
-        if purpose in ("card_last_four", "card_verification"):
+        # Return last four digits for card look-up by AI agent / validation Lambda.
+        if purpose in ("card_last_four", "card_verification", "full_card_number"):
             result["lastFour"] = plaintext[-4:]
+
+        # Return the BIN (first 6 digits) for real-time BIN validation.
+        # BINs are not PCI-sensitive — they are publicly used by all payment
+        # processors for card type identification and routing.
+        if len(plaintext) >= 6:
+            result["cardBin"] = plaintext[:6]
 
         return result
 

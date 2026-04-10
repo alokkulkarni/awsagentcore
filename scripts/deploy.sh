@@ -256,6 +256,7 @@ collect_inputs() {
     AGENT_NAME="${AGENT_NAME//-/_}"
     ask BANK_API_BASE_URL  "Bank API base URL"              "https://api.meridianbank.internal"
     ask BANK_API_KEY       "Bank API key"                   "your-api-key-here"
+    ask CONNECT_INSTANCE_ID "Amazon Connect instance ID (UUID, e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" ""
 
     echo ""
     ask DEPLOY_MODE "Build mode — 1=CodeBuild/cloud (recommended, no Docker needed), 2=Local Docker build" "1"
@@ -269,20 +270,22 @@ collect_inputs() {
     echo "    Audit bucket:         ${AUDIT_BUCKET}"
     echo "    Client bucket:        ${CLIENT_BUCKET}"
     echo "    Agent name:           ${AGENT_NAME}"
+    echo "    Connect Instance ID:  ${CONNECT_INSTANCE_ID:-"(not set — status updates disabled)"}"
     echo "    Build mode:           $([[ "$DEPLOY_MODE" == "1" ]] && echo 'CodeBuild (cloud)' || echo 'Local Docker')"
     echo ""
 
     ask_yn "Proceed with deployment?" "Y" || die "Deployment cancelled."
 
     # Persist to state file (account_id kept for ARN construction, not used in names)
-    state_set "account_id"           "$ACCOUNT_ID"
-    state_set "agentcore_region"     "$AGENTCORE_REGION"
-    state_set "claude_region"        "$CLAUDE_REGION"
-    state_set "nova_sonic_region"    "$NOVA_SONIC_REGION"
-    state_set "transcript_bucket"    "$TRANSCRIPT_BUCKET"
-    state_set "audit_bucket"         "$AUDIT_BUCKET"
-    state_set "client_bucket"        "$CLIENT_BUCKET"
-    state_set "agent_name"           "$AGENT_NAME"
+    state_set "account_id"              "$ACCOUNT_ID"
+    state_set "agentcore_region"        "$AGENTCORE_REGION"
+    state_set "claude_region"           "$CLAUDE_REGION"
+    state_set "nova_sonic_region"       "$NOVA_SONIC_REGION"
+    state_set "transcript_bucket"       "$TRANSCRIPT_BUCKET"
+    state_set "audit_bucket"            "$AUDIT_BUCKET"
+    state_set "client_bucket"           "$CLIENT_BUCKET"
+    state_set "agent_name"              "$AGENT_NAME"
+    [[ -n "$CONNECT_INSTANCE_ID" ]] && state_set "connect_instance_id" "$CONNECT_INSTANCE_ID"
 }
 
 create_s3_buckets() {
@@ -712,6 +715,21 @@ deploy_fulfillment_lambda() {
                 }]
             }"
 
+        # Allow live status pushes to the Connect contact (for human-agent CCP panel
+        # and AI-agent session-attribute feedback on the next Lex turn)
+        aws iam put-role-policy \
+            --role-name "$role_name" \
+            --policy-name "ConnectStatusUpdate" \
+            --policy-document "{
+                \"Version\":\"2012-10-17\",
+                \"Statement\":[{
+                    \"Sid\":\"UpdateContactAttributes\",
+                    \"Effect\":\"Allow\",
+                    \"Action\":[\"connect:UpdateContactAttributes\"],
+                    \"Resource\":\"*\"
+                }]
+            }"
+
         ok "IAM role created: ${fulfillment_role_arn}"
         step "Waiting 15s for IAM role propagation..."
         sleep 15
@@ -725,10 +743,15 @@ deploy_fulfillment_lambda() {
     local agentcore_endpoint="https://bedrock-agentcore.${AGENTCORE_REGION}.amazonaws.com/runtimes/${encoded_arn}/invocations"
 
     # ── 3. Deploy the Lambda ─────────────────────────────────────────────────
+    local fulfillment_env="AGENTCORE_ENDPOINT=${agentcore_endpoint},AWS_REGION=${AGENTCORE_REGION}"
+    local saved_instance_id
+    saved_instance_id=$(state_get "connect_instance_id" 2>/dev/null || echo "")
+    [[ -n "$saved_instance_id" ]] && fulfillment_env="${fulfillment_env},CONNECT_INSTANCE_ID=${saved_instance_id}"
+
     FULFILLMENT_LAMBDA_ARN=$(deploy_lambda \
         "aria-lex-fulfillment" \
         "${LAMBDA_DIR}/aria_connect_fulfillment.py" \
-        "{AGENTCORE_ENDPOINT=${agentcore_endpoint},AWS_REGION=${AGENTCORE_REGION}}" \
+        "{${fulfillment_env}}" \
         "${fulfillment_role_arn}"
     )
     state_set "fulfillment_lambda_arn"      "$FULFILLMENT_LAMBDA_ARN"
