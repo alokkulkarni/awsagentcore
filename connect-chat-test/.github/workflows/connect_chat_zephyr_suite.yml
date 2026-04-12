@@ -1,0 +1,267 @@
+name: "Amazon Connect Chat Test Suite"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scenarios/**"
+      - "*.py"
+      - ".github/workflows/connect_chat_zephyr_suite.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scenarios/**"
+      - "*.py"
+  workflow_dispatch:
+    inputs:
+      scenario_filter:
+        description: "Run only this test key (e.g. BANK-101). Leave blank for all."
+        required: false
+        default: ""
+      dry_run:
+        description: "Collect-only — validate scenarios without calling AWS"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      log_level:
+        description: "Python log verbosity"
+        required: false
+        default: "INFO"
+        type: choice
+        options: [DEBUG, INFO, WARNING, ERROR]
+      skip_zephyr:
+        description: "Skip Zephyr Squad write-back (useful for dev/preview runs)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Permissions — OIDC requires id-token: write
+# ─────────────────────────────────────────────────────────────────────────────
+permissions:
+  id-token: write   # GitHub → AWS OIDC token exchange
+  contents: read    # actions/checkout
+  checks: write     # publish test annotations
+  actions: read     # publish-unit-test-result-action dependency
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Non-sensitive defaults (sensitive values come from secrets/vars below)
+# ─────────────────────────────────────────────────────────────────────────────
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  REPORT_OUTPUT_DIR: "reports"
+  SCENARIOS_DIR: "scenarios"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  run-chat-tests:
+    name: "Connect Chat Tests"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup ────────────────────────────────────────────────────
+      - name: "Set up Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      # ── 3. Install dependencies ────────────────────────────────────────────
+      - name: "Install Python dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Pre-flight: reject static AWS credentials ───────────────────────
+      # Static long-lived key pairs must never be used in CI.
+      # OIDC (via aws-actions/configure-aws-credentials@v4) is the only
+      # approved authentication mechanism.
+      - name: "Pre-flight: reject static AWS credentials"
+        shell: bash
+        run: |
+          VIOLATION=false
+          if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -z "${AWS_SESSION_TOKEN:-}" ]]; then
+            echo "::error title=Static credentials::AWS_ACCESS_KEY_ID is set without \
+          AWS_SESSION_TOKEN. Use OIDC (role-to-assume) instead. Remove key pairs from secrets."
+            VIOLATION=true
+          fi
+          if [[ -n "${AWS_SECRET_ACCESS_KEY:-}" && -z "${AWS_SESSION_TOKEN:-}" ]]; then
+            echo "::error title=Static credentials::AWS_SECRET_ACCESS_KEY is set without \
+          AWS_SESSION_TOKEN. Use OIDC (role-to-assume) instead."
+            VIOLATION=true
+          fi
+          if [[ "${VIOLATION}" == "true" ]]; then
+            exit 1
+          fi
+          echo "Credential pre-flight passed ✓"
+
+      # ── 5. Authenticate to AWS via OIDC ───────────────────────────────────
+      - name: "Configure AWS credentials (OIDC)"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: "connect-chat-test-runner"
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+          role-duration-seconds: 3600
+
+      # ── 6. Verify assumed identity ─────────────────────────────────────────
+      - name: "Verify assumed AWS identity"
+        run: aws sts get-caller-identity
+
+      # ── 7. Validate scenario YAML files ────────────────────────────────────
+      - name: "Validate scenario YAML files"
+        run: |
+          python - <<'EOF'
+          import os, sys
+          from test_executor import load_scenarios
+          try:
+              scenarios = load_scenarios(os.environ.get("SCENARIOS_DIR", "scenarios"))
+              print(f"✓ Loaded {len(scenarios)} scenario(s):")
+              for s in scenarios:
+                  turns = len(s.get("turns", []))
+                  print(f"  {s['zephyr_issue_key']}: {s['name']} ({turns} turns)")
+          except Exception as exc:
+              print(f"✗ Scenario validation failed: {exc}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
+      # ── 8. Run pytest ──────────────────────────────────────────────────────
+      - name: "Run Amazon Connect chat tests"
+        id: run_tests
+        continue-on-error: true
+        env:
+          AWS_REGION:              ${{ vars.AWS_REGION || 'eu-west-2' }}
+          CONNECT_INSTANCE_ID:     ${{ vars.CONNECT_INSTANCE_ID }}
+          CONNECT_CONTACT_FLOW_ID: ${{ vars.CONNECT_CONTACT_FLOW_ID }}
+          # Zephyr Squad (only active when ZEPHYR_ENABLED=true)
+          ZEPHYR_ENABLED:          ${{ vars.ZEPHYR_ENABLED || 'false' }}
+          JIRA_BASE_URL:           ${{ vars.JIRA_BASE_URL }}
+          JIRA_USERNAME:           ${{ secrets.JIRA_USERNAME }}
+          JIRA_API_TOKEN:          ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_ID:         ${{ vars.JIRA_PROJECT_ID }}
+          ZEPHYR_CYCLE_ID:         ${{ vars.ZEPHYR_CYCLE_ID }}
+          # Runtime tuning
+          CHAT_TIMEOUT_SECONDS:    ${{ vars.CHAT_TIMEOUT_SECONDS || '10' }}
+          CHAT_DURATION_MINUTES:   ${{ vars.CHAT_DURATION_MINUTES || '5' }}
+          GITHUB_RUN_NUMBER:       ${{ github.run_number }}
+          LOG_LEVEL:               ${{ github.event.inputs.log_level || 'INFO' }}
+          # Override: skip Zephyr write-back for this run
+          ZEPHYR_SKIP_THIS_RUN:    ${{ github.event.inputs.skip_zephyr || 'false' }}
+        run: |
+          mkdir -p reports
+
+          # Build optional pytest -k filter
+          FILTER=""
+          if [[ -n "${{ github.event.inputs.scenario_filter }}" ]]; then
+            FILTER="-k ${{ github.event.inputs.scenario_filter }}"
+          fi
+
+          # Dry-run: collect-only (validates YAML + parametrize, no AWS calls)
+          DRY_RUN=""
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            DRY_RUN="--collect-only"
+          fi
+
+          # Override Zephyr flag per-run if requested
+          if [[ "${ZEPHYR_SKIP_THIS_RUN}" == "true" ]]; then
+            export ZEPHYR_ENABLED="false"
+          fi
+
+          pytest test_connect_chat.py \
+            ${FILTER} \
+            ${DRY_RUN} \
+            --html=reports/chat_test_report.html \
+            --self-contained-html \
+            --junitxml=reports/chat_test_results.xml \
+            -v \
+            --log-cli-level="${LOG_LEVEL}" \
+            --tb=short
+
+          PYTEST_EXIT=$?
+          echo "pytest_exit_code=${PYTEST_EXIT}" >> "$GITHUB_OUTPUT"
+          exit ${PYTEST_EXIT}
+
+      # ── 9. Parse results for job summary ──────────────────────────────────
+      - name: "Parse test results"
+        id: parse
+        if: always()
+        shell: bash
+        run: |
+          JSON="reports/chat_test_report.json"
+          if [[ -f "${JSON}" ]]; then
+            python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          d = json.load(open("reports/chat_test_report.json"))
+          s = d["summary"]
+          print(f"total={s['total']}")
+          print(f"passed={s['passed']}")
+          print(f"failed={s['failed']}")
+          print(f"pass_rate={s.get('pass_rate','0%')}")
+          EOF
+          else
+            printf 'total=0\npassed=0\nfailed=0\npass_rate=0%%\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 10. Write GitHub job summary ──────────────────────────────────────
+      - name: "Write job summary"
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Amazon Connect Chat Test Results
+
+          | Metric | Value |
+          |--------|-------|
+          | Total  | ${{ steps.parse.outputs.total }} |
+          | Passed | ✅ ${{ steps.parse.outputs.passed }} |
+          | Failed | ❌ ${{ steps.parse.outputs.failed }} |
+          | Pass Rate | **${{ steps.parse.outputs.pass_rate }}** |
+          | Region | ${{ vars.AWS_REGION || 'eu-west-2' }} |
+          | Zephyr | ${{ vars.ZEPHYR_ENABLED == 'true' && 'Enabled' || 'Disabled' }} |
+          | Run | #${{ github.run_number }} |
+          EOF
+
+      # ── 11. Upload report artifacts ───────────────────────────────────────
+      - name: "Upload test artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "chat-test-results-${{ github.run_number }}"
+          path: |
+            reports/chat_test_report.html
+            reports/chat_test_report.json
+            reports/chat_test_results.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ── 12. Publish JUnit annotations on PRs ─────────────────────────────
+      - name: "Publish test annotations"
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: "reports/chat_test_results.xml"
+          check_name: "Amazon Connect Chat Tests"
+          comment_title: "Chat Test Results"
+          fail_on: "test failures"
+          report_individual_runs: "true"
+
+      # ── 13. Fail gate (re-fail after artifact upload) ─────────────────────
+      - name: "Fail if tests failed"
+        if: steps.run_tests.outcome == 'failure'
+        run: |
+          echo "::error title=Tests Failed::${{ steps.parse.outputs.failed }} \
+          test(s) failed. Pass rate: ${{ steps.parse.outputs.pass_rate }}"
+          exit 1

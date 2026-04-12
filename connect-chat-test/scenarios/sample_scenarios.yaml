@@ -1,0 +1,71 @@
+# Amazon Connect Chat Test Scenarios
+# ====================================
+# Each YAML document (separated by ---) is one test scenario.
+# Each scenario maps to one existing Zephyr Squad test case via zephyr_issue_key.
+#
+# Required fields:
+#   zephyr_issue_key  : Jira issue key of the test case (e.g. BANK-101)
+#   name              : Human-readable scenario name
+#   turns             : List of conversation turns
+#
+# Optional fields:
+#   contact_flow_id   : ARN of the Amazon Connect contact flow to use.
+#                       Falls back to CONNECT_CONTACT_FLOW_ID env var.
+#
+# Turn fields:
+#   send              : Message to send to the chat bot (required)
+#   expect_contains   : String or list of strings that must ALL appear in
+#                       the bot response (case-insensitive). Omit to just
+#                       verify the bot responds without asserting content.
+#   timeout_seconds   : Per-turn override of CHAT_TIMEOUT_SECONDS env var.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+zephyr_issue_key: "BANK-101"
+name: "Verify bot greeting on session start"
+turns:
+  - send: "Hello"
+    expect_contains: "Welcome"
+    timeout_seconds: 10
+
+  - send: "What can you help me with?"
+    expect_contains:
+      - "help"
+      - "account"
+    timeout_seconds: 12
+
+---
+
+zephyr_issue_key: "BANK-102"
+name: "Verify Lex fallback intent handles unknown input"
+turns:
+  - send: "xyzzy abc gibberish 12345"
+    expect_contains: "didn't understand"
+    timeout_seconds: 10
+
+---
+
+zephyr_issue_key: "BANK-103"
+name: "Verify account balance intent"
+turns:
+  - send: "Hello"
+    timeout_seconds: 10
+
+  - send: "I want to check my balance"
+    expect_contains: "balance"
+    timeout_seconds: 15
+
+---
+
+zephyr_issue_key: "BANK-104"
+name: "Verify card block intent"
+turns:
+  - send: "I need to block my card"
+    expect_contains: "card"
+    timeout_seconds: 15
+
+  - send: "Yes, please block it"
+    expect_contains:
+      - "blocked"
+      - "confirm"
+    timeout_seconds: 15

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test reports (generated — don't commit)
+reports/
+
+# Environment files (contain credentials — never commit)
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# JetBrains / VSCode
+.idea/
+.vscode/
+
+# Node (if running the setup CLI locally)
+node_modules/
