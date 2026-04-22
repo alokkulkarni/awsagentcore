@@ -4941,8 +4941,8 @@ This part of the guide walks you through:
 2. Granting the AgentCore runtime the IAM permission to write those attributes
 3. Building the `ARIA Agent Whisper` flow in the Connect console, block by block
 4. Assigning it to the `ARIA Banking Agents` queue
-5. (Optional) Upgrading to dynamic whisper selection so safeguarding contacts get a more urgent brief
-6. (Optional) Creating a Customer Queue flow so the waiting customer hears hold music instead of silence
+5. Upgrading to dynamic whisper selection so safeguarding contacts get a more urgent brief
+6. Creating a Customer Queue flow so the waiting customer hears hold music instead of silence
 7. Testing the whisper flow end-to-end for voice
 8. Testing the whisper flow end-to-end for chat
 

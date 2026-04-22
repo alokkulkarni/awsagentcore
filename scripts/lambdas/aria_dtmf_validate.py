@@ -13,15 +13,24 @@ Called AFTER aria-dtmf-decrypt to perform three layers of validation:
                     not PCI-sensitive — they are publicly available and used
                     by all payment processors for card type identification.
 
-  3. Ownership    — verifies the card belongs to the authenticated customer
-                    (DynamoDB: aria-customer-cards, or external API if
-                    CARD_OWNERSHIP_API_URL is set).  Skipped when the
-                    customer is unauthenticated and SKIP_OWNERSHIP_IF_UNAUTH
-                    is "true" (default).
+  3. Ownership    — verifies the card belongs to the authenticated customer.
 
-All checks fail-open on service errors: if DynamoDB or the external API is
-unavailable the Lambda returns validationStatus="validation_service_error"
-rather than blocking the customer due to a technical outage.
+     PRIMARY:  Invokes the aria-banking-mcp-customer Lambda directly
+               (Lambda-to-Lambda) using the verify_card_ownership tool.
+               Validates using BOTH the BIN (first 6 digits) AND last four
+               digits — dual-factor card ownership check. Covers both debit
+               and credit cards as registered in the customer profile.
+
+     FALLBACK: If the customer Lambda call fails (timeout, unavailable), falls
+               back to the aria-customer-cards DynamoDB table keyed on
+               {customerId, cardLastFour}.
+
+     Skipped when customer is unauthenticated and SKIP_OWNERSHIP_IF_UNAUTH
+     is "true" (default).
+
+All checks fail-open on service errors: if all checks are unavailable the
+Lambda returns validationStatus="validation_service_error" rather than
+blocking the customer due to a technical outage.
 
 This Lambda also pushes real-time status to the agent's CCP via
 connect:UpdateContactAttributes so both the human agent (on hold) and the
@@ -36,16 +45,16 @@ Expected event payload (Connect Lambda block):
         "ContactData": {
             "ContactId": "abc12345-...",
             "Attributes": {
-                "customerId":       "C123456",
+                "customerId":       "CUST-001",
                 "authStatus":       "authenticated",
-                "dtmf_last_four":   "4821",
-                "dtmf_card_bin":    "472352",
+                "dtmf_last_four":   "8901",
+                "dtmf_card_bin":    "414900",
                 "dtmf_digit_count": "16"
             }
         },
         "Parameters": {
-            "cardLastFour": "4821",
-            "cardBin":      "472352",
+            "cardLastFour": "8901",
+            "cardBin":      "414900",
             "digitCount":   "16",
             "cardFull":     "",        # only set if returning full number
             "purpose":      "card_verification"
@@ -64,6 +73,7 @@ Returns:
                         | "validation_service_error",
     "validationMessage":  "Card validated successfully",
     "cardType":           "VISA" | "MASTERCARD" | "AMEX" | "MAESTRO" | "UNKNOWN",
+    "cardNickname":       "Everyday Debit" | "",   # from customer Lambda if available
     "requiresEscalation": "false",   # "true" when card does not belong to customer
     "errorMessage":       ""
 }
@@ -71,7 +81,11 @@ Returns:
 Environment variables:
     BIN_TABLE_NAME             DynamoDB BIN table        (default: aria-card-bins)
     CUSTOMER_CARDS_TABLE_NAME  DynamoDB customer cards   (default: aria-customer-cards)
-    CARD_OWNERSHIP_API_URL     Optional external ownership check endpoint
+    CUSTOMER_LAMBDA_NAME       Customer MCP Lambda name  (default: aria-banking-mcp-customer-prod)
+                               When set, this is used as the PRIMARY ownership check.
+                               The DynamoDB table is the fallback when this call fails.
+    CARD_OWNERSHIP_API_URL     Optional external ownership check endpoint (deprecated,
+                               superseded by CUSTOMER_LAMBDA_NAME)
     CARD_OWNERSHIP_API_KEY_ARN Optional Secrets Manager ARN for API key
     SKIP_OWNERSHIP_IF_UNAUTH   "true" skips ownership for unauthenticated customers
     CONNECT_INSTANCE_ID        Connect instance ID for real-time agent status push
@@ -80,6 +94,7 @@ Environment variables:
 IAM permissions required:
     dynamodb:GetItem on aria-card-bins
     dynamodb:GetItem on aria-customer-cards
+    lambda:InvokeFunction on aria-banking-mcp-customer-prod
     connect:UpdateContactAttributes on the Connect instance
     secretsmanager:GetSecretValue on CARD_OWNERSHIP_API_KEY_ARN (if set)
 """
@@ -102,15 +117,17 @@ logger.setLevel(logging.INFO)
 # ---------------------------------------------------------------------------
 BIN_TABLE              = os.environ.get("BIN_TABLE_NAME",             "aria-card-bins")
 CARDS_TABLE            = os.environ.get("CUSTOMER_CARDS_TABLE_NAME",  "aria-customer-cards")
+CUSTOMER_LAMBDA_NAME   = os.environ.get("CUSTOMER_LAMBDA_NAME",       "aria-banking-mcp-customer-prod")
 OWNERSHIP_API_URL      = os.environ.get("CARD_OWNERSHIP_API_URL",     "")
 OWNERSHIP_API_KEY_ARN  = os.environ.get("CARD_OWNERSHIP_API_KEY_ARN", "")
 SKIP_UNAUTH_OWNERSHIP  = os.environ.get("SKIP_OWNERSHIP_IF_UNAUTH",   "true").lower() == "true"
 CONNECT_INSTANCE_ID    = os.environ.get("CONNECT_INSTANCE_ID",        "")
 REGION                 = os.environ.get("AWS_REGION",                 "eu-west-2")
 
-dynamodb       = boto3.resource("dynamodb", region_name=REGION)
-secrets_client = boto3.client("secretsmanager", region_name=REGION)
-connect_client = boto3.client("connect", region_name=REGION)
+dynamodb        = boto3.resource("dynamodb", region_name=REGION)
+secrets_client  = boto3.client("secretsmanager", region_name=REGION)
+connect_client  = boto3.client("connect", region_name=REGION)
+lambda_client   = boto3.client("lambda",  region_name=REGION)
 
 _cached_api_key: Optional[str] = None
 
@@ -206,7 +223,76 @@ def _ownership_via_api(customer_id: str, last_four: str, bin_prefix: str) -> boo
         return bool(body.get("cardBelongsToCustomer", False))
 
 
+def _ownership_via_customer_lambda(
+    customer_id: str,
+    last_four: str,
+    bin_prefix: str,
+) -> Optional[tuple[bool, str, str]]:
+    """
+    PRIMARY ownership check — invokes aria-banking-mcp-customer-prod and calls
+    the verify_card_ownership tool.
+
+    This function validates using BOTH the card BIN (first 6 digits) AND the
+    last four digits, covering both debit and credit cards registered to the
+    customer in the customer profile.
+
+    Returns
+    ───────
+    (belongs: bool, card_type: str, card_nickname: str)  on success
+    None                                                  on any error (caller falls back to DynamoDB)
+    """
+    if not CUSTOMER_LAMBDA_NAME:
+        return None
+    try:
+        payload = json.dumps({
+            "tool_name": "verify_card_ownership",
+            "parameters": {
+                "customer_id":    customer_id,
+                "card_last_four": last_four,
+                "card_bin":       bin_prefix,
+            },
+        }).encode("utf-8")
+
+        response = lambda_client.invoke(
+            FunctionName=CUSTOMER_LAMBDA_NAME,
+            InvocationType="RequestResponse",
+            Payload=payload,
+        )
+
+        # Check for Lambda-level errors (e.g. function threw an unhandled exception)
+        if response.get("FunctionError"):
+            logger.warning(
+                "Customer Lambda returned FunctionError: %s",
+                response.get("FunctionError"),
+            )
+            return None
+
+        body = json.loads(response["Payload"].read().decode("utf-8"))
+
+        if "error" in body:
+            logger.warning("Customer Lambda tool error: %s", body["error"])
+            return None
+
+        belongs  = bool(body.get("belongs_to_customer", False))
+        c_type   = str(body.get("card_type",    ""))
+        nickname = str(body.get("card_nickname", ""))
+        method   = str(body.get("match_method", ""))
+
+        logger.info(
+            "Customer Lambda ownership check: customer=%s belongs=%s type=%s method=%s",
+            customer_id, belongs, c_type, method,
+        )
+        return belongs, c_type, nickname
+
+    except Exception as exc:
+        logger.warning(
+            "Customer Lambda ownership check failed (will fall back to DynamoDB): %s", exc
+        )
+        return None
+
+
 def _ownership_via_dynamodb(customer_id: str, last_four: str) -> bool:
+    """Fallback ownership check using the aria-customer-cards DynamoDB table."""
     table    = dynamodb.Table(CARDS_TABLE)
     response = table.get_item(
         Key={"customerId": customer_id, "cardLastFour": last_four},
@@ -216,15 +302,47 @@ def _ownership_via_dynamodb(customer_id: str, last_four: str) -> bool:
     return item is not None and item.get("isActive", True)
 
 
-def _check_ownership(customer_id: str, last_four: str, bin_prefix: str) -> Optional[bool]:
-    """Returns True (owns card), False (doesn't own card), None (service error)."""
+def _check_ownership(
+    customer_id: str,
+    last_four: str,
+    bin_prefix: str,
+) -> Optional[tuple[bool, str, str]]:
+    """
+    Check whether a card belongs to the authenticated customer.
+
+    Tries ownership checks in priority order:
+      1. aria-banking-mcp-customer Lambda  (CUSTOMER_LAMBDA_NAME) — dual-factor
+         (BIN + last four), covers debit AND credit cards from the customer profile.
+      2. External API                       (CARD_OWNERSHIP_API_URL)  — deprecated
+      3. aria-customer-cards DynamoDB table (CARDS_TABLE)             — fallback
+
+    Returns
+    ───────
+    (True,  card_type, card_nickname)  — card belongs to customer
+    (False, "",        "")             — card does NOT belong to customer
+    None                               — all checks failed (service error → fail-open)
+    """
+    # ── 1. Customer Lambda (primary) ──────────────────────────────────────
+    result = _ownership_via_customer_lambda(customer_id, last_four, bin_prefix)
+    if result is not None:
+        return result   # (belongs: bool, card_type: str, nickname: str)
+
+    # ── 2. External API (legacy / deprecated) ─────────────────────────────
+    if OWNERSHIP_API_URL:
+        try:
+            belongs = _ownership_via_api(customer_id, last_four, bin_prefix)
+            return belongs, "", ""
+        except Exception as exc:
+            logger.warning("Ownership API failed: %s", exc)
+
+    # ── 3. DynamoDB fallback ───────────────────────────────────────────────
     try:
-        if OWNERSHIP_API_URL:
-            return _ownership_via_api(customer_id, last_four, bin_prefix)
-        return _ownership_via_dynamodb(customer_id, last_four)
+        belongs = _ownership_via_dynamodb(customer_id, last_four)
+        return belongs, "", ""
     except Exception as exc:
-        logger.error("Ownership check failed: %s", exc)
-        return None
+        logger.error("DynamoDB ownership check failed: %s", exc)
+
+    return None   # all checks failed → caller will fail-open
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +398,7 @@ def handler(event: dict, context) -> dict:
     # Step 2 — BIN check
     # ------------------------------------------------------------------
     card_type              = "UNKNOWN"
+    card_nickname          = ""          # populated by ownership Lambda if match found
     ownership_check_needed = True
 
     if card_bin and len(card_bin) >= 6:
@@ -330,8 +449,8 @@ def handler(event: dict, context) -> dict:
         result = _check_ownership(customer_id, card_last_four, card_bin)
 
         if result is None:
-            # Ownership service unavailable — fail open rather than block customer
-            logger.warning("Ownership service error — failing open contact=%s", contact_id)
+            # All ownership services unavailable — fail open rather than block customer
+            logger.warning("All ownership services unavailable — failing open contact=%s", contact_id)
             _push_dtmf_status(contact_id, "card_validated",
                               "Card captured (ownership service temporarily unavailable)")
             return {
@@ -339,11 +458,18 @@ def handler(event: dict, context) -> dict:
                 "validationStatus":   "validation_service_error",
                 "validationMessage":  "Card captured — ownership check temporarily unavailable",
                 "cardType":           card_type,
+                "cardNickname":       "",
                 "requiresEscalation": "false",
                 "errorMessage":       "Ownership service unavailable",
             }
 
-        if not result:
+        belongs, resolved_card_type, card_nickname = result
+
+        # Prefer card type resolved from customer Lambda over BIN table when available
+        if resolved_card_type:
+            card_type = resolved_card_type.upper()
+
+        if not belongs:
             logger.warning(
                 "Card not found on account customerId=%s contact=%s",
                 (customer_id[:4] + "***") if customer_id else "?", contact_id,
@@ -358,11 +484,13 @@ def handler(event: dict, context) -> dict:
                 "validationStatus":   "not_customer_card",
                 "validationMessage":  "Card not found on this account — please check and re-enter",
                 "cardType":           card_type,
+                "cardNickname":       "",
                 "requiresEscalation": "true",   # potential fraud signal → escalate
                 "errorMessage":       "Card does not belong to authenticated customer",
             }
 
-        logger.info("Ownership confirmed contact=%s", contact_id)
+        logger.info("Ownership confirmed card_type=%s nickname=%r contact=%s",
+                    card_type, card_nickname, contact_id)
 
     # ------------------------------------------------------------------
     # All checks passed
@@ -373,6 +501,7 @@ def handler(event: dict, context) -> dict:
         "validationStatus":   "valid",
         "validationMessage":  "Card validated successfully",
         "cardType":           card_type,
+        "cardNickname":       card_nickname,
         "requiresEscalation": "false",
         "errorMessage":       "",
     }

@@ -5,20 +5,34 @@ Lambda fulfillment function for the ARIA-Connect-Bot Lex V2 bot.
 Called on every conversation turn by Amazon Lex V2.
 
 Flow:
-  Amazon Connect (PSTN voice)
+  Amazon Connect (PSTN voice / chat)
     → Lex V2 + Nova Sonic S2S (speech ↔ text)
       → This Lambda (every turn)
         → ARIA AgentCore HTTP /invocations
           → ARIA Strands agent response (plain text)
         → Lex response → Nova Sonic speaks it back
 
-Environment variables required:
-  AGENTCORE_ENDPOINT  — full HTTPS URL to the AgentCore runtime invocations endpoint
+DTMF Secure Capture Bridge
+──────────────────────────
+When ARIA needs to collect sensitive digits (card number, PIN, etc.) it calls
+the MCP tool  initiate_dtmf_card_capture  which writes the contact attribute
+  dtmf_collection_requested = "true"
+and returns  bridge_action = "DTMF_COLLECT"  to AgentCore.
 
-Session continuity:
-  ContactId from Amazon Connect is used as the AgentCore session ID.
-  This keeps the Strands agent state (auth, conversation history) consistent
-  across all turns of a single phone call.
+After each AgentCore call, this Lambda checks the contact attribute. When it
+finds  dtmf_collection_requested == "true"  it:
+  1. Clears the flag (sets it to "false") so it does not fire again.
+  2. Returns the  CollectCardDetails  Lex intent instead of the normal
+     ElicitIntent. Amazon Connect reads this intent, branches the contact
+     flow, and transfers the call to the ARIA-DTMF-SecureCollection sub-flow.
+  3. When the sub-flow finishes the results are in contact attributes
+     (dtmf_masked, dtmf_result, dtmf_card_type, …) which are mapped back to
+     Lex session attributes by the contact flow before reinvoking this Lambda.
+  4. ARIA reads the session attributes and resumes the conversation.
+
+Environment variables required:
+  AGENTCORE_ENDPOINT    full HTTPS URL to the AgentCore runtime invocations endpoint
+  CONNECT_INSTANCE_ID   Amazon Connect instance ID (UUID)
 
 Deployment:
   See docs/amazon-connect-lex-nova-sonic-setup-guide.md for full setup instructions.
@@ -108,6 +122,50 @@ ESCALATION_PHRASES = [
     "one of our advisors",
     "one of our agents",
 ]
+
+# ---------------------------------------------------------------------------
+# DTMF bridge: detect and clear the secure-capture request flag
+# ---------------------------------------------------------------------------
+
+def _check_and_clear_dtmf_flag(contact_id: str) -> bool:
+    """
+    Check whether the MCP tool initiate_dtmf_card_capture has requested
+    a DTMF collection flow for this contact.
+
+    If  dtmf_collection_requested == "true"  is found in the contact
+    attributes, this function clears the flag (sets it to "false") and
+    returns True so the caller can return the CollectCardDetails intent.
+
+    Returns False when:
+      • The flag is absent or not "true".
+      • CONNECT_INSTANCE_ID is not set (non-Connect invocations / unit tests).
+      • The Connect API call fails for any reason (fail-open: don't block).
+    """
+    if not contact_id or not CONNECT_INSTANCE_ID:
+        return False
+    if contact_id in ("", "unknown", "unknown-session"):
+        return False
+    try:
+        resp = _get_connect().get_contact_attributes(
+            InitialContactId=contact_id,
+            InstanceId=CONNECT_INSTANCE_ID,
+        )
+        attrs = resp.get("Attributes", {})
+        if attrs.get("dtmf_collection_requested", "").lower() == "true":
+            # Clear the flag so it doesn't fire on the next turn
+            _get_connect().update_contact_attributes(
+                InitialContactId=contact_id,
+                InstanceId=CONNECT_INSTANCE_ID,
+                Attributes={"dtmf_collection_requested": "false"},
+            )
+            logger.info("DTMF bridge triggered for contact=%s", contact_id)
+            return True
+    except Exception as exc:
+        logger.warning(
+            "DTMF flag check failed (non-critical, continuing normally) "
+            "contact=%s: %s", contact_id, exc
+        )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +267,18 @@ def handler(event, context):
 
     # Clear processing status — ARIA has a response
     _push_aria_status(contact_id, "complete", "Response ready")
-    # Surface final status in session attrs so AI agent reads it on next turn
     session_attrs["aria_status"] = "complete"
+
+    # -----------------------------------------------------------------------
+    # DTMF bridge check: did ARIA's MCP tool request secure digit collection?
+    # This must run AFTER we have ARIA's response (so the MCP tool has had
+    # time to set the contact attribute) but BEFORE we decide how to route.
+    # -----------------------------------------------------------------------
+    if _check_and_clear_dtmf_flag(contact_id):
+        # Return CollectCardDetails intent — Amazon Connect branches the flow
+        # to ARIA-DTMF-SecureCollection sub-flow.
+        # ARIA's response becomes the message spoken just before the transfer.
+        return _build_collect_card_response(aria_response, session_attrs)
 
     # Detect escalation in ARIA's response
     escalate = any(phrase in aria_response.lower() for phrase in ESCALATION_PHRASES)
@@ -367,6 +435,33 @@ def _call_agentcore_with_retry(
 # ---------------------------------------------------------------------------
 # Lex V2 response builders
 # ---------------------------------------------------------------------------
+def _build_collect_card_response(message: str, session_attrs: dict) -> dict:
+    """
+    Return the CollectCardDetails Lex intent so Amazon Connect's contact flow
+    branches to the ARIA-DTMF-SecureCollection module flow.
+
+    The  message  (ARIA's spoken script from the MCP tool) is played to the
+    customer BEFORE the transfer happens — they hear a natural prompt rather
+    than silence or a generic beep.
+
+    The contact flow MUST have a branch on intent name == "CollectCardDetails"
+    after the 'Get customer input' Lex block. That branch should:
+      • Set contact attributes from session attributes (collectionPurpose etc.)
+      • Use 'Transfer to flow' to invoke ARIA-DTMF-SecureCollection
+      • After return, map dtmf_* contact attributes back to session attributes
+      • Loop back to the 'Get customer input' block so ARIA resumes
+    """
+    session_attrs["dtmf_pending"] = "true"
+    return {
+        "sessionState": {
+            "dialogAction": {"type": "Close"},
+            "intent": {"name": "CollectCardDetails", "state": "Fulfilled"},
+            "sessionAttributes": session_attrs,
+        },
+        "messages": [{"contentType": "PlainText", "content": message}],
+    }
+
+
 def _build_elicit_response(message: str, session_attrs: dict) -> dict:
     """Keep the conversation going — Lex will capture the next customer utterance."""
     return {

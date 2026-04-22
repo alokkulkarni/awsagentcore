@@ -65,6 +65,7 @@ ROLE_NAME="aria-dtmf-decrypt-role"
 RUNTIME="python3.12"
 REGION="${AWS_REGION:-eu-west-2}"
 CONNECT_INSTANCE_ID="${CONNECT_INSTANCE_ID:-}"
+CONNECT_INSTANCE_URL="${CONNECT_INSTANCE_URL:-}"
 PRIVATE_KEY_SECRET_ARN="${PRIVATE_KEY_SECRET_ARN:-}"
 CONNECT_KEY_ID="${CONNECT_KEY_ID:-}"
 KMS_KEY_ARN="${KMS_KEY_ARN:-}"
@@ -580,6 +581,282 @@ PYEOF
 }
 
 # =============================================================================
+#  Configure validate Lambda
+#  Adds CUSTOMER_LAMBDA_NAME env var and lambda:InvokeFunction IAM permission
+#  so aria-dtmf-validate can call aria-banking-mcp-customer for ownership checks.
+# =============================================================================
+# Naming convention: PROJECT is inferred from FUNCTION_NAME prefix (aria) and
+# the env suffix is taken from the :prod alias of the decrypt Lambda.
+VALIDATE_FUNCTION_NAME="${VALIDATE_FUNCTION_NAME:-aria-dtmf-validate}"
+VALIDATE_ROLE_NAME="${VALIDATE_ROLE_NAME:-aria-lambda-dtmf-validate-role}"
+# Customer Lambda name must match the name deployed by deploy_mcp_gateway.sh
+CUSTOMER_LAMBDA_NAME="${CUSTOMER_LAMBDA_NAME:-aria-banking-mcp-customer-prod}"
+
+configure_validate_lambda() {
+    header "aria-dtmf-validate — ownership check wiring"
+
+    # Only proceed if the validate Lambda actually exists
+    if [[ -z "$(aws lambda get-function --function-name "$VALIDATE_FUNCTION_NAME" \
+                --region "$REGION" --query "Configuration.FunctionName" --output text 2>/dev/null)" ]]; then
+        warn "Lambda '${VALIDATE_FUNCTION_NAME}' not found — skipping validate Lambda config."
+        warn "Deploy aria-dtmf-validate first, then re-run this script."
+        return
+    fi
+
+    step "Updating ${VALIDATE_FUNCTION_NAME} environment variables..."
+
+    # Read existing env vars so we don't overwrite unrelated ones
+    existing_env=$(aws lambda get-function-configuration \
+        --function-name "$VALIDATE_FUNCTION_NAME" \
+        --region "$REGION" \
+        --query "Environment.Variables" \
+        --output json 2>/dev/null || echo "{}")
+
+    # Build updated env vars — preserve existing, add/update CUSTOMER_LAMBDA_NAME
+    updated_env=$(python3 - <<PYEOF
+import json, sys
+existing = json.loads("""${existing_env}""")
+existing["CUSTOMER_LAMBDA_NAME"] = "${CUSTOMER_LAMBDA_NAME}"
+if "${CONNECT_INSTANCE_ID}":
+    existing["CONNECT_INSTANCE_ID"] = "${CONNECT_INSTANCE_ID}"
+# Format as AWS CLI Variables={...} string
+pairs = ",".join(f"{k}={v}" for k, v in existing.items())
+print(f"Variables={{{pairs}}}")
+PYEOF
+)
+
+    aws lambda update-function-configuration \
+        --function-name "$VALIDATE_FUNCTION_NAME" \
+        --environment   "$updated_env" \
+        --region        "$REGION" \
+        --query         "FunctionName" --output text > /dev/null
+
+    aws lambda wait function-updated \
+        --function-name "$VALIDATE_FUNCTION_NAME" \
+        --region        "$REGION" 2>/dev/null || true
+
+    ok "CUSTOMER_LAMBDA_NAME=${CUSTOMER_LAMBDA_NAME} set on ${VALIDATE_FUNCTION_NAME}"
+
+    # Add lambda:InvokeFunction permission to the validate Lambda's IAM role
+    step "Adding lambda:InvokeFunction permission to ${VALIDATE_ROLE_NAME}..."
+
+    CUSTOMER_LAMBDA_ARN=$(aws lambda get-function \
+        --function-name "$CUSTOMER_LAMBDA_NAME" \
+        --region "$REGION" \
+        --query "Configuration.FunctionArn" \
+        --output text 2>/dev/null || echo "")
+
+    if [[ -z "$CUSTOMER_LAMBDA_ARN" ]]; then
+        warn "Could not resolve ARN for '${CUSTOMER_LAMBDA_NAME}' — IAM policy uses wildcard ARN."
+        warn "Deploy aria-banking-mcp-customer-prod first, then re-run for least-privilege."
+        CUSTOMER_LAMBDA_ARN="arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${CUSTOMER_LAMBDA_NAME}"
+    fi
+
+    aws iam put-role-policy \
+        --role-name     "$VALIDATE_ROLE_NAME" \
+        --policy-name   "invoke-customer-lambda-for-ownership" \
+        --policy-document "{
+            \"Version\": \"2012-10-17\",
+            \"Statement\": [{
+                \"Effect\": \"Allow\",
+                \"Action\": \"lambda:InvokeFunction\",
+                \"Resource\": \"${CUSTOMER_LAMBDA_ARN}\"
+            }]
+        }" \
+        --region "$REGION" 2>/dev/null && \
+    ok "IAM policy added: ${VALIDATE_ROLE_NAME} → lambda:InvokeFunction → ${CUSTOMER_LAMBDA_NAME}" || \
+    warn "Could not update IAM policy for ${VALIDATE_ROLE_NAME} — update manually if needed"
+
+    echo ""
+    ok "aria-dtmf-validate ownership wiring complete"
+    echo "  Validate Lambda:   ${VALIDATE_FUNCTION_NAME}"
+    echo "  Customer Lambda:   ${CUSTOMER_LAMBDA_NAME}"
+    echo "  Match method:      BIN (first 6 digits) + last 4 digits"
+    echo "  Covers:            Both debit and credit cards in customer profile"
+    echo "  Fallback:          aria-customer-cards DynamoDB table"
+}
+
+# =============================================================================
+#  CCP Status Panel — S3 + CloudFront deploy
+# =============================================================================
+cmd_deploy_panel() {
+    header "CCP Status Panel — S3 + CloudFront Deploy"
+
+    # ── Validate required inputs ──────────────────────────────────────────────
+    if [[ -z "$CONNECT_INSTANCE_URL" ]]; then
+        ask CONNECT_INSTANCE_URL \
+            "Connect instance URL (e.g. https://meridian-bank.my.connect.aws)" ""
+    fi
+    [[ -z "$CONNECT_INSTANCE_URL" ]] && die "--connect-instance-url is required for deploy-panel"
+
+    local PANEL_SOURCE
+    PANEL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/client/dtmf-status-panel/index.html"
+    [[ ! -f "$PANEL_SOURCE" ]] && die "Panel source not found: ${PANEL_SOURCE}"
+
+    local BUCKET_NAME="aria-dtmf-panel-${ACCOUNT_ID}"
+    local OAC_NAME="aria-dtmf-panel-oac"
+    local PATCHED_HTML="/tmp/dtmf-status-panel-patched.html"
+
+    # ── Create S3 bucket (idempotent) ─────────────────────────────────────────
+    header "S3 Bucket"
+    if aws s3api head-bucket --bucket "$BUCKET_NAME" --region "$REGION" 2>/dev/null; then
+        ok "Bucket already exists: ${BUCKET_NAME}"
+    else
+        step "Creating bucket ${BUCKET_NAME} in ${REGION} …"
+        if [[ "$REGION" == "us-east-1" ]]; then
+            aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --region "$REGION" >/dev/null
+        else
+            aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --region "$REGION" \
+                --create-bucket-configuration LocationConstraint="$REGION" >/dev/null
+        fi
+        ok "Bucket created: ${BUCKET_NAME}"
+    fi
+
+    step "Blocking all public access on bucket …"
+    aws s3api put-public-access-block \
+        --bucket "$BUCKET_NAME" \
+        --public-access-block-configuration \
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+        --region "$REGION"
+    ok "Public access blocked"
+
+    # ── Patch panel HTML with real Connect URL ────────────────────────────────
+    header "Patching panel HTML"
+    step "Replacing CONNECT_INSTANCE_URL placeholder …"
+    sed "s|https://your-instance.my.connect.aws|${CONNECT_INSTANCE_URL}|g" \
+        "$PANEL_SOURCE" > "$PATCHED_HTML"
+    ok "Patched HTML written to ${PATCHED_HTML}"
+
+    # ── Upload to S3 ─────────────────────────────────────────────────────────
+    step "Uploading panel to s3://${BUCKET_NAME}/index.html …"
+    aws s3 cp "$PATCHED_HTML" \
+        "s3://${BUCKET_NAME}/index.html" \
+        --content-type "text/html" \
+        --region "$REGION" >/dev/null
+    ok "Panel uploaded"
+
+    # ── Create / find CloudFront OAC ──────────────────────────────────────────
+    header "CloudFront OAC"
+    local OAC_ID
+    OAC_ID=$(aws cloudfront list-origin-access-controls \
+        --query "OriginAccessControlList.Items[?Name=='${OAC_NAME}'].Id | [0]" \
+        --output text 2>/dev/null || true)
+
+    if [[ -z "$OAC_ID" || "$OAC_ID" == "None" ]]; then
+        step "Creating OAC ${OAC_NAME} …"
+        OAC_ID=$(aws cloudfront create-origin-access-control \
+            --origin-access-control-config \
+                "Name=${OAC_NAME},Description=DTMF panel OAC,SigningProtocol=sigv4,SigningBehavior=always,OriginAccessControlOriginType=s3" \
+            --query "OriginAccessControl.Id" --output text)
+        ok "OAC created: ${OAC_ID}"
+    else
+        ok "Existing OAC found: ${OAC_ID}"
+    fi
+
+    # ── Create / find CloudFront distribution ─────────────────────────────────
+    header "CloudFront Distribution"
+    local DIST_ID DIST_DOMAIN
+    local S3_ORIGIN_DOMAIN="${BUCKET_NAME}.s3.${REGION}.amazonaws.com"
+
+    DIST_ID=$(aws cloudfront list-distributions \
+        --query "DistributionList.Items[?Origins.Items[0].DomainName=='${S3_ORIGIN_DOMAIN}'].Id | [0]" \
+        --output text 2>/dev/null || true)
+
+    if [[ -z "$DIST_ID" || "$DIST_ID" == "None" ]]; then
+        step "Creating CloudFront distribution for ${S3_ORIGIN_DOMAIN} …"
+        local CALLER_REF="aria-dtmf-panel-$(date +%s)"
+        DIST_ID=$(aws cloudfront create-distribution \
+            --distribution-config "{
+                \"CallerReference\": \"${CALLER_REF}\",
+                \"Comment\": \"ARIA DTMF CCP Status Panel\",
+                \"DefaultRootObject\": \"index.html\",
+                \"Origins\": {
+                    \"Quantity\": 1,
+                    \"Items\": [{
+                        \"Id\": \"dtmf-panel-s3\",
+                        \"DomainName\": \"${S3_ORIGIN_DOMAIN}\",
+                        \"OriginAccessControlId\": \"${OAC_ID}\",
+                        \"S3OriginConfig\": { \"OriginAccessIdentity\": \"\" }
+                    }]
+                },
+                \"DefaultCacheBehavior\": {
+                    \"TargetOriginId\": \"dtmf-panel-s3\",
+                    \"ViewerProtocolPolicy\": \"redirect-to-https\",
+                    \"CachePolicyId\": \"4135ea2d-6df8-44a3-9df3-4b5a84be39ad\",
+                    \"AllowedMethods\": {
+                        \"Quantity\": 2,
+                        \"Items\": [\"GET\", \"HEAD\"]
+                    }
+                },
+                \"Enabled\": true
+            }" \
+            --query "Distribution.Id" --output text)
+        ok "Distribution created: ${DIST_ID}"
+    else
+        ok "Existing distribution found: ${DIST_ID}"
+    fi
+
+    DIST_DOMAIN=$(aws cloudfront get-distribution \
+        --id "$DIST_ID" \
+        --query "Distribution.DomainName" --output text)
+
+    # ── Apply S3 bucket policy for CloudFront OAC ─────────────────────────────
+    header "S3 Bucket Policy"
+    local DIST_ARN="arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${DIST_ID}"
+    step "Applying bucket policy (CloudFront OAC only) …"
+    aws s3api put-bucket-policy \
+        --bucket "$BUCKET_NAME" \
+        --region "$REGION" \
+        --policy "{
+            \"Version\": \"2012-10-17\",
+            \"Statement\": [{
+                \"Sid\": \"AllowCloudFrontOAC\",
+                \"Effect\": \"Allow\",
+                \"Principal\": { \"Service\": \"cloudfront.amazonaws.com\" },
+                \"Action\": \"s3:GetObject\",
+                \"Resource\": \"arn:aws:s3:::${BUCKET_NAME}/*\",
+                \"Condition\": {
+                    \"StringEquals\": {
+                        \"AWS:SourceArn\": \"${DIST_ARN}\"
+                    }
+                }
+            }]
+        }"
+    ok "Bucket policy applied"
+
+    # ── Save state ────────────────────────────────────────────────────────────
+    state_set "panel_bucket"      "$BUCKET_NAME"
+    state_set "panel_oac_id"      "$OAC_ID"
+    state_set "panel_dist_id"     "$DIST_ID"
+    state_set "panel_dist_domain" "$DIST_DOMAIN"
+    state_set "panel_url"         "https://${DIST_DOMAIN}/index.html"
+    state_set "connect_instance_url" "$CONNECT_INSTANCE_URL"
+
+    # ── Print summary ─────────────────────────────────────────────────────────
+    echo ""
+    echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}  CCP Status Panel Deployed${NC}"
+    echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "  S3 Bucket:         ${BUCKET_NAME}"
+    echo "  CloudFront Dist:   ${DIST_ID}"
+    echo "  CloudFront Domain: ${DIST_DOMAIN}"
+    echo ""
+    echo -e "${BOLD}  Panel URL: https://${DIST_DOMAIN}/index.html${NC}"
+    echo ""
+    warn "CloudFront distributions can take 5–15 minutes to propagate."
+    warn "After propagation, add the CloudFront domain to Connect Approved Origins:"
+    echo "  1. Amazon Connect console → Your instance → Approved origins"
+    echo "  2. Add: https://${DIST_DOMAIN}"
+    echo "  3. Register as Third-Party App in Agent Workspace configuration"
+    echo ""
+}
+
+# =============================================================================
 #  Teardown
 # =============================================================================
 cmd_teardown() {
@@ -667,6 +944,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --instance-id)            CONNECT_INSTANCE_ID="$2";      shift 2 ;;
+            --connect-instance-url)   CONNECT_INSTANCE_URL="$2";     shift 2 ;;
             --region)                 REGION="$2";                   shift 2 ;;
             --secret-arn)             PRIVATE_KEY_SECRET_ARN="$2";   shift 2 ;;
             --connect-key-id)         CONNECT_KEY_ID="$2";           shift 2 ;;
@@ -687,18 +965,20 @@ main() {
         echo "Usage: $0 <command> [options]"
         echo ""
         echo "Commands:"
-        echo "  deploy     — deploy or update Lambda, Layer, IAM role, Connect permission"
-        echo "  teardown   — remove Lambda, Layer, IAM role (prompts for each)"
-        echo "  status     — print current deploy state"
+        echo "  deploy        — deploy or update Lambda, Layer, IAM role, Connect permission"
+        echo "  deploy-panel  — deploy CCP Status Panel to S3 + CloudFront"
+        echo "  teardown      — remove Lambda, Layer, IAM role (prompts for each)"
+        echo "  status        — print current deploy state"
         echo ""
         echo "Options:"
-        echo "  --instance-id <uuid>         Connect Instance ID (required for Connect permission)"
-        echo "  --region <region>            AWS region (default: eu-west-2)"
-        echo "  --secret-arn <arn>           Secrets Manager ARN for private key"
-        echo "  --connect-key-id <id>        Connect Security Key ID"
-        echo "  --kms-key-arn <arn>          KMS CMK ARN for KMS Decrypt policy"
-        echo "  --function-name <name>       Override Lambda function name"
-        echo "  --layer-name <name>          Override Lambda Layer name"
+        echo "  --instance-id <uuid>             Connect Instance ID (required for Connect permission)"
+        echo "  --connect-instance-url <url>     Connect instance URL (e.g. https://xxx.my.connect.aws)"
+        echo "  --region <region>                AWS region (default: eu-west-2)"
+        echo "  --secret-arn <arn>               Secrets Manager ARN for private key"
+        echo "  --connect-key-id <id>            Connect Security Key ID"
+        echo "  --kms-key-arn <arn>              KMS CMK ARN for KMS Decrypt policy"
+        echo "  --function-name <name>           Override Lambda function name"
+        echo "  --layer-name <name>              Override Lambda Layer name"
         echo ""
         echo "If setup_dtmf_keys.sh has been run, --secret-arn / --connect-key-id / --kms-key-arn"
         echo "are read automatically from .deploy-dtmf-key-state.json"
@@ -724,11 +1004,24 @@ main() {
             ensure_lambda_layer
             deploy_lambda_and_alias
             add_connect_permission
+            configure_validate_lambda
             print_deploy_summary
             ;;
 
         teardown) cmd_teardown ;;
         status)   cmd_status   ;;
+
+        deploy-panel)
+            echo ""
+            echo -e "${BOLD}${BLUE}ARIA — DTMF CCP Status Panel Deploy${NC}"
+            echo -e "${BOLD}${BLUE}Region: ${REGION}${NC}"
+            echo ""
+
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            ok "AWS Account: ${ACCOUNT_ID}  Region: ${REGION}"
+
+            cmd_deploy_panel
+            ;;
 
         *)
             die "Unknown command '${COMMAND}'. Run $0 for usage."
