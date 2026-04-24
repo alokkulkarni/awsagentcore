@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<!--
+  dtmf-launcher/index.html
+  ══════════════════════════════════════════════════════════════════════════════
+  DTMF Secure Capture — Auto-Popup Launcher
+  Meridian Bank / ARIA AgentCore
+
+  PURPOSE
+  ───────
+  This is a minimal iframe embedded in the Amazon Connect Agent Workspace as a
+  Third-Party Application.  It has one job: open the DTMF Status Panel as an
+  auto-sized popup window when a secure DTMF capture session begins.
+
+  HOW IT WORKS
+  ────────────
+  1. On load the launcher immediately calls window.open() to create the panel
+     popup (allowed because page load is considered a user-context gesture by
+     browsers).  If the browser's popup blocker prevents it, a visible "Open
+     Panel" button is shown as a fallback — one click by the agent is all that
+     is needed for the whole shift.
+
+  2. Every 2 s the launcher polls GET /dtmf-active (API Gateway → Lambda →
+     DynamoDB dtmf_active_sessions table).  This endpoint is written by the
+     aria-dtmf-start-session Lambda which is invoked from the Connect flow at
+     the start of every secure capture.
+
+  3. When a new session is detected (contactId changes or appears), the launcher
+     calls popupWin.focus() to bring the panel to the foreground.  The panel
+     itself polls the same /dtmf-active endpoint to discover the contactId and
+     then polls /dtmf-status for live status updates.
+
+  4. When the session clears (contactId null — the ACTIVE DynamoDB record expires
+     via a short TTL ~30 s after terminal status, e.g. complete / ownership_mismatch),
+     the launcher resets its state.  The panel continues to
+     show the final result for 60 s before returning to idle.
+
+  CONFIGURATION
+  ─────────────
+  Two placeholders in the <script> block are patched at deploy time by
+  deploy_dtmf_lambda.sh:
+    https://your-api-id.execute-api.eu-west-2.amazonaws.com/dtmf-active
+      → the /dtmf-active endpoint on the aria-dtmf-status-proxy API Gateway
+    https://your-cloudfront-domain.cloudfront.net/dtmf-panel/index.html
+      → the panel CloudFront URL
+
+  AGENT WORKSPACE INTEGRATION
+  ──────────────────────────────────────────────────────────────────────────────
+  Add this as a Third-Party Application in Agent Workspace:
+    Name:   DTMF Launcher
+    URL:    https://<cloudfront-domain>/dtmf-launcher/index.html
+    Scope:  User  (persistent across calls — do NOT use Contact scope)
+
+  The launcher iframe stays loaded for the entire agent session.
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DTMF Launcher</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+      padding: 8px 10px;
+      background: #f8f9fa;
+      color: #495057;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .row { display: flex; align-items: center; gap: 7px; }
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #adb5bd; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.idle    { background: #adb5bd; }
+    .dot.active  { background: #28a745; }
+    .dot.waiting { background: #fd7e14; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+    #msg { color: #495057; }
+    #open-btn {
+      display: none;
+      padding: 4px 10px; font-size: 11px; cursor: pointer;
+      border: 1px solid #0d6efd; border-radius: 4px;
+      background: #fff; color: #0d6efd;
+    }
+    #open-btn:hover { background: #e7f1ff; }
+    #label {
+      font-size: 10px; color: #adb5bd; text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div id="label">🔒 Secure Capture</div>
+  <div class="row">
+    <div class="dot idle" id="dot"></div>
+    <span id="msg">Watching for session…</span>
+  </div>
+  <button id="open-btn" onclick="openPanel()">Open Status Panel</button>
+
+  <script>
+    // ── CONFIGURATION — patched at deploy time ────────────────────────────
+    const ACTIVE_URL = "https://your-api-id.execute-api.eu-west-2.amazonaws.com/dtmf-active";
+    const PANEL_URL  = "https://your-cloudfront-domain.cloudfront.net/dtmf-panel/index.html";
+
+    const POLL_MS = 2000;
+
+    let popupWin      = null;
+    let lastContactId = null;
+
+    const dot     = document.getElementById("dot");
+    const msg     = document.getElementById("msg");
+    const openBtn = document.getElementById("open-btn");
+
+    function setStatus(text, dotClass) {
+      msg.textContent  = text;
+      dot.className    = "dot " + (dotClass || "idle");
+    }
+
+    function openPanel() {
+      popupWin = window.open(
+        PANEL_URL, "dtmf_panel",
+        "width=500,height=700,resizable=yes,scrollbars=no,toolbar=no," +
+        "menubar=no,location=no,status=no"
+      );
+      if (popupWin) {
+        popupWin.focus();
+        openBtn.style.display = "none";
+      }
+    }
+
+    async function poll() {
+      try {
+        const resp = await fetch(ACTIVE_URL, { cache: "no-store" });
+        if (!resp.ok) {
+          setStatus("API error " + resp.status, "idle");
+          return;
+        }
+        const data = await resp.json();
+        const cid  = data.contactId || null;
+
+        if (cid && cid !== lastContactId) {
+          lastContactId = cid;
+          setStatus("Secure capture active", "active");
+          if (popupWin && !popupWin.closed) {
+            popupWin.focus();
+          } else {
+            openPanel();
+          }
+        } else if (!cid && lastContactId) {
+          lastContactId = null;
+          setStatus("Capture ended — watching…", "idle");
+        } else if (!cid) {
+          setStatus("Watching for session…", "idle");
+        }
+      } catch (err) {
+        setStatus("Network error", "idle");
+        console.error("DTMF launcher poll error:", err);
+      }
+    }
+
+    // Open popup on page load while we are still in a user-gesture context.
+    // Popup blockers allow this because page load is triggered by user navigation.
+    // If blocked (returns null), show the fallback button.
+    (function initPopup() {
+      openPanel();
+      if (!popupWin || popupWin.closed) {
+        openBtn.style.display = "inline-block";
+        setStatus("Click to open panel", "waiting");
+      } else {
+        setStatus("Panel open — watching…", "idle");
+      }
+    })();
+
+    poll();
+    setInterval(poll, POLL_MS);
+  </script>
+</body>
+</html>

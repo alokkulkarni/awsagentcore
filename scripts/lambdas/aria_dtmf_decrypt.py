@@ -53,28 +53,56 @@ import json
 import logging
 import os
 import base64
+import re
 
 import boto3
 from botocore.exceptions import ClientError
 
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
-
 import aws_encryption_sdk
-from aws_encryption_sdk.identifiers import CommitmentPolicy, WrappingAlgorithm
-from aws_encryption_sdk.key_providers.raw import RawRSAMasterKeyProvider
+from aws_encryption_sdk.identifiers import CommitmentPolicy, EncryptionKeyType, WrappingAlgorithm
+from aws_encryption_sdk.internal.crypto.wrapping_keys import WrappingKey
+from aws_encryption_sdk.key_providers.raw import RawMasterKey
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-PROVIDER_ID = "AmazonConnect"
-DEFAULT_KEY_ID = os.environ.get("CONNECT_KEY_ID", "meridian-connect-key-id")
+PROVIDER_ID            = "AmazonConnect"
+DEFAULT_KEY_ID         = os.environ.get("CONNECT_KEY_ID",         "meridian-connect-key-id")
 PRIVATE_KEY_SECRET_ARN = os.environ["PRIVATE_KEY_SECRET_ARN"]
-REGION = os.environ.get("AWS_REGION", "eu-west-2")
+REGION                 = os.environ.get("AWS_REGION",             "eu-west-2")
+CONNECT_INSTANCE_ID    = os.environ.get("CONNECT_INSTANCE_ID",   "")
+
+# Matches a real Connect key ID (UUID format)
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 _cached_private_key_pem: bytes | None = None
+_connect_client = None
+
+
+def _get_connect_client():
+    global _connect_client
+    if _connect_client is None:
+        _connect_client = boto3.client("connect", region_name=REGION)
+    return _connect_client
+
+
+def _push_system_error(contact_id: str) -> None:
+    """Best-effort: set dtmf_status=system_error on the contact so the agent
+    panel shows the failure immediately.  Never raises — called from exception handler."""
+    if not contact_id or contact_id == "unknown" or not CONNECT_INSTANCE_ID:
+        return
+    try:
+        _get_connect_client().update_contact_attributes(
+            InitialContactId=contact_id,
+            InstanceId=CONNECT_INSTANCE_ID,
+            Attributes={"dtmf_status": "system_error"},
+        )
+        logger.info("system_error pushed to contact: %s", contact_id)
+    except Exception as push_exc:
+        logger.warning("Could not push system_error to contact %s: %s", contact_id, push_exc)
 
 
 def _get_private_key_pem() -> bytes:
@@ -102,43 +130,27 @@ def _get_private_key_pem() -> bytes:
         raise
 
 
-class _ConnectRSAMasterKeyProvider(RawRSAMasterKeyProvider):
-    """
-    Subclass of RawRSAMasterKeyProvider that preloads a single RSA private key.
-    The provider_id MUST be "AmazonConnect" — this must match what Connect used
-    when encrypting the DTMF input.
-    """
-
-    provider_id = PROVIDER_ID
-
-    def __init__(self, private_key_pem: bytes, key_id: str):
-        super().__init__()
-        private_key = load_pem_private_key(
-            private_key_pem,
-            password=None,
-            backend=default_backend(),
-        )
-        self.add_master_key(key_id)
-        self._keys[key_id] = private_key  # internal dict used by parent class
-
-    def _get_raw_key(self, key_id: str):
-        if key_id not in self._keys:
-            raise KeyError(f"Key ID '{key_id}' not found in provider")
-        return self._keys[key_id]
-
-
 def _decrypt_with_sdk(ciphertext_b64: str, key_id: str) -> str:
     """
     Decrypt Connect DTMF ciphertext using AWS Encryption SDK.
     Connect encrypts using:
-      - Provider:   AmazonConnect
+      - Provider:   AmazonConnect  (must match exactly)
       - Algorithm:  RSA/ECB/OAEPWithSHA-512AndMGF1Padding  (RSA_OAEP_SHA512_MGF1)
       - SDK format: AWS Encryption SDK message envelope
+    See: https://docs.aws.amazon.com/connect/latest/adminguide/encrypt-data.html
     """
     private_key_pem = _get_private_key_pem()
-    key_provider = _ConnectRSAMasterKeyProvider(
-        private_key_pem=private_key_pem,
+
+    wrapping_key = WrappingKey(
+        wrapping_algorithm=WrappingAlgorithm.RSA_OAEP_SHA512_MGF1,
+        wrapping_key=private_key_pem,
+        wrapping_key_type=EncryptionKeyType.PRIVATE,
+    )
+
+    key_provider = RawMasterKey(
+        provider_id=PROVIDER_ID,
         key_id=key_id,
+        wrapping_key=wrapping_key,
     )
 
     enc_client = aws_encryption_sdk.EncryptionSDKClient(
@@ -153,6 +165,21 @@ def _decrypt_with_sdk(ciphertext_b64: str, key_id: str) -> str:
     return plaintext_bytes.decode("utf-8")
 
 
+def _luhn_check(digits: str) -> bool:
+    """Return True if digits pass the Luhn check (ISO/IEC 7812)."""
+    if not digits or not digits.isdigit():
+        return False
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        n = int(d)
+        if i % 2 == 1:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+    return total % 10 == 0
+
+
 def _mask_digits(digits: str) -> str:
     """
     Return a masked display string safe to show to agents.
@@ -165,15 +192,50 @@ def _mask_digits(digits: str) -> str:
 
 
 def handler(event: dict, context) -> dict:
-    logger.info(
-        "DTMF decrypt invoked | ContactId=%s",
-        event.get("Details", {}).get("ContactData", {}).get("ContactId", "unknown"),
+    # Extract contact_id early so we can push status on any exception.
+    contact_id = (
+        event.get("Details", {}).get("ContactData", {}).get("InitialContactId")
+        or event.get("Details", {}).get("ContactData", {}).get("ContactId", "unknown")
     )
+    logger.info("DTMF decrypt invoked | ContactId=%s", contact_id)
 
+    try:
+        return _handler_body(event, contact_id)
+    except Exception as exc:
+        # Catch-all: push system_error to the agent panel, then re-raise so
+        # the Connect Lambda block takes its Error branch and the flow can
+        # reconnect the customer to the agent without leaving them on hold.
+        logger.error(
+            "Unhandled exception in decrypt handler: contact=%s error=%s",
+            contact_id, exc, exc_info=True,
+        )
+        _push_system_error(contact_id)
+        raise   # re-raise → Connect Error branch fires → flow returns customer to agent
+
+
+def _handler_body(event: dict, contact_id: str) -> dict:
+    """Core decryption logic — called by handler() inside a catch-all wrapper."""
     parameters = event.get("Details", {}).get("Parameters", {})
     encrypted_value = parameters.get("encryptedValue", "").strip()
-    key_id = parameters.get("keyId", DEFAULT_KEY_ID).strip()
     purpose = parameters.get("purpose", "dtmf_input")
+
+    # Use key ID from flow parameter only if it looks like a real UUID.
+    # Falls back to CONNECT_KEY_ID env var so the Lambda works even when the
+    # flow passes a placeholder like "connectKeyId".
+    key_id_param = parameters.get("keyId", "").strip()
+    key_id = key_id_param if _UUID_RE.match(key_id_param) else DEFAULT_KEY_ID
+
+    # Debug: log full event to diagnose parameter mapping issues in the Connect flow
+    logger.info(
+        "DEBUG | params_keys=%s | encryptedValue_len=%d | encryptedValue_prefix=%r | keyId_param=%r | key_id_resolved=%s | purpose=%s",
+        list(parameters.keys()),
+        len(encrypted_value),
+        encrypted_value[:40] if encrypted_value else "",
+        key_id_param,
+        key_id,
+        purpose,
+    )
+    logger.info("DEBUG full event: %s", json.dumps(event))
 
     if not encrypted_value:
         logger.error("No encryptedValue parameter provided")
@@ -183,6 +245,24 @@ def handler(event: dict, context) -> dict:
             "digitCount": 0,
             "purpose": purpose,
             "errorMessage": "No encrypted value provided",
+        }
+
+    # AWS Encryption SDK envelopes are large — a ciphertext shorter than 100
+    # base64 chars almost certainly means the Connect flow block does not have
+    # "Encrypt entry" enabled, and raw digits are being passed instead.
+    if len(encrypted_value) < 100:
+        logger.error(
+            "encryptedValue is too short (%d chars) — likely unencrypted DTMF digits. "
+            "Ensure 'Encrypt entry' is enabled on the 'Store customer input' block "
+            "and the correct X.509 certificate key is selected.",
+            len(encrypted_value),
+        )
+        return {
+            "status": "failed",
+            "maskedValue": "",
+            "digitCount": 0,
+            "purpose": purpose,
+            "errorMessage": "encryptedValue too short — encryption not configured in Connect flow",
         }
 
     try:
@@ -214,15 +294,20 @@ def handler(event: dict, context) -> dict:
             "errorMessage": "",
         }
 
-        # Return last four digits for card look-up by AI agent / validation Lambda.
+        # Return last four digits and Luhn validity for card look-up / validation Lambda.
         if purpose in ("card_last_four", "card_verification", "full_card_number"):
             result["lastFour"] = plaintext[-4:]
+            result["luhnValid"] = "true" if _luhn_check(plaintext) else "false"
 
         # Return the BIN (first 6 digits) for real-time BIN validation.
         # BINs are not PCI-sensitive — they are publicly used by all payment
         # processors for card type identification and routing.
         if len(plaintext) >= 6:
             result["cardBin"] = plaintext[:6]
+
+        # Signal CVV capture without echoing the raw digits (PCI compliance).
+        if purpose == "cvv":
+            result["cvvCaptured"] = "true"
 
         return result
 

@@ -1,0 +1,25 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --brand:        #0D2A66;
+  --brand-light:  #1A4A94;
+  --accent:       #E63012;
+  --text:         #1a1a2e;
+  --text-muted:   #4e5262;
+  --bg:           #F4F7FB;
+  --surface:      #ffffff;
+  --border:       #dde3ee;
+  --radius:       12px;
+  font-family: 'NationwideFounders', 'Segoe UI', Arial, sans-serif;
+  font-size: 16px;
+  color: var(--text);
+}
+
+body {
+  background: var(--bg);
+  min-height: 100vh;
+}

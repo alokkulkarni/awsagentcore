@@ -122,6 +122,7 @@ OWNERSHIP_API_URL      = os.environ.get("CARD_OWNERSHIP_API_URL",     "")
 OWNERSHIP_API_KEY_ARN  = os.environ.get("CARD_OWNERSHIP_API_KEY_ARN", "")
 SKIP_UNAUTH_OWNERSHIP  = os.environ.get("SKIP_OWNERSHIP_IF_UNAUTH",   "true").lower() == "true"
 CONNECT_INSTANCE_ID    = os.environ.get("CONNECT_INSTANCE_ID",        "")
+SESSIONS_TABLE         = os.environ.get("SESSIONS_TABLE_NAME",        "dtmf_active_sessions")
 REGION                 = os.environ.get("AWS_REGION",                 "eu-west-2")
 
 dynamodb        = boto3.resource("dynamodb", region_name=REGION)
@@ -133,12 +134,78 @@ _cached_api_key: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
+# DynamoDB active-session tracker (non-critical — never raises)
+# ---------------------------------------------------------------------------
+
+_TERMINAL_STATUSES = frozenset({
+    "complete", "failed", "timeout", "validation_failed", "ownership_mismatch",
+    "system_error",   # unhandled Lambda exception — flow Error branch taken
+})
+
+# How long to keep terminal-status records visible in DynamoDB.
+# Must exceed RESULT_DISPLAY_MS (15 s) + POLL_INTERVAL_MS (2 s) in the agent
+# panel so the panel always has time to discover the contactId and render the
+# result before the record expires via TTL.
+_TERMINAL_TTL_SECONDS = 30
+
+# Active sessions stay alive for up to 1 hour to survive queue wait times.
+_ACTIVE_TTL_SECONDS = 3600
+
+
+def _update_session(contact_id: str, status: str) -> None:
+    """Keep the dtmf_active_sessions DynamoDB table in sync with the current status.
+
+    For terminal statuses the record is kept alive for _TERMINAL_TTL_SECONDS
+    (not deleted immediately) so the agent panel has a guaranteed window to
+    discover the contactId via /dtmf-active and display the final result.
+    The short TTL ensures DynamoDB cleans up automatically afterwards.
+
+    Previously the record was deleted immediately on terminal status, causing a
+    race: if the panel's 2 s discovery poll fired after the Lambda completed
+    (~1 s), the contactId was gone and the panel never showed the error state.
+    """
+    if not contact_id or contact_id == "unknown":
+        return
+    try:
+        import time
+        table = dynamodb.Table(SESSIONS_TABLE)
+        ttl   = int(time.time()) + (
+            _TERMINAL_TTL_SECONDS if status in _TERMINAL_STATUSES else _ACTIVE_TTL_SECONDS
+        )
+        table.update_item(
+            Key={"session_id": "ACTIVE"},
+            UpdateExpression="SET #s = :s, #u = :u, #c = :c, #ttl = :ttl",
+            ExpressionAttributeNames={
+                "#s": "status", "#u": "updated_at",
+                "#c": "contact_id", "#ttl": "ttl",
+            },
+            ExpressionAttributeValues={
+                ":s": status,
+                ":u": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                ":c": contact_id,
+                ":ttl": ttl,
+            },
+        )
+        if status in _TERMINAL_STATUSES:
+            logger.info(
+                "Session marked terminal (status=%s contact=%s ttl=+%ds)",
+                status, contact_id, _TERMINAL_TTL_SECONDS,
+            )
+        else:
+            logger.info("Session updated (status=%s contact=%s)", status, contact_id)
+    except Exception as exc:
+        logger.warning("_update_session failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Agent status push (non-critical — never raises)
 # ---------------------------------------------------------------------------
 
 def _push_dtmf_status(contact_id: str, status: str, step: str = "", error_msg: str = "") -> None:
     """Push real-time DTMF validation status to human agent CCP and contact record."""
     if not contact_id or not CONNECT_INSTANCE_ID or contact_id == "unknown":
+        logger.warning("push_dtmf_status skipped: contact_id=%r instance_id_set=%s",
+                       contact_id, bool(CONNECT_INSTANCE_ID))
         return
     attrs = {"dtmf_status": status}
     if step:       attrs["dtmf_step"]      = step
@@ -149,8 +216,12 @@ def _push_dtmf_status(contact_id: str, status: str, step: str = "", error_msg: s
             InstanceId=CONNECT_INSTANCE_ID,
             Attributes=attrs,
         )
+        logger.info("push_dtmf_status OK: status=%s contact=%s", status, contact_id)
     except Exception as exc:
-        logger.warning("Could not push dtmf_status to agent (non-critical): %s", exc)
+        logger.error("push_dtmf_status FAILED: status=%s contact=%s error=%s",
+                     status, contact_id, exc, exc_info=True)
+    # Keep DynamoDB session in sync so the launcher/panel can discover the session
+    _update_session(contact_id, status)
 
 
 # ---------------------------------------------------------------------------
@@ -291,15 +362,34 @@ def _ownership_via_customer_lambda(
         return None
 
 
-def _ownership_via_dynamodb(customer_id: str, last_four: str) -> bool:
-    """Fallback ownership check using the aria-customer-cards DynamoDB table."""
+def _ownership_via_dynamodb(customer_id: str, last_four: str, bin_prefix: str) -> bool:
+    """Fallback ownership check using the aria-customer-cards DynamoDB table.
+
+    Validates customerId + cardLastFour + cardBin so that two different cards
+    that share the same last-four digits (but different BINs) are never
+    confused with each other.  Records without a stored cardBin fall back to
+    last-four-only matching for backward compatibility.
+    """
     table    = dynamodb.Table(CARDS_TABLE)
     response = table.get_item(
         Key={"customerId": customer_id, "cardLastFour": last_four},
-        ProjectionExpression="customerId, cardLastFour, isActive",
+        ProjectionExpression="customerId, cardLastFour, cardBin, isActive",
     )
     item = response.get("Item")
-    return item is not None and item.get("isActive", True)
+    if item is None:
+        return False
+    if not item.get("isActive", True):
+        return False
+    # If the record has a stored BIN, it must match exactly.
+    stored_bin = item.get("cardBin", "")
+    if stored_bin and bin_prefix:
+        if stored_bin != bin_prefix:
+            logger.info(
+                "DynamoDB BIN mismatch: stored=%s provided=%s customer=%s lastFour=****%s",
+                stored_bin[:4] + "**", bin_prefix[:4] + "**", customer_id, last_four,
+            )
+            return False
+    return True
 
 
 def _check_ownership(
@@ -337,7 +427,7 @@ def _check_ownership(
 
     # ── 3. DynamoDB fallback ───────────────────────────────────────────────
     try:
-        belongs = _ownership_via_dynamodb(customer_id, last_four)
+        belongs = _ownership_via_dynamodb(customer_id, last_four, bin_prefix)
         return belongs, "", ""
     except Exception as exc:
         logger.error("DynamoDB ownership check failed: %s", exc)
@@ -350,8 +440,43 @@ def _check_ownership(
 # ---------------------------------------------------------------------------
 
 def handler(event: dict, context) -> dict:
+    # Extract contact_id first — needed for error reporting even if handler crashes.
     contact_data  = event.get("Details", {}).get("ContactData", {})
-    contact_id    = contact_data.get("ContactId", "unknown")
+    # Use InitialContactId so attributes are pushed to the original call leg,
+    # which is the contact the agent's Streams panel is subscribed to.
+    # During DTMF transfer flows the ContactId is the transfer sub-contact;
+    # InitialContactId is the original inbound call the agent can see.
+    contact_id    = (
+        contact_data.get("InitialContactId")
+        or contact_data.get("ContactId", "unknown")
+    )
+
+    try:
+        return _handler_body(event, context, contact_data, contact_id)
+
+    except Exception as exc:
+        # Catch-all: push system_error so the agent panel shows the failure
+        # and the ACTIVE DynamoDB session is deleted.  Then re-raise so the
+        # Connect Lambda block takes its "Error" branch and the flow can
+        # reconnect the customer to the agent immediately.
+        logger.error(
+            "Unhandled exception in validate handler: contact=%s error=%s",
+            contact_id, exc, exc_info=True,
+        )
+        try:
+            _push_dtmf_status(contact_id, "system_error",
+                              "Technical error — returning to agent")
+        except Exception:
+            pass
+        try:
+            _update_session(contact_id, "system_error")   # deletes ACTIVE record
+        except Exception:
+            pass
+        raise   # re-raise → Connect Error branch fires → flow returns customer to agent
+
+
+def _handler_body(event: dict, context, contact_data: dict, contact_id: str) -> dict:
+    """Core validation logic — called by handler() inside a catch-all wrapper."""
     attributes    = contact_data.get("Attributes", {})
     parameters    = event.get("Details", {}).get("Parameters", {})
 
@@ -371,6 +496,7 @@ def handler(event: dict, context) -> dict:
         auth_status,
     )
 
+    # "validating" matches STATUS_MAP key in the agent panel
     _push_dtmf_status(contact_id, "validating", "Checking card details...")
 
     # ------------------------------------------------------------------
@@ -380,7 +506,7 @@ def handler(event: dict, context) -> dict:
         if not _luhn_check(card_full):
             logger.warning("Luhn check failed contact=%s", contact_id)
             _push_dtmf_status(
-                contact_id, "card_invalid",
+                contact_id, "validation_failed",
                 "Card format invalid — please re-enter",
                 "Luhn check failed",
             )
@@ -406,7 +532,7 @@ def handler(event: dict, context) -> dict:
         if bin_record is None:
             logger.warning("BIN %s not found/inactive contact=%s", card_bin[:4] + "**", contact_id)
             _push_dtmf_status(
-                contact_id, "card_invalid",
+                contact_id, "validation_failed",
                 "Card not recognised — please check and re-enter",
                 "BIN not in approved list",
             )
@@ -434,7 +560,7 @@ def handler(event: dict, context) -> dict:
     elif auth_status != "authenticated" or not customer_id:
         if SKIP_UNAUTH_OWNERSHIP:
             logger.info("Ownership check skipped — unauthenticated contact=%s", contact_id)
-            _push_dtmf_status(contact_id, "card_validated",
+            _push_dtmf_status(contact_id, "complete",
                               "Card captured (unauthenticated — ownership check skipped)")
             return {
                 "isValid":            "true",
@@ -451,7 +577,7 @@ def handler(event: dict, context) -> dict:
         if result is None:
             # All ownership services unavailable — fail open rather than block customer
             logger.warning("All ownership services unavailable — failing open contact=%s", contact_id)
-            _push_dtmf_status(contact_id, "card_validated",
+            _push_dtmf_status(contact_id, "complete",
                               "Card captured (ownership service temporarily unavailable)")
             return {
                 "isValid":            "true",
@@ -475,7 +601,7 @@ def handler(event: dict, context) -> dict:
                 (customer_id[:4] + "***") if customer_id else "?", contact_id,
             )
             _push_dtmf_status(
-                contact_id, "card_not_yours",
+                contact_id, "ownership_mismatch",
                 "Card not found on this account",
                 "Card not registered to this customer",
             )
@@ -495,7 +621,7 @@ def handler(event: dict, context) -> dict:
     # ------------------------------------------------------------------
     # All checks passed
     # ------------------------------------------------------------------
-    _push_dtmf_status(contact_id, "card_validated", "Card validated successfully")
+    _push_dtmf_status(contact_id, "complete", "Card validated successfully")
     return {
         "isValid":            "true",
         "validationStatus":   "valid",

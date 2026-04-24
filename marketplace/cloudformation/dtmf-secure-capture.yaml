@@ -1,0 +1,934 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Secure DTMF Capture for Amazon Connect — AWS Marketplace Edition.
+  Deploys encrypted DTMF digit capture Lambdas, DynamoDB session table, API Gateway
+  status endpoints, CloudFront-served agent panel, and supporting IAM/KMS/S3 resources.
+
+  PREREQUISITE: Run ./scripts/generate-rsa-keypair.sh BEFORE deploying this stack to
+  create the RSA key pair and store the private key in Secrets Manager.  Pass the
+  resulting Secret ARN as PrivateKeySecretArn.
+
+  POST-DEPLOY: Run ./scripts/deploy_dtmf_lambda.sh deploy to upload real Lambda code
+  and the agent panel HTML to S3/CloudFront.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Metadata
+# ──────────────────────────────────────────────────────────────────────────────
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment"
+        Parameters:
+          - EnvironmentName
+      - Label:
+          default: "Amazon Connect"
+        Parameters:
+          - ConnectInstanceId
+          - ConnectInstanceArn
+          - ConnectEncryptionKeyId
+      - Label:
+          default: "Cryptography & Secrets"
+        Parameters:
+          - PrivateKeySecretArn
+      - Label:
+          default: "Customer Identity Validation"
+        Parameters:
+          - CustomerDataLambdaArn
+          - SkipOwnershipIfUnauthenticated
+      - Label:
+          default: "DTMF Capture Behaviour"
+        Parameters:
+          - DefaultCollectionPurpose
+          - EnableBINValidation
+          - SessionTTLHours
+
+    ParameterLabels:
+      EnvironmentName:
+        default: "Environment Name"
+      ConnectInstanceId:
+        default: "Connect Instance ID (UUID)"
+      ConnectInstanceArn:
+        default: "Connect Instance ARN"
+      ConnectEncryptionKeyId:
+        default: "Connect Encryption Key ID"
+      PrivateKeySecretArn:
+        default: "RSA Private Key — Secrets Manager ARN"
+      CustomerDataLambdaArn:
+        default: "Customer Data Lambda ARN (optional)"
+      EnableBINValidation:
+        default: "Enable BIN Table for Card Validation"
+      DefaultCollectionPurpose:
+        default: "Default Collection Purpose"
+      SkipOwnershipIfUnauthenticated:
+        default: "Skip Ownership Check When No Customer ID"
+      SessionTTLHours:
+        default: "Session TTL (hours)"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Parameters
+# ──────────────────────────────────────────────────────────────────────────────
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: prod
+    AllowedPattern: "^[a-zA-Z0-9]+$"
+    ConstraintDescription: "Alphanumeric characters only — used in resource names."
+    Description: >
+      Short label appended to all resource names (e.g. prod, staging, dev).
+      Must be alphanumeric with no spaces or special characters.
+
+  ConnectInstanceId:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    ConstraintDescription: "Must be a valid UUID (8-4-4-4-12 hex)."
+    Description: >
+      UUID of your Amazon Connect instance.
+      Found in the Connect console under Overview → Instance ARN (last path segment).
+
+  ConnectInstanceArn:
+    Type: String
+    AllowedPattern: "^arn:aws:connect:[a-z0-9-]+:[0-9]{12}:instance/[0-9a-f-]{36}$"
+    ConstraintDescription: "Must be a valid Amazon Connect instance ARN."
+    Description: >
+      Full ARN of your Amazon Connect instance.
+      Format: arn:aws:connect:<region>:<account-id>:instance/<instance-id>
+
+  ConnectEncryptionKeyId:
+    Type: String
+    Description: >
+      The key ID shown in Amazon Connect → Security Profiles → Security Keys after you
+      upload the RSA public key.  This is used to verify that encrypted DTMF payloads
+      came from the correct Connect instance.  Typically a short alphanumeric string
+      (not a KMS key ID).
+
+  PrivateKeySecretArn:
+    Type: String
+    AllowedPattern: "^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$"
+    ConstraintDescription: "Must be a valid Secrets Manager secret ARN."
+    Description: >
+      ARN of the Secrets Manager secret that contains the RSA-2048 private key PEM.
+      Create this secret BEFORE deploying the stack by running:
+        ./scripts/generate-rsa-keypair.sh --environment prod
+      The script prints the Secret ARN and the public key for pasting into Connect.
+
+  CustomerDataLambdaArn:
+    Type: String
+    Default: ""
+    Description: >
+      (Optional) ARN of YOUR Lambda function that validates customer identity /
+      ownership.  Leave blank to skip ownership checks entirely.
+
+      Your Lambda receives:
+        { "customerId": "...", "capturedValue": "...", "collectionPurpose": "..." }
+      and must return:
+        { "valid": true|false, "customerName": "John Smith" }
+
+      The execution role for this Lambda must trust the ValidateFunction's IAM role.
+
+  EnableBINValidation:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      When true, a DynamoDB BIN-prefix lookup table (dtmf-card-bins-<env>) is created.
+      The ValidateFunction uses it to check card network and issuer during full_card_number
+      collection.  Set false if you only capture non-card data types.
+
+  DefaultCollectionPurpose:
+    Type: String
+    Default: full_card_number
+    AllowedValues:
+      - full_card_number
+      - card_last_four
+      - ssn
+      - account_number
+      - sort_code
+      - cvv
+      - pin
+      - generic
+    Description: >
+      The collection_purpose used when the Connect flow does not explicitly set one via
+      contact attributes.  Each purpose drives a different validation strategy in
+      aria-dtmf-validate.
+
+  SkipOwnershipIfUnauthenticated:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      When true and no customerId is present in the session, the ownership check via
+      CustomerDataLambda is skipped and the session proceeds.  Set false to require
+      authentication before any capture.
+
+  SessionTTLHours:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 24
+    Description: >
+      Number of hours after which DynamoDB session records expire automatically.
+      Expired sessions are cleaned up by DynamoDB TTL — no Lambda needed.
+      Minimum: 1 hour.  Maximum: 24 hours.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Conditions
+# ──────────────────────────────────────────────────────────────────────────────
+Conditions:
+  EnableBINTable: !Equals [!Ref EnableBINValidation, "true"]
+  HasCustomerLambda: !Not [!Equals [!Ref CustomerDataLambdaArn, ""]]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Resources
+# ──────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── 1. KMS Customer Managed Key ─────────────────────────────────────────────
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "CMK for Secure DTMF Capture — ${EnvironmentName}"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAccountRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowDecryptLambda
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt DecryptRole.Arn
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: "*"
+          - Sid: AllowValidateLambda
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt ValidateRole.Arn
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: "*"
+          - Sid: AllowDynamoDBEncryption
+            Effect: Allow
+            Principal:
+              Service: dynamodb.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+    DependsOn:
+      - DecryptRole
+      - ValidateRole
+
+  KMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/dtmf-secure-capture-${EnvironmentName}"
+      TargetKeyId: !Ref KMSKey
+
+  # ── 2. DynamoDB — Active Sessions ───────────────────────────────────────────
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "dtmf-active-sessions-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn: KMSKey
+
+  # ── 3. DynamoDB — BIN Lookup Table (conditional) ────────────────────────────
+  BINTable:
+    Type: AWS::DynamoDB::Table
+    Condition: EnableBINTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "dtmf-card-bins-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bin_prefix
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bin_prefix
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn: KMSKey
+
+  # ── 4. Lambda Layer ─────────────────────────────────────────────────────────
+  # IMPORTANT: Before deploying, upload the layer zip to an S3 bucket you own and
+  # update the S3Bucket / S3Key below, OR let deploy_dtmf_lambda.sh handle it.
+  # The zip must contain: python/cryptography/ (built for python3.12 / linux/x86_64)
+  LambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub "aria-dtmf-dependencies-${EnvironmentName}"
+      Description: "Python cryptography package for RSA DTMF decryption"
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - x86_64
+      Content:
+        # REPLACE these values with your actual S3 bucket and key before deploy,
+        # or the deploy script will update the layer after initial stack creation.
+        S3Bucket: !Sub "your-deployment-bucket-${AWS::AccountId}"
+        S3Key: "dtmf-layers/aria-dtmf-dependencies.zip"
+
+  # ── 5. IAM Role — Decrypt Lambda ─────────────────────────────────────────────
+  DecryptRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aria-dtmf-decrypt-role-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DTMFDecryptPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadPrivateKey
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref PrivateKeySecretArn
+              - Sid: UseKMSForDecrypt
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "secretsmanager.${AWS::Region}.amazonaws.com"
+
+  # ── 6. Lambda — aria-dtmf-decrypt ───────────────────────────────────────────
+  DecryptFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "aria-dtmf-decrypt-${EnvironmentName}"
+      Description: "Decrypts RSA-encrypted DTMF digit payloads from Amazon Connect"
+      Runtime: python3.12
+      Handler: aria_dtmf_decrypt.handler
+      Role: !GetAtt DecryptRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Layers:
+        - !Ref LambdaLayer
+      Environment:
+        Variables:
+          PRIVATE_KEY_SECRET_ARN: !Ref PrivateKeySecretArn
+          CONNECT_KEY_ID: !Ref ConnectEncryptionKeyId
+          ENVIRONMENT: !Ref EnvironmentName
+      Code:
+        # Stub — replaced by deploy_dtmf_lambda.sh after stack creation
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              return {
+                  "statusCode": 503,
+                  "body": json.dumps({
+                      "status": "not_deployed",
+                      "message": "Upload Lambda code via: ./scripts/deploy_dtmf_lambda.sh deploy"
+                  })
+              }
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn:
+      - DecryptRole
+      - LambdaLayer
+
+  # ── 7. IAM Role — Validate Lambda ───────────────────────────────────────────
+  ValidateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aria-dtmf-validate-role-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DTMFValidatePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SessionTableWrite
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt SessionsTable.Arn
+              - Sid: BINTableRead
+                Effect: !If [EnableBINTable, Allow, Deny]
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !If
+                  - EnableBINTable
+                  - !GetAtt BINTable.Arn
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/placeholder"
+              - Sid: ConnectUpdateAttributes
+                Effect: Allow
+                Action: connect:UpdateContactAttributes
+                Resource: !Sub "${ConnectInstanceArn}/contact/*"
+              - Sid: InvokeCustomerLambda
+                Effect: !If [HasCustomerLambda, Allow, Deny]
+                Action: lambda:InvokeFunction
+                Resource: !If
+                  - HasCustomerLambda
+                  - !Ref CustomerDataLambdaArn
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:placeholder"
+              - Sid: UseKMSKey
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+
+  # ── 8. Lambda — aria-dtmf-validate ──────────────────────────────────────────
+  ValidateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "aria-dtmf-validate-${EnvironmentName}"
+      Description: >
+        Validates decrypted DTMF digits using Luhn/BIN/ownership checks depending on
+        collection_purpose.  Updates the DynamoDB session and Connect contact attributes.
+      Runtime: python3.12
+      Handler: aria_dtmf_validate.handler
+      Role: !GetAtt ValidateRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Layers:
+        - !Ref LambdaLayer
+      Environment:
+        Variables:
+          SESSIONS_TABLE_NAME: !Ref SessionsTable
+          CARD_BINS_TABLE: !If [EnableBINTable, !Ref BINTable, ""]
+          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          CUSTOMER_LAMBDA_ARN: !If [HasCustomerLambda, !Ref CustomerDataLambdaArn, ""]
+          SKIP_OWNERSHIP_IF_UNAUTH: !Ref SkipOwnershipIfUnauthenticated
+          DEFAULT_COLLECTION_PURPOSE: !Ref DefaultCollectionPurpose
+          ENVIRONMENT: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              return {
+                  "statusCode": 503,
+                  "body": json.dumps({
+                      "status": "not_deployed",
+                      "message": "Upload Lambda code via: ./scripts/deploy_dtmf_lambda.sh deploy"
+                  })
+              }
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn:
+      - ValidateRole
+      - SessionsTable
+      - LambdaLayer
+
+  # ── 9. IAM Role — Start Session Lambda ──────────────────────────────────────
+  StartSessionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aria-dtmf-start-session-role-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DTMFStartSessionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteSession
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt SessionsTable.Arn
+              - Sid: ConnectUpdateAttributes
+                Effect: Allow
+                Action: connect:UpdateContactAttributes
+                Resource: !Sub "${ConnectInstanceArn}/contact/*"
+              - Sid: UseKMSKey
+                Effect: Allow
+                Action:
+                  - kms:GenerateDataKey
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+
+  # ── 10. Lambda — aria-dtmf-start-session ────────────────────────────────────
+  StartSessionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "aria-dtmf-start-session-${EnvironmentName}"
+      Description: >
+        Called from the Connect contact flow BEFORE the Secure Input block.
+        Writes an ACTIVE session record to DynamoDB and sets the session_id contact
+        attribute so downstream Lambdas can locate the session.
+      Runtime: python3.12
+      Handler: aria_dtmf_start_session.handler
+      Role: !GetAtt StartSessionRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          SESSIONS_TABLE_NAME: !Ref SessionsTable
+          SESSION_TTL_HOURS: !Ref SessionTTLHours
+          ENVIRONMENT: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              return {
+                  "statusCode": 503,
+                  "body": json.dumps({
+                      "status": "not_deployed",
+                      "message": "Upload Lambda code via: ./scripts/deploy_dtmf_lambda.sh deploy"
+                  })
+              }
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn:
+      - StartSessionRole
+      - SessionsTable
+
+  # ── 11. IAM Role — Status Proxy Lambda ──────────────────────────────────────
+  StatusProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aria-dtmf-status-proxy-role-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DTMFStatusProxyPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadSession
+                Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !GetAtt SessionsTable.Arn
+              - Sid: ConnectGetAttributes
+                Effect: Allow
+                Action: connect:GetContactAttributes
+                Resource: !Sub "${ConnectInstanceArn}/contact/*"
+              - Sid: UseKMSKey
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+
+  # ── 12. Lambda — aria-dtmf-status-proxy ─────────────────────────────────────
+  StatusProxyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "aria-dtmf-status-proxy-${EnvironmentName}"
+      Description: >
+        HTTP API backend that serves /dtmf-status (full session detail) and
+        /dtmf-active (boolean active flag) to the agent panel.
+      Runtime: python3.12
+      Handler: aria_dtmf_status_proxy.handler
+      Role: !GetAtt StatusProxyRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          SESSIONS_TABLE_NAME: !Ref SessionsTable
+          ENVIRONMENT: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              return {
+                  "statusCode": 503,
+                  "headers": {
+                      "Content-Type": "application/json",
+                      "Access-Control-Allow-Origin": "*"
+                  },
+                  "body": json.dumps({
+                      "status": "not_deployed",
+                      "message": "Upload Lambda code via: ./scripts/deploy_dtmf_lambda.sh deploy"
+                  })
+              }
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn:
+      - StatusProxyRole
+      - SessionsTable
+
+  # ── 13. API Gateway HTTP API ─────────────────────────────────────────────────
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "aria-dtmf-status-api-${EnvironmentName}"
+      Description: "HTTP API serving DTMF session status endpoints for the agent panel"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - X-Session-Id
+        MaxAge: 300
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: "$default"
+      AutoDeploy: true
+      Description: !Sub "Default auto-deploy stage — ${EnvironmentName}"
+    DependsOn: HttpApi
+
+  # ── 14. API Gateway Integration ──────────────────────────────────────────────
+  StatusProxyIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt StatusProxyFunction.Arn
+      PayloadFormatVersion: "2.0"
+    DependsOn:
+      - HttpApi
+      - StatusProxyFunction
+
+  # ── 15. API Gateway Routes ───────────────────────────────────────────────────
+  StatusRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /dtmf-status"
+      Target: !Sub "integrations/${StatusProxyIntegration}"
+    DependsOn:
+      - HttpApi
+      - StatusProxyIntegration
+
+  ActiveRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /dtmf-active"
+      Target: !Sub "integrations/${StatusProxyIntegration}"
+    DependsOn:
+      - HttpApi
+      - StatusProxyIntegration
+
+  # Lambda permission for API Gateway to invoke status proxy
+  ApiGatewayStatusProxyPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt StatusProxyFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*"
+    DependsOn:
+      - HttpApi
+      - StatusProxyFunction
+
+  # ── 16. S3 Bucket — Agent Panel ──────────────────────────────────────────────
+  PanelBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "aria-dtmf-panel-${EnvironmentName}-${AWS::AccountId}"
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref KMSKey
+            BucketKeyEnabled: true
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ── 17. CloudFront Origin Access Control ─────────────────────────────────────
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "aria-dtmf-oac-${EnvironmentName}"
+        Description: "OAC for Secure DTMF agent panel bucket"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # ── 18. S3 Bucket Policy — CloudFront OAC only ───────────────────────────────
+  PanelBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PanelBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOACOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${PanelBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+    DependsOn:
+      - PanelBucket
+      - CloudFrontDistribution
+
+  # ── 19. CloudFront Distribution ──────────────────────────────────────────────
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "Aria Secure DTMF Panel — ${EnvironmentName}"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        DefaultRootObject: dtmf-panel/index.html
+        Origins:
+          - Id: PanelBucketOrigin
+            DomainName: !GetAtt PanelBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+        DefaultCacheBehavior:
+          TargetOriginId: PanelBucketOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          # CachingDisabled managed policy — no caching so panel always gets latest HTML
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          Compress: true
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2021
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 404
+            ResponsePagePath: /dtmf-panel/index.html
+            ErrorCachingMinTTL: 0
+      Tags:
+        - Key: Product
+          Value: SecureDTMFCapture
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn:
+      - PanelBucket
+      - CloudFrontOAC
+
+  # ── 20. Lambda Permissions — Amazon Connect ───────────────────────────────────
+  ConnectDecryptPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DecryptFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: connect.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Ref ConnectInstanceArn
+    DependsOn: DecryptFunction
+
+  ConnectValidatePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ValidateFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: connect.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Ref ConnectInstanceArn
+    DependsOn: ValidateFunction
+
+  ConnectStartSessionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt StartSessionFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: connect.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Ref ConnectInstanceArn
+    DependsOn: StartSessionFunction
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Outputs
+# ──────────────────────────────────────────────────────────────────────────────
+Outputs:
+
+  PanelBucketName:
+    Description: "S3 bucket that hosts the agent panel and launcher HTML"
+    Value: !Ref PanelBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-PanelBucket"
+
+  CloudFrontDomain:
+    Description: "CloudFront domain name for the agent panel"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomain"
+
+  PanelURL:
+    Description: "Direct URL to the real-time agent status panel"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}/dtmf-panel/index.html"
+    Export:
+      Name: !Sub "${AWS::StackName}-PanelURL"
+
+  LauncherURL:
+    Description: "Direct URL to the DTMF session launcher page"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}/dtmf-launcher/index.html"
+    Export:
+      Name: !Sub "${AWS::StackName}-LauncherURL"
+
+  StatusProxyApiUrl:
+    Description: "API Gateway URL for /dtmf-status — use in agent panel configuration"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/dtmf-status"
+    Export:
+      Name: !Sub "${AWS::StackName}-StatusApiUrl"
+
+  ActiveApiUrl:
+    Description: "API Gateway URL for /dtmf-active — polling endpoint for the panel"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/dtmf-active"
+    Export:
+      Name: !Sub "${AWS::StackName}-ActiveApiUrl"
+
+  DecryptLambdaArn:
+    Description: >
+      ARN of aria-dtmf-decrypt — add this to your Connect instance's approved Lambda
+      functions (Connect Console → Flows → Lambda functions)
+    Value: !GetAtt DecryptFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DecryptLambdaArn"
+
+  ValidateLambdaArn:
+    Description: >
+      ARN of aria-dtmf-validate — add this to your Connect instance's approved Lambda
+      functions
+    Value: !GetAtt ValidateFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ValidateLambdaArn"
+
+  StartSessionLambdaArn:
+    Description: >
+      ARN of aria-dtmf-start-session — add this to your Connect instance's approved
+      Lambda functions
+    Value: !GetAtt StartSessionFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StartSessionLambdaArn"
+
+  SessionsTableName:
+    Description: "DynamoDB table holding active DTMF sessions"
+    Value: !Ref SessionsTable
+    Export:
+      Name: !Sub "${AWS::StackName}-SessionsTableName"
+
+  BINTableName:
+    Description: "DynamoDB BIN lookup table (only present when EnableBINValidation=true)"
+    Condition: EnableBINTable
+    Value: !Ref BINTable
+    Export:
+      Name: !Sub "${AWS::StackName}-BINTableName"
+
+  KMSKeyArn:
+    Description: "ARN of the CMK used for DynamoDB SSE and Secrets Manager"
+    Value: !GetAtt KMSKey.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-KMSKeyArn"

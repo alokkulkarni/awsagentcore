@@ -7,61 +7,67 @@
   PURPOSE
   ───────
   This panel is displayed in the Amazon Connect Agent Workspace as a custom tab.
-  It connects to the active Amazon Connect contact via the Connect Streams SDK
-  and watches the contact attributes for DTMF collection status updates. When
-  a customer is entering card digits securely, this panel shows the agent a
-  live, colour-coded view of what is happening — so the agent knows whether to
-  wait, the collection succeeded, or something went wrong and they need to step in.
+  It polls a lightweight Lambda proxy (aria-dtmf-status-proxy) every 2 seconds
+  to read the DTMF contact attributes set by the validation Lambda, then renders
+  a live, colour-coded view of the secure card capture in progress.
+
+  WHY NOT CONNECT STREAMS SDK?
+  ────────────────────────────
+  The Agent Workspace already holds the Streams SharedWorker session for the
+  agent's main CCP.  Any second call to connect.core.initCCP() from an embedded
+  third-party app iframe is rejected with "Streams initialization denied".
+  This panel therefore uses a simple HTTP polling approach instead:
+
+    Panel → GET /dtmf-status?contactId=<id>  →  API Gateway
+                                              →  aria-dtmf-status-proxy Lambda
+                                              →  connect:GetContactAttributes
+                                              ←  { dtmf_status, dtmf_masked, … }
 
   HOW IT WORKS
   ────────────
-  1. The page loads the Amazon Connect Streams SDK from a CDN.
-  2. It initialises an embedded CCP connection to your Connect instance.
-     The CCP iframe is hidden (the agent still uses the real CCP in the sidebar),
-     but Streams needs an iframe URL to establish the WebSocket connection.
-  3. On every contact attribute refresh event, the panel reads:
-       dtmf_status             — current phase of collection
-       dtmf_masked             — masked card digits e.g. ****  ****  ****  4821
-       dtmf_card_type          — VISA DEBIT, MASTERCARD CREDIT, …
-       dtmf_validation_status  — luhn_pass / bin_pass / ownership_pass / …
-       dtmf_error              — human-readable error message if failed
-       collectionPurpose       — what was being collected (card_last_four etc.)
-  4. The panel maps the dtmf_status value to a colour and icon and updates the UI.
-  5. When collection is complete the agent sees the masked result and card type.
-  6. When dtmf_status goes back to empty / "idle" the panel resets automatically.
+  1. Amazon Connect Agent Workspace injects the current contact ID into the
+     app URL as a query parameter (configured in Application integration):
+       https://<cloudfront>/dtmf-panel/index.html?contactId=${connectContact.contactId}
+  2. The panel reads contactId from URLSearchParams on load.
+  3. It polls the status proxy every 2 s using fetch().
+  4. The proxy returns the DTMF contact attributes; the panel maps dtmf_status
+     to a colour, icon and progress bar.
+  5. After a terminal status (complete / failed / timeout) the panel slows down
+     to one poll per 10 s and stops after 60 s.
+
+  CONTACT ATTRIBUTES READ
+  ───────────────────────
+    dtmf_status             — current phase of collection
+    dtmf_masked             — masked card digits e.g. •••• •••• •••• 4821
+    dtmf_card_type          — VISA DEBIT, MASTERCARD CREDIT, …
+    dtmf_validation_status  — luhn_pass / bin_pass / ownership_pass / …
+    dtmf_error              — human-readable error message if failed
+    collectionPurpose       — what was being collected (card_last_four etc.)
 
   HOSTING
   ───────
-  Upload this file to an S3 bucket with static website hosting enabled, or
-  serve it from the same CloudFront distribution as the chat widget.
-  The URL you use when you register the app in the Connect console must be
-  HTTPS and must be added to the Connect instance's allowed origins
-  (Console → Amazon Connect → Your instance → Approved origins).
+  Upload this file to an S3 bucket served via CloudFront.
+  The deploy_dtmf_lambda.sh deploy-panel command handles this automatically.
 
   CONFIGURATION
   ─────────────
-  Set the CONNECT_INSTANCE_URL constant below to your Connect instance URL,
-  e.g. "https://meridian-bank.my.connect.aws".
-  That is the only change you need to make to this file.
+  Two placeholders in the <script> block are patched at deploy time:
+    https://your-api-id.execute-api.eu-west-2.amazonaws.com/dtmf-status
+      → the URL of the aria-dtmf-status-proxy API Gateway endpoint
 
-  DEPLOY INSTRUCTIONS (novice-friendly)
+  DEPLOY INSTRUCTIONS (manual)
   ──────────────────────────────────────
-  1. Edit CONNECT_INSTANCE_URL below.
-  2. Upload this file to S3:
-       aws s3 cp index.html s3://YOUR-BUCKET/dtmf-panel/index.html \
-         --content-type "text/html" --cache-control "no-cache"
-  3. Make the file public OR serve via CloudFront.
-  4. In Amazon Connect console:
-       a. Go to  Amazon Connect → Your instance → Application integration
-       b. Click  Add integration
-       c. Fill in:
+  1. Run: ./scripts/deploy_dtmf_lambda.sh deploy-panel
+     This creates the proxy Lambda, API Gateway, S3 bucket, and CloudFront
+     distribution, then patches the placeholders and uploads the HTML.
+  2. In Amazon Connect console:
+       a. Go to  Amazon Connect → Your instance → Approved origins → Add domain
+          Domain: https://YOUR-CDN-DOMAIN
+       b. Go to  Application integration → Add integration
             Application name:  DTMF Status Panel
-            URL:               https://YOUR-CDN/dtmf-panel/index.html
+            URL:               https://YOUR-CDN/dtmf-panel/index.html?contactId=${connectContact.contactId}
             Application scope: Contact  (refreshes per call)
-            Permissions:       Contact attributes (read)
-       d. Click  Save
-  5. The new tab "DTMF Status Panel" now appears in every agent's workspace.
-  6. The panel activates automatically when dtmf_status is set on a contact.
+  3. Assign the "DTMF Status Panel" app to the agent's security profile.
 ──────────────────────────────────────────────────────────────────────────────
 -->
 <html lang="en">
@@ -69,9 +75,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DTMF Status — Meridian Bank</title>
-
-  <!-- Amazon Connect Streams SDK (loaded from public CDN) -->
-  <script src="https://unpkg.com/amazon-connect-streams@2.18.1/release/connect-streams.js"></script>
 
   <style>
     /* ── Reset & base ─────────────────────────────────────────────────────── */
@@ -254,8 +257,12 @@
     }
     .idle-placeholder .idle-icon { font-size: 36px; margin-bottom: 10px; }
 
-    /* ── Hidden CCP iframe ─────────────────────────────────────────────────── */
-    #ccp-container { display: none; width: 1px; height: 1px; overflow: hidden; }
+    /* ── Polling status indicator ───────────────────────────────────────────── */
+    #poll-status {
+      position: fixed; bottom: 8px; right: 10px;
+      font-size: 11px; color: #888; opacity: 0.7;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -334,28 +341,33 @@
     initiates a secure card digit collection for this customer.
   </div>
 
-  <!-- ── Hidden CCP iframe required by Connect Streams ─────────────────── -->
-  <div id="ccp-container">
-    <div id="ccp-iframe-container"></div>
-  </div>
+  <!-- ── Polling status indicator (bottom-right corner) ──────────────────── -->
+  <div id="poll-status">🔄 Starting…</div>
 
   <!-- ══════════════════════════════════════════════════════════════════════
        SCRIPT
        ══════════════════════════════════════════════════════════════════════ -->
   <script>
     // ── CONFIGURATION ─────────────────────────────────────────────────────
-    // Replace with your Connect instance URL (no trailing slash).
-    // Example: "https://meridian-bank.my.connect.aws"
-    const CONNECT_INSTANCE_URL = "https://meridian-bank.my.connect.aws";
+    // Both URLs are patched at deploy time by deploy_dtmf_lambda.sh.
+    const STATUS_PROXY_URL = "https://your-api-id.execute-api.eu-west-2.amazonaws.com/dtmf-status";
+    const ACTIVE_URL       = "https://your-api-id.execute-api.eu-west-2.amazonaws.com/dtmf-active";
 
-    // Polling interval (ms) — contact attributes are refreshed by Connect
-    // automatically; this is a safety net in case a refresh event is missed.
-    const POLL_INTERVAL_MS = 3000;
+    // Contact ID may come from:
+    //   1. URL param  ?contactId=<id>  (legacy / manual)
+    //   2. Auto-discovered via /dtmf-active polling (startDiscovery)
+    let CONTACT_ID = new URLSearchParams(window.location.search).get("contactId") || "";
+
+    // Polling intervals
+    const POLL_INTERVAL_MS   = 2000;   // fast poll while capture is in progress
+    const POLL_TERMINAL_MS   = 5000;   // slow poll once a terminal status is reached
+    const RESULT_DISPLAY_MS  = 15000;  // show terminal result for this long, then auto-reset
 
     // ── STATE ─────────────────────────────────────────────────────────────
-    let currentContact  = null;
-    let pollTimer       = null;
-    let lastStatus      = "";
+    let pollTimer      = null;
+    let lastStatus     = "";
+    let terminalAt     = null;   // timestamp when terminal status was first seen
+    let discoveryTimer = null;   // interval for /dtmf-active polling
 
     // ── DOM REFS ──────────────────────────────────────────────────────────
     const card          = document.getElementById("status-card");
@@ -379,66 +391,83 @@
     // ── STATUS MAP ────────────────────────────────────────────────────────
     // Maps the dtmf_status contact attribute value to a UI configuration.
     const STATUS_MAP = {
-      //                        { title, sub, icon, iconSpin, cardClass, progress, steps_done, step_current }
       "awaiting_trigger": {
-        title:   "Waiting to begin…",
+        title:   "Waiting to begin\u2026",
         sub:     "ARIA is preparing to hand off to secure capture",
-        icon:    "⏳", spin: false, cls: "active", progress: 5,
+        icon:    "\u23f3", spin: false, cls: "active", progress: 5,
         done:    [], current: "waiting",
       },
       "waiting_for_input": {
         title:   "Customer entering digits",
-        sub:     "Customer is using the encrypted telephone keypad — you will not hear the digits",
-        icon:    "⌨️", spin: false, cls: "active", progress: 30,
+        sub:     "Customer is using the encrypted telephone keypad \u2014 you will not hear the digits",
+        icon:    "\u2328\ufe0f", spin: false, cls: "active", progress: 30,
         done:    ["waiting"], current: "collecting",
       },
       "input_received": {
         title:   "Digits received",
-        sub:     "Encrypted digits received — now decrypting securely",
-        icon:    "🔐", spin: true, cls: "active", progress: 55,
+        sub:     "Encrypted digits received \u2014 now decrypting securely",
+        icon:    "\ud83d\udd10", spin: true, cls: "active", progress: 55,
         done:    ["waiting","collecting"], current: "decrypting",
       },
       "decrypted": {
         title:   "Decrypted and masked",
         sub:     "Running Luhn check, then BIN lookup, then ownership check",
-        icon:    "🔍", spin: false, cls: "active", progress: 70,
+        icon:    "\ud83d\udd0d", spin: false, cls: "active", progress: 70,
+        done:    ["waiting","collecting","decrypting"], current: "validating",
+      },
+      "validating": {
+        title:   "Validating card\u2026",
+        sub:     "Running Luhn check, BIN lookup, and ownership check",
+        icon:    "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
         done:    ["waiting","collecting","decrypting"], current: "validating",
       },
       "validated": {
-        title:   "Validation passed ✓",
-        sub:     "All checks passed — returning customer to ARIA",
-        icon:    "✅", spin: false, cls: "success", progress: 95,
+        title:   "Validation passed \u2713",
+        sub:     "All checks passed \u2014 returning customer to ARIA",
+        icon:    "\u2705", spin: false, cls: "success", progress: 95,
         done:    ["waiting","collecting","decrypting","validating"], current: "complete",
       },
       "complete": {
-        title:   "Capture complete ✓",
-        sub:     "Customer has been returned to ARIA — see result below",
-        icon:    "✅", spin: false, cls: "success", progress: 100,
+        title:   "Capture complete \u2713",
+        sub:     "Customer has been returned to ARIA \u2014 see result below",
+        icon:    "\u2705", spin: false, cls: "success", progress: 100,
         done:    ["waiting","collecting","decrypting","validating","complete"], current: "",
       },
       "failed": {
         title:   "Capture failed",
-        sub:     "Customer entered incorrect digits or timed out — see error below",
-        icon:    "❌", spin: false, cls: "error", progress: 50,
+        sub:     "Customer entered incorrect digits or timed out \u2014 see error below",
+        icon:    "\u274c", spin: false, cls: "error", progress: 50,
         done:    ["waiting"], current: "collecting", isError: true,
       },
       "validation_failed": {
         title:   "Validation failed",
-        sub:     "Luhn / BIN / ownership check failed — may need escalation",
-        icon:    "⚠️", spin: false, cls: "warning", progress: 80,
+        sub:     "Luhn / BIN / ownership check failed \u2014 may need escalation",
+        icon:    "\u26a0\ufe0f", spin: false, cls: "warning", progress: 80,
         done:    ["waiting","collecting","decrypting"], current: "validating", isError: true,
       },
       "ownership_mismatch": {
-        title:   "Ownership mismatch — escalate",
-        sub:     "Card does not match customer record — fraud signal — escalate immediately",
-        icon:    "🚨", spin: false, cls: "error", progress: 80,
+        title:   "Ownership mismatch \u2014 escalate",
+        sub:     "Card does not match customer record \u2014 fraud signal \u2014 escalate immediately",
+        icon:    "\ud83d\udea8", spin: false, cls: "error", progress: 80,
         done:    ["waiting","collecting","decrypting"], current: "validating", isError: true,
       },
       "timeout": {
         title:   "Timed out",
         sub:     "Customer did not enter digits within the allowed time",
-        icon:    "⏱️", spin: false, cls: "warning", progress: 30,
+        icon:    "\u23f1\ufe0f", spin: false, cls: "warning", progress: 30,
         done:    ["waiting"], current: "collecting", isError: true,
+      },
+      "validation_service_error": {
+        title:   "Validation service unavailable",
+        sub:     "Ownership check temporarily unavailable \u2014 capture accepted with warning",
+        icon:    "\u26a0\ufe0f", spin: false, cls: "warning", progress: 100,
+        done:    ["waiting","collecting","decrypting","validating"], current: "complete", isError: false,
+      },
+      "system_error": {
+        title:   "System error \u2014 customer returned to agent",
+        sub:     "A technical error occurred during secure capture. Collect details manually.",
+        icon:    "\ud83d\udea8", spin: false, cls: "error", progress: 0,
+        done:    [], current: "waiting", isError: true,
       },
     };
 
@@ -450,11 +479,9 @@
       const valRes   = (attrs.dtmf_validation_status || "").trim();
       const errMsg   = (attrs.dtmf_error          || "").trim();
 
-      // Nothing happening — show idle state
       if (!status || status === "idle" || status === "false" || status === "awaiting_trigger" && lastStatus === "") {
         showIdle();
         if (status === "awaiting_trigger") {
-          // Still show the card but in minimal state
           showCard();
           applyStatus(STATUS_MAP["awaiting_trigger"], errMsg);
         }
@@ -467,26 +494,24 @@
 
       const cfg = STATUS_MAP[status];
       if (!cfg) {
-        // Unknown status — generic active display
-        title.textContent   = `Status: ${status}`;
-        sub.textContent     = "Secure capture in progress";
-        icon.textContent    = "🔄";
+        title.textContent     = "Status: " + status;
+        sub.textContent       = "Secure capture in progress";
+        icon.textContent      = "\ud83d\udd04";
         icon.classList.add("spin");
-        fill.style.width    = "50%";
+        fill.style.width      = "50%";
         fill.style.background = "var(--active)";
-        card.className = "status-card active";
+        card.className        = "status-card active";
         return;
       }
 
       applyStatus(cfg, errMsg);
 
-      // Show result section when we have masked digits
       if (masked) {
         resultSection.classList.add("visible");
         resultMasked.textContent = formatMasked(masked, attrs.collectionPurpose);
-        resultType.textContent   = cardType || "—";
+        resultType.textContent   = cardType || "\u2014";
         const valOk = valRes.includes("pass") || valRes === "complete";
-        resultVal.textContent    = valRes    || "—";
+        resultVal.textContent    = valRes    || "\u2014";
         resultVal.className      = "result-value " + (valOk ? "ok" : "bad");
       } else {
         resultSection.classList.remove("visible");
@@ -505,25 +530,22 @@
                             : "var(--active)";
       card.className = "status-card " + cfg.cls;
 
-      // Update step timeline
-      Object.keys(steps).forEach(key => {
+      Object.keys(steps).forEach(function(key) {
         const el = steps[key];
         el.className = "step";
-        if (cfg.done && cfg.done.includes(key))    el.className = "step done";
-        if (cfg.current === key)                    el.className = "step current" + (cfg.isError ? " error" : "");
+        if (cfg.done && cfg.done.includes(key)) el.className = "step done";
+        if (cfg.current === key)                el.className = "step current" + (cfg.isError ? " error" : "");
       });
     }
 
     function formatMasked(raw, purpose) {
-      // Format based on what was collected
-      if (!purpose || purpose === "card_last_four")  return "•••• •••• •••• " + raw;
+      if (!purpose || purpose === "card_last_four")  return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw;
       if (purpose === "full_card_number" && raw.length >= 4) {
-        const last4 = raw.slice(-4);
-        return "•••• •••• •••• " + last4;
+        return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw.slice(-4);
       }
       if (purpose === "expiry_date") return raw.slice(0,2) + "/" + raw.slice(2);
-      if (purpose === "cvv")         return "•••";
-      if (purpose === "pin")         return "••••";
+      if (purpose === "cvv")         return "\u2022\u2022\u2022";
+      if (purpose === "pin")         return "\u2022\u2022\u2022\u2022";
       return raw;
     }
 
@@ -534,81 +556,143 @@
     function showIdle() {
       card.style.display = "none";
       idlePlaceholder.style.display = "";
-      // Reset steps
-      Object.values(steps).forEach(el => el.className = "step");
+      Object.values(steps).forEach(function(el) { el.className = "step"; });
       resultSection.classList.remove("visible");
       fill.style.width = "0%";
     }
 
-    // ── CONNECT STREAMS INTEGRATION ───────────────────────────────────────
-    function initStreams() {
-      connect.core.initCCP(
-        document.getElementById("ccp-iframe-container"),
-        {
-          ccpUrl:                 CONNECT_INSTANCE_URL + "/ccp-v2",
-          loginPopup:             false,
-          loginPopupAutoClose:    false,
-          softphone:              { allowFramedSoftphone: false },
-          storageAccess:          { canRequest: false },
-        }
-      );
+    // ── POLLING ───────────────────────────────────────────────────────────
+    const TERMINAL_STATUSES = new Set([
+      "complete", "failed", "timeout", "validation_failed", "ownership_mismatch",
+      "system_error", "validation_service_error",
+    ]);
 
-      connect.contact(function (contact) {
-        currentContact = contact;
-        startPolling();
-
-        // Fired immediately when contact attributes change (near real-time)
-        contact.onRefreshContact(function () {
-          readAndRenderAttrs();
-        });
-
-        // When call ends, reset to idle after a short delay
-        contact.onEnded(function () {
-          setTimeout(function () {
-            showIdle();
-            currentContact = null;
-            lastStatus = "";
-            stopPolling();
-          }, 4000);
-        });
-      });
+    function setPollStatus(msg) {
+      const el = document.getElementById("poll-status");
+      if (el) el.textContent = msg;
     }
 
-    function readAndRenderAttrs() {
-      if (!currentContact) return;
+    async function doPoll() {
       try {
-        const attrs = currentContact.getAttributes();
-        // attrs is { key: { name, value } } — flatten to { key: value }
-        const flat = {};
-        Object.keys(attrs).forEach(function (k) {
-          flat[k] = attrs[k].value || "";
-        });
-        renderStatus(flat);
-      } catch (e) {
-        console.warn("DTMF panel: could not read contact attributes", e);
+        const resp = await fetch(
+          STATUS_PROXY_URL + "?contactId=" + encodeURIComponent(CONTACT_ID)
+        );
+
+        if (resp.status === 404) {
+          setPollStatus("\u26ab Contact ended");
+          stopPolling();
+          setTimeout(resetToDiscovery, 4000);
+          return;
+        }
+
+        if (!resp.ok) {
+          setPollStatus("\u26a0\ufe0f Error " + resp.status);
+          return;
+        }
+
+        const data = await resp.json();
+        setPollStatus("\ud83d\udfe2 Live");
+        renderStatus(data);
+
+        const status = (data.dtmf_status || "").trim();
+        if (TERMINAL_STATUSES.has(status)) {
+          if (!terminalAt) {
+            terminalAt = Date.now();
+            stopPolling();
+            pollTimer = setInterval(doPoll, POLL_TERMINAL_MS);
+          }
+          if (Date.now() - terminalAt > RESULT_DISPLAY_MS) {
+            setPollStatus("\u23f9 Resetting\u2026");
+            setTimeout(resetToDiscovery, 500);
+            return;
+          }
+        } else if (terminalAt) {
+          terminalAt = null;
+          stopPolling();
+          pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
+        }
+
+      } catch (err) {
+        setPollStatus("\u26a0\ufe0f Network error");
+        console.error("DTMF panel poll error:", err);
       }
     }
 
     function startPolling() {
       stopPolling();
-      pollTimer = setInterval(readAndRenderAttrs, POLL_INTERVAL_MS);
+      terminalAt = null;
+      lastStatus = "";
+      setPollStatus("\ud83d\udd04 Polling\u2026");
+      doPoll();
+      pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
     }
+
     function stopPolling() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
 
+    function stopDiscovery() {
+      if (discoveryTimer) { clearInterval(discoveryTimer); discoveryTimer = null; }
+    }
+
+    function resetToDiscovery() {
+      stopPolling();
+      stopDiscovery();
+      CONTACT_ID = "";
+      lastStatus  = "";
+      terminalAt  = null;
+      showIdle();
+      startDiscovery();
+    }
+
+    // ── AUTO-DISCOVERY ────────────────────────────────────────────────────
+    // When no contactId is in the URL, poll /dtmf-active every 2 s to detect
+    // when the Connect flow writes an ACTIVE session record to DynamoDB.
+    // Once found, switch immediately to status polling.
+    function startDiscovery() {
+      stopDiscovery();
+      stopPolling();
+      CONTACT_ID = "";
+      lastStatus  = "";
+      terminalAt  = null;
+      setPollStatus("\ud83d\udd0d Watching for session\u2026");
+      idlePlaceholder.innerHTML = [
+        '<div class="idle-icon">\ud83d\udd12</div>',
+        '<strong>Waiting for secure capture session\u2026</strong><br/>',
+        'This panel will activate automatically when the advisor initiates',
+        ' secure DTMF capture for the customer.',
+      ].join("\n");
+
+      async function pollActive() {
+        try {
+          const resp = await fetch(ACTIVE_URL, { cache: "no-store" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const cid  = data.contactId || null;
+          if (cid) {
+            clearInterval(discoveryTimer);
+            discoveryTimer = null;
+            CONTACT_ID = cid;
+            startPolling();
+          }
+        } catch (_) { /* network blip — retry next tick */ }
+      }
+
+      pollActive();
+      discoveryTimer = setInterval(pollActive, POLL_INTERVAL_MS);
+    }
+
     // ── INIT ──────────────────────────────────────────────────────────────
-    // Show idle state while we wait for a contact
     showIdle();
 
-    // Wait for Streams SDK to load, then initialise
-    window.addEventListener("load", function () {
-      if (typeof connect === "undefined") {
-        sub.textContent = "⚠ Connect Streams SDK failed to load — check network";
-        return;
-      }
-      initStreams();
-    });
+    if (!CONTACT_ID) {
+      // No contactId in URL — auto-discover via /dtmf-active polling.
+      // The launcher iframe (dtmf-launcher/index.html) also polls this endpoint
+      // and brings this popup to the foreground when a session starts.
+      startDiscovery();
+    } else {
+      startPolling();
+    }
   </script>
 </body>
 </html>

@@ -335,3 +335,8 @@ dist/
 .deploy-state-*.env
 connect-chat-widget/.deploy-state-*.env
 client/.deploy-state-*.env
+
+# -----------------------------------------------------------------------------
+# DTMF key data — sensitive key mappings, never commit
+# -----------------------------------------------------------------------------
+meridian-dtmf-keys/

@@ -149,21 +149,33 @@ mkdir ~/meridian-dtmf-keys && cd ~/meridian-dtmf-keys
 # Generate the RSA private key (4096-bit)
 openssl genrsa -out meridian-connect-private.pem 4096
 
-# Generate the public key as a self-signed X.509 certificate
-# Amazon Connect requires a certificate, not a raw public key
+# Generate a self-signed X.509 certificate from the private key
+# This certificate is used inside the contact flow block (Phase 3) to encrypt DTMF input
 openssl req -new -x509 \
   -key meridian-connect-private.pem \
-  -out meridian-connect-public.pem \
+  -out meridian-connect-cert.pem \
   -days 1825 \
   -subj "/CN=meridian-connect-dtmf/O=Meridian Bank/C=GB"
 
-# Confirm both files exist
+# Extract the raw RSA public key from the certificate
+# This is what you paste into Amazon Connect → Contact flows → Flow security keys
+openssl x509 -pubkey -noout \
+  -in meridian-connect-cert.pem \
+  -out meridian-connect-public.pem
+
+# Confirm all three files exist
 ls -la ~/meridian-dtmf-keys/
 ```
 
-You now have two files:
-- `meridian-connect-private.pem` — **NEVER share. Never put in git. Never email.**
-- `meridian-connect-public.pem` — safe to share; goes into Amazon Connect
+You now have three files:
+
+| File | Format | Used for |
+|---|---|---|
+| `meridian-connect-private.pem` | `BEGIN RSA PRIVATE KEY` | Secrets Manager (Step 1.3) · Lambda decryption |
+| `meridian-connect-cert.pem` | `BEGIN CERTIFICATE` | Contact flow block — Store customer input (Phase 3) |
+| `meridian-connect-public.pem` | `BEGIN PUBLIC KEY` | Pasted into Connect Flow security keys (Step 1.4) |
+
+> **NEVER** share, git-commit, or email `meridian-connect-private.pem`.
 
 ---
 
@@ -207,7 +219,7 @@ aws kms create-alias \
 SECRET_OUTPUT=$(aws secretsmanager create-secret \
   --name "meridian/connect/dtmf-private-key" \
   --description "RSA private key for Connect DTMF decryption — Meridian Bank" \
-  --secret-string file://~/meridian-dtmf-keys/meridian-connect-private.pem \
+  --secret-string file://$HOME/meridian-dtmf-keys/meridian-connect-private.pem \
   --kms-key-id alias/meridian-connect-dtmf \
   --region eu-west-2 \
   --output json)
@@ -227,79 +239,62 @@ echo "Save this ARN — needed when deploying the Lambda in Phase 2."
 
 ---
 
-## Step 1.4 — Upload the Public Key to Amazon Connect
+## Step 1.4 — Register the Public Certificate with Amazon Connect
 
-1. Go to **AWS Console > Amazon Connect > Your instance**
-2. In the left navigation, choose **Security keys**
-3. Click **Add key**
-4. Click **Choose file** and select `meridian-connect-public.pem` from `~/meridian-dtmf-keys/`
-5. Click **Add**
-6. Amazon Connect shows you a **Key ID** — like: `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+> **How it works:** Amazon Connect's "Flow security keys" section stores the **raw RSA public key**
+> (`-----BEGIN PUBLIC KEY-----`). This key is used to verify the signature of the X.509 certificate
+> you will reference inside the contact flow block in Phase 3. They are two different files.
+
+### Copy the public key to your clipboard
+
+```bash
+# Verify it is the correct format — must show BEGIN PUBLIC KEY
+head -1 ~/meridian-dtmf-keys/meridian-connect-public.pem
+
+# Copy to clipboard (macOS)
+cat ~/meridian-dtmf-keys/meridian-connect-public.pem | pbcopy
+
+# Copy to clipboard (Linux)
+cat ~/meridian-dtmf-keys/meridian-connect-public.pem | xclip -selection clipboard
+```
+
+### Paste into the console
+
+1. Go to **AWS Console → Amazon Connect**
+2. Click your **instance name** (do NOT click "Open Amazon Connect" — you need the instance settings page)
+3. Click the **Contact flows** tab
+4. Scroll down to the **Flow security keys** section
+5. Click **Add key**
+6. In the text area, **paste the contents of `meridian-connect-public.pem`** — it must start with `-----BEGIN PUBLIC KEY-----`
+7. Click **Add**
+8. Amazon Connect shows you a **Key ID** — like: `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
 
 > Write this Key ID down. You need it in Phase 3 (Store customer input block) and Phase 2 (Lambda deploy).
 
-You can delete the public key from your laptop — it is safely stored in Connect.
+> **Note:** The X.509 certificate (`meridian-connect-cert.pem`) is used separately — in the
+> **Store customer input** flow block in Phase 3. Do not delete it yet.
 
 ---
 
-## Step 1.5 — Create the DynamoDB Tables
+## Step 1.5 — DynamoDB Tables
 
-**Table 1: `aria-card-bins`** — maps card BIN (first 6 digits) to card type
-
-```bash
-aws dynamodb create-table \
-  --table-name aria-card-bins \
-  --attribute-definitions AttributeName=binPrefix,AttributeType=S \
-  --key-schema AttributeName=binPrefix,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region eu-west-2
-
-echo "Table aria-card-bins created."
-```
-
-Seed with example BINs (replace with your real BIN ranges from card operations):
-
-```bash
-# Visa Debit
-aws dynamodb put-item --table-name aria-card-bins --region eu-west-2 --item \
-  '{"binPrefix":{"S":"414900"},"cardType":{"S":"VISA_DEBIT"},"isActive":{"BOOL":true}}'
-
-# Mastercard Credit
-aws dynamodb put-item --table-name aria-card-bins --region eu-west-2 --item \
-  '{"binPrefix":{"S":"532188"},"cardType":{"S":"MC_CREDIT"},"isActive":{"BOOL":true}}'
-```
-
-**Table 2: `aria-customer-cards`** — maps customer IDs to their card last four (legacy fallback)
-
-```bash
-aws dynamodb create-table \
-  --table-name aria-customer-cards \
-  --attribute-definitions \
-    AttributeName=customerId,AttributeType=S \
-    AttributeName=cardLastFour,AttributeType=S \
-  --key-schema \
-    AttributeName=customerId,KeyType=HASH \
-    AttributeName=cardLastFour,KeyType=RANGE \
-  --billing-mode PAY_PER_REQUEST \
-  --region eu-west-2
-
-echo "Table aria-customer-cards created."
-```
-
-Seed with test data:
-
-```bash
-aws dynamodb put-item --table-name aria-customer-cards --region eu-west-2 --item \
-  '{"customerId":{"S":"CUST-001"},"cardLastFour":{"S":"8901"},"isActive":{"BOOL":true},"cardType":{"S":"VISA_DEBIT"}}'
-```
-
-> Production: run a nightly sync from your core banking system. The primary ownership check uses the customer Lambda; this table is a fallback.
+> **You do not need to run any commands here.** The deploy script in Phase 2 creates and seeds both
+> DynamoDB tables automatically as part of its first deploy run.
+>
+> Tables created:
+> - `aria-card-bins` — BIN prefix (first 6 digits) → card type mapping, seeded with example BINs
+> - `aria-customer-cards` — customer ID → card last-four fallback lookup, seeded with test records
+>
+> **After deploy:** replace the example BIN entries in `aria-card-bins` with your real BIN ranges
+> from card operations, and set up a nightly sync from your core banking system into `aria-customer-cards`.
 
 ---
 
 # Phase 2 — Deploy the Lambda Functions
 
-Both Lambdas are deployed using the script at `scripts/deploy_dtmf_lambda.sh`.
+The script at `scripts/deploy_dtmf_lambda.sh` handles everything in one run:
+**DynamoDB tables, IAM roles, Lambda Layer, Lambda functions, and Connect permissions.**
+It is fully interactive — just run it and answer the prompts.
 
 ---
 
@@ -307,25 +302,34 @@ Both Lambdas are deployed using the script at `scripts/deploy_dtmf_lambda.sh`.
 
 ```bash
 cd /path/to/awsagentcore
-
-./scripts/deploy_dtmf_lambda.sh deploy \
-  --instance-id      YOUR_CONNECT_INSTANCE_ID \
-  --secret-arn       arn:aws:secretsmanager:eu-west-2:ACCOUNT:secret:meridian/connect/dtmf-private-key-XXXXXX \
-  --connect-key-id   a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
-  --kms-key-arn      arn:aws:kms:eu-west-2:ACCOUNT:key/YOUR_KMS_KEY_ID \
-  --region eu-west-2
+./scripts/deploy_dtmf_lambda.sh deploy
 ```
 
-**Where to find each value:**
+The script prompts you for each required value in turn:
 
-| Argument | Where to find it |
+| Prompt | Where to find the value |
 |---|---|
-| `--instance-id` | Amazon Connect console > Your instance > Overview > Instance ARN (last UUID after `instance/`) |
-| `--secret-arn` | The ARN saved at the end of Step 1.3 |
-| `--connect-key-id` | The Key ID written down in Step 1.4 |
-| `--kms-key-arn` | The ARN saved in Step 1.2 |
+| Secrets Manager ARN | The ARN printed at the end of Step 1.3 |
+| Connect Flow Security Key ID | The Key ID from Step 1.4 (Connect console → instance → Contact flows → Flow security keys) |
+| KMS CMK ARN | The ARN saved in Step 1.2 |
+| Connect Instance ID | Connect console → your instance → Overview → Instance ARN — copy the UUID after `instance/` |
 
-The script creates IAM roles, a Lambda Layer with the encryption library, both Lambda functions, and grants Amazon Connect permission to invoke them. It prints a success summary at the end.
+If `setup_dtmf_keys.sh` was run previously, the script reads the first three values automatically from
+`.deploy-dtmf-key-state.json` and skips those prompts.
+
+The script:
+1. **Creates** `aria-card-bins` and `aria-customer-cards` DynamoDB tables (idempotent — skips if already exist)
+2. **Seeds** both tables with example data
+3. Creates the IAM role with policies for Secrets Manager, KMS, and DynamoDB
+4. Builds and publishes the Lambda Layer (aws-encryption-sdk + cryptography)
+5. Deploys both Lambda functions and creates the `prod` alias
+6. Grants Amazon Connect permission to invoke the Lambda
+
+**To tear everything down** (Lambda + DynamoDB + IAM + Layer — all prompted individually):
+
+```bash
+./scripts/deploy_dtmf_lambda.sh teardown
+```
 
 ---
 
@@ -390,21 +394,44 @@ Returns:
 
 ---
 
+## Overview
+
+This sub-flow captures three pieces of encrypted card data in sequence:
+
+| Step | Data | Digits | Contact attribute saved |
+|---|---|---|---|
+| A | 16-digit card number | 20 max | `dtmf_encrypted_card` |
+| B | Expiry date (MMYY) | 4 | `dtmf_encrypted_expiry` |
+| C | CVV / security code | 4 max | `dtmf_encrypted_cvv` |
+
+For each capture the flow: plays an instruction prompt → captures encrypted DTMF → saves the encrypted blob to a named attribute → calls `aria-dtmf-decrypt`. The card number also triggers `aria-dtmf-validate`. The agent is placed on hold before the first capture and brought back after all three complete — matching the AWS sample flow pattern.
+
+**Values you need before building:**
+
+| Setting | Where to get it |
+|---|---|
+| **Key ID** | Shown in Step 1.4 after uploading the public key to your instance |
+| **Certificate** | Full contents of `~/meridian-dtmf-keys/meridian-connect-cert.pem` (the `BEGIN CERTIFICATE` block) |
+
+Have both values open in a text editor — you will paste the certificate into each of the three Store customer input blocks.
+
+---
+
 ## Opening the Flow Designer
 
 1. Go to **AWS Console > Amazon Connect > Your instance**
 2. Click **Routing > Flows** in the left navigation
 3. Click the blue **Create flow** button (top right)
-4. A blank canvas opens with a single **Entry point** block already on it
+4. A blank canvas opens with a single **Entry point** block
 5. Click "Untitled" at the top left and type: `ARIA-DTMF-SecureCollection`
 
-> How the canvas works: Drag blocks from the left panel onto the canvas. Connect them by clicking the small dot on the output of one block and dragging to the input of the next. Double-click a block to open its settings. Always click **Save** inside the block before moving on.
+> Drag blocks from the left panel. Connect them by clicking the small output dot on one block and dragging to the input of the next. Double-click a block to open its settings. Always click **Save** inside the block before moving on.
 
 ---
 
 ## Block 1 — Check the Channel (Voice Only)
 
-DTMF encryption only works on voice. Chat customers must be told to call instead.
+DTMF encryption only works on voice calls.
 
 1. Search for `Check contact attributes` in the left panel — drag onto canvas
 2. Connect **Entry point** to this block
@@ -414,70 +441,95 @@ DTMF encryption only works on voice. Chat customers must be told to call instead
    - Click **Add condition**: Equals / `VOICE`
 4. Click **Save**
 
-**Outputs:** `= VOICE` arrow (continues) and `No match` arrow (chat/other).
+**Block 1a — Tell non-voice callers to call back:**
+
+1. Drag **Play prompt** — connect `No match` from Block 1 to it
+2. Text: `I'm sorry, secure card entry is only available over the phone. Please call us on 0800 123 456.`
+3. Drag **Disconnect / hang up** — connect Block 1a output to it
 
 ---
 
-## Block 2 — Tell Chat Customers to Call
+## Block 2 — Resume Agent (Off Hold)
 
-1. Drag **Play prompt** onto canvas
-2. Connect **No match** from Block 1 to it
-3. Configure:
+Following the AWS sample flow pattern, this block takes the agent off hold at sub-flow entry. This ensures a clean hold state before the flow manages hold itself.
+
+1. Search for `Hold customer or agent` in the left panel — drag onto canvas
+2. Connect `= VOICE` from Block 1 to this block
+3. Double-click and configure:
+   - **Option:** Conference all
+4. Click **Save**
+
+> If there is no agent on the call (AI agent path), this block will take the error branch. Connect **both** `Success` and `Error` outputs to Block 3 — the flow continues regardless.
+
+---
+
+## Block 3 — Initialise Collection State
+
+1. Drag **Set contact attributes** — connect both outputs of Block 2 to it
+2. Click **Add an attribute** six times. All rows use the same pattern — **Set manually**, namespace **User defined**:
+
+   | Destination — Key | Value |
+   |---|---|
+   | `dtmfCardRetries` | `0` |
+   | `dtmfExpiryRetries` | `0` |
+   | `dtmfCvvRetries` | `0` |
+   | `dtmf_result` | `pending` |
+   | `dtmf_status` | `collecting` |
+   | `dtmf_requires_escalation` | `false` |
+
+3. Click **Save**
+
+---
+
+## Block 4 — Agent Hold Notice Prompt
+
+1. Drag **Play prompt** — connect Block 3 output to it
+2. Configure:
    - Text to speech, English British (Neural) — Amy
-   - Text: `I'm sorry, secure card entry is only available over the phone. Please call us on 0800 123 456.`
-4. Click **Save**
-
-## Block 3 — End the Chat Path
-
-1. Drag **Disconnect / hang up** onto canvas
-2. Connect Block 2 output to it
+   - Text: `We are placing your advisor on hold while you enter your card details securely. Your advisor cannot hear your key presses.`
+3. Click **Save**
 
 ---
 
-## Block 4 — Initialise Collection State
+## Block 5 — Put Agent on Hold
 
-1. Drag **Set contact attributes** onto canvas
-2. Connect `= VOICE` from Block 1 to it
-3. Add three attributes:
-
-   | Type | Destination key | Value |
-   |---|---|---|
-   | User Defined | `dtmfRetries` | `0` |
-   | User Defined | `dtmf_result` | `pending` |
-   | User Defined | `dtmf_status` | `waiting_for_input` |
-
-4. Click **Save**
-
----
-
-## Block 5 — Instruction Prompt
-
-1. Drag **Play prompt** onto canvas
+1. Search for `Hold customer or agent` — drag onto canvas
 2. Connect Block 4 output to it
-3. Configure:
-   - Text to speech, English British (Neural) — Amy
-   - Text: `Please enter the last four digits of your card number, followed by the hash key.`
-   
-   > Adjust for your use case: full card = "16-digit card number", PIN = "4-digit PIN"
-
+3. Double-click and configure:
+   - **Option:** Agent on hold
 4. Click **Save**
+
+**Block 5a — Unable to hold agent (error branch only):**
+
+1. Drag **Play prompt** — connect `Error` from Block 5 to it
+2. Text: `We were unable to place your advisor on hold. We will continue collecting your details.`
+3. Connect Block 5a output to **Block 6** (continue regardless)
+
+Connect `Success` from Block 5 also to **Block 6**.
 
 ---
 
-## Block 6 — Capture and Encrypt the Digits
+## ─── SECTION A: Card Number (16 digits) ───
 
-This is the most important block. Amazon Connect captures and encrypts the digits instantly.
+---
+
+## Block 6 — Store Customer Input: Card Number
+
+This is the first encrypted DTMF capture block. Amazon Connect captures and immediately encrypts the digits using your X.509 certificate.
 
 1. Search for `Store customer input` — drag onto canvas
-2. Connect Block 5 output to it
+2. Connect the `Success` output of Block 5 **and** the output of Block 5a to this block
 3. Double-click and configure:
 
-   **Prompts tab:** Set type = Text to speech, leave text blank
+   **Prompts tab:**
+   - Type: Text to speech, English British (Neural) — Amy
+   - Text: `The advisor is now on hold. Please enter your 16 digit card number followed by the hash key.`
 
    **DTMF tab:**
-   - **Tick "Encrypt entry"** — this is the critical setting
+   - Tick **Encrypt entry**
    - **Key:** Select the Key ID from Step 1.4 in the dropdown
-   - **Maximum number of digits:** `4` (last-four/PIN) or `16` (full card)
+   - **Certificate:** Paste the full contents of `meridian-connect-cert.pem` (the entire `-----BEGIN CERTIFICATE-----` block)
+   - **Maximum number of digits:** `20`
    - **Terminating keypress:** `#`
    - **Timeout before first entry:** `15` seconds
    - **Timeout between entries:** `5` seconds
@@ -488,203 +540,577 @@ This is the most important block. Amazon Connect captures and encrypts the digit
 
 | Arrow | When it fires | Connect to |
 |---|---|---|
-| `Stored` | Customer pressed digits | Block 7 |
-| `No entry` | Timed out | Block 16 (retry) |
-| `Error` | Technical problem | Block 16 (retry) |
+| `Stored` | Customer pressed digits and `#` | Block 7 |
+| `No entry` | Timed out waiting for first digit | Block R1 (card retry) |
+| `Error` | Encryption / config problem | Block R1 (card retry) |
+
+> On success, the encrypted value is available as the system attribute `$.StoredCustomerInput`. Save it to a named attribute immediately (Block 7) before calling any Lambda.
 
 ---
 
-## Block 7 — Mark as Processing
+## Block 7 — Save Encrypted Card to Attribute
 
-1. Drag **Set contact attributes**
-2. Connect `Stored` from Block 6
-3. Set: `dtmf_status` = `processing`
-4. Click **Save**
+Save the encrypted value to a named contact attribute immediately after capture, following the AWS sample flow pattern.
+
+1. Drag **Set contact attributes** — connect `Stored` from Block 6 to it
+2. Click **Add an attribute** twice and configure each row as follows:
+
+   **Row 1 — save the encrypted card value:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set dynamically** |
+   | Source — Namespace | **System** |
+   | Source — Attribute | **Stored customer input** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_encrypted_card` |
+
+   > "Stored customer input" is the system attribute name that Amazon Connect uses to hold the encrypted DTMF value captured by the previous block. You must save it now — it is overwritten the next time a Store customer input block fires.
+
+   **Row 2 — set a status marker:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `processing_card` |
+
+3. Click **Save**
 
 ---
 
-## Block 8 — Call the Decrypt Lambda
+## Block 8 — Call Decrypt Lambda: Card Number
 
-1. Drag **Invoke AWS Lambda function**
-2. Connect Block 7 output
-3. Configure:
+1. Drag **Invoke AWS Lambda function** — connect Block 7 output to it
+2. Configure:
    - **Function:** `aria-dtmf-decrypt`
    - **Timeout:** `8` seconds
    - **Function input parameters:**
 
-     | Parameter key | Value type | Value |
+     | Parameter key | Source type | Value |
      |---|---|---|
-     | `encryptedValue` | System | Stored customer input |
-     | `purpose` | Contact attribute | `collectionPurpose` |
-     | `keyId` | Contact attribute | `connectKeyId` |
+     | `encryptedValue` | User Defined | `dtmf_encrypted_card` |
+     | `purpose` | Static | `full_card_number` |
+     | `keyId` | User Defined | `connectKeyId` |
 
-4. Connect **Error** arrow to Block 15 (Lambda error handler)
-5. Click **Save**
-
----
-
-## Block 9 — Mark as Validating and Store BIN
-
-1. Drag **Set contact attributes**
-2. Connect **Success** from Block 8
-3. Configure two attributes:
-   - Static: `dtmf_status` = `validating`
-   - Set dynamically: `dtmf_card_bin` from External namespace, key `cardBin`
-   
-   > "Set dynamically from External key cardBin" copies the BIN returned by the Lambda into a contact attribute so the next Lambda can read it.
-
+3. Connect **Error** arrow to **Block E** (Lambda error handler — see end of this section)
 4. Click **Save**
 
 ---
 
-## Block 10 — Call the Validate Lambda
+## Block 9 — Store Card Metadata from Decrypt
 
-1. Drag **Invoke AWS Lambda function**
-2. Connect Block 9 output
-3. Configure:
+Copy the Lambda's return values from the External namespace into persistent contact attributes.
+
+1. Drag **Set contact attributes** — connect **Success** from Block 8 to it
+2. Click **Add an attribute** six times and configure as follows:
+
+   **Rows 1–5 — copy Lambda return values (Set dynamically from External):**
+
+   | UI field | Row 1 | Row 2 | Row 3 | Row 4 | Row 5 |
+   |---|---|---|---|---|---|
+   | Type | Set dynamically | Set dynamically | Set dynamically | Set dynamically | Set dynamically |
+   | Source — Namespace | **External** | **External** | **External** | **External** | **External** |
+   | Source — Attribute | `cardBin` | `lastFour` | `maskedValue` | `digitCount` | `luhnValid` |
+   | Destination — Namespace | User defined | User defined | User defined | User defined | User defined |
+   | Destination — Key | `dtmf_card_bin` | `dtmf_last_four` | `dtmf_masked` | `dtmf_digit_count` | `dtmf_luhn_valid` |
+
+   > **External** is the namespace Amazon Connect uses for values returned by a Lambda function. These values only persist until the next Lambda call — copying them into User defined attributes makes them permanent for the rest of the contact.
+
+   **Row 6 — status marker (Set manually):**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `validating_card` |
+
+3. Click **Save**
+
+---
+
+## Block 9a — Check Luhn Validity
+
+The decrypt Lambda runs a Luhn check on the decrypted card number and returns `luhnValid`. Catching a failure here — before calling the validate Lambda — gives the customer an immediate retry prompt rather than a slower Lambda round-trip.
+
+1. Drag **Check contact attributes** — connect Block 9 output to it
+2. Configure:
+   - **Namespace:** User defined
+   - **Attribute:** `dtmf_luhn_valid`
+   - Click **Add condition**: Equals / `true`
+3. Click **Save**
+
+**Outputs:** `= true` → Block 10 (validate Lambda). `No match` → Block R1 (card retry — structurally invalid card number, likely a miskey).
+
+> A `No match` here means the 16 digits do not pass the ISO/IEC 7812 Luhn algorithm — the card number is structurally invalid. This is distinct from an ownership failure (Block 11a) and should always offer a retry.
+
+---
+
+## Block 10 — Call Validate Lambda: Card Number
+
+1. Drag **Invoke AWS Lambda function** — connect `= true` from Block 9a to it
+2. Configure:
    - **Function:** `aria-dtmf-validate`
    - **Timeout:** `8` seconds
    - **Function input parameters:**
 
-     | Parameter key | Value type | Value |
+     | Parameter key | Source type | Value |
      |---|---|---|
-     | `customerId` | Contact attribute | `customerId` |
-     | `cardLastFour` | External attribute | `lastFour` |
-     | `cardBin` | Contact attribute | `dtmf_card_bin` |
-     | `digitCount` | External attribute | `digitCount` |
-     | `purpose` | Contact attribute | `collectionPurpose` |
-     | `authStatus` | Contact attribute | `authStatus` |
+     | `cardLastFour` | User Defined | `dtmf_last_four` |
+     | `cardBin` | User Defined | `dtmf_card_bin` |
+     | `digitCount` | User Defined | `dtmf_digit_count` |
+     | `purpose` | User Defined | `collectionPurpose` |
 
-4. Connect **Error** arrow to Block 15
-5. Click **Save**
+     > **`customerId` and `authStatus` do not need to be listed as explicit Lambda parameters.** The validate Lambda reads both directly from `ContactData.Attributes` (the contact's user-defined attributes), which Amazon Connect always populates automatically. Both attributes must be present on the contact before entering this sub-flow — `customerId` is set during customer identification and `authStatus` is set during the authentication phase.
+
+3. Connect **Error** arrow to **Block E**
+4. Click **Save**
 
 ---
 
-## Block 11 — Did Validation Pass?
+## Block 10a — Save Validate Lambda Results
 
-1. Drag **Check contact attributes**
-2. Connect **Success** from Block 10
-3. Configure:
+The validate Lambda returns `cardType`, `validationStatus`, `cardNickname`, and `requiresEscalation`. These **must** be saved to User defined attributes now — subsequent Lambda calls (Blocks 15, 19) will overwrite the External namespace and these values will be lost.
+
+1. Drag **Set contact attributes** — connect **Success** from Block 10 to it
+2. Click **Add an attribute** four times — all rows use **Set dynamically**, source namespace **External**:
+
+   | Source — Attribute | Destination — Key |
+   |---|---|
+   | `validationStatus` | `dtmf_validation_status` |
+   | `cardType` | `dtmf_card_type` |
+   | `cardNickname` | `dtmf_card_nickname` |
+   | `requiresEscalation` | `dtmf_requires_escalation` |
+
+   For each row, set:
+   - **Type:** Set dynamically
+   - **Source — Namespace:** External
+   - **Destination — Namespace:** User defined
+
+3. Click **Save**
+
+---
+
+## Block 11 — Did Card Validation Pass?
+
+1. Drag **Check contact attributes** — connect **Success** from Block 10a to it
+2. Configure:
    - **Namespace:** External
    - **Attribute:** `isValid`
    - Condition: Equals / `true`
-4. Click **Save**
+3. Click **Save**
 
-**Outputs:** `= true` to Block 12 (success). `No match` to Block 11a (check failure type).
+> Block 10a is a **Set contact attributes** block, not a Lambda call — the External namespace still holds Block 10's (validate Lambda) return values when Block 11 runs. `isValid` was not copied to User defined in Block 10a, so External is the correct namespace here.
+
+**Outputs:** `= true` → Block 13 (Section B, expiry). `No match` → Block 11a (check failure type).
 
 ---
 
-## Block 11a — What Type of Failure?
+## Block 11a — What Kind of Failure?
 
-A Luhn failure (miskey) needs a retry. An ownership failure (fraud) needs escalation.
+A BIN failure (miskey) needs a retry. An ownership failure needs escalation.
 
-1. Drag **Check contact attributes**
-2. Connect `No match` from Block 11
-3. Configure:
+1. Drag **Check contact attributes** — connect `No match` from Block 11 to it
+2. Configure:
    - **Namespace:** External
    - **Attribute:** `validationStatus`
    - Three conditions: `not_customer_card`, `invalid_luhn`, `invalid_bin`
-4. Click **Save**
+3. Click **Save**
 
 **Outputs:**
 
 | Arrow | Connect to |
 |---|---|
 | `= not_customer_card` | Block 11b (escalate) |
-| `= invalid_luhn` | Block 11c (retry) |
-| `= invalid_bin` | Block 11c (retry) |
-| `No match` | Block 12 (service error — fail open) |
+| `= invalid_luhn` | Block R1 (card retry — miskey) |
+| `= invalid_bin` | Block R1 (card retry — miskey) |
+| `No match` | Block 13 (service error — fail open, proceed to expiry) |
+
+> **Note on `invalid_luhn`:** Luhn failures are caught earlier at Block 9a (before the validate Lambda is called) because the decrypt Lambda returns `luhnValid` directly. The `= invalid_luhn` branch here is a safety net — it fires only if the validate Lambda is invoked with a `cardFull` parameter in a future use case. In the current flow it is unlikely to trigger, but is kept for completeness.
 
 ---
 
-## Block 11b — Escalate Path
+## Block 11b — Escalation Path
 
-1. Drag **Set contact attributes**
-2. Connect `= not_customer_card` from Block 11a
-3. Set: `dtmf_result` = `card_not_authorised`, `dtmf_status` = `escalating`, `dtmf_requires_escalation` = `true`
-4. Drag **Play prompt**: `I'm sorry, the card details you entered could not be verified. I'm connecting you with an advisor now.`
-5. Drag **Transfer to queue**: select your fraud/escalation queue
-
----
-
-## Block 11c — Retry Path
-
-1. Drag **Set contact attributes**
-2. Connect both `= invalid_luhn` and `= invalid_bin` from Block 11a
-3. Set: `dtmf_status` = `retry_validation_error`
-4. Drag **Play prompt**: `I'm sorry, I wasn't able to recognise those card details. Please try entering them again.`
-5. Connect Play prompt output back to **Block 5** (the instruction prompt) to loop
+1. Drag **Set contact attributes** — connect `= not_customer_card` from Block 11a
+2. Set:
+   - `dtmf_result` = `card_not_authorised`
+   - `dtmf_status` = `escalating`
+   - `dtmf_requires_escalation` = `true`
+3. Drag **Hold customer or agent** (Conference all) — connect Block 11b output to it (resume agent)
+4. Drag **Play prompt**: `I'm sorry, the card details you entered could not be verified. I am connecting you with a specialist advisor now.`
+5. Drag **Transfer to queue** — select your fraud / escalation queue
 
 ---
 
-## Block 12 — Store the Success Result
+## Block R1 — Retry: Card Number
 
-Copy Lambda return values from the temporary External namespace into persistent contact attributes.
+Amazon Connect cannot increment a number natively. This pattern checks a pre-set counter attribute.
 
-1. Drag **Set contact attributes**
-2. Connect two arrows here:
-   - `= true` from Block 11
-   - `No match` from Block 11a (service error — fail open)
-3. Configure (all using "Set dynamically" from External except static values):
+Connect the `No entry` and `Error` outputs from Block 6, the `No match` from Block 9a (Luhn failure), and the `= invalid_luhn` / `= invalid_bin` outputs from Block 11a, all to **Block R1a**.
 
-   | Destination key | Source | Source key |
-   |---|---|---|
-   | `dtmf_result` | Static | `success` |
-   | `dtmf_masked` | External | `maskedValue` |
-   | `dtmf_last_four` | External | `lastFour` |
-   | `dtmf_digit_count` | External | `digitCount` |
-   | `dtmf_validation_status` | External | `validationStatus` |
-   | `dtmf_card_type` | External | `cardType` |
-   | `dtmf_card_nickname` | External | `cardNickname` |
-   | `dtmf_status` | Static | `complete` |
-   | `dtmf_requires_escalation` | External | `requiresEscalation` |
+**Block R1a — Check card retry count:**
+1. Drag **Check contact attributes**
+2. Namespace: User Defined — Attribute: `dtmfCardRetries`
+3. Three conditions: Equals `0`, Equals `1`, Equals `2`
 
+**Block R1b** (`= 0`): Set `dtmfCardRetries = 1` → Play prompt: `I didn't catch that. Please enter your 16-digit card number again, then press hash.` → loop back to **Block 6**
+
+**Block R1c** (`= 1`): Set `dtmfCardRetries = 2` → Play prompt: `Please try again — enter all 16 digits, then press the hash key.` → loop back to **Block 6**
+
+**Block R1d** (`= 2`): Set `dtmfCardRetries = 3` → Play prompt: `One more attempt. Please enter your 16-digit card number now.` → loop back to **Block 6**
+
+**Block R1e** (`No match` — all attempts exhausted):
+1. Set `dtmf_result = failed`, `dtmf_status = card_collection_failed`
+2. Drag **Hold customer or agent** (Conference all) — resume agent
+3. Drag **Play prompt**: `I'm sorry, I was unable to collect your card details securely. Your advisor will continue to assist you.`
+4. Connect to **End flow / Resume**
+
+---
+
+## ─── SECTION B: Expiry Date (4 digits MMYY) ───
+
+---
+
+## Block 13 — Store Customer Input: Expiry Date
+
+1. Search for `Store customer input` — drag onto canvas
+2. Connect the `= true` output from Block 11 and the `No match` from Block 11a to this block
+3. Double-click and configure:
+
+   **Prompts tab:**
+   - Type: Text to speech, English British (Neural) — Amy
+   - Text: `Now please enter your card expiry date as 4 digits. Enter the month followed by the year. For example, March 2028 is 0 3 2 8. Press hash when done.`
+
+   **DTMF tab:**
+   - Tick **Encrypt entry**
+   - **Key:** Select the same Key ID from Step 1.4
+   - **Certificate:** Paste the same `meridian-connect-cert.pem` content
+   - **Maximum number of digits:** `4`
+   - **Terminating keypress:** `#`
+   - **Timeout before first entry:** `15` seconds
+   - **Timeout between entries:** `5` seconds
+
+4. Click **Save**
+
+**Outputs:**
+
+| Arrow | Connect to |
+|---|---|
+| `Stored` | Block 14 |
+| `No entry` | Block R2 (expiry retry) |
+| `Error` | Block R2 (expiry retry) |
+
+---
+
+## Block 14 — Save Encrypted Expiry to Attribute
+
+1. Drag **Set contact attributes** — connect `Stored` from Block 13 to it
+2. Click **Add an attribute** twice and configure each row:
+
+   **Row 1 — save the encrypted expiry value:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set dynamically** |
+   | Source — Namespace | **System** |
+   | Source — Attribute | **Stored customer input** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_encrypted_expiry` |
+
+   > This overwrites the `Stored customer input` system attribute when Block 17 (CVV) runs later — save it to `dtmf_encrypted_expiry` now.
+
+   **Row 2 — status marker:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `processing_expiry` |
+
+3. Click **Save**
+
+---
+
+## Block 15 — Call Decrypt Lambda: Expiry Date
+
+1. Drag **Invoke AWS Lambda function** — connect Block 14 output to it
+2. Configure:
+   - **Function:** `aria-dtmf-decrypt`
+   - **Timeout:** `8` seconds
+   - **Function input parameters:**
+
+     | Parameter key | Source type | Value |
+     |---|---|---|
+     | `encryptedValue` | User Defined | `dtmf_encrypted_expiry` |
+     | `purpose` | Static | `expiry_date` |
+     | `keyId` | User Defined | `connectKeyId` |
+
+3. Connect **Error** arrow to **Block E**
 4. Click **Save**
 
 ---
 
-## Block 13 — Thank the Customer
+## Block 16 — Store Expiry Metadata
 
-1. Drag **Play prompt**
-2. Connect Block 12 output
-3. Text: `Thank you. I have securely captured your card details.`
-4. Click **Save**
+1. Drag **Set contact attributes** — connect **Success** from Block 15 to it
+2. Click **Add an attribute** twice:
+
+   **Row 1 — copy Lambda return value (Set dynamically from External):**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set dynamically** |
+   | Source — Namespace | **External** |
+   | Source — Attribute | `maskedValue` |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_expiry_masked` |
+
+   **Row 2 — status marker (Set manually):**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `collecting_cvv` |
+
+3. Click **Save**
 
 ---
 
-## Block 14 — End the Sub-Flow
+## Block R2 — Retry: Expiry Date
+
+Connect the `No entry` and `Error` outputs from Block 13 to **Block R2a**.
+
+**Block R2a — Check expiry retry count:**
+1. Drag **Check contact attributes**
+2. Namespace: User Defined — Attribute: `dtmfExpiryRetries`
+3. Three conditions: Equals `0`, Equals `1`, Equals `2`
+
+**Block R2b** (`= 0`): Set `dtmfExpiryRetries = 1` → Play: `I didn't catch that. Please enter your 4-digit expiry date, then press hash.` → loop to **Block 13**
+
+**Block R2c** (`= 1`): Set `dtmfExpiryRetries = 2` → Play: `Please try again — month then year, for example 0328 for March 2028, then press hash.` → loop to **Block 13**
+
+**Block R2d** (`= 2`): Set `dtmfExpiryRetries = 3` → Play: `One more attempt.` → loop to **Block 13**
+
+**Block R2e** (`No match`): Set `dtmf_result = failed`, `dtmf_status = expiry_collection_failed` → Hold customer or agent (Conference all) → Play: `I was unable to collect your expiry date. Your advisor will continue to assist you.` → **End flow / Resume**
+
+---
+
+## ─── SECTION C: CVV / Security Code (up to 4 digits) ───
+
+---
+
+## Block 17 — Store Customer Input: CVV
+
+1. Search for `Store customer input` — drag onto canvas
+2. Connect Block 16 output to this block
+3. Double-click and configure:
+
+   **Prompts tab:**
+   - Type: Text to speech, English British (Neural) — Amy
+   - Text: `Finally, please enter the 3 or 4 digit security code from the back of your card, then press hash.`
+
+   **DTMF tab:**
+   - Tick **Encrypt entry**
+   - **Key:** Select the same Key ID from Step 1.4
+   - **Certificate:** Paste the same `meridian-connect-cert.pem` content
+   - **Maximum number of digits:** `4`
+   - **Terminating keypress:** `#`
+   - **Timeout before first entry:** `15` seconds
+   - **Timeout between entries:** `5` seconds
+
+4. Click **Save**
+
+**Outputs:**
+
+| Arrow | Connect to |
+|---|---|
+| `Stored` | Block 18 |
+| `No entry` | Block R3 (CVV retry) |
+| `Error` | Block R3 (CVV retry) |
+
+---
+
+## Block 18 — Save Encrypted CVV to Attribute
+
+1. Drag **Set contact attributes** — connect `Stored` from Block 17 to it
+2. Click **Add an attribute** twice and configure each row:
+
+   **Row 1 — save the encrypted CVV value:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set dynamically** |
+   | Source — Namespace | **System** |
+   | Source — Attribute | **Stored customer input** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_encrypted_cvv` |
+
+   **Row 2 — status marker:**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `processing_cvv` |
+
+3. Click **Save**
+
+---
+
+## Block 19 — Call Decrypt Lambda: CVV
+
+1. Drag **Invoke AWS Lambda function** — connect Block 18 output to it
+2. Configure:
+   - **Function:** `aria-dtmf-decrypt`
+   - **Timeout:** `8` seconds
+   - **Function input parameters:**
+
+     | Parameter key | Source type | Value |
+     |---|---|---|
+     | `encryptedValue` | User Defined | `dtmf_encrypted_cvv` |
+     | `purpose` | Static | `cvv` |
+     | `keyId` | User Defined | `connectKeyId` |
+
+3. Connect **Error** arrow to **Block E**
+4. Click **Save**
+
+> The Lambda returns `cvvCaptured = "true"` and does **not** echo back the raw CVV digits (PCI compliance). The raw CVV is never stored as a contact attribute. If the Lambda call fails for any reason (Error branch), route to Block E.
+
+---
+
+## Block 20 — Store CVV Captured Flag
+
+1. Drag **Set contact attributes** — connect **Success** from Block 19 to it
+2. Click **Add an attribute** twice:
+
+   **Row 1 — copy Lambda return value (Set dynamically from External):**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set dynamically** |
+   | Source — Namespace | **External** |
+   | Source — Attribute | `cvvCaptured` |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_cvv_captured` |
+
+   **Row 2 — status marker (Set manually):**
+
+   | UI field | Value |
+   |---|---|
+   | Type | **Set manually** |
+   | Destination — Namespace | **User defined** |
+   | Destination — Key | `dtmf_status` |
+   | Value | `completing` |
+
+3. Click **Save**
+
+---
+
+## Block R3 — Retry: CVV
+
+Connect the `No entry` and `Error` outputs from Block 17 to **Block R3a**.
+
+**Block R3a — Check CVV retry count:**
+1. Drag **Check contact attributes**
+2. Namespace: User Defined — Attribute: `dtmfCvvRetries`
+3. Three conditions: Equals `0`, Equals `1`, Equals `2`
+
+**Block R3b** (`= 0`): Set `dtmfCvvRetries = 1` → Play: `I didn't catch that. Please enter the 3-digit security code from the back of your card, then press hash.` → loop to **Block 17**
+
+**Block R3c** (`= 1`): Set `dtmfCvvRetries = 2` → Play: `Please try again — 3 digits from the back of your card, then press hash.` → loop to **Block 17**
+
+**Block R3d** (`= 2`): Set `dtmfCvvRetries = 3` → Play: `One more attempt.` → loop to **Block 17**
+
+**Block R3e** (`No match`): Set `dtmf_result = failed`, `dtmf_status = cvv_collection_failed` → Hold customer or agent (Conference all) → Play: `I was unable to collect your security code. Your advisor will continue to assist you.` → **End flow / Resume**
+
+---
+
+## ─── COMPLETION ───
+
+---
+
+## Block 21 — Store Final Success Result
+
+1. Drag **Set contact attributes** — connect Block 20 output to it
+2. Click **Add an attribute** six times. All rows use **Set manually**, namespace **User defined**, except where noted:
+
+   **Rows 1–2 — final status (Set manually):**
+
+   | Destination — Key | Value |
+   |---|---|
+   | `dtmf_result` | `success` |
+   | `dtmf_status` | `complete` |
+
+   **Rows 3–6 — card metadata already saved to User defined in earlier blocks (Set dynamically):**
+
+   | Type | Source — Namespace | Source — Attribute | Destination — Key |
+   |---|---|---|---|
+   | Set dynamically | **User defined** | `dtmf_validation_status` | `dtmf_validation_status` |
+   | Set dynamically | **User defined** | `dtmf_card_type` | `dtmf_card_type` |
+   | Set dynamically | **User defined** | `dtmf_card_nickname` | `dtmf_card_nickname` |
+   | Set dynamically | **User defined** | `dtmf_requires_escalation` | `dtmf_requires_escalation` |
+
+   > Rows 3–6 are a no-op copy (User defined → User defined) but they confirm the values are present and make debugging easier. You may omit them if you prefer.
+
+3. Click **Save**
+
+> `dtmf_masked`, `dtmf_last_four`, `dtmf_card_bin`, and `dtmf_digit_count` were saved in Block 9. `dtmf_expiry_masked` was saved in Block 16. `dtmf_cvv_captured` was saved in Block 20.
+
+---
+
+## Block 22 — Resume Agent (Off Hold)
+
+1. Search for `Hold customer or agent` — drag onto canvas
+2. Connect Block 21 output to it
+3. Double-click and configure:
+   - **Option:** Conference all
+4. Click **Save**
+
+**Block 22a — Unable to reconnect agent (error branch only):**
+1. Drag **Play prompt** — connect `Error` from Block 22 to it
+2. Text: `We were unable to reconnect your advisor immediately. Please hold.`
+3. Connect Block 22a output to **Block 23**
+
+Connect `Success` from Block 22 also to **Block 23**.
+
+---
+
+## Block 23 — Thank the Customer
+
+1. Drag **Play prompt** — connect both outputs of Block 22 / Block 22a to it
+2. Configure:
+   - Text to speech, English British (Neural) — Amy
+   - Text: `Thank you. Your card details have been securely captured. Reconnecting you with your advisor now.`
+3. Click **Save**
+
+---
+
+## Block 24 — End the Sub-Flow
 
 1. Drag **End flow / Resume**
-2. Connect Block 13 output
+2. Connect Block 23 output to it
 
-> When this block is reached, Amazon Connect returns to whichever flow transferred in, continuing from the block after the Transfer to flow block.
-
----
-
-## Block 15 — Lambda Error Handler
-
-1. Drag **Set contact attributes**
-2. Connect **Error** arrows from both Block 8 and Block 10
-3. Set: `dtmf_result` = `lambda_error`, `dtmf_status` = `system_error`
-4. Drag **Play prompt**: `I'm sorry, I encountered a technical problem. Please try again, or I can connect you with an advisor.`
-5. Connect to **End flow / Resume**
+> When this block is reached, Amazon Connect returns to whichever flow transferred in, continuing from the block after the **Transfer to flow** block.
 
 ---
 
-## Blocks 16–20 — Retry Sub-Pattern
+## Block E — Lambda Error Handler
 
-Amazon Connect cannot add 1 to a number. Connect the **No entry** and **Error** arrows from Block 6 to Block 16.
+Connect the **Error** outputs from Blocks 8, 10, 15, and 19 all to this block.
 
-**Block 16:** Check contact attributes — Namespace: User Defined — Attribute: `dtmfRetries`
-- Conditions: Equals `0`, Equals `1`, Equals `2`
-
-**Block 17** (retries = 0): Set `dtmfRetries = 1` > Play prompt ("I didn't catch that. Please try again.") > loop to Block 5
-
-**Block 18** (retries = 1): Set `dtmfRetries = 2` > Play prompt ("Please try again — enter your digits followed by hash.") > loop to Block 5
-
-**Block 19** (retries = 2): Set `dtmfRetries = 3` > Play prompt ("One more attempt.") > loop to Block 5
-
-**Block 20** (No match — all attempts exhausted): Set `dtmf_result = failed`, `dtmf_status = collection_failed` > Play prompt ("I'm sorry, I wasn't able to collect your details securely. Your advisor will continue to help you.") > **End flow / Resume**
+1. Drag **Set contact attributes**:
+   - `dtmf_result` = `lambda_error`
+   - `dtmf_status` = `system_error`
+2. Drag **Hold customer or agent** (Conference all) — connect Block E output to it (resume agent before ending)
+3. Drag **Play prompt**: `I'm sorry, I encountered a technical problem. Please try again, or your advisor will continue to help you.`
+4. Connect to **End flow / Resume**
 
 ---
 
