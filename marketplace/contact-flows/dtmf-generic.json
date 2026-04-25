@@ -1,659 +1,439 @@
 {
-  "Version": "2019-10-30",
-  "StartAction": "9b627046-1e7f-4d74-aceb-bd5b929b875e",
+  "Version": "1",
+  "StartAction": "87b6ae94-04a0-4574-8d12-eae04b4c889e",
   "Metadata": {
     "entryPointPosition": {
-      "x": 20,
-      "y": 20
+      "x": 40,
+      "y": 40
     },
     "ActionMetadata": {
-      "9b627046-1e7f-4d74-aceb-bd5b929b875e": {
+      "87b6ae94-04a0-4574-8d12-eae04b4c889e": {
         "position": {
-          "x": 200,
-          "y": 20
+          "x": 40,
+          "y": 40
         }
       },
-      "fbce01fd-fec8-471d-b34a-dde14e23cd3a": {
+      "98fb4ea9-32c4-4c20-a27d-cacd10c5770c": {
         "position": {
-          "x": 200,
-          "y": 140
+          "x": 260,
+          "y": 40
         }
       },
-      "9abdd422-3634-436d-b275-505825cf6642": {
-        "position": {
-          "x": 200,
-          "y": 260
-        }
-      },
-      "1c9f8079-f5ef-4f77-a955-2230d8063d44": {
-        "position": {
-          "x": 200,
-          "y": 380
-        }
-      },
-      "1392eddc-e77e-49bb-a9f9-8687398faff6": {
-        "position": {
-          "x": 200,
-          "y": 500
-        }
-      },
-      "55fe5ae5-b601-4244-9587-d121c212c9b2": {
-        "position": {
-          "x": 200,
-          "y": 620
-        }
-      },
-      "a0e94378-f542-4050-a094-10d914a21d01": {
-        "position": {
-          "x": 200,
-          "y": 740
-        }
-      },
-      "911f697d-adc0-4491-aef2-0e106eebe03c": {
-        "position": {
-          "x": 200,
-          "y": 860
-        }
-      },
-      "2bc1f32e-7df0-42e5-ad90-9e99af7827e5": {
+      "133b4838-0bc5-4e76-8082-95c90a42607d": {
         "position": {
           "x": 480,
-          "y": 20
+          "y": 40
         }
       },
-      "1f5f61bd-18f0-40f7-b47b-b2ce5ec81f7d": {
+      "ca651f7b-d599-4edc-84c3-e0c82a28bc1a": {
+        "position": {
+          "x": 700,
+          "y": 40
+        }
+      },
+      "1cb70d6b-d244-4969-bc5b-9907fd1b69bc": {
+        "position": {
+          "x": 920,
+          "y": 40
+        }
+      },
+      "feec4e07-cfc8-4842-85c8-61a45616a3b7": {
+        "position": {
+          "x": 1140,
+          "y": 40
+        }
+      },
+      "430b6e16-4732-4b50-aa8e-72dd3d0e228c": {
+        "position": {
+          "x": 40,
+          "y": 160
+        }
+      },
+      "bf074f47-5f83-4267-8c3f-4d0526b72a0f": {
+        "position": {
+          "x": 260,
+          "y": 160
+        }
+      },
+      "7c4e69c1-7a46-4544-8e6d-ce42eb5d575c": {
         "position": {
           "x": 480,
-          "y": 140
+          "y": 160
         }
       },
-      "41749937-b41d-4f79-9c1d-be3fe3a0d40c": {
+      "e5a8eefc-c744-445c-943b-1bf0c7ae28ab": {
+        "position": {
+          "x": 700,
+          "y": 160
+        }
+      },
+      "9b8d0bc4-9d3a-49c1-ba7a-81ae2aa9704c": {
+        "position": {
+          "x": 920,
+          "y": 160
+        }
+      },
+      "16676868-2303-4ada-afe3-da520231bb7f": {
+        "position": {
+          "x": 1140,
+          "y": 160
+        }
+      },
+      "977bb793-f28d-454a-971d-133b28e70a21": {
+        "position": {
+          "x": 40,
+          "y": 280
+        }
+      },
+      "e1a9e31d-2e60-46ff-b018-e3f2e334807c": {
+        "position": {
+          "x": 260,
+          "y": 280
+        }
+      },
+      "09be51ec-39ee-41d5-9356-aec7878a51eb": {
         "position": {
           "x": 480,
-          "y": 260
+          "y": 280
         }
       },
-      "19cb2ea7-a9c2-44f0-b84e-9ea6934dba94": {
+      "9be1250a-9b5d-4135-980b-3e779d315e92": {
+        "position": {
+          "x": 700,
+          "y": 280
+        }
+      },
+      "9f0018f5-7811-4113-92f7-59efa61c5d83": {
+        "position": {
+          "x": 920,
+          "y": 280
+        }
+      },
+      "7f4e1721-e7a9-48d5-b026-28ce8966c1c9": {
+        "position": {
+          "x": 1140,
+          "y": 280
+        }
+      },
+      "42430715-403b-4167-b009-b52263f6b32a": {
+        "position": {
+          "x": 40,
+          "y": 400
+        }
+      },
+      "f50ee849-8f7b-4549-be1c-a85a0d17a0c7": {
+        "position": {
+          "x": 260,
+          "y": 400
+        }
+      },
+      "91e7ca08-23cd-4371-b8f7-4ee0cd006449": {
         "position": {
           "x": 480,
-          "y": 380
+          "y": 400
         }
       },
-      "5c60d9d3-b3d9-49fb-ae78-727ebc276362": {
+      "9f383dd0-64da-4a1d-bcfc-ba5888f1d377": {
+        "position": {
+          "x": 700,
+          "y": 400
+        }
+      },
+      "d9d57e4a-48e8-4ff6-9cc0-d2c355b54dc4": {
+        "position": {
+          "x": 920,
+          "y": 400
+        }
+      },
+      "2d2ad7ac-2b65-4d5a-b2d5-5dec7fc13064": {
+        "position": {
+          "x": 1140,
+          "y": 400
+        }
+      },
+      "0acd0e9f-0a45-4d09-806d-870a307ba392": {
+        "position": {
+          "x": 40,
+          "y": 520
+        }
+      },
+      "b323a98d-a2ea-4621-b163-c3b426c16390": {
+        "position": {
+          "x": 260,
+          "y": 520
+        }
+      },
+      "d9ceac12-684d-4bca-b86f-d7f753b4a898": {
         "position": {
           "x": 480,
-          "y": 500
-        }
-      },
-      "4181b123-fd21-4bfc-8ea8-d5d1e8be4802": {
-        "position": {
-          "x": 480,
-          "y": 620
-        }
-      },
-      "86a2f6d7-4f4d-42e4-bebe-9ab2ac42b275": {
-        "position": {
-          "x": 480,
-          "y": 740
-        }
-      },
-      "683a6045-fbb7-4eaa-9c89-4087ba164446": {
-        "position": {
-          "x": 480,
-          "y": 860
-        }
-      },
-      "e456dabf-b760-401f-8004-24909950aa4f": {
-        "position": {
-          "x": 760,
-          "y": 20
-        }
-      },
-      "66100047-fdc6-4f15-9477-98692feb503d": {
-        "position": {
-          "x": 760,
-          "y": 140
-        }
-      },
-      "04047d1b-6709-42cb-a5ee-97eabcb2cbb1": {
-        "position": {
-          "x": 760,
-          "y": 260
-        }
-      },
-      "36d6b349-a715-443a-9fb9-6b99182004d1": {
-        "position": {
-          "x": 760,
-          "y": 380
-        }
-      },
-      "bdf49823-f117-4e34-9c55-12dcfecdca40": {
-        "position": {
-          "x": 760,
-          "y": 500
-        }
-      },
-      "e5ea5e73-524e-4123-8c1e-6f70fce6f4c3": {
-        "position": {
-          "x": 760,
-          "y": 620
-        }
-      },
-      "00116fe2-d262-419d-b4be-9161e252b263": {
-        "position": {
-          "x": 760,
-          "y": 740
-        }
-      },
-      "c955e3ae-4ade-49c7-a64c-339e48c0e33e": {
-        "position": {
-          "x": 760,
-          "y": 860
-        }
-      },
-      "8189a591-4290-440b-addf-d8411c0c2da0": {
-        "position": {
-          "x": 1040,
-          "y": 20
-        }
-      },
-      "f3cb3ec4-fd43-4130-b952-996d2af094b2": {
-        "position": {
-          "x": 1040,
-          "y": 140
-        }
-      },
-      "5ef9efb4-7e66-4328-ab61-acea63dc3581": {
-        "position": {
-          "x": 1040,
-          "y": 260
-        }
-      },
-      "867c8337-1e4f-4287-8a3f-45ca288d06e2": {
-        "position": {
-          "x": 1040,
-          "y": 380
-        }
-      },
-      "61ae9bf3-f69f-4884-8a9f-c0bedb1fcb25": {
-        "position": {
-          "x": 1040,
-          "y": 500
-        }
-      },
-      "43fe3b9f-b8b4-42a6-b28a-b8f4924fd12e": {
-        "position": {
-          "x": 1040,
-          "y": 620
-        }
-      },
-      "74868faa-23e6-4f9a-b119-d56f8b0eacba": {
-        "position": {
-          "x": 1040,
-          "y": 740
-        }
-      },
-      "a92a3906-eb30-48fa-b0ca-ecb6d3cfbb01": {
-        "position": {
-          "x": 1040,
-          "y": 860
-        }
-      },
-      "d68f2173-2777-4d7d-9882-72538c7b4bdb": {
-        "position": {
-          "x": 1320,
-          "y": 20
-        }
-      },
-      "f80e6001-c92b-4922-ab52-177072154c95": {
-        "position": {
-          "x": 1320,
-          "y": 140
-        }
-      },
-      "81351603-7c6b-4eb5-90dd-a70d03082716": {
-        "position": {
-          "x": 1320,
-          "y": 260
-        }
-      },
-      "08c85e75-634c-4780-96bf-510fc2fcf288": {
-        "position": {
-          "x": 1320,
-          "y": 380
-        }
-      },
-      "effe466e-92da-491d-8f7b-5b5e1d2d370f": {
-        "position": {
-          "x": 1320,
-          "y": 500
+          "y": 520
         }
       }
-    }
+    },
+    "Annotations": [],
+    "name": "ARIA-DTMF-Generic",
+    "description": "Single-step secure DTMF capture for generic. No intermediate decryption \u2014 single validate Lambda handles decrypt, format check and validation. No ownership check.",
+    "status": "published",
+    "contactFlowType": "CONTACT_FLOW"
   },
   "Actions": [
     {
-      "Parameters": {
-        "ComparisonValue": "$.Channel"
-      },
-      "Identifier": "9b627046-1e7f-4d74-aceb-bd5b929b875e",
       "Type": "Compare",
+      "Identifier": "87b6ae94-04a0-4574-8d12-eae04b4c889e",
+      "Parameters": {
+        "ComparisonValue": "$.ContactId",
+        "Operator": "Equals",
+        "ComparisonTarget": {
+          "Type": "Predefined",
+          "Value": ""
+        }
+      },
       "Transitions": {
-        "NextAction": "fbce01fd-fec8-471d-b34a-dde14e23cd3a",
+        "NextAction": "98fb4ea9-32c4-4c20-a27d-cacd10c5770c",
         "Conditions": [
           {
-            "NextAction": "1c9f8079-f5ef-4f77-a955-2230d8063d44",
+            "NextAction": "ca651f7b-d599-4edc-84c3-e0c82a28bc1a",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
-                "VOICE"
+                "false"
               ]
             }
           }
         ],
         "Errors": [
           {
-            "NextAction": "fbce01fd-fec8-471d-b34a-dde14e23cd3a",
+            "NextAction": "ca651f7b-d599-4edc-84c3-e0c82a28bc1a",
             "ErrorType": "NoMatchingCondition"
           }
         ]
       }
     },
     {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "I'm sorry, secure input is only available over the phone. Please call us to complete this securely."
-      },
-      "Identifier": "fbce01fd-fec8-471d-b34a-dde14e23cd3a",
       "Type": "MessageParticipant",
+      "Identifier": "98fb4ea9-32c4-4c20-a27d-cacd10c5770c",
+      "Parameters": {
+        "Text": "Secure capture session could not be initialised. Returning you to your advisor."
+      },
       "Transitions": {
-        "NextAction": "9abdd422-3634-436d-b275-505825cf6642",
-        "Errors": [
-          {
-            "NextAction": "9abdd422-3634-436d-b275-505825cf6642",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "133b4838-0bc5-4e76-8082-95c90a42607d"
       }
     },
     {
-      "Parameters": {},
-      "Identifier": "9abdd422-3634-436d-b275-505825cf6642",
       "Type": "DisconnectParticipant",
+      "Identifier": "133b4838-0bc5-4e76-8082-95c90a42607d",
+      "Parameters": {},
       "Transitions": {}
     },
     {
+      "Type": "InvokeLambdaFunction",
+      "Identifier": "ca651f7b-d599-4edc-84c3-e0c82a28bc1a",
       "Parameters": {
         "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_START_SESSION",
         "InvocationTimeLimitSeconds": "8",
-        "InvocationType": "SYNCHRONOUS",
-        "ResponseValidation": {
-          "ResponseType": "STRING_MAP"
+        "LambdaInvocationAttributes": {
+          "purpose": "generic"
         }
       },
-      "Identifier": "1c9f8079-f5ef-4f77-a955-2230d8063d44",
-      "Type": "InvokeLambdaFunction",
       "Transitions": {
-        "NextAction": "1392eddc-e77e-49bb-a9f9-8687398faff6",
+        "NextAction": "feec4e07-cfc8-4842-85c8-61a45616a3b7",
         "Errors": [
           {
-            "NextAction": "9abdd422-3634-436d-b275-505825cf6642",
+            "NextAction": "1cb70d6b-d244-4969-bc5b-9907fd1b69bc",
             "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
-      "Parameters": {
-        "Attributes": {
-          "dtmf_result": "pending",
-          "dtmf_status": "waiting_for_input",
-          "dtmf_requires_escalation": "false",
-          "collection_purpose": "generic"
-        },
-        "TargetContact": "Current"
-      },
-      "Identifier": "1392eddc-e77e-49bb-a9f9-8687398faff6",
-      "Type": "UpdateContactAttributes",
-      "Transitions": {
-        "NextAction": "55fe5ae5-b601-4244-9587-d121c212c9b2",
-        "Errors": [
-          {
-            "NextAction": "9abdd422-3634-436d-b275-505825cf6642",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "PreviousContactParticipantState": "OffHold"
-      },
-      "Identifier": "55fe5ae5-b601-4244-9587-d121c212c9b2",
-      "Type": "UpdatePreviousContactParticipantState",
-      "Transitions": {
-        "NextAction": "2bc1f32e-7df0-42e5-ad90-9e99af7827e5",
-        "Errors": [
-          {
-            "NextAction": "a0e94378-f542-4050-a094-10d914a21d01",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "We were unable to place your advisor on hold. Please call back and try again."
-      },
-      "Identifier": "a0e94378-f542-4050-a094-10d914a21d01",
-      "Type": "MessageParticipant",
-      "Transitions": {
-        "NextAction": "911f697d-adc0-4491-aef2-0e106eebe03c",
-        "Errors": [
-          {
-            "NextAction": "911f697d-adc0-4491-aef2-0e106eebe03c",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {},
-      "Identifier": "911f697d-adc0-4491-aef2-0e106eebe03c",
       "Type": "DisconnectParticipant",
+      "Identifier": "1cb70d6b-d244-4969-bc5b-9907fd1b69bc",
+      "Parameters": {},
       "Transitions": {}
     },
     {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "feec4e07-cfc8-4842-85c8-61a45616a3b7",
       "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "Your agent will now be placed on hold while you securely enter your information."
+        "Attributes": {
+          "dtmf_status": "waiting_for_input",
+          "collection_purpose": "generic"
+        }
       },
-      "Identifier": "2bc1f32e-7df0-42e5-ad90-9e99af7827e5",
-      "Type": "MessageParticipant",
       "Transitions": {
-        "NextAction": "1f5f61bd-18f0-40f7-b47b-b2ce5ec81f7d",
-        "Errors": [
-          {
-            "NextAction": "911f697d-adc0-4491-aef2-0e106eebe03c",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "430b6e16-4732-4b50-aa8e-72dd3d0e228c"
       }
     },
     {
+      "Type": "UpdatePreviousContactParticipantState",
+      "Identifier": "430b6e16-4732-4b50-aa8e-72dd3d0e228c",
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Transitions": {
+        "NextAction": "bf074f47-5f83-4267-8c3f-4d0526b72a0f"
+      }
+    },
+    {
+      "Type": "MessageParticipant",
+      "Identifier": "bf074f47-5f83-4267-8c3f-4d0526b72a0f",
+      "Parameters": {
+        "Text": "Please enter the requested digits followed by the hash key."
+      },
+      "Transitions": {
+        "NextAction": "7c4e69c1-7a46-4544-8e6d-ce42eb5d575c"
+      }
+    },
+    {
+      "Type": "UpdatePreviousContactParticipantState",
+      "Identifier": "7c4e69c1-7a46-4544-8e6d-ce42eb5d575c",
       "Parameters": {
         "PreviousContactParticipantState": "AgentOnHold"
       },
-      "Identifier": "1f5f61bd-18f0-40f7-b47b-b2ce5ec81f7d",
-      "Type": "UpdatePreviousContactParticipantState",
       "Transitions": {
-        "NextAction": "41749937-b41d-4f79-9c1d-be3fe3a0d40c",
-        "Errors": [
-          {
-            "NextAction": "a0e94378-f542-4050-a094-10d914a21d01",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "e5a8eefc-c744-445c-943b-1bf0c7ae28ab"
       }
     },
     {
+      "Type": "GetParticipantInput",
+      "Identifier": "e5a8eefc-c744-445c-943b-1bf0c7ae28ab",
       "Parameters": {
+        "Text": "Please enter the requested digits followed by the hash key.",
+        "InputTimeLimitSeconds": "45",
+        "InputTerminationSequence": "#",
         "StoreInput": "True",
-        "InputTimeLimitSeconds": "60",
-        "Text": "Agent is now on hold. Please enter the required digits using your keypad, followed by the hash key.",
-        "DTMFConfiguration": {
-          "DisableCancelKey": "False",
-          "InputTerminationSequence": "#",
-          "InterdigitTimeLimitSeconds": "5"
+        "InputEncryption": {
+          "EncryptionKeyType": "CONNECT_MANAGED",
+          "EncryptionKeyId": "REPLACE_WITH_CONNECT_SECURITY_KEY_ID",
+          "Key": "REPLACE_WITH_PUBLIC_KEY_CERTIFICATE_PEM"
         },
         "InputValidation": {
           "CustomValidation": {
             "MaximumLength": "20"
           }
         },
-        "InputEncryption": {
-          "EncryptionKeyId": "REPLACE_WITH_CONNECT_SECURITY_KEY_ID",
-          "Key": "REPLACE_WITH_PUBLIC_KEY_CERTIFICATE_PEM"
-        }
+        "InterdigitTimeLimitSeconds": "5"
       },
-      "Identifier": "41749937-b41d-4f79-9c1d-be3fe3a0d40c",
-      "Type": "GetParticipantInput",
       "Transitions": {
-        "NextAction": "5c60d9d3-b3d9-49fb-ae78-727ebc276362",
+        "NextAction": "16676868-2303-4ada-afe3-da520231bb7f",
         "Errors": [
           {
-            "NextAction": "19cb2ea7-a9c2-44f0-b84e-9ea6934dba94",
+            "NextAction": "9b8d0bc4-9d3a-49c1-ba7a-81ae2aa9704c",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "9b8d0bc4-9d3a-49c1-ba7a-81ae2aa9704c",
             "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
-      "Parameters": {},
-      "Identifier": "19cb2ea7-a9c2-44f0-b84e-9ea6934dba94",
       "Type": "DisconnectParticipant",
+      "Identifier": "9b8d0bc4-9d3a-49c1-ba7a-81ae2aa9704c",
+      "Parameters": {},
       "Transitions": {}
     },
     {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "16676868-2303-4ada-afe3-da520231bb7f",
       "Parameters": {
         "Attributes": {
           "dtmf_encrypted_input": "$.StoredCustomerInput",
           "dtmf_status": "processing"
-        },
-        "TargetContact": "Current"
-      },
-      "Identifier": "5c60d9d3-b3d9-49fb-ae78-727ebc276362",
-      "Type": "UpdateContactAttributes",
-      "Transitions": {
-        "NextAction": "4181b123-fd21-4bfc-8ea8-d5d1e8be4802",
-        "Errors": [
-          {
-            "NextAction": "19cb2ea7-a9c2-44f0-b84e-9ea6934dba94",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_DECRYPT",
-        "InvocationTimeLimitSeconds": "8",
-        "InvocationType": "SYNCHRONOUS",
-        "LambdaInvocationAttributes": {
-          "encryptedValue": "$.Attributes.dtmf_encrypted_input",
-          "purpose": "generic",
-          "keyId": "REPLACE_WITH_CONNECT_SECURITY_KEY_ID"
-        },
-        "ResponseValidation": {
-          "ResponseType": "STRING_MAP"
         }
       },
-      "Identifier": "4181b123-fd21-4bfc-8ea8-d5d1e8be4802",
+      "Transitions": {
+        "NextAction": "977bb793-f28d-454a-971d-133b28e70a21"
+      }
+    },
+    {
       "Type": "InvokeLambdaFunction",
-      "Transitions": {
-        "NextAction": "04047d1b-6709-42cb-a5ee-97eabcb2cbb1",
-        "Errors": [
-          {
-            "NextAction": "86a2f6d7-4f4d-42e4-bebe-9ab2ac42b275",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "Attributes": {
-          "dtmf_status": "system_error"
-        },
-        "TargetContact": "Current"
-      },
-      "Identifier": "86a2f6d7-4f4d-42e4-bebe-9ab2ac42b275",
-      "Type": "UpdateContactAttributes",
-      "Transitions": {
-        "NextAction": "683a6045-fbb7-4eaa-9c89-4087ba164446",
-        "Errors": [
-          {
-            "NextAction": "683a6045-fbb7-4eaa-9c89-4087ba164446",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "PreviousContactParticipantState": "OffHold"
-      },
-      "Identifier": "683a6045-fbb7-4eaa-9c89-4087ba164446",
-      "Type": "UpdatePreviousContactParticipantState",
-      "Transitions": {
-        "NextAction": "e456dabf-b760-401f-8004-24909950aa4f",
-        "Errors": [
-          {
-            "NextAction": "e456dabf-b760-401f-8004-24909950aa4f",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "We are experiencing a technical issue. We will transfer you back to your advisor now."
-      },
-      "Identifier": "e456dabf-b760-401f-8004-24909950aa4f",
-      "Type": "MessageParticipant",
-      "Transitions": {
-        "NextAction": "66100047-fdc6-4f15-9477-98692feb503d",
-        "Errors": [
-          {
-            "NextAction": "66100047-fdc6-4f15-9477-98692feb503d",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {},
-      "Identifier": "66100047-fdc6-4f15-9477-98692feb503d",
-      "Type": "DisconnectParticipant",
-      "Transitions": {}
-    },
-    {
-      "Parameters": {
-        "Attributes": {
-          "dtmf_masked": "$.External.maskedValue",
-          "dtmf_digit_count": "$.External.digitCount",
-          "dtmf_status": "validating"
-        },
-        "TargetContact": "Current"
-      },
-      "Identifier": "04047d1b-6709-42cb-a5ee-97eabcb2cbb1",
-      "Type": "UpdateContactAttributes",
-      "Transitions": {
-        "NextAction": "36d6b349-a715-443a-9fb9-6b99182004d1",
-        "Errors": [
-          {
-            "NextAction": "66100047-fdc6-4f15-9477-98692feb503d",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
+      "Identifier": "977bb793-f28d-454a-971d-133b28e70a21",
       "Parameters": {
         "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_VALIDATE",
-        "InvocationTimeLimitSeconds": "8",
-        "InvocationType": "SYNCHRONOUS",
+        "InvocationTimeLimitSeconds": "12",
         "LambdaInvocationAttributes": {
-          "purpose": "generic",
-          "digitCount": "$.Attributes.dtmf_digit_count"
-        },
-        "ResponseValidation": {
-          "ResponseType": "STRING_MAP"
+          "purpose": "generic"
         }
       },
-      "Identifier": "36d6b349-a715-443a-9fb9-6b99182004d1",
-      "Type": "InvokeLambdaFunction",
       "Transitions": {
-        "NextAction": "8189a591-4290-440b-addf-d8411c0c2da0",
+        "NextAction": "7f4e1721-e7a9-48d5-b026-28ce8966c1c9",
         "Errors": [
           {
-            "NextAction": "bdf49823-f117-4e34-9c55-12dcfecdca40",
+            "NextAction": "e1a9e31d-2e60-46ff-b018-e3f2e334807c",
             "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "e1a9e31d-2e60-46ff-b018-e3f2e334807c",
       "Parameters": {
         "Attributes": {
           "dtmf_status": "system_error"
-        },
-        "TargetContact": "Current"
+        }
       },
-      "Identifier": "bdf49823-f117-4e34-9c55-12dcfecdca40",
-      "Type": "UpdateContactAttributes",
       "Transitions": {
-        "NextAction": "e5ea5e73-524e-4123-8c1e-6f70fce6f4c3",
-        "Errors": [
-          {
-            "NextAction": "e5ea5e73-524e-4123-8c1e-6f70fce6f4c3",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "09be51ec-39ee-41d5-9356-aec7878a51eb"
       }
     },
     {
+      "Type": "UpdatePreviousContactParticipantState",
+      "Identifier": "09be51ec-39ee-41d5-9356-aec7878a51eb",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
-      "Identifier": "e5ea5e73-524e-4123-8c1e-6f70fce6f4c3",
-      "Type": "UpdatePreviousContactParticipantState",
       "Transitions": {
-        "NextAction": "00116fe2-d262-419d-b4be-9161e252b263",
-        "Errors": [
-          {
-            "NextAction": "00116fe2-d262-419d-b4be-9161e252b263",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "9be1250a-9b5d-4135-980b-3e779d315e92"
       }
     },
     {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "We are experiencing a technical issue. We will transfer you back to your advisor now."
-      },
-      "Identifier": "00116fe2-d262-419d-b4be-9161e252b263",
       "Type": "MessageParticipant",
+      "Identifier": "9be1250a-9b5d-4135-980b-3e779d315e92",
+      "Parameters": {
+        "Text": "A technical error occurred. Returning you to your advisor."
+      },
       "Transitions": {
-        "NextAction": "c955e3ae-4ade-49c7-a64c-339e48c0e33e",
-        "Errors": [
-          {
-            "NextAction": "c955e3ae-4ade-49c7-a64c-339e48c0e33e",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "9f0018f5-7811-4113-92f7-59efa61c5d83"
       }
     },
     {
-      "Parameters": {},
-      "Identifier": "c955e3ae-4ade-49c7-a64c-339e48c0e33e",
       "Type": "DisconnectParticipant",
+      "Identifier": "9f0018f5-7811-4113-92f7-59efa61c5d83",
+      "Parameters": {},
       "Transitions": {}
     },
     {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "7f4e1721-e7a9-48d5-b026-28ce8966c1c9",
       "Parameters": {
-        "ComparisonValue": "$.External.isValid"
+        "Attributes": {
+          "dtmf_masked": "$.External.masked",
+          "dtmf_validation_status": "$.External.validation_status"
+        }
       },
-      "Identifier": "8189a591-4290-440b-addf-d8411c0c2da0",
-      "Type": "Compare",
       "Transitions": {
-        "NextAction": "81351603-7c6b-4eb5-90dd-a70d03082716",
+        "NextAction": "42430715-403b-4167-b009-b52263f6b32a"
+      }
+    },
+    {
+      "Type": "Compare",
+      "Identifier": "42430715-403b-4167-b009-b52263f6b32a",
+      "Parameters": {
+        "ComparisonValue": "$.External.isValid",
+        "Operator": "Equals",
+        "ComparisonTarget": {
+          "Type": "Predefined",
+          "Value": "true"
+        }
+      },
+      "Transitions": {
+        "NextAction": "2d2ad7ac-2b65-4d5a-b2d5-5dec7fc13064",
         "Conditions": [
           {
-            "NextAction": "f3cb3ec4-fd43-4130-b952-996d2af094b2",
+            "NextAction": "f50ee849-8f7b-4549-be1c-a85a0d17a0c7",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -664,217 +444,86 @@
         ],
         "Errors": [
           {
-            "NextAction": "81351603-7c6b-4eb5-90dd-a70d03082716",
+            "NextAction": "2d2ad7ac-2b65-4d5a-b2d5-5dec7fc13064",
             "ErrorType": "NoMatchingCondition"
           }
         ]
       }
     },
     {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "f50ee849-8f7b-4549-be1c-a85a0d17a0c7",
       "Parameters": {
         "Attributes": {
-          "dtmf_validation_status": "$.External.validationStatus",
-          "dtmf_requires_escalation": "$.External.requiresEscalation"
-        },
-        "TargetContact": "Current"
+          "dtmf_status": "complete"
+        }
       },
-      "Identifier": "f3cb3ec4-fd43-4130-b952-996d2af094b2",
-      "Type": "UpdateContactAttributes",
       "Transitions": {
-        "NextAction": "5ef9efb4-7e66-4328-ab61-acea63dc3581",
-        "Errors": [
-          {
-            "NextAction": "9abdd422-3634-436d-b275-505825cf6642",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "91e7ca08-23cd-4371-b8f7-4ee0cd006449"
       }
     },
     {
-      "Parameters": {
-        "ComparisonValue": "$.External.validationStatus"
-      },
-      "Identifier": "5ef9efb4-7e66-4328-ab61-acea63dc3581",
-      "Type": "Compare",
-      "Transitions": {
-        "NextAction": "61ae9bf3-f69f-4884-8a9f-c0bedb1fcb25",
-        "Conditions": [
-          {
-            "NextAction": "867c8337-1e4f-4287-8a3f-45ca288d06e2",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "not_customer_card"
-              ]
-            }
-          },
-          {
-            "NextAction": "a92a3906-eb30-48fa-b0ca-ecb6d3cfbb01",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "invalid_luhn"
-              ]
-            }
-          },
-          {
-            "NextAction": "a92a3906-eb30-48fa-b0ca-ecb6d3cfbb01",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "invalid_bin"
-              ]
-            }
-          }
-        ],
-        "Errors": [
-          {
-            "NextAction": "61ae9bf3-f69f-4884-8a9f-c0bedb1fcb25",
-            "ErrorType": "NoMatchingCondition"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "Attributes": {
-          "dtmf_result": "not_authorised",
-          "dtmf_status": "escalating",
-          "dtmf_requires_escalation": "true"
-        },
-        "TargetContact": "Current"
-      },
-      "Identifier": "867c8337-1e4f-4287-8a3f-45ca288d06e2",
-      "Type": "UpdateContactAttributes",
-      "Transitions": {
-        "NextAction": "61ae9bf3-f69f-4884-8a9f-c0bedb1fcb25",
-        "Errors": [
-          {
-            "NextAction": "a92a3906-eb30-48fa-b0ca-ecb6d3cfbb01",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "Thank you. Your information has been securely captured. Reconnecting you with your advisor now."
-      },
-      "Identifier": "61ae9bf3-f69f-4884-8a9f-c0bedb1fcb25",
-      "Type": "MessageParticipant",
-      "Transitions": {
-        "NextAction": "43fe3b9f-b8b4-42a6-b28a-b8f4924fd12e",
-        "Errors": [
-          {
-            "NextAction": "74868faa-23e6-4f9a-b119-d56f8b0eacba",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
+      "Type": "UpdatePreviousContactParticipantState",
+      "Identifier": "91e7ca08-23cd-4371-b8f7-4ee0cd006449",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
-      "Identifier": "43fe3b9f-b8b4-42a6-b28a-b8f4924fd12e",
-      "Type": "UpdatePreviousContactParticipantState",
       "Transitions": {
-        "NextAction": "74868faa-23e6-4f9a-b119-d56f8b0eacba",
-        "Errors": [
-          {
-            "NextAction": "74868faa-23e6-4f9a-b119-d56f8b0eacba",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "9f383dd0-64da-4a1d-bcfc-ba5888f1d377"
       }
     },
     {
-      "Parameters": {},
-      "Identifier": "74868faa-23e6-4f9a-b119-d56f8b0eacba",
+      "Type": "MessageParticipant",
+      "Identifier": "9f383dd0-64da-4a1d-bcfc-ba5888f1d377",
+      "Parameters": {
+        "Text": "Thank you. Your details have been securely captured. Returning you to your advisor."
+      },
+      "Transitions": {
+        "NextAction": "d9d57e4a-48e8-4ff6-9cc0-d2c355b54dc4"
+      }
+    },
+    {
       "Type": "DisconnectParticipant",
+      "Identifier": "d9d57e4a-48e8-4ff6-9cc0-d2c355b54dc4",
+      "Parameters": {},
       "Transitions": {}
     },
     {
-      "Parameters": {
-        "SkipWhenDTMFBufferEnabled": "false",
-        "Text": "I'm sorry, the information entered could not be verified. Connecting you with your advisor."
-      },
-      "Identifier": "a92a3906-eb30-48fa-b0ca-ecb6d3cfbb01",
-      "Type": "MessageParticipant",
-      "Transitions": {
-        "NextAction": "d68f2173-2777-4d7d-9882-72538c7b4bdb",
-        "Errors": [
-          {
-            "NextAction": "f80e6001-c92b-4922-ab52-177072154c95",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {
-        "PreviousContactParticipantState": "OffHold"
-      },
-      "Identifier": "d68f2173-2777-4d7d-9882-72538c7b4bdb",
-      "Type": "UpdatePreviousContactParticipantState",
-      "Transitions": {
-        "NextAction": "f80e6001-c92b-4922-ab52-177072154c95",
-        "Errors": [
-          {
-            "NextAction": "f80e6001-c92b-4922-ab52-177072154c95",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Parameters": {},
-      "Identifier": "f80e6001-c92b-4922-ab52-177072154c95",
-      "Type": "DisconnectParticipant",
-      "Transitions": {}
-    },
-    {
+      "Type": "UpdateContactAttributes",
+      "Identifier": "2d2ad7ac-2b65-4d5a-b2d5-5dec7fc13064",
       "Parameters": {
         "Attributes": {
-          "dtmf_requires_escalation": "true",
-          "dtmf_escalation_reason": "ownership_mismatch",
-          "dtmf_status": "ownership_mismatch"
-        },
-        "TargetContact": "Current"
+          "dtmf_status": "validation_failed"
+        }
       },
-      "Identifier": "81351603-7c6b-4eb5-90dd-a70d03082716",
-      "Type": "UpdateContactAttributes",
       "Transitions": {
-        "NextAction": "08c85e75-634c-4780-96bf-510fc2fcf288",
-        "Errors": [
-          {
-            "NextAction": "effe466e-92da-491d-8f7b-5b5e1d2d370f",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "0acd0e9f-0a45-4d09-806d-870a307ba392"
       }
     },
     {
+      "Type": "UpdatePreviousContactParticipantState",
+      "Identifier": "0acd0e9f-0a45-4d09-806d-870a307ba392",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
-      "Identifier": "08c85e75-634c-4780-96bf-510fc2fcf288",
-      "Type": "UpdatePreviousContactParticipantState",
       "Transitions": {
-        "NextAction": "effe466e-92da-491d-8f7b-5b5e1d2d370f",
-        "Errors": [
-          {
-            "NextAction": "effe466e-92da-491d-8f7b-5b5e1d2d370f",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
+        "NextAction": "b323a98d-a2ea-4621-b163-c3b426c16390"
       }
     },
     {
-      "Parameters": {},
-      "Identifier": "effe466e-92da-491d-8f7b-5b5e1d2d370f",
+      "Type": "MessageParticipant",
+      "Identifier": "b323a98d-a2ea-4621-b163-c3b426c16390",
+      "Parameters": {
+        "Text": "We were unable to verify your details. Please check with your advisor."
+      },
+      "Transitions": {
+        "NextAction": "d9ceac12-684d-4bca-b86f-d7f753b4a898"
+      }
+    },
+    {
       "Type": "DisconnectParticipant",
+      "Identifier": "d9ceac12-684d-4bca-b86f-d7f753b4a898",
+      "Parameters": {},
       "Transitions": {}
     }
   ]

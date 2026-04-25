@@ -40,7 +40,7 @@
     dtmf_expiry_masked      — masked expiry MM/YY (full_card_with_cvv flow)
     dtmf_sort_code_masked   — masked sort code (uk_bank_account flow)
     dtmf_account_number_masked — masked account number (uk_bank_account flow)
-    dtmf_validation_status  — luhn_pass / bin_pass / ownership_pass / …
+    dtmf_validation_status  — luhn_pass / bin_pass / format_pass / …
     dtmf_error              — human-readable error message if failed
     collection_purpose      — what was being collected
 
@@ -508,13 +508,13 @@
       },
       "validating": {
         title: "Validating\u2026",
-        sub:   "Running format and ownership checks",
+        sub:   "Running format and integrity checks",
         icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
         done: ["waiting","collecting","decrypting"], current: "validating",
       },
       "validating_card": {
         title: "Validating card\u2026",
-        sub:   "Running Luhn check, BIN lookup, and ownership check",
+        sub:   "Running Luhn check and BIN lookup",
         icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
         done: ["waiting","collecting","decrypting"], current: "validating",
       },
@@ -544,22 +544,11 @@
       },
       "validation_failed": {
         title: "Validation failed",
-        sub:   "Format or ownership check failed \u2014 may need escalation",
+        sub:   "Format or integrity check failed \u2014 agent review required",
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 80,
         done: ["waiting","collecting","decrypting"], current: "validating", isError: true,
       },
-      "ownership_mismatch": {
-        title: "Ownership mismatch \u2014 escalate",
-        sub:   "Entered details do not match customer record \u2014 fraud signal \u2014 escalate immediately",
-        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 80,
-        done: ["waiting","collecting","decrypting"], current: "validating", isError: true,
-      },
-      "escalating": {
-        title: "Escalation required",
-        sub:   "Capture accepted but flagged for agent review",
-        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 90,
-        done: ["waiting","collecting","decrypting","validating"], current: "complete",
-      },
+
       "timeout": {
         title: "Timed out",
         sub:   "Customer did not enter digits within the allowed time",
@@ -568,7 +557,7 @@
       },
       "validation_service_error": {
         title: "Validation service unavailable",
-        sub:   "Ownership check temporarily unavailable \u2014 capture accepted with warning",
+        sub:   "Validation service temporarily unavailable \u2014 capture accepted with warning",
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 100,
         done: ["waiting","collecting","decrypting","validating"], current: "complete",
       },
@@ -662,18 +651,7 @@
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 85,
         done: ["ready","card","cvv","expiry"], current: "validate", isError: true,
       },
-      "full_card_with_cvv__ownership_mismatch": {
-        title: "Ownership mismatch \u2014 escalate",
-        sub:   "Card does not match customer record \u2014 fraud signal \u2014 escalate immediately",
-        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 85,
-        done: ["ready","card","cvv","expiry"], current: "validate", isError: true,
-      },
-      "full_card_with_cvv__escalating": {
-        title: "Escalation required",
-        sub:   "All data captured but flagged for agent review",
-        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 95,
-        done: ["ready","card","cvv","expiry","validate"], current: "done",
-      },
+
       "full_card_with_cvv__complete": {
         title: "Full card capture complete \u2713",
         sub:   "Card number, CVV and expiry securely captured \u2014 see result below",
@@ -713,12 +691,7 @@
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 80,
         done: ["ready","sort_code","account"], current: "validate", isError: true,
       },
-      "uk_bank_account__ownership_mismatch": {
-        title: "Details do not match \u2014 escalate",
-        sub:   "Banking details do not match customer record \u2014 escalate immediately",
-        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 80,
-        done: ["ready","sort_code","account"], current: "validate", isError: true,
-      },
+
       "uk_bank_account__complete": {
         title: "Banking details captured \u2713",
         sub:   "Sort code and account number securely captured \u2014 see result below",
@@ -902,7 +875,7 @@
 
     // ── POLLING ───────────────────────────────────────────────────────────
     const TERMINAL_STATUSES = new Set([
-      "complete", "failed", "timeout", "validation_failed", "ownership_mismatch",
+      "complete", "failed", "timeout", "validation_failed",
       "system_error", "validation_service_error",
     ]);
 

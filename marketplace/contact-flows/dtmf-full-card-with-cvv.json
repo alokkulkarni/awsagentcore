@@ -1,263 +1,233 @@
 {
   "Version": "1",
-  "StartAction": "4d0fa320-edc0-4728-9dde-5e38dd319602",
+  "StartAction": "9fdf8071-f378-4cf0-af51-db45fd983b9d",
   "Metadata": {
     "entryPointPosition": {
       "x": 40,
       "y": 40
     },
     "ActionMetadata": {
-      "4d0fa320-edc0-4728-9dde-5e38dd319602": {
+      "9fdf8071-f378-4cf0-af51-db45fd983b9d": {
         "position": {
           "x": 40,
           "y": 40
         }
       },
-      "f297d900-bf4e-415e-8bd9-0d3ad9a043de": {
+      "c75316d3-7425-4f03-b97d-68e9a4012db3": {
         "position": {
           "x": 260,
           "y": 40
         }
       },
-      "d10f93f4-aa29-44b3-b1f1-fca03e482b30": {
+      "4e2d5a21-cc8b-4271-9c05-7990106bcac8": {
         "position": {
           "x": 480,
           "y": 40
         }
       },
-      "9a72575f-74ea-4cae-8e96-35ecef25eca6": {
+      "8f24bbb9-0e16-4684-b952-1db4add4ebe7": {
         "position": {
           "x": 700,
           "y": 40
         }
       },
-      "d60ffb9c-e7c7-4fc4-aed8-89b8624d2ca4": {
+      "4bd978b6-1d9a-4bbc-aa24-83530f40efc0": {
         "position": {
           "x": 920,
           "y": 40
         }
       },
-      "1da4f4c4-ad78-4116-913c-f243b339feb7": {
+      "02ed54cb-87ff-4160-99aa-8cd0be28cb02": {
         "position": {
           "x": 1140,
           "y": 40
         }
       },
-      "e89b75c3-10cd-4565-8f15-6af66ad10ff3": {
+      "59c97e32-5eee-4108-a4b3-7bc8880f5bee": {
         "position": {
           "x": 40,
           "y": 160
         }
       },
-      "983c7aa4-e938-4dc7-8f0a-7a950be1f007": {
+      "c374b2b6-c662-471b-b9d1-6c11b1fb5d82": {
         "position": {
           "x": 260,
           "y": 160
         }
       },
-      "2f2342b7-3658-47b8-afec-32116e4744a7": {
+      "0e7a7de5-766c-4903-bdee-eab9598437b2": {
         "position": {
           "x": 480,
           "y": 160
         }
       },
-      "18116430-2fdb-4622-a79f-d5071b481a30": {
+      "5fbced23-b031-4ab8-adec-56097021605f": {
         "position": {
           "x": 700,
           "y": 160
         }
       },
-      "4e264bb0-eae8-4609-ab4a-957021b3aa5f": {
+      "3f69df8a-21c2-4f29-8382-12888a4fec19": {
         "position": {
           "x": 920,
           "y": 160
         }
       },
-      "1e7ac9b8-25d8-4fdd-8a56-c2a97ce29e54": {
+      "58e8d99e-ccb9-4888-8fb6-112dfbe6c7a4": {
         "position": {
           "x": 1140,
           "y": 160
         }
       },
-      "18dfc7a0-1e32-4d2d-8345-1f57a0042546": {
+      "36b92994-0b36-480b-be98-7e290ae972fb": {
         "position": {
           "x": 40,
           "y": 280
         }
       },
-      "92e8ba0c-6223-4b95-97dc-f29d9f22c343": {
+      "1a88c17b-d701-4d33-9b7c-2d3debcb8246": {
         "position": {
           "x": 260,
           "y": 280
         }
       },
-      "bbae32d0-18b5-4c75-b241-69fa6245ea27": {
+      "1ed92200-5d4f-46f2-b523-a0e6df36e89f": {
         "position": {
           "x": 480,
           "y": 280
         }
       },
-      "11d2f82c-8bf1-4897-ac83-2c7304e41d9c": {
+      "4ecc3e49-6660-4efe-bb32-6164ba6f2162": {
         "position": {
           "x": 700,
           "y": 280
         }
       },
-      "4a6253af-99db-44fc-979a-f2366cbf8772": {
+      "e2660171-e682-4270-9457-3ede0b8ca3d3": {
         "position": {
           "x": 920,
           "y": 280
         }
       },
-      "67896d54-64a6-4c7a-80ea-949e394918f7": {
+      "2b114382-76a5-4e0e-a67e-330a02b045b9": {
         "position": {
           "x": 1140,
           "y": 280
         }
       },
-      "130ccf6f-dc07-455a-ae63-fba54a3d3ea9": {
+      "0a5ef268-e8bc-4f7c-9936-ee9b4ab376fc": {
         "position": {
           "x": 40,
           "y": 400
         }
       },
-      "25ce423d-a419-4400-8172-94bffe8e7446": {
+      "e2fe469b-004e-4414-97da-cf51c2a1c4c4": {
         "position": {
           "x": 260,
           "y": 400
         }
       },
-      "eac4f8d4-80e9-4042-9745-fba4f38e1218": {
+      "fa7a4c6a-5f77-45ef-8685-2822b3320e88": {
         "position": {
           "x": 480,
           "y": 400
         }
       },
-      "f9211cbe-9998-401e-9bd3-64e48687bdf6": {
+      "a59715bc-a18a-415c-ba2b-48658f4883e2": {
         "position": {
           "x": 700,
           "y": 400
         }
       },
-      "e6e24a74-c9b2-4d51-a116-ab0ba4654457": {
+      "5f92bdf3-102b-46a5-b223-01e7c9241b65": {
         "position": {
           "x": 920,
           "y": 400
         }
       },
-      "ce2e87b3-aecc-4c2b-b438-e74b3650adba": {
+      "5f99f84a-99d9-4171-80d4-4a913d82d9c5": {
         "position": {
           "x": 1140,
           "y": 400
         }
       },
-      "5ef04965-f916-4900-b39f-93ca664b8bda": {
+      "c8caed57-7547-4b7b-bc13-95b46565c68a": {
         "position": {
           "x": 40,
           "y": 520
         }
       },
-      "a8a34396-ec1f-4ef7-8e37-d9c70be25ea0": {
+      "e4a2a916-cae8-45ad-8bec-7e7f1d786c38": {
         "position": {
           "x": 260,
           "y": 520
         }
       },
-      "5b1c3c49-182c-4b4c-aa1a-11d7a62bcfea": {
+      "795a14eb-5a4e-4281-bb3e-7d83c0684ee9": {
         "position": {
           "x": 480,
           "y": 520
         }
       },
-      "87417f48-ae55-4c49-a252-bd94a0a64c08": {
+      "e03524db-e9e4-46ea-83e9-506628f90e18": {
         "position": {
           "x": 700,
           "y": 520
         }
       },
-      "df97808b-2915-4e94-a9c9-b76697ae9f32": {
+      "b94dae81-99c4-427b-9949-06834aef152f": {
         "position": {
           "x": 920,
           "y": 520
         }
       },
-      "c3395eb1-43de-4aa4-aedb-6fe3728fe6e0": {
+      "1f8beccc-6485-4879-b4ee-57cbf67a207a": {
         "position": {
           "x": 1140,
           "y": 520
         }
       },
-      "df122f30-69ed-4f70-9eef-f91f44f844ab": {
+      "d04bafa5-6cae-4fd2-869e-c08b3eb5bd30": {
         "position": {
           "x": 40,
           "y": 640
         }
       },
-      "58906f39-c7e4-4aa0-b19c-835655d6aa80": {
+      "bb9ab10a-e212-4820-bddd-ecb6a35894b0": {
         "position": {
           "x": 260,
           "y": 640
         }
       },
-      "07e12ace-66d3-4887-ac7b-6400f42abf33": {
+      "a586c593-8ae4-49e5-8e22-2b642bb53d7d": {
         "position": {
           "x": 480,
           "y": 640
         }
       },
-      "7eb089ca-a7c8-4eab-8c51-aa12a181765d": {
+      "f4ce256b-54fb-4284-b0c1-a242c4916731": {
         "position": {
           "x": 700,
           "y": 640
         }
       },
-      "50484255-b754-4f2d-9ffb-67cacf0c7dc1": {
+      "cbada83b-3481-4058-b78c-38a819863ac9": {
         "position": {
           "x": 920,
           "y": 640
-        }
-      },
-      "51e80f14-3467-44ea-ae4c-18c8429ab5ad": {
-        "position": {
-          "x": 1140,
-          "y": 640
-        }
-      },
-      "5d80d495-7bfb-4397-89c5-bd3730cd2c93": {
-        "position": {
-          "x": 40,
-          "y": 760
-        }
-      },
-      "2560f013-f9dc-4081-979d-bd51acee232a": {
-        "position": {
-          "x": 260,
-          "y": 760
-        }
-      },
-      "a4039ede-86e9-4dfc-a599-3a6ab061592e": {
-        "position": {
-          "x": 480,
-          "y": 760
-        }
-      },
-      "f8f8f883-110d-4e8e-bb9c-05748f94239c": {
-        "position": {
-          "x": 700,
-          "y": 760
         }
       }
     },
     "Annotations": [],
     "name": "ARIA-DTMF-FullCardWithCVV",
-    "description": "Multi-step secure DTMF collection: card number, CVV and expiry date captured sequentially. All three encrypted values are decrypted and validated together in a single Lambda call. Status progression: waiting_for_card \u2192 waiting_for_cvv \u2192 waiting_for_expiry \u2192 processing \u2192 complete/validation_failed/ownership_mismatch/system_error.",
+    "description": "Multi-step secure DTMF: card number, CVV and expiry captured then decrypted and validated in one Lambda call. No ownership check.",
     "status": "published",
     "contactFlowType": "CONTACT_FLOW"
   },
   "Actions": [
     {
       "Type": "Compare",
-      "Identifier": "4d0fa320-edc0-4728-9dde-5e38dd319602",
+      "Identifier": "9fdf8071-f378-4cf0-af51-db45fd983b9d",
       "Parameters": {
         "ComparisonValue": "$.ContactId",
         "Operator": "Equals",
@@ -267,10 +237,10 @@
         }
       },
       "Transitions": {
-        "NextAction": "f297d900-bf4e-415e-8bd9-0d3ad9a043de",
+        "NextAction": "c75316d3-7425-4f03-b97d-68e9a4012db3",
         "Conditions": [
           {
-            "NextAction": "9a72575f-74ea-4cae-8e96-35ecef25eca6",
+            "NextAction": "8f24bbb9-0e16-4684-b952-1db4add4ebe7",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -281,7 +251,7 @@
         ],
         "Errors": [
           {
-            "NextAction": "9a72575f-74ea-4cae-8e96-35ecef25eca6",
+            "NextAction": "8f24bbb9-0e16-4684-b952-1db4add4ebe7",
             "ErrorType": "NoMatchingCondition"
           }
         ]
@@ -289,23 +259,23 @@
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "f297d900-bf4e-415e-8bd9-0d3ad9a043de",
+      "Identifier": "c75316d3-7425-4f03-b97d-68e9a4012db3",
       "Parameters": {
         "Text": "Secure capture session could not be initialised. Returning you to your advisor."
       },
       "Transitions": {
-        "NextAction": "d10f93f4-aa29-44b3-b1f1-fca03e482b30"
+        "NextAction": "4e2d5a21-cc8b-4271-9c05-7990106bcac8"
       }
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "d10f93f4-aa29-44b3-b1f1-fca03e482b30",
+      "Identifier": "4e2d5a21-cc8b-4271-9c05-7990106bcac8",
       "Parameters": {},
       "Transitions": {}
     },
     {
       "Type": "InvokeLambdaFunction",
-      "Identifier": "9a72575f-74ea-4cae-8e96-35ecef25eca6",
+      "Identifier": "8f24bbb9-0e16-4684-b952-1db4add4ebe7",
       "Parameters": {
         "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_START_SESSION",
         "InvocationTimeLimitSeconds": "8",
@@ -314,18 +284,24 @@
         }
       },
       "Transitions": {
-        "NextAction": "d60ffb9c-e7c7-4fc4-aed8-89b8624d2ca4",
+        "NextAction": "02ed54cb-87ff-4160-99aa-8cd0be28cb02",
         "Errors": [
           {
-            "NextAction": "983c7aa4-e938-4dc7-8f0a-7a950be1f007",
+            "NextAction": "4bd978b6-1d9a-4bbc-aa24-83530f40efc0",
             "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
+      "Type": "DisconnectParticipant",
+      "Identifier": "4bd978b6-1d9a-4bbc-aa24-83530f40efc0",
+      "Parameters": {},
+      "Transitions": {}
+    },
+    {
       "Type": "UpdateContactAttributes",
-      "Identifier": "d60ffb9c-e7c7-4fc4-aed8-89b8624d2ca4",
+      "Identifier": "02ed54cb-87ff-4160-99aa-8cd0be28cb02",
       "Parameters": {
         "Attributes": {
           "dtmf_status": "waiting_for_card",
@@ -333,48 +309,42 @@
         }
       },
       "Transitions": {
-        "NextAction": "1da4f4c4-ad78-4116-913c-f243b339feb7"
+        "NextAction": "59c97e32-5eee-4108-a4b3-7bc8880f5bee"
       }
     },
     {
       "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "1da4f4c4-ad78-4116-913c-f243b339feb7",
+      "Identifier": "59c97e32-5eee-4108-a4b3-7bc8880f5bee",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
       "Transitions": {
-        "NextAction": "e89b75c3-10cd-4565-8f15-6af66ad10ff3"
+        "NextAction": "c374b2b6-c662-471b-b9d1-6c11b1fb5d82"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "e89b75c3-10cd-4565-8f15-6af66ad10ff3",
+      "Identifier": "c374b2b6-c662-471b-b9d1-6c11b1fb5d82",
       "Parameters": {
-        "Text": "We will now securely capture your card details in three steps. First, please enter your 16-digit card number and press the hash key."
+        "Text": "We will now securely capture your card details in three steps. Please enter your 16-digit card number and press the hash key."
       },
       "Transitions": {
-        "NextAction": "2f2342b7-3658-47b8-afec-32116e4744a7"
+        "NextAction": "0e7a7de5-766c-4903-bdee-eab9598437b2"
       }
     },
     {
-      "Type": "DisconnectParticipant",
-      "Identifier": "983c7aa4-e938-4dc7-8f0a-7a950be1f007",
-      "Parameters": {},
-      "Transitions": {}
-    },
-    {
       "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "2f2342b7-3658-47b8-afec-32116e4744a7",
+      "Identifier": "0e7a7de5-766c-4903-bdee-eab9598437b2",
       "Parameters": {
         "PreviousContactParticipantState": "AgentOnHold"
       },
       "Transitions": {
-        "NextAction": "18116430-2fdb-4622-a79f-d5071b481a30"
+        "NextAction": "5fbced23-b031-4ab8-adec-56097021605f"
       }
     },
     {
       "Type": "GetParticipantInput",
-      "Identifier": "18116430-2fdb-4622-a79f-d5071b481a30",
+      "Identifier": "5fbced23-b031-4ab8-adec-56097021605f",
       "Parameters": {
         "Text": "Please enter your 16-digit card number followed by the hash key.",
         "InputTimeLimitSeconds": "45",
@@ -393,14 +363,14 @@
         "InterdigitTimeLimitSeconds": "5"
       },
       "Transitions": {
-        "NextAction": "1e7ac9b8-25d8-4fdd-8a56-c2a97ce29e54",
+        "NextAction": "58e8d99e-ccb9-4888-8fb6-112dfbe6c7a4",
         "Errors": [
           {
-            "NextAction": "4e264bb0-eae8-4609-ab4a-957021b3aa5f",
+            "NextAction": "3f69df8a-21c2-4f29-8382-12888a4fec19",
             "ErrorType": "InputTimeLimitExceeded"
           },
           {
-            "NextAction": "4e264bb0-eae8-4609-ab4a-957021b3aa5f",
+            "NextAction": "3f69df8a-21c2-4f29-8382-12888a4fec19",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -408,13 +378,13 @@
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "4e264bb0-eae8-4609-ab4a-957021b3aa5f",
+      "Identifier": "3f69df8a-21c2-4f29-8382-12888a4fec19",
       "Parameters": {},
       "Transitions": {}
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "1e7ac9b8-25d8-4fdd-8a56-c2a97ce29e54",
+      "Identifier": "58e8d99e-ccb9-4888-8fb6-112dfbe6c7a4",
       "Parameters": {
         "Attributes": {
           "dtmf_encrypted_card": "$.StoredCustomerInput",
@@ -422,22 +392,22 @@
         }
       },
       "Transitions": {
-        "NextAction": "18dfc7a0-1e32-4d2d-8345-1f57a0042546"
+        "NextAction": "36b92994-0b36-480b-be98-7e290ae972fb"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "18dfc7a0-1e32-4d2d-8345-1f57a0042546",
+      "Identifier": "36b92994-0b36-480b-be98-7e290ae972fb",
       "Parameters": {
         "Text": "Thank you. Now please enter the 3-digit security code from the back of your card, then press the hash key."
       },
       "Transitions": {
-        "NextAction": "92e8ba0c-6223-4b95-97dc-f29d9f22c343"
+        "NextAction": "1a88c17b-d701-4d33-9b7c-2d3debcb8246"
       }
     },
     {
       "Type": "GetParticipantInput",
-      "Identifier": "92e8ba0c-6223-4b95-97dc-f29d9f22c343",
+      "Identifier": "1a88c17b-d701-4d33-9b7c-2d3debcb8246",
       "Parameters": {
         "Text": "Please enter your 3-digit security code followed by the hash key.",
         "InputTimeLimitSeconds": "30",
@@ -456,14 +426,14 @@
         "InterdigitTimeLimitSeconds": "5"
       },
       "Transitions": {
-        "NextAction": "11d2f82c-8bf1-4897-ac83-2c7304e41d9c",
+        "NextAction": "4ecc3e49-6660-4efe-bb32-6164ba6f2162",
         "Errors": [
           {
-            "NextAction": "bbae32d0-18b5-4c75-b241-69fa6245ea27",
+            "NextAction": "1ed92200-5d4f-46f2-b523-a0e6df36e89f",
             "ErrorType": "InputTimeLimitExceeded"
           },
           {
-            "NextAction": "bbae32d0-18b5-4c75-b241-69fa6245ea27",
+            "NextAction": "1ed92200-5d4f-46f2-b523-a0e6df36e89f",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -471,13 +441,13 @@
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "bbae32d0-18b5-4c75-b241-69fa6245ea27",
+      "Identifier": "1ed92200-5d4f-46f2-b523-a0e6df36e89f",
       "Parameters": {},
       "Transitions": {}
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "11d2f82c-8bf1-4897-ac83-2c7304e41d9c",
+      "Identifier": "4ecc3e49-6660-4efe-bb32-6164ba6f2162",
       "Parameters": {
         "Attributes": {
           "dtmf_encrypted_cvv": "$.StoredCustomerInput",
@@ -485,22 +455,22 @@
         }
       },
       "Transitions": {
-        "NextAction": "4a6253af-99db-44fc-979a-f2366cbf8772"
+        "NextAction": "e2660171-e682-4270-9457-3ede0b8ca3d3"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "4a6253af-99db-44fc-979a-f2366cbf8772",
+      "Identifier": "e2660171-e682-4270-9457-3ede0b8ca3d3",
       "Parameters": {
         "Text": "Thank you. Finally, please enter your card expiry date as 4 digits, month first then year, then press the hash key."
       },
       "Transitions": {
-        "NextAction": "67896d54-64a6-4c7a-80ea-949e394918f7"
+        "NextAction": "2b114382-76a5-4e0e-a67e-330a02b045b9"
       }
     },
     {
       "Type": "GetParticipantInput",
-      "Identifier": "67896d54-64a6-4c7a-80ea-949e394918f7",
+      "Identifier": "2b114382-76a5-4e0e-a67e-330a02b045b9",
       "Parameters": {
         "Text": "Please enter your 4-digit expiry date, month then year, followed by the hash key.",
         "InputTimeLimitSeconds": "30",
@@ -519,14 +489,14 @@
         "InterdigitTimeLimitSeconds": "5"
       },
       "Transitions": {
-        "NextAction": "25ce423d-a419-4400-8172-94bffe8e7446",
+        "NextAction": "e2fe469b-004e-4414-97da-cf51c2a1c4c4",
         "Errors": [
           {
-            "NextAction": "130ccf6f-dc07-455a-ae63-fba54a3d3ea9",
+            "NextAction": "0a5ef268-e8bc-4f7c-9936-ee9b4ab376fc",
             "ErrorType": "InputTimeLimitExceeded"
           },
           {
-            "NextAction": "130ccf6f-dc07-455a-ae63-fba54a3d3ea9",
+            "NextAction": "0a5ef268-e8bc-4f7c-9936-ee9b4ab376fc",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -534,13 +504,13 @@
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "130ccf6f-dc07-455a-ae63-fba54a3d3ea9",
+      "Identifier": "0a5ef268-e8bc-4f7c-9936-ee9b4ab376fc",
       "Parameters": {},
       "Transitions": {}
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "25ce423d-a419-4400-8172-94bffe8e7446",
+      "Identifier": "e2fe469b-004e-4414-97da-cf51c2a1c4c4",
       "Parameters": {
         "Attributes": {
           "dtmf_encrypted_expiry": "$.StoredCustomerInput",
@@ -548,12 +518,12 @@
         }
       },
       "Transitions": {
-        "NextAction": "eac4f8d4-80e9-4042-9745-fba4f38e1218"
+        "NextAction": "fa7a4c6a-5f77-45ef-8685-2822b3320e88"
       }
     },
     {
       "Type": "InvokeLambdaFunction",
-      "Identifier": "eac4f8d4-80e9-4042-9745-fba4f38e1218",
+      "Identifier": "fa7a4c6a-5f77-45ef-8685-2822b3320e88",
       "Parameters": {
         "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_VALIDATE",
         "InvocationTimeLimitSeconds": "15",
@@ -562,10 +532,10 @@
         }
       },
       "Transitions": {
-        "NextAction": "a8a34396-ec1f-4ef7-8e37-d9c70be25ea0",
+        "NextAction": "e4a2a916-cae8-45ad-8bec-7e7f1d786c38",
         "Errors": [
           {
-            "NextAction": "f9211cbe-9998-401e-9bd3-64e48687bdf6",
+            "NextAction": "a59715bc-a18a-415c-ba2b-48658f4883e2",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -573,45 +543,45 @@
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "f9211cbe-9998-401e-9bd3-64e48687bdf6",
+      "Identifier": "a59715bc-a18a-415c-ba2b-48658f4883e2",
       "Parameters": {
         "Attributes": {
           "dtmf_status": "system_error"
         }
       },
       "Transitions": {
-        "NextAction": "e6e24a74-c9b2-4d51-a116-ab0ba4654457"
+        "NextAction": "5f92bdf3-102b-46a5-b223-01e7c9241b65"
       }
     },
     {
       "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "e6e24a74-c9b2-4d51-a116-ab0ba4654457",
+      "Identifier": "5f92bdf3-102b-46a5-b223-01e7c9241b65",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
       "Transitions": {
-        "NextAction": "ce2e87b3-aecc-4c2b-b438-e74b3650adba"
+        "NextAction": "5f99f84a-99d9-4171-80d4-4a913d82d9c5"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "ce2e87b3-aecc-4c2b-b438-e74b3650adba",
+      "Identifier": "5f99f84a-99d9-4171-80d4-4a913d82d9c5",
       "Parameters": {
-        "Text": "We were unable to verify your card details due to a technical issue. Returning you to your advisor."
+        "Text": "A technical error occurred. Returning you to your advisor."
       },
       "Transitions": {
-        "NextAction": "5ef04965-f916-4900-b39f-93ca664b8bda"
+        "NextAction": "c8caed57-7547-4b7b-bc13-95b46565c68a"
       }
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "5ef04965-f916-4900-b39f-93ca664b8bda",
+      "Identifier": "c8caed57-7547-4b7b-bc13-95b46565c68a",
       "Parameters": {},
       "Transitions": {}
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "a8a34396-ec1f-4ef7-8e37-d9c70be25ea0",
+      "Identifier": "e4a2a916-cae8-45ad-8bec-7e7f1d786c38",
       "Parameters": {
         "Attributes": {
           "dtmf_masked": "$.External.masked_card",
@@ -623,41 +593,40 @@
           "dtmf_cvv_digit_count": "$.External.cvv_digit_count",
           "dtmf_expiry_masked": "$.External.masked_expiry",
           "dtmf_expiry_digit_count": "$.External.expiry_digit_count",
-          "dtmf_validation_status": "$.External.validation_status",
-          "dtmf_ownership_check": "$.External.ownership_check"
+          "dtmf_validation_status": "$.External.validation_status"
         }
       },
       "Transitions": {
-        "NextAction": "5b1c3c49-182c-4b4c-aa1a-11d7a62bcfea"
+        "NextAction": "795a14eb-5a4e-4281-bb3e-7d83c0684ee9"
       }
     },
     {
       "Type": "Compare",
-      "Identifier": "5b1c3c49-182c-4b4c-aa1a-11d7a62bcfea",
+      "Identifier": "795a14eb-5a4e-4281-bb3e-7d83c0684ee9",
       "Parameters": {
-        "ComparisonValue": "$.Attributes.dtmf_validation_status",
+        "ComparisonValue": "$.External.isValid",
         "Operator": "Equals",
         "ComparisonTarget": {
           "Type": "Predefined",
-          "Value": "pass"
+          "Value": "true"
         }
       },
       "Transitions": {
-        "NextAction": "58906f39-c7e4-4aa0-b19c-835655d6aa80",
+        "NextAction": "bb9ab10a-e212-4820-bddd-ecb6a35894b0",
         "Conditions": [
           {
-            "NextAction": "87417f48-ae55-4c49-a252-bd94a0a64c08",
+            "NextAction": "e03524db-e9e4-46ea-83e9-506628f90e18",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
-                "pass"
+                "true"
               ]
             }
           }
         ],
         "Errors": [
           {
-            "NextAction": "58906f39-c7e4-4aa0-b19c-835655d6aa80",
+            "NextAction": "bb9ab10a-e212-4820-bddd-ecb6a35894b0",
             "ErrorType": "NoMatchingCondition"
           }
         ]
@@ -665,147 +634,77 @@
     },
     {
       "Type": "UpdateContactAttributes",
-      "Identifier": "87417f48-ae55-4c49-a252-bd94a0a64c08",
+      "Identifier": "e03524db-e9e4-46ea-83e9-506628f90e18",
       "Parameters": {
         "Attributes": {
           "dtmf_status": "complete"
         }
       },
       "Transitions": {
-        "NextAction": "df97808b-2915-4e94-a9c9-b76697ae9f32"
+        "NextAction": "b94dae81-99c4-427b-9949-06834aef152f"
       }
     },
     {
       "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "df97808b-2915-4e94-a9c9-b76697ae9f32",
+      "Identifier": "b94dae81-99c4-427b-9949-06834aef152f",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
       "Transitions": {
-        "NextAction": "c3395eb1-43de-4aa4-aedb-6fe3728fe6e0"
+        "NextAction": "1f8beccc-6485-4879-b4ee-57cbf67a207a"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "c3395eb1-43de-4aa4-aedb-6fe3728fe6e0",
+      "Identifier": "1f8beccc-6485-4879-b4ee-57cbf67a207a",
       "Parameters": {
-        "Text": "Thank you. Your card details have been securely verified. Returning you to your advisor."
+        "Text": "Thank you. Your details have been securely captured. Returning you to your advisor."
       },
       "Transitions": {
-        "NextAction": "df122f30-69ed-4f70-9eef-f91f44f844ab"
+        "NextAction": "d04bafa5-6cae-4fd2-869e-c08b3eb5bd30"
       }
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "df122f30-69ed-4f70-9eef-f91f44f844ab",
+      "Identifier": "d04bafa5-6cae-4fd2-869e-c08b3eb5bd30",
       "Parameters": {},
       "Transitions": {}
     },
     {
-      "Type": "Compare",
-      "Identifier": "58906f39-c7e4-4aa0-b19c-835655d6aa80",
-      "Parameters": {
-        "ComparisonValue": "$.Attributes.dtmf_ownership_check",
-        "Operator": "Equals",
-        "ComparisonTarget": {
-          "Type": "Predefined",
-          "Value": "mismatch"
-        }
-      },
-      "Transitions": {
-        "NextAction": "07e12ace-66d3-4887-ac7b-6400f42abf33",
-        "Conditions": [
-          {
-            "NextAction": "5d80d495-7bfb-4397-89c5-bd3730cd2c93",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "mismatch"
-              ]
-            }
-          }
-        ],
-        "Errors": [
-          {
-            "NextAction": "07e12ace-66d3-4887-ac7b-6400f42abf33",
-            "ErrorType": "NoMatchingCondition"
-          }
-        ]
-      }
-    },
-    {
       "Type": "UpdateContactAttributes",
-      "Identifier": "07e12ace-66d3-4887-ac7b-6400f42abf33",
+      "Identifier": "bb9ab10a-e212-4820-bddd-ecb6a35894b0",
       "Parameters": {
         "Attributes": {
           "dtmf_status": "validation_failed"
         }
       },
       "Transitions": {
-        "NextAction": "7eb089ca-a7c8-4eab-8c51-aa12a181765d"
+        "NextAction": "a586c593-8ae4-49e5-8e22-2b642bb53d7d"
       }
     },
     {
       "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "7eb089ca-a7c8-4eab-8c51-aa12a181765d",
+      "Identifier": "a586c593-8ae4-49e5-8e22-2b642bb53d7d",
       "Parameters": {
         "PreviousContactParticipantState": "OffHold"
       },
       "Transitions": {
-        "NextAction": "50484255-b754-4f2d-9ffb-67cacf0c7dc1"
+        "NextAction": "f4ce256b-54fb-4284-b0c1-a242c4916731"
       }
     },
     {
       "Type": "MessageParticipant",
-      "Identifier": "50484255-b754-4f2d-9ffb-67cacf0c7dc1",
+      "Identifier": "f4ce256b-54fb-4284-b0c1-a242c4916731",
       "Parameters": {
-        "Text": "We were unable to verify your card details. Please check the information with your advisor."
+        "Text": "We were unable to verify your details. Please check with your advisor."
       },
       "Transitions": {
-        "NextAction": "51e80f14-3467-44ea-ae4c-18c8429ab5ad"
+        "NextAction": "cbada83b-3481-4058-b78c-38a819863ac9"
       }
     },
     {
       "Type": "DisconnectParticipant",
-      "Identifier": "51e80f14-3467-44ea-ae4c-18c8429ab5ad",
-      "Parameters": {},
-      "Transitions": {}
-    },
-    {
-      "Type": "UpdateContactAttributes",
-      "Identifier": "5d80d495-7bfb-4397-89c5-bd3730cd2c93",
-      "Parameters": {
-        "Attributes": {
-          "dtmf_status": "ownership_mismatch"
-        }
-      },
-      "Transitions": {
-        "NextAction": "2560f013-f9dc-4081-979d-bd51acee232a"
-      }
-    },
-    {
-      "Type": "UpdatePreviousContactParticipantState",
-      "Identifier": "2560f013-f9dc-4081-979d-bd51acee232a",
-      "Parameters": {
-        "PreviousContactParticipantState": "OffHold"
-      },
-      "Transitions": {
-        "NextAction": "a4039ede-86e9-4dfc-a599-3a6ab061592e"
-      }
-    },
-    {
-      "Type": "MessageParticipant",
-      "Identifier": "a4039ede-86e9-4dfc-a599-3a6ab061592e",
-      "Parameters": {
-        "Text": "The card details entered do not match our records. Your advisor has been notified."
-      },
-      "Transitions": {
-        "NextAction": "f8f8f883-110d-4e8e-bb9c-05748f94239c"
-      }
-    },
-    {
-      "Type": "DisconnectParticipant",
-      "Identifier": "f8f8f883-110d-4e8e-bb9c-05748f94239c",
+      "Identifier": "cbada83b-3481-4058-b78c-38a819863ac9",
       "Parameters": {},
       "Transitions": {}
     }
