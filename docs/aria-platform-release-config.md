@@ -3,7 +3,7 @@
 > **Document type:** Living configuration management + release tracking document  
 > **Region:** `eu-west-2`  
 > **Account:** `395402194296`  
-> **Last audited:** 2026-04-25  
+> **Last audited:** 2026-04-25 (updated 2026-04-25 — Connect flow bugs resolved)  
 > **Audience:** Engineering, DevOps, Security
 
 ---
@@ -108,7 +108,7 @@ Endpoint: `https://9kmyip1cq7.execute-api.eu-west-2.amazonaws.com`
 
 | # | Flow Name | Type | Deploy Status | Teardown | Notes |
 |---|---|---|---|---|---|
-| 1 | `ARIA-DTMF-SecureCollection` | Contact Flow | ⚠️ Deployed — 2 bugs + update pending | Manual (Connect console) | Bug 1: Luhn-fail branch missing `dtmf_status` set. Bug 2: No `isValid` branch after validate Lambda. Pending: add wait loop for configurable validation |
+| 1 | `ARIA-DTMF-SecureCollection` | Contact Flow | ⚠️ Deployed — update pending | Manual (Connect console) | ~~Bug 1: Luhn-fail branch missing `dtmf_status` set~~ ✅ Fixed 2026-04-25. ~~Bug 2: No `isValid` branch after validate Lambda~~ ✅ Fixed 2026-04-25. Pending: add wait loop for configurable validation |
 | 2 | `ARIA-DTMF-HumanAgentWrapper` | Queue Transfer | ✅ Deployed | Manual (Connect console) | Wraps DTMF flow to return customer to agent queue |
 | 3 | `ARIA-Agent-Screen-Pop-Flow` | Contact Flow | ✅ Deployed | Manual (Connect console) | Screen pop to agent desktop on contact arrival |
 | 4 | `Sample secure input with no agent` | Contact Flow | ✅ Deployed (AWS sample) | Manual (Connect console) | AWS-provided sample — reference only |
@@ -203,10 +203,10 @@ These components are required for the agent-configurable validation feature (age
 
 ## 10. Known Bugs — Outstanding (Manual Connect Console Fixes Required)
 
-| # | Bug | Location | Impact | Fix Required |
+| # | Bug | Location | Impact | Status |
 |---|---|---|---|---|
-| 1 | Luhn-fail branch does not set `dtmf_status` | `ARIA-DTMF-SecureCollection` flow | Panel stays stuck at `validating_card` indefinitely | Add `Set contact attributes` block on Luhn-fail branch: `dtmf_status=validation_failed` |
-| 2 | Success prompt plays unconditionally after validate Lambda | `ARIA-DTMF-SecureCollection` flow | Customer hears "card captured" even on ownership mismatch | Add `Check contact attributes` block on `$.External.isValid`; route No Match to escalation prompt + set `dtmf_requires_escalation=true` |
+| 1 | Luhn-fail branch does not set `dtmf_status` | `ARIA-DTMF-SecureCollection` flow | Panel stays stuck at `validating_card` indefinitely | ✅ **Fixed 2026-04-25** — `Set contact attributes` block added on Luhn-fail branch: `dtmf_status=validation_failed` |
+| 2 | Success prompt plays unconditionally after validate Lambda | `ARIA-DTMF-SecureCollection` flow | Customer hears "card captured" even on ownership mismatch | ✅ **Fixed 2026-04-25** — `Check contact attributes` block added on `$.External.isValid`; No Match routes to escalation prompt + sets `dtmf_requires_escalation=true` |
 
 ---
 
