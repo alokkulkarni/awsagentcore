@@ -10,9 +10,13 @@
   or popup window. It polls a lightweight Lambda proxy (aria-dtmf-status-proxy)
   every 2 seconds to read the DTMF contact attributes set by the validation
   Lambda, then renders a live, colour-coded view of the secure capture in
-  progress. Supports all 8 ARIA collection purposes:
-    full_card_number | card_last_four | cvv | pin | ssn | account_number |
-    sort_code | generic
+  progress.
+
+  Supports all ARIA collection purposes — including multi-step combined flows:
+
+    Single-step:   full_card_number | card_last_four | pin | ssn | generic
+    Multi-step:    full_card_with_cvv   (card number → CVV → expiry date)
+                   uk_bank_account      (sort code → account number)
 
   HOW IT WORKS
   ────────────
@@ -29,11 +33,16 @@
   CONTACT ATTRIBUTES READ
   ───────────────────────
     dtmf_status             — current phase of collection
-    dtmf_masked             — masked digits e.g. •••• •••• •••• 4821
+    dtmf_step               — active sub-step in multi-step flows
+    dtmf_masked             — masked card digits e.g. •••• •••• •••• 4821
     dtmf_card_type          — VISA DEBIT, MASTERCARD CREDIT, … (card flows only)
+    dtmf_cvv_masked         — masked CVV (full_card_with_cvv flow)
+    dtmf_expiry_masked      — masked expiry MM/YY (full_card_with_cvv flow)
+    dtmf_sort_code_masked   — masked sort code (uk_bank_account flow)
+    dtmf_account_number_masked — masked account number (uk_bank_account flow)
     dtmf_validation_status  — luhn_pass / bin_pass / ownership_pass / …
     dtmf_error              — human-readable error message if failed
-    collection_purpose      — what was being collected (card_last_four etc.)
+    collection_purpose      — what was being collected
 
   CONFIGURATION
   ─────────────
@@ -303,44 +312,65 @@
       <div class="progress-bar-fill" id="progress-fill"></div>
     </div>
 
-    <!-- Result rows (shown once complete) -->
+    <!-- Result rows (shown once complete — multi-step rows hidden by default) -->
     <div class="result-section" id="result-section">
-      <div class="result-row">
-        <span class="result-label">Captured digits</span>
+      <!-- Single-step / card number -->
+      <div class="result-row" id="row-masked">
+        <span class="result-label" id="lbl-masked">Captured digits</span>
         <span class="result-value masked" id="result-masked">—</span>
       </div>
-      <div class="result-row" id="result-type-row">
-        <span class="result-label" id="result-type-label">Type</span>
+      <!-- Card type (card flows only) -->
+      <div class="result-row" id="row-card-type">
+        <span class="result-label">Card type</span>
         <span class="result-value card-type" id="result-card-type">—</span>
       </div>
+      <!-- CVV row (full_card_with_cvv only) -->
+      <div class="result-row" id="row-cvv" style="display:none">
+        <span class="result-label">Security code</span>
+        <span class="result-value masked" id="result-cvv">—</span>
+      </div>
+      <!-- Expiry row (full_card_with_cvv only) -->
+      <div class="result-row" id="row-expiry" style="display:none">
+        <span class="result-label">Expiry date</span>
+        <span class="result-value masked" id="result-expiry">—</span>
+      </div>
+      <!-- Sort code row (uk_bank_account only) -->
+      <div class="result-row" id="row-sort-code" style="display:none">
+        <span class="result-label">Sort code</span>
+        <span class="result-value masked" id="result-sort-code">—</span>
+      </div>
+      <!-- Account number row (uk_bank_account only) -->
+      <div class="result-row" id="row-account-number" style="display:none">
+        <span class="result-label">Account number</span>
+        <span class="result-value masked" id="result-account-number">—</span>
+      </div>
+      <!-- Validation (all flows) -->
       <div class="result-row">
         <span class="result-label">Validation</span>
         <span class="result-value" id="result-validation">—</span>
       </div>
     </div>
 
-    <!-- Step timeline -->
-    <div class="timeline">
+    <!-- Step timeline — rebuilt dynamically when purpose is first detected -->
+    <div class="timeline" id="timeline-container">
       <h3>Collection steps</h3>
-      <div class="step" id="step-waiting">
-        <div class="step-dot"></div>
-        Waiting for customer to start
-      </div>
-      <div class="step" id="step-collecting">
-        <div class="step-dot"></div>
-        Customer entering digits (encrypted keypad)
-      </div>
-      <div class="step" id="step-decrypting">
-        <div class="step-dot"></div>
-        Decrypting and masking
-      </div>
-      <div class="step" id="step-validating">
-        <div class="step-dot"></div>
-        Validating input
-      </div>
-      <div class="step" id="step-complete">
-        <div class="step-dot"></div>
-        Returned to conversation
+      <div id="timeline-steps">
+        <!-- Default steps shown before purpose is known; replaced by buildTimeline() -->
+        <div class="step" id="step-waiting">
+          <div class="step-dot"></div>Waiting for customer to start
+        </div>
+        <div class="step" id="step-collecting">
+          <div class="step-dot"></div>Customer entering digits (encrypted keypad)
+        </div>
+        <div class="step" id="step-decrypting">
+          <div class="step-dot"></div>Decrypting and masking
+        </div>
+        <div class="step" id="step-validating">
+          <div class="step-dot"></div>Validating input
+        </div>
+        <div class="step" id="step-complete">
+          <div class="step-dot"></div>Returned to conversation
+        </div>
       </div>
     </div>
   </div>
@@ -364,37 +394,40 @@
     const STATUS_PROXY_URL = "REPLACE_WITH_STATUS_API_URL";
     const ACTIVE_URL       = "REPLACE_WITH_ACTIVE_API_URL";
 
+
     // Contact ID may come from:
     //   1. URL param  ?contactId=<id>  (injected by Connect Agent Workspace)
     //   2. Auto-discovered via /dtmf-active polling (startDiscovery)
     let CONTACT_ID = new URLSearchParams(window.location.search).get("contactId") || "";
 
     // Polling intervals
-    const POLL_INTERVAL_MS   = 2000;   // fast poll while capture is in progress
-    const POLL_TERMINAL_MS   = 5000;   // slow poll once a terminal status is reached
-    const RESULT_DISPLAY_MS  = 15000;  // show terminal result for this long, then auto-reset
+    const POLL_INTERVAL_MS  = 2000;
+    const POLL_TERMINAL_MS  = 5000;
+    const RESULT_DISPLAY_MS = 15000;
 
     // ── STATE ─────────────────────────────────────────────────────────────
     let pollTimer      = null;
     let lastStatus     = "";
     let terminalAt     = null;
     let discoveryTimer = null;
+    let activePurpose  = "";   // tracks which timeline is currently built
 
     // ── DOM REFS ──────────────────────────────────────────────────────────
-    const card          = document.getElementById("status-card");
-    const icon          = document.getElementById("status-icon");
-    const title         = document.getElementById("status-title");
-    const purposeBadge  = document.getElementById("purpose-badge");
-    const sub           = document.getElementById("status-sub");
-    const fill          = document.getElementById("progress-fill");
-    const resultSection = document.getElementById("result-section");
-    const resultMasked  = document.getElementById("result-masked");
-    const resultTypeRow = document.getElementById("result-type-row");
-    const resultTypeLabel = document.getElementById("result-type-label");
-    const resultType    = document.getElementById("result-card-type");
-    const resultVal     = document.getElementById("result-validation");
+    const card            = document.getElementById("status-card");
+    const icon            = document.getElementById("status-icon");
+    const title           = document.getElementById("status-title");
+    const purposeBadge    = document.getElementById("purpose-badge");
+    const sub             = document.getElementById("status-sub");
+    const fill            = document.getElementById("progress-fill");
+    const resultSection   = document.getElementById("result-section");
+    const resultMasked    = document.getElementById("result-masked");
+    const resultCardType  = document.getElementById("result-card-type");
+    const resultVal       = document.getElementById("result-validation");
     const idlePlaceholder = document.getElementById("idle-placeholder");
-    const steps = {
+    const timelineSteps   = document.getElementById("timeline-steps");
+
+    // steps dict — populated by buildTimeline()
+    let steps = {
       waiting:    document.getElementById("step-waiting"),
       collecting: document.getElementById("step-collecting"),
       decrypting: document.getElementById("step-decrypting"),
@@ -402,8 +435,47 @@
       complete:   document.getElementById("step-complete"),
     };
 
+    // ── TIMELINE DEFINITIONS ──────────────────────────────────────────────
+    const TIMELINES = {
+      "full_card_with_cvv": [
+        { key: "ready",    label: "Waiting for customer" },
+        { key: "card",     label: "Card number \u2014 step 1 of 3" },
+        { key: "cvv",      label: "Security code (CVV) \u2014 step 2 of 3" },
+        { key: "expiry",   label: "Expiry date \u2014 step 3 of 3" },
+        { key: "validate", label: "Validating all card details" },
+        { key: "done",     label: "Returned to conversation" },
+      ],
+      "uk_bank_account": [
+        { key: "ready",        label: "Waiting for customer" },
+        { key: "sort_code",    label: "Sort code \u2014 step 1 of 2" },
+        { key: "account",      label: "Account number \u2014 step 2 of 2" },
+        { key: "validate",     label: "Validating banking details" },
+        { key: "done",         label: "Returned to conversation" },
+      ],
+    };
+
+    function buildTimeline(purpose) {
+      if (activePurpose === purpose) return;   // already built
+      activePurpose = purpose;
+      const defs = TIMELINES[purpose];
+      if (!defs) return;   // default static timeline is fine
+
+      timelineSteps.innerHTML = "";
+      steps = {};
+      defs.forEach(function(def) {
+        const div = document.createElement("div");
+        div.className = "step";
+        div.id = "step-" + def.key;
+        div.innerHTML = '<div class="step-dot"></div>' + def.label;
+        timelineSteps.appendChild(div);
+        steps[def.key] = div;
+      });
+    }
+
     // ── STATUS MAP ────────────────────────────────────────────────────────
+    // Keys: plain status OR "purpose__status" for purpose-specific overrides
     const STATUS_MAP = {
+      // ── Generic / single-step statuses ───────────────────────────────────
       "awaiting_trigger": {
         title: "Preparing secure capture\u2026",
         sub:   "Initialising secure DTMF collection session",
@@ -446,6 +518,12 @@
         icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
         done: ["waiting","collecting","decrypting"], current: "validating",
       },
+      "validating_card_format": {
+        title: "Checking card format\u2026",
+        sub:   "Running Luhn check on card number",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 40,
+        done: ["waiting","collecting","decrypting"], current: "validating",
+      },
       "validated": {
         title: "Validation passed \u2713",
         sub:   "All checks passed \u2014 returning customer to agent",
@@ -480,7 +558,7 @@
         title: "Escalation required",
         sub:   "Capture accepted but flagged for agent review",
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 90,
-        done: ["waiting","collecting","decrypting","validating"], current: "complete", isError: false,
+        done: ["waiting","collecting","decrypting","validating"], current: "complete",
       },
       "timeout": {
         title: "Timed out",
@@ -492,7 +570,7 @@
         title: "Validation service unavailable",
         sub:   "Ownership check temporarily unavailable \u2014 capture accepted with warning",
         icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 100,
-        done: ["waiting","collecting","decrypting","validating"], current: "complete", isError: false,
+        done: ["waiting","collecting","decrypting","validating"], current: "complete",
       },
       "system_error": {
         title: "System error \u2014 customer returned to agent",
@@ -500,43 +578,182 @@
         icon: "\ud83d\udea8", spin: false, cls: "error", progress: 0,
         done: [], current: "waiting", isError: true,
       },
+
+      // ── full_card_with_cvv — multi-step overrides ─────────────────────────
+      "full_card_with_cvv__waiting_for_input": {
+        title: "Enter card number",
+        sub:   "Customer is entering their 16-digit card number (step 1 of 3)",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 10,
+        done: ["ready"], current: "card",
+      },
+      "full_card_with_cvv__processing_card": {
+        title: "Checking card number\u2026",
+        sub:   "Decrypting and running Luhn check",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 25,
+        done: ["ready"], current: "card",
+      },
+      "full_card_with_cvv__validating_card_format": {
+        title: "Verifying card number format\u2026",
+        sub:   "Luhn check in progress",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 30,
+        done: ["ready"], current: "card",
+      },
+      "full_card_with_cvv__waiting_for_cvv": {
+        title: "Enter security code (CVV)",
+        sub:   "Customer is entering their CVV from the back of the card (step 2 of 3)",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 40,
+        done: ["ready","card"], current: "cvv",
+      },
+      "full_card_with_cvv__processing_cvv": {
+        title: "Processing CVV\u2026",
+        sub:   "Decrypting security code",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 52,
+        done: ["ready","card"], current: "cvv",
+      },
+      "full_card_with_cvv__waiting_for_expiry": {
+        title: "Enter expiry date",
+        sub:   "Customer is entering their 4-digit expiry date MMYY (step 3 of 3)",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 62,
+        done: ["ready","card","cvv"], current: "expiry",
+      },
+      "full_card_with_cvv__processing_expiry": {
+        title: "Processing expiry date\u2026",
+        sub:   "Decrypting expiry",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 72,
+        done: ["ready","card","cvv"], current: "expiry",
+      },
+      "full_card_with_cvv__validating": {
+        title: "Validating all card details\u2026",
+        sub:   "BIN lookup, ownership check, CVV and expiry verification",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 82,
+        done: ["ready","card","cvv","expiry"], current: "validate",
+      },
+      "full_card_with_cvv__validation_failed": {
+        title: "Validation failed",
+        sub:   "One or more card details could not be verified \u2014 may need escalation",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 85,
+        done: ["ready","card","cvv","expiry"], current: "validate", isError: true,
+      },
+      "full_card_with_cvv__ownership_mismatch": {
+        title: "Ownership mismatch \u2014 escalate",
+        sub:   "Card does not match customer record \u2014 fraud signal \u2014 escalate immediately",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 85,
+        done: ["ready","card","cvv","expiry"], current: "validate", isError: true,
+      },
+      "full_card_with_cvv__escalating": {
+        title: "Escalation required",
+        sub:   "All data captured but flagged for agent review",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 95,
+        done: ["ready","card","cvv","expiry","validate"], current: "done",
+      },
+      "full_card_with_cvv__complete": {
+        title: "Full card capture complete \u2713",
+        sub:   "Card number, CVV and expiry securely captured \u2014 see result below",
+        icon: "\u2705", spin: false, cls: "success", progress: 100,
+        done: ["ready","card","cvv","expiry","validate","done"], current: "",
+      },
+      "full_card_with_cvv__system_error": {
+        title: "System error \u2014 customer returned to agent",
+        sub:   "A technical error occurred. Collect card details manually.",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 0,
+        done: [], current: "ready", isError: true,
+      },
+
+      // ── uk_bank_account — multi-step overrides ────────────────────────────
+      "uk_bank_account__waiting_for_sort_code": {
+        title: "Enter sort code",
+        sub:   "Customer is entering their 6-digit sort code (step 1 of 2)",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 15,
+        done: ["ready"], current: "sort_code",
+      },
+      "uk_bank_account__processing_sort_code": {
+        title: "Processing sort code\u2026",
+        sub:   "Decrypting sort code",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 30,
+        done: ["ready"], current: "sort_code",
+      },
+      "uk_bank_account__waiting_for_account_number": {
+        title: "Enter account number",
+        sub:   "Customer is entering their bank account number (step 2 of 2)",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 45,
+        done: ["ready","sort_code"], current: "account",
+      },
+      "uk_bank_account__processing_account_number": {
+        title: "Processing account number\u2026",
+        sub:   "Decrypting account number",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 60,
+        done: ["ready","sort_code"], current: "account",
+      },
+      "uk_bank_account__validating": {
+        title: "Validating banking details\u2026",
+        sub:   "Checking sort code and account number format",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 78,
+        done: ["ready","sort_code","account"], current: "validate",
+      },
+      "uk_bank_account__validation_failed": {
+        title: "Banking details could not be verified",
+        sub:   "Sort code or account number format invalid \u2014 reconnecting with advisor",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 80,
+        done: ["ready","sort_code","account"], current: "validate", isError: true,
+      },
+      "uk_bank_account__ownership_mismatch": {
+        title: "Details do not match \u2014 escalate",
+        sub:   "Banking details do not match customer record \u2014 escalate immediately",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 80,
+        done: ["ready","sort_code","account"], current: "validate", isError: true,
+      },
+      "uk_bank_account__complete": {
+        title: "Banking details captured \u2713",
+        sub:   "Sort code and account number securely captured \u2014 see result below",
+        icon: "\u2705", spin: false, cls: "success", progress: 100,
+        done: ["ready","sort_code","account","validate","done"], current: "",
+      },
+      "uk_bank_account__system_error": {
+        title: "System error \u2014 customer returned to agent",
+        sub:   "A technical error occurred. Collect banking details manually.",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 0,
+        done: [], current: "ready", isError: true,
+      },
     };
 
     // ── PURPOSE LABELS ────────────────────────────────────────────────────
     const PURPOSE_LABELS = {
-      "full_card_number": "Full Card",
-      "card_last_four":   "Last 4 Digits",
-      "cvv":              "CVV",
-      "pin":              "PIN",
-      "ssn":              "SSN",
-      "account_number":   "Account No.",
-      "sort_code":        "Sort Code",
-      "generic":          "Secure Input",
+      "full_card_number":    "Full Card",
+      "card_last_four":      "Last 4 Digits",
+      "full_card_with_cvv":  "Card + CVV + Expiry",
+      "uk_bank_account":     "Sort Code + Account",
+      "pin":                 "PIN",
+      "ssn":                 "SSN",
+      "generic":             "Secure Input",
     };
 
-    // Purposes that show a card-type result row
-    const CARD_PURPOSES = new Set(["full_card_number", "card_last_four"]);
+    // Purposes that show the card-type result row
+    const CARD_PURPOSES = new Set(["full_card_number","card_last_four","full_card_with_cvv"]);
 
     // ── RENDER ────────────────────────────────────────────────────────────
     function renderStatus(attrs) {
-      const status   = (attrs.dtmf_status          || "").trim();
-      const masked   = (attrs.dtmf_masked           || "").trim();
-      const cardType = (attrs.dtmf_card_type        || "").trim();
-      const valRes   = (attrs.dtmf_validation_status || "").trim();
-      const errMsg   = (attrs.dtmf_error            || "").trim();
-      const purpose  = (attrs.collection_purpose    || attrs.collectionPurpose || "").trim();
+      const status   = (attrs.dtmf_status             || "").trim();
+      const masked   = (attrs.dtmf_masked              || "").trim();
+      const cardType = (attrs.dtmf_card_type           || "").trim();
+      const valRes   = (attrs.dtmf_validation_status   || "").trim();
+      const errMsg   = (attrs.dtmf_error               || "").trim();
+      const purpose  = (attrs.collection_purpose       || attrs.collectionPurpose || "").trim();
 
-      // Update purpose badge
+      // Update purpose badge and build timeline when purpose first known
       if (purpose) {
-        purposeBadge.textContent    = PURPOSE_LABELS[purpose] || purpose;
-        purposeBadge.style.display  = "inline-block";
+        purposeBadge.textContent   = PURPOSE_LABELS[purpose] || purpose;
+        purposeBadge.style.display = "inline-block";
+        buildTimeline(purpose);
       }
 
-      // Show/hide card-type result row based on purpose
-      resultTypeRow.style.display = CARD_PURPOSES.has(purpose) ? "" : "none";
-      if (purpose && !CARD_PURPOSES.has(purpose)) {
-        resultTypeLabel.textContent = "Validated";
-      }
+      // Show/hide card-type result row
+      document.getElementById("row-card-type").style.display  = CARD_PURPOSES.has(purpose) ? "" : "none";
+      // Show/hide multi-step result rows
+      document.getElementById("row-cvv").style.display           = (purpose === "full_card_with_cvv") ? "" : "none";
+      document.getElementById("row-expiry").style.display        = (purpose === "full_card_with_cvv") ? "" : "none";
+      document.getElementById("row-sort-code").style.display     = (purpose === "uk_bank_account")   ? "" : "none";
+      document.getElementById("row-account-number").style.display= (purpose === "uk_bank_account")   ? "" : "none";
+      document.getElementById("row-masked").style.display        = (purpose === "uk_bank_account")   ? "none" : "";
 
       if (!status || status === "idle" || status === "false") {
         showIdle();
@@ -555,7 +772,10 @@
       showCard();
       lastStatus = status;
 
-      const cfg = STATUS_MAP[status];
+      // Resolve config: purpose-specific override first, then generic
+      const compositeKey = purpose ? purpose + "__" + status : null;
+      const cfg = (compositeKey && STATUS_MAP[compositeKey]) || STATUS_MAP[status];
+
       if (!cfg) {
         title.textContent     = "Status: " + status;
         sub.textContent       = "Secure capture in progress";
@@ -569,24 +789,60 @@
 
       applyStatus(cfg, errMsg);
 
-      if (masked) {
+      // ── Result section ─────────────────────────────────────────────────
+      const hasAnyResult = masked
+        || attrs.dtmf_cvv_masked
+        || attrs.dtmf_expiry_masked
+        || attrs.dtmf_sort_code_masked
+        || attrs.dtmf_account_number_masked;
+
+      if (hasAnyResult) {
         resultSection.classList.add("visible");
-        resultMasked.textContent = formatMasked(masked, purpose);
-        resultType.textContent   = cardType || "\u2014";
+
+        // Card number / generic masked value
+        if (masked) {
+          resultMasked.textContent = formatCardMasked(masked, purpose);
+        }
+        resultCardType.textContent = cardType || "\u2014";
+
+        // CVV
+        const cvvMasked = (attrs.dtmf_cvv_masked || "").trim();
+        if (cvvMasked) document.getElementById("result-cvv").textContent = "\u2022\u2022\u2022";
+
+        // Expiry
+        const expiryMasked = (attrs.dtmf_expiry_masked || "").trim();
+        if (expiryMasked) {
+          const fmt = expiryMasked.replace(/^(\d{2})(\d{2})$/, "$1/$2");
+          document.getElementById("result-expiry").textContent = fmt || expiryMasked;
+        }
+
+        // Sort code
+        const scMasked = (attrs.dtmf_sort_code_masked || "").trim();
+        if (scMasked) {
+          document.getElementById("result-sort-code").textContent =
+            scMasked.replace(/^(\d{2})(\d{2})(\d{2})$/, "$1-$2-$3") || scMasked;
+        }
+
+        // Account number
+        const accMasked = (attrs.dtmf_account_number_masked || "").trim();
+        if (accMasked) {
+          document.getElementById("result-account-number").textContent =
+            "\u2022".repeat(Math.max(0, accMasked.length - 4)) + accMasked.slice(-4);
+        }
+
         const valOk = valRes.includes("pass") || valRes === "complete" || valRes === "valid";
-        resultVal.textContent    = valRes    || "\u2014";
-        resultVal.className      = "result-value " + (valOk ? "ok" : "bad");
+        resultVal.textContent = valRes || "\u2014";
+        resultVal.className   = "result-value " + (valOk ? "ok" : "bad");
       } else {
         resultSection.classList.remove("visible");
       }
     }
 
     function applyStatus(cfg, errMsg) {
-      const badge = purposeBadge.outerHTML;
-      title.innerHTML   = cfg.title + " " + badge;
-      sub.textContent   = errMsg || cfg.sub;
-      icon.textContent  = cfg.icon;
-      icon.className    = "status-icon" + (cfg.spin ? " spin" : "");
+      title.innerHTML = cfg.title + "&nbsp;" + purposeBadge.outerHTML;
+      sub.textContent = errMsg || cfg.sub;
+      icon.textContent = cfg.icon;
+      icon.className   = "status-icon" + (cfg.spin ? " spin" : "");
       fill.style.width    = cfg.progress + "%";
       fill.style.background = cfg.cls === "success" ? "var(--success)"
                             : cfg.cls === "error"   ? "var(--error)"
@@ -596,25 +852,22 @@
 
       Object.keys(steps).forEach(function(key) {
         const el = steps[key];
+        if (!el) return;
         el.className = "step";
         if (cfg.done && cfg.done.includes(key)) el.className = "step done";
         if (cfg.current === key)                el.className = "step current" + (cfg.isError ? " error" : "");
       });
     }
 
-    function formatMasked(raw, purpose) {
+    function formatCardMasked(raw, purpose) {
       if (!purpose || purpose === "generic") return raw;
-      if (purpose === "full_card_number") {
-        // Show last 4 unmasked
+      if (purpose === "full_card_number" || purpose === "full_card_with_cvv") {
         if (raw.length >= 4) return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw.slice(-4);
         return raw;
       }
       if (purpose === "card_last_four") return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw;
-      if (purpose === "cvv")   return "\u2022".repeat(raw.length || 3);
-      if (purpose === "pin")   return "\u2022".repeat(raw.length || 4);
-      if (purpose === "ssn")   return "\u2022\u2022\u2022-\u2022\u2022-" + raw.slice(-4);
-      if (purpose === "sort_code")      return raw.replace(/(\d{2})(\d{2})(\d{2})/, "$1-$2-$3") || raw;
-      if (purpose === "account_number") return "\u2022".repeat(Math.max(0, raw.length - 4)) + raw.slice(-4);
+      if (purpose === "pin") return "\u2022".repeat(raw.length || 4);
+      if (purpose === "ssn") return "\u2022\u2022\u2022-\u2022\u2022-" + raw.slice(-4);
       return raw;
     }
 
@@ -625,7 +878,7 @@
     function showIdle() {
       card.style.display = "none";
       idlePlaceholder.style.display = "";
-      Object.values(steps).forEach(function(el) { el.className = "step"; });
+      Object.values(steps).forEach(function(el) { if (el) el.className = "step"; });
       resultSection.classList.remove("visible");
       fill.style.width = "0%";
     }
@@ -646,19 +899,16 @@
         const resp = await fetch(
           STATUS_PROXY_URL + "?contactId=" + encodeURIComponent(CONTACT_ID)
         );
-
         if (resp.status === 404) {
           setPollStatus("\u26ab Contact ended");
           stopPolling();
           setTimeout(resetToDiscovery, 4000);
           return;
         }
-
         if (!resp.ok) {
           setPollStatus("\u26a0\ufe0f Error " + resp.status);
           return;
         }
-
         const data = await resp.json();
         setPollStatus("\ud83d\udfe2 Live");
         renderStatus(data);
@@ -680,7 +930,6 @@
           stopPolling();
           pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
         }
-
       } catch (err) {
         setPollStatus("\u26a0\ufe0f Network error");
         console.error("DTMF panel poll error:", err);
@@ -691,6 +940,7 @@
       stopPolling();
       terminalAt = null;
       lastStatus = "";
+      activePurpose = "";
       setPollStatus("\ud83d\udd04 Polling\u2026");
       doPoll();
       pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
@@ -699,7 +949,6 @@
     function stopPolling() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
-
     function stopDiscovery() {
       if (discoveryTimer) { clearInterval(discoveryTimer); discoveryTimer = null; }
     }
@@ -707,22 +956,22 @@
     function resetToDiscovery() {
       stopPolling();
       stopDiscovery();
-      CONTACT_ID = "";
-      lastStatus  = "";
-      terminalAt  = null;
+      CONTACT_ID    = "";
+      lastStatus    = "";
+      terminalAt    = null;
+      activePurpose = "";
       showIdle();
       startDiscovery();
     }
 
     // ── AUTO-DISCOVERY ────────────────────────────────────────────────────
-    // When no contactId is in the URL, poll /dtmf-active every 2 s to detect
-    // when the Connect flow writes an ACTIVE session record to DynamoDB.
     function startDiscovery() {
       stopDiscovery();
       stopPolling();
-      CONTACT_ID = "";
-      lastStatus  = "";
-      terminalAt  = null;
+      CONTACT_ID    = "";
+      lastStatus    = "";
+      terminalAt    = null;
+      activePurpose = "";
       setPollStatus("\ud83d\udd0d Watching for session\u2026");
       idlePlaceholder.innerHTML = [
         '<div class="idle-icon">\ud83d\udd12</div>',
