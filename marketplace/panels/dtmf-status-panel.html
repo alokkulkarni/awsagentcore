@@ -579,53 +579,81 @@
         done: [], current: "waiting", isError: true,
       },
 
+      // ── Single-step purpose-specific "what is being captured" labels ─────
+      // These override the generic "Customer entering digits" for each purpose
+      "full_card_number__waiting_for_input": {
+        title: "Entering card number",
+        sub:   "Customer is entering their 16-digit card number on the secure keypad",
+        icon: "\ud83d\udcb3", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+      "full_card_number__processing": {
+        title: "Decrypting and checking card\u2026",
+        sub:   "Running Luhn check and BIN lookup",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 55,
+        done: ["waiting","collecting"], current: "decrypting",
+      },
+      "card_last_four__waiting_for_input": {
+        title: "Entering last 4 digits",
+        sub:   "Customer is entering the last 4 digits of their card number",
+        icon: "\ud83d\udcb3", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+      "pin__waiting_for_input": {
+        title: "Entering PIN",
+        sub:   "Customer is entering their PIN on the secure keypad \u2014 you will not hear the digits",
+        icon: "\ud83d\udd22", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+      "pin__processing": {
+        title: "Processing PIN\u2026",
+        sub:   "Decrypting and verifying PIN",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 55,
+        done: ["waiting","collecting"], current: "decrypting",
+      },
+      "ssn__waiting_for_input": {
+        title: "Entering Social Security Number",
+        sub:   "Customer is entering their 9-digit SSN on the secure keypad",
+        icon: "\ud83c\uddfa\ud83c\uddf8", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+      "ssn__processing": {
+        title: "Processing SSN\u2026",
+        sub:   "Decrypting and verifying social security number",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 55,
+        done: ["waiting","collecting"], current: "decrypting",
+      },
+      "generic__waiting_for_input": {
+        title: "Entering secure digits",
+        sub:   "Customer is entering the requested digits on the secure keypad",
+        icon: "\ud83d\udd22", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+
       // ── full_card_with_cvv — multi-step overrides ─────────────────────────
-      "full_card_with_cvv__waiting_for_input": {
-        title: "Enter card number",
-        sub:   "Customer is entering their 16-digit card number (step 1 of 3)",
+      // New simplified flow: capture card → cvv → expiry, then single combined Lambda
+      "full_card_with_cvv__waiting_for_card": {
+        title: "\ud83d\udcb3 Entering card number \u2014 step 1 of 3",
+        sub:   "Customer is entering their 16-digit card number on the secure keypad",
         icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 10,
         done: ["ready"], current: "card",
       },
-      "full_card_with_cvv__processing_card": {
-        title: "Checking card number\u2026",
-        sub:   "Decrypting and running Luhn check",
-        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 25,
-        done: ["ready"], current: "card",
-      },
-      "full_card_with_cvv__validating_card_format": {
-        title: "Verifying card number format\u2026",
-        sub:   "Luhn check in progress",
-        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 30,
-        done: ["ready"], current: "card",
-      },
       "full_card_with_cvv__waiting_for_cvv": {
-        title: "Enter security code (CVV)",
-        sub:   "Customer is entering their CVV from the back of the card (step 2 of 3)",
-        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 40,
-        done: ["ready","card"], current: "cvv",
-      },
-      "full_card_with_cvv__processing_cvv": {
-        title: "Processing CVV\u2026",
-        sub:   "Decrypting security code",
-        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 52,
+        title: "\ud83d\udd12 Entering security code \u2014 step 2 of 3",
+        sub:   "Customer is entering the 3-digit CVV from the back of their card",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 38,
         done: ["ready","card"], current: "cvv",
       },
       "full_card_with_cvv__waiting_for_expiry": {
-        title: "Enter expiry date",
-        sub:   "Customer is entering their 4-digit expiry date MMYY (step 3 of 3)",
+        title: "\ud83d\udcc5 Entering expiry date \u2014 step 3 of 3",
+        sub:   "Customer is entering their 4-digit expiry date (MMYY)",
         icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 62,
         done: ["ready","card","cvv"], current: "expiry",
       },
-      "full_card_with_cvv__processing_expiry": {
-        title: "Processing expiry date\u2026",
-        sub:   "Decrypting expiry",
-        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 72,
-        done: ["ready","card","cvv"], current: "expiry",
-      },
-      "full_card_with_cvv__validating": {
-        title: "Validating all card details\u2026",
-        sub:   "BIN lookup, ownership check, CVV and expiry verification",
-        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 82,
+      "full_card_with_cvv__processing": {
+        title: "Decrypting and validating all card details\u2026",
+        sub:   "Running Luhn check, BIN lookup, CVV and expiry verification together",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 82,
         done: ["ready","card","cvv","expiry"], current: "validate",
       },
       "full_card_with_cvv__validation_failed": {
@@ -660,34 +688,23 @@
       },
 
       // ── uk_bank_account — multi-step overrides ────────────────────────────
+      // Simplified flow: capture sort code → account number, then single combined Lambda
       "uk_bank_account__waiting_for_sort_code": {
-        title: "Enter sort code",
-        sub:   "Customer is entering their 6-digit sort code (step 1 of 2)",
-        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 15,
-        done: ["ready"], current: "sort_code",
-      },
-      "uk_bank_account__processing_sort_code": {
-        title: "Processing sort code\u2026",
-        sub:   "Decrypting sort code",
-        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 30,
+        title: "\ud83c\udfe6 Entering sort code \u2014 step 1 of 2",
+        sub:   "Customer is entering their 6-digit bank sort code on the secure keypad",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 20,
         done: ["ready"], current: "sort_code",
       },
       "uk_bank_account__waiting_for_account_number": {
-        title: "Enter account number",
-        sub:   "Customer is entering their bank account number (step 2 of 2)",
-        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 45,
+        title: "\ud83c\udfe6 Entering account number \u2014 step 2 of 2",
+        sub:   "Customer is entering their bank account number on the secure keypad",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 48,
         done: ["ready","sort_code"], current: "account",
       },
-      "uk_bank_account__processing_account_number": {
-        title: "Processing account number\u2026",
-        sub:   "Decrypting account number",
-        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 60,
-        done: ["ready","sort_code"], current: "account",
-      },
-      "uk_bank_account__validating": {
-        title: "Validating banking details\u2026",
-        sub:   "Checking sort code and account number format",
-        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 78,
+      "uk_bank_account__processing": {
+        title: "Decrypting and validating banking details\u2026",
+        sub:   "Sort code and account number are being decrypted and verified together",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 78,
         done: ["ready","sort_code","account"], current: "validate",
       },
       "uk_bank_account__validation_failed": {
