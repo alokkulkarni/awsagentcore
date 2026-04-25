@@ -1,0 +1,890 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "ffaed496-c8ba-4ffb-a63f-c0d3530a0838",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 20,
+      "y": 20
+    },
+    "ActionMetadata": {
+      "ffaed496-c8ba-4ffb-a63f-c0d3530a0838": {
+        "position": {
+          "x": 200,
+          "y": 20
+        }
+      },
+      "f2e726a9-e35d-4447-8d9a-b8b42ced560b": {
+        "position": {
+          "x": 200,
+          "y": 140
+        }
+      },
+      "98349838-2df0-4724-a70e-b9bd337eae6a": {
+        "position": {
+          "x": 200,
+          "y": 260
+        }
+      },
+      "f217035e-4fa6-4c43-b7a4-55b05bb2fa15": {
+        "position": {
+          "x": 200,
+          "y": 380
+        }
+      },
+      "16bda345-25e2-4fe0-b9a7-b696455d39e6": {
+        "position": {
+          "x": 200,
+          "y": 500
+        }
+      },
+      "62464147-794a-4f0f-8a7c-3b8ba1b666be": {
+        "position": {
+          "x": 200,
+          "y": 620
+        }
+      },
+      "8650fc7a-6a32-437c-a98f-2c0c0c0e7eaf": {
+        "position": {
+          "x": 200,
+          "y": 740
+        }
+      },
+      "3190a52e-d72d-4917-9f11-970eb0f89644": {
+        "position": {
+          "x": 200,
+          "y": 860
+        }
+      },
+      "ed7f583e-0e5e-4640-9e38-14d778bfd3ee": {
+        "position": {
+          "x": 480,
+          "y": 20
+        }
+      },
+      "3ba845a7-4d10-4d36-8c87-0729a6bc95c7": {
+        "position": {
+          "x": 480,
+          "y": 140
+        }
+      },
+      "2d1c9984-e1ea-4060-a04f-34c96c241d77": {
+        "position": {
+          "x": 480,
+          "y": 260
+        }
+      },
+      "0b16e01f-e110-41ba-9d77-5f01691d6710": {
+        "position": {
+          "x": 480,
+          "y": 380
+        }
+      },
+      "603799cb-163b-4181-87f3-81be68d16ecf": {
+        "position": {
+          "x": 480,
+          "y": 500
+        }
+      },
+      "d4735e90-1c60-4f6b-b7e2-2ed9418477b4": {
+        "position": {
+          "x": 480,
+          "y": 620
+        }
+      },
+      "61c6a260-6032-4bb8-9002-ec1aab4b6542": {
+        "position": {
+          "x": 480,
+          "y": 740
+        }
+      },
+      "06688c28-03d3-482d-a1fa-e862f38e6c8e": {
+        "position": {
+          "x": 480,
+          "y": 860
+        }
+      },
+      "a81a189e-75c5-413f-89d0-81b84793e4fa": {
+        "position": {
+          "x": 760,
+          "y": 20
+        }
+      },
+      "d6e29981-8492-4942-9a5d-aed74fb7f8e7": {
+        "position": {
+          "x": 760,
+          "y": 140
+        }
+      },
+      "bf40f968-cbb8-43a8-8b47-00b6387a79b2": {
+        "position": {
+          "x": 760,
+          "y": 260
+        }
+      },
+      "b716f536-2921-43ef-a475-450bd7adc9d5": {
+        "position": {
+          "x": 760,
+          "y": 380
+        }
+      },
+      "6222f507-c772-4a66-b9b4-f6fe3fa47dd8": {
+        "position": {
+          "x": 760,
+          "y": 500
+        }
+      },
+      "aeacfc79-1df7-4da1-9630-e6fd58ce5e74": {
+        "position": {
+          "x": 760,
+          "y": 620
+        }
+      },
+      "c7adda07-832e-42f6-a78a-b7cd53ef143e": {
+        "position": {
+          "x": 760,
+          "y": 740
+        }
+      },
+      "b1a8085a-5c72-470f-9992-50c7e7daebf6": {
+        "position": {
+          "x": 760,
+          "y": 860
+        }
+      },
+      "b913eab7-5644-4ebc-bba5-5febea512b41": {
+        "position": {
+          "x": 1040,
+          "y": 20
+        }
+      },
+      "afc7ca39-aa3d-4dc6-8c50-c3d8bd436662": {
+        "position": {
+          "x": 1040,
+          "y": 140
+        }
+      },
+      "fe50cac1-a294-4e0d-881e-80730bc32a77": {
+        "position": {
+          "x": 1040,
+          "y": 260
+        }
+      },
+      "feba6ea7-f164-4492-a7a1-55789d186000": {
+        "position": {
+          "x": 1040,
+          "y": 380
+        }
+      },
+      "b541cfd2-965b-4ea6-a6fb-36b8a668895f": {
+        "position": {
+          "x": 1040,
+          "y": 500
+        }
+      },
+      "f1f58ea1-4ef6-475a-a0eb-b1663a84d2b7": {
+        "position": {
+          "x": 1040,
+          "y": 620
+        }
+      },
+      "760c032d-d18a-4c35-baf7-f6cdb8019e97": {
+        "position": {
+          "x": 1040,
+          "y": 740
+        }
+      },
+      "e34408d8-4f65-4f8c-9695-d7d750bfd6ea": {
+        "position": {
+          "x": 1040,
+          "y": 860
+        }
+      },
+      "1a3db50d-ea6b-4f16-8b23-107ea19b3170": {
+        "position": {
+          "x": 1320,
+          "y": 20
+        }
+      },
+      "f855442d-251a-4aaf-9222-0c1f7f588968": {
+        "position": {
+          "x": 1320,
+          "y": 140
+        }
+      },
+      "6093225b-18b9-4d07-ae63-93e3589e1505": {
+        "position": {
+          "x": 1320,
+          "y": 260
+        }
+      },
+      "ddc830e9-49fa-45d2-896f-ec87a039ef1e": {
+        "position": {
+          "x": 1320,
+          "y": 380
+        }
+      },
+      "3d68a1cd-68f0-4dbf-8c9e-c82f49bea384": {
+        "position": {
+          "x": 1320,
+          "y": 500
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Parameters": {
+        "ComparisonValue": "$.Channel"
+      },
+      "Identifier": "ffaed496-c8ba-4ffb-a63f-c0d3530a0838",
+      "Type": "Compare",
+      "Transitions": {
+        "NextAction": "f2e726a9-e35d-4447-8d9a-b8b42ced560b",
+        "Conditions": [
+          {
+            "NextAction": "f217035e-4fa6-4c43-b7a4-55b05bb2fa15",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "VOICE"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "f2e726a9-e35d-4447-8d9a-b8b42ced560b",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "I'm sorry, secure input is only available over the phone. Please call us to complete this securely."
+      },
+      "Identifier": "f2e726a9-e35d-4447-8d9a-b8b42ced560b",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "98349838-2df0-4724-a70e-b9bd337eae6a",
+        "Errors": [
+          {
+            "NextAction": "98349838-2df0-4724-a70e-b9bd337eae6a",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "98349838-2df0-4724-a70e-b9bd337eae6a",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_START_SESSION",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Identifier": "f217035e-4fa6-4c43-b7a4-55b05bb2fa15",
+      "Type": "InvokeLambdaFunction",
+      "Transitions": {
+        "NextAction": "16bda345-25e2-4fe0-b9a7-b696455d39e6",
+        "Errors": [
+          {
+            "NextAction": "98349838-2df0-4724-a70e-b9bd337eae6a",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_result": "pending",
+          "dtmf_status": "waiting_for_input",
+          "dtmf_requires_escalation": "false",
+          "collection_purpose": "sort_code"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "16bda345-25e2-4fe0-b9a7-b696455d39e6",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "62464147-794a-4f0f-8a7c-3b8ba1b666be",
+        "Errors": [
+          {
+            "NextAction": "98349838-2df0-4724-a70e-b9bd337eae6a",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "62464147-794a-4f0f-8a7c-3b8ba1b666be",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "ed7f583e-0e5e-4640-9e38-14d778bfd3ee",
+        "Errors": [
+          {
+            "NextAction": "8650fc7a-6a32-437c-a98f-2c0c0c0e7eaf",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "We were unable to place your advisor on hold. Please call back and try again."
+      },
+      "Identifier": "8650fc7a-6a32-437c-a98f-2c0c0c0e7eaf",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "3190a52e-d72d-4917-9f11-970eb0f89644",
+        "Errors": [
+          {
+            "NextAction": "3190a52e-d72d-4917-9f11-970eb0f89644",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "3190a52e-d72d-4917-9f11-970eb0f89644",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "Your agent will now be placed on hold while you securely enter your information."
+      },
+      "Identifier": "ed7f583e-0e5e-4640-9e38-14d778bfd3ee",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "3ba845a7-4d10-4d36-8c87-0729a6bc95c7",
+        "Errors": [
+          {
+            "NextAction": "3190a52e-d72d-4917-9f11-970eb0f89644",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "AgentOnHold"
+      },
+      "Identifier": "3ba845a7-4d10-4d36-8c87-0729a6bc95c7",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "2d1c9984-e1ea-4060-a04f-34c96c241d77",
+        "Errors": [
+          {
+            "NextAction": "8650fc7a-6a32-437c-a98f-2c0c0c0e7eaf",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "StoreInput": "True",
+        "InputTimeLimitSeconds": "30",
+        "Text": "Agent is now on hold. Please enter your 6-digit sort code using your keypad, followed by the hash key. Do not include dashes or spaces.",
+        "DTMFConfiguration": {
+          "DisableCancelKey": "False",
+          "InputTerminationSequence": "#",
+          "InterdigitTimeLimitSeconds": "5"
+        },
+        "InputValidation": {
+          "CustomValidation": {
+            "MaximumLength": "6"
+          }
+        },
+        "InputEncryption": {
+          "EncryptionKeyId": "REPLACE_WITH_CONNECT_SECURITY_KEY_ID",
+          "Key": "REPLACE_WITH_PUBLIC_KEY_CERTIFICATE_PEM"
+        }
+      },
+      "Identifier": "2d1c9984-e1ea-4060-a04f-34c96c241d77",
+      "Type": "GetParticipantInput",
+      "Transitions": {
+        "NextAction": "603799cb-163b-4181-87f3-81be68d16ecf",
+        "Errors": [
+          {
+            "NextAction": "0b16e01f-e110-41ba-9d77-5f01691d6710",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "0b16e01f-e110-41ba-9d77-5f01691d6710",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_encrypted_input": "$.StoredCustomerInput",
+          "dtmf_status": "processing"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "603799cb-163b-4181-87f3-81be68d16ecf",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "d4735e90-1c60-4f6b-b7e2-2ed9418477b4",
+        "Errors": [
+          {
+            "NextAction": "0b16e01f-e110-41ba-9d77-5f01691d6710",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_DECRYPT",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "encryptedValue": "$.Attributes.dtmf_encrypted_input",
+          "purpose": "sort_code",
+          "keyId": "REPLACE_WITH_CONNECT_SECURITY_KEY_ID"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Identifier": "d4735e90-1c60-4f6b-b7e2-2ed9418477b4",
+      "Type": "InvokeLambdaFunction",
+      "Transitions": {
+        "NextAction": "bf40f968-cbb8-43a8-8b47-00b6387a79b2",
+        "Errors": [
+          {
+            "NextAction": "61c6a260-6032-4bb8-9002-ec1aab4b6542",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_status": "system_error"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "61c6a260-6032-4bb8-9002-ec1aab4b6542",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "06688c28-03d3-482d-a1fa-e862f38e6c8e",
+        "Errors": [
+          {
+            "NextAction": "06688c28-03d3-482d-a1fa-e862f38e6c8e",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "06688c28-03d3-482d-a1fa-e862f38e6c8e",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "a81a189e-75c5-413f-89d0-81b84793e4fa",
+        "Errors": [
+          {
+            "NextAction": "a81a189e-75c5-413f-89d0-81b84793e4fa",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "We are experiencing a technical issue. We will transfer you back to your advisor now."
+      },
+      "Identifier": "a81a189e-75c5-413f-89d0-81b84793e4fa",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "d6e29981-8492-4942-9a5d-aed74fb7f8e7",
+        "Errors": [
+          {
+            "NextAction": "d6e29981-8492-4942-9a5d-aed74fb7f8e7",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "d6e29981-8492-4942-9a5d-aed74fb7f8e7",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_masked": "$.External.maskedValue",
+          "dtmf_digit_count": "$.External.digitCount",
+          "dtmf_status": "validating"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "bf40f968-cbb8-43a8-8b47-00b6387a79b2",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "b716f536-2921-43ef-a475-450bd7adc9d5",
+        "Errors": [
+          {
+            "NextAction": "d6e29981-8492-4942-9a5d-aed74fb7f8e7",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:REGION:ACCOUNT:function:PLACEHOLDER_VALIDATE",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "purpose": "sort_code",
+          "digitCount": "$.Attributes.dtmf_digit_count"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Identifier": "b716f536-2921-43ef-a475-450bd7adc9d5",
+      "Type": "InvokeLambdaFunction",
+      "Transitions": {
+        "NextAction": "b913eab7-5644-4ebc-bba5-5febea512b41",
+        "Errors": [
+          {
+            "NextAction": "6222f507-c772-4a66-b9b4-f6fe3fa47dd8",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_status": "system_error"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "6222f507-c772-4a66-b9b4-f6fe3fa47dd8",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "aeacfc79-1df7-4da1-9630-e6fd58ce5e74",
+        "Errors": [
+          {
+            "NextAction": "aeacfc79-1df7-4da1-9630-e6fd58ce5e74",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "aeacfc79-1df7-4da1-9630-e6fd58ce5e74",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "c7adda07-832e-42f6-a78a-b7cd53ef143e",
+        "Errors": [
+          {
+            "NextAction": "c7adda07-832e-42f6-a78a-b7cd53ef143e",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "We are experiencing a technical issue. We will transfer you back to your advisor now."
+      },
+      "Identifier": "c7adda07-832e-42f6-a78a-b7cd53ef143e",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "b1a8085a-5c72-470f-9992-50c7e7daebf6",
+        "Errors": [
+          {
+            "NextAction": "b1a8085a-5c72-470f-9992-50c7e7daebf6",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "b1a8085a-5c72-470f-9992-50c7e7daebf6",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "ComparisonValue": "$.External.isValid"
+      },
+      "Identifier": "b913eab7-5644-4ebc-bba5-5febea512b41",
+      "Type": "Compare",
+      "Transitions": {
+        "NextAction": "6093225b-18b9-4d07-ae63-93e3589e1505",
+        "Conditions": [
+          {
+            "NextAction": "afc7ca39-aa3d-4dc6-8c50-c3d8bd436662",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "true"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "6093225b-18b9-4d07-ae63-93e3589e1505",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_validation_status": "$.External.validationStatus",
+          "dtmf_requires_escalation": "$.External.requiresEscalation"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "afc7ca39-aa3d-4dc6-8c50-c3d8bd436662",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "fe50cac1-a294-4e0d-881e-80730bc32a77",
+        "Errors": [
+          {
+            "NextAction": "98349838-2df0-4724-a70e-b9bd337eae6a",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "ComparisonValue": "$.External.validationStatus"
+      },
+      "Identifier": "fe50cac1-a294-4e0d-881e-80730bc32a77",
+      "Type": "Compare",
+      "Transitions": {
+        "NextAction": "b541cfd2-965b-4ea6-a6fb-36b8a668895f",
+        "Conditions": [
+          {
+            "NextAction": "feba6ea7-f164-4492-a7a1-55789d186000",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "not_customer_card"
+              ]
+            }
+          },
+          {
+            "NextAction": "e34408d8-4f65-4f8c-9695-d7d750bfd6ea",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "invalid_luhn"
+              ]
+            }
+          },
+          {
+            "NextAction": "e34408d8-4f65-4f8c-9695-d7d750bfd6ea",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "invalid_bin"
+              ]
+            }
+          },
+          {
+            "NextAction": "e34408d8-4f65-4f8c-9695-d7d750bfd6ea",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "invalid_length"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "b541cfd2-965b-4ea6-a6fb-36b8a668895f",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_result": "not_authorised",
+          "dtmf_status": "escalating",
+          "dtmf_requires_escalation": "true"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "feba6ea7-f164-4492-a7a1-55789d186000",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "b541cfd2-965b-4ea6-a6fb-36b8a668895f",
+        "Errors": [
+          {
+            "NextAction": "e34408d8-4f65-4f8c-9695-d7d750bfd6ea",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "Thank you. Your sort code has been securely captured. Reconnecting you with your advisor now."
+      },
+      "Identifier": "b541cfd2-965b-4ea6-a6fb-36b8a668895f",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "f1f58ea1-4ef6-475a-a0eb-b1663a84d2b7",
+        "Errors": [
+          {
+            "NextAction": "760c032d-d18a-4c35-baf7-f6cdb8019e97",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "f1f58ea1-4ef6-475a-a0eb-b1663a84d2b7",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "760c032d-d18a-4c35-baf7-f6cdb8019e97",
+        "Errors": [
+          {
+            "NextAction": "760c032d-d18a-4c35-baf7-f6cdb8019e97",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "760c032d-d18a-4c35-baf7-f6cdb8019e97",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "I'm sorry, the sort code entered could not be verified. Connecting you with your advisor."
+      },
+      "Identifier": "e34408d8-4f65-4f8c-9695-d7d750bfd6ea",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "1a3db50d-ea6b-4f16-8b23-107ea19b3170",
+        "Errors": [
+          {
+            "NextAction": "f855442d-251a-4aaf-9222-0c1f7f588968",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "1a3db50d-ea6b-4f16-8b23-107ea19b3170",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "f855442d-251a-4aaf-9222-0c1f7f588968",
+        "Errors": [
+          {
+            "NextAction": "f855442d-251a-4aaf-9222-0c1f7f588968",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "f855442d-251a-4aaf-9222-0c1f7f588968",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "dtmf_requires_escalation": "true",
+          "dtmf_escalation_reason": "ownership_mismatch",
+          "dtmf_status": "ownership_mismatch"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "6093225b-18b9-4d07-ae63-93e3589e1505",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "ddc830e9-49fa-45d2-896f-ec87a039ef1e",
+        "Errors": [
+          {
+            "NextAction": "3d68a1cd-68f0-4dbf-8c9e-c82f49bea384",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "PreviousContactParticipantState": "OffHold"
+      },
+      "Identifier": "ddc830e9-49fa-45d2-896f-ec87a039ef1e",
+      "Type": "UpdatePreviousContactParticipantState",
+      "Transitions": {
+        "NextAction": "3d68a1cd-68f0-4dbf-8c9e-c82f49bea384",
+        "Errors": [
+          {
+            "NextAction": "3d68a1cd-68f0-4dbf-8c9e-c82f49bea384",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "3d68a1cd-68f0-4dbf-8c9e-c82f49bea384",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    }
+  ]
+}

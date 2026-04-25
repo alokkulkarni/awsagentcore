@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<!--
+  marketplace/panels/dtmf-status-panel.html
+  ══════════════════════════════════════════════════════════════════════════════
+  DTMF Real-Time Status Panel — Amazon Connect Agent Workspace (Marketplace Template)
+
+  PURPOSE
+  ───────
+  This panel is displayed in the Amazon Connect Agent Workspace as a custom tab
+  or popup window. It polls a lightweight Lambda proxy (aria-dtmf-status-proxy)
+  every 2 seconds to read the DTMF contact attributes set by the validation
+  Lambda, then renders a live, colour-coded view of the secure capture in
+  progress. Supports all 8 ARIA collection purposes:
+    full_card_number | card_last_four | cvv | pin | ssn | account_number |
+    sort_code | generic
+
+  HOW IT WORKS
+  ────────────
+  1. Amazon Connect Agent Workspace injects the current contact ID into the
+     app URL as a query parameter (configured in Application integration):
+       https://<your-cdn>/dtmf-panel/index.html?contactId=${connectContact.contactId}
+  2. The panel reads contactId from URLSearchParams on load.
+  3. It polls the status proxy every 2 s using fetch().
+  4. The proxy returns the DTMF contact attributes; the panel maps dtmf_status
+     to a colour, icon and progress bar.
+  5. After a terminal status (complete / failed / timeout) the panel slows to
+     one poll per 5 s and shows results for 15 s before resetting.
+
+  CONTACT ATTRIBUTES READ
+  ───────────────────────
+    dtmf_status             — current phase of collection
+    dtmf_masked             — masked digits e.g. •••• •••• •••• 4821
+    dtmf_card_type          — VISA DEBIT, MASTERCARD CREDIT, … (card flows only)
+    dtmf_validation_status  — luhn_pass / bin_pass / ownership_pass / …
+    dtmf_error              — human-readable error message if failed
+    collection_purpose      — what was being collected (card_last_four etc.)
+
+  CONFIGURATION
+  ─────────────
+  Replace these two placeholders before deploying:
+
+    REPLACE_WITH_STATUS_API_URL
+      → Full URL of the /dtmf-status endpoint on your API Gateway
+      → Example: https://abc123.execute-api.eu-west-2.amazonaws.com/dtmf-status
+
+    REPLACE_WITH_ACTIVE_API_URL
+      → Full URL of the /dtmf-active endpoint on your API Gateway
+      → Example: https://abc123.execute-api.eu-west-2.amazonaws.com/dtmf-active
+
+  HOSTING
+  ───────
+  Upload this file to an S3 bucket served via CloudFront.
+  The deploy_dtmf_lambda.sh deploy-panel command handles this automatically.
+
+  DEPLOY INSTRUCTIONS (manual)
+  ──────────────────────────────────────
+  1. Run: ./scripts/deploy_dtmf_lambda.sh deploy-panel
+     This creates the proxy Lambda, API Gateway, S3 bucket, and CloudFront
+     distribution, then patches the placeholders and uploads the HTML.
+  2. In Amazon Connect console:
+       a. Go to  Amazon Connect → Your instance → Approved origins → Add domain
+          Domain: https://YOUR-CDN-DOMAIN
+       b. Go to  Application integration → Add integration
+            Application name:  DTMF Status Panel
+            URL:               https://YOUR-CDN/dtmf-panel/index.html?contactId=${connectContact.contactId}
+            Application scope: Contact  (refreshes per call)
+  3. Assign the "DTMF Status Panel" app to the agent's security profile.
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DTMF Secure Capture — Live Status</title>
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:    #0073bb;
+      --idle:     #8c8c8c;
+      --waiting:  #d4a017;
+      --active:   #0073bb;
+      --success:  #2ea44f;
+      --error:    #cf222e;
+      --warn:     #d4a017;
+      --bg:       #f6f8fa;
+      --card-bg:  #ffffff;
+      --radius:   10px;
+      --shadow:   0 2px 8px rgba(0,0,0,0.10);
+      --font:     -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: #24292f;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────────── */
+    .header {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .header-logo {
+      width: 32px; height: 32px;
+      background: var(--brand);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .header-logo svg { width: 18px; height: 18px; fill: #fff; }
+    .header h1 { font-size: 15px; font-weight: 700; color: var(--brand); }
+    .header p  { font-size: 11px; color: var(--idle); margin-top: 1px; }
+
+    /* ── Status card ──────────────────────────────────────────────────────── */
+    .status-card {
+      width: 100%; max-width: 480px;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+
+    .status-card.active   { box-shadow: 0 0 0 3px var(--active),   var(--shadow); }
+    .status-card.success  { box-shadow: 0 0 0 3px var(--success),  var(--shadow); }
+    .status-card.error    { box-shadow: 0 0 0 3px var(--error),    var(--shadow); }
+    .status-card.warning  { box-shadow: 0 0 0 3px var(--warn),     var(--shadow); }
+
+    .status-header {
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-icon {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: #f6f8fa;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .status-icon.spin { animation: spin 1.2s linear infinite; }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    .status-text h2 {
+      font-size: 15px; font-weight: 600;
+      transition: color 0.3s;
+    }
+    .status-text p {
+      font-size: 12px; color: var(--idle);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    /* ── Purpose badge ────────────────────────────────────────────────────── */
+    .purpose-badge {
+      display: inline-block;
+      background: #ddf4ff;
+      color: #0550ae;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    /* ── Progress bar ─────────────────────────────────────────────────────── */
+    .progress-bar-track {
+      height: 4px; background: #eaeef2;
+    }
+    .progress-bar-fill {
+      height: 100%; width: 0%;
+      background: var(--brand);
+      transition: width 0.4s ease, background 0.3s;
+    }
+
+    /* ── Result section ───────────────────────────────────────────────────── */
+    .result-section {
+      padding: 12px 16px;
+      border-top: 1px solid #eaeef2;
+      display: none;
+    }
+    .result-section.visible { display: block; }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .result-label { color: var(--idle); font-weight: 500; }
+    .result-value { font-weight: 600; font-family: "SF Mono", "Fira Code", monospace; }
+    .result-value.masked { letter-spacing: 2px; }
+    .result-value.card-type {
+      background: #ddf4ff;
+      color: #0550ae;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-family: var(--font);
+      font-size: 11px;
+    }
+    .result-value.ok  { color: var(--success); }
+    .result-value.bad { color: var(--error); }
+
+    /* ── Step timeline ────────────────────────────────────────────────────── */
+    .timeline {
+      padding: 12px 16px;
+      border-top: 1px solid #eaeef2;
+    }
+    .timeline h3 {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--idle);
+      margin-bottom: 8px;
+    }
+    .step {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 0;
+      font-size: 12px;
+      opacity: 0.35;
+      transition: opacity 0.3s;
+    }
+    .step.done    { opacity: 1; }
+    .step.current { opacity: 1; font-weight: 600; }
+    .step.error   { opacity: 1; color: var(--error); }
+
+    .step-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .step.done    .step-dot { background: var(--success); }
+    .step.current .step-dot { background: var(--active); }
+    .step.error   .step-dot { background: var(--error); }
+
+    /* ── Idle placeholder ─────────────────────────────────────────────────── */
+    .idle-placeholder {
+      width: 100%; max-width: 480px;
+      text-align: center;
+      margin-top: 20px;
+      color: var(--idle);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .idle-placeholder .idle-icon { font-size: 36px; margin-bottom: 10px; }
+
+    /* ── Polling status indicator ───────────────────────────────────────────── */
+    #poll-status {
+      position: fixed; bottom: 8px; right: 10px;
+      font-size: 11px; color: #888; opacity: 0.7;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <div class="header">
+    <div class="header-logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2a5 5 0 015 5v1h2a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V9a1 1 0 011-1h2V7a5 5 0 015-5zm0 2a3 3 0 00-3 3v1h6V7a3 3 0 00-3-3zm-1 9v4h2v-4h-2z"/></svg>
+    </div>
+    <div>
+      <h1>Secure Capture — Live Status</h1>
+      <p>Updates automatically as the customer enters digits</p>
+    </div>
+  </div>
+
+  <!-- ── Main status card ───────────────────────────────────────────────── -->
+  <div class="status-card" id="status-card">
+    <div class="status-header">
+      <div class="status-icon" id="status-icon">🔒</div>
+      <div class="status-text">
+        <h2 id="status-title">Waiting for call… <span id="purpose-badge" class="purpose-badge" style="display:none"></span></h2>
+        <p  id="status-sub">Panel will activate when DTMF collection begins</p>
+      </div>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+
+    <!-- Result rows (shown once complete) -->
+    <div class="result-section" id="result-section">
+      <div class="result-row">
+        <span class="result-label">Captured digits</span>
+        <span class="result-value masked" id="result-masked">—</span>
+      </div>
+      <div class="result-row" id="result-type-row">
+        <span class="result-label" id="result-type-label">Type</span>
+        <span class="result-value card-type" id="result-card-type">—</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Validation</span>
+        <span class="result-value" id="result-validation">—</span>
+      </div>
+    </div>
+
+    <!-- Step timeline -->
+    <div class="timeline">
+      <h3>Collection steps</h3>
+      <div class="step" id="step-waiting">
+        <div class="step-dot"></div>
+        Waiting for customer to start
+      </div>
+      <div class="step" id="step-collecting">
+        <div class="step-dot"></div>
+        Customer entering digits (encrypted keypad)
+      </div>
+      <div class="step" id="step-decrypting">
+        <div class="step-dot"></div>
+        Decrypting and masking
+      </div>
+      <div class="step" id="step-validating">
+        <div class="step-dot"></div>
+        Validating input
+      </div>
+      <div class="step" id="step-complete">
+        <div class="step-dot"></div>
+        Returned to conversation
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Idle placeholder (shown when no active DTMF collection) ─────────── -->
+  <div class="idle-placeholder" id="idle-placeholder">
+    <div class="idle-icon">🔒</div>
+    <strong>No active secure capture</strong><br/>
+    This panel activates automatically when a secure digit collection
+    is initiated for this customer.
+  </div>
+
+  <!-- ── Polling status indicator (bottom-right corner) ──────────────────── -->
+  <div id="poll-status">🔄 Starting…</div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       SCRIPT
+       ══════════════════════════════════════════════════════════════════════ -->
+  <script>
+    // ── CONFIGURATION — replace these placeholders before deploying ───────
+    const STATUS_PROXY_URL = "REPLACE_WITH_STATUS_API_URL";
+    const ACTIVE_URL       = "REPLACE_WITH_ACTIVE_API_URL";
+
+    // Contact ID may come from:
+    //   1. URL param  ?contactId=<id>  (injected by Connect Agent Workspace)
+    //   2. Auto-discovered via /dtmf-active polling (startDiscovery)
+    let CONTACT_ID = new URLSearchParams(window.location.search).get("contactId") || "";
+
+    // Polling intervals
+    const POLL_INTERVAL_MS   = 2000;   // fast poll while capture is in progress
+    const POLL_TERMINAL_MS   = 5000;   // slow poll once a terminal status is reached
+    const RESULT_DISPLAY_MS  = 15000;  // show terminal result for this long, then auto-reset
+
+    // ── STATE ─────────────────────────────────────────────────────────────
+    let pollTimer      = null;
+    let lastStatus     = "";
+    let terminalAt     = null;
+    let discoveryTimer = null;
+
+    // ── DOM REFS ──────────────────────────────────────────────────────────
+    const card          = document.getElementById("status-card");
+    const icon          = document.getElementById("status-icon");
+    const title         = document.getElementById("status-title");
+    const purposeBadge  = document.getElementById("purpose-badge");
+    const sub           = document.getElementById("status-sub");
+    const fill          = document.getElementById("progress-fill");
+    const resultSection = document.getElementById("result-section");
+    const resultMasked  = document.getElementById("result-masked");
+    const resultTypeRow = document.getElementById("result-type-row");
+    const resultTypeLabel = document.getElementById("result-type-label");
+    const resultType    = document.getElementById("result-card-type");
+    const resultVal     = document.getElementById("result-validation");
+    const idlePlaceholder = document.getElementById("idle-placeholder");
+    const steps = {
+      waiting:    document.getElementById("step-waiting"),
+      collecting: document.getElementById("step-collecting"),
+      decrypting: document.getElementById("step-decrypting"),
+      validating: document.getElementById("step-validating"),
+      complete:   document.getElementById("step-complete"),
+    };
+
+    // ── STATUS MAP ────────────────────────────────────────────────────────
+    const STATUS_MAP = {
+      "awaiting_trigger": {
+        title: "Preparing secure capture\u2026",
+        sub:   "Initialising secure DTMF collection session",
+        icon: "\u23f3", spin: false, cls: "active", progress: 5,
+        done: [], current: "waiting",
+      },
+      "waiting_for_input": {
+        title: "Customer entering digits",
+        sub:   "Customer is using the encrypted telephone keypad \u2014 you will not hear the digits",
+        icon: "\u2328\ufe0f", spin: false, cls: "active", progress: 30,
+        done: ["waiting"], current: "collecting",
+      },
+      "processing": {
+        title: "Digits received",
+        sub:   "Encrypted digits received \u2014 now decrypting securely",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 55,
+        done: ["waiting","collecting"], current: "decrypting",
+      },
+      "input_received": {
+        title: "Digits received",
+        sub:   "Encrypted digits received \u2014 now decrypting securely",
+        icon: "\ud83d\udd10", spin: true, cls: "active", progress: 55,
+        done: ["waiting","collecting"], current: "decrypting",
+      },
+      "decrypted": {
+        title: "Decrypted and masked",
+        sub:   "Running format check, then validation",
+        icon: "\ud83d\udd0d", spin: false, cls: "active", progress: 70,
+        done: ["waiting","collecting","decrypting"], current: "validating",
+      },
+      "validating": {
+        title: "Validating\u2026",
+        sub:   "Running format and ownership checks",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
+        done: ["waiting","collecting","decrypting"], current: "validating",
+      },
+      "validating_card": {
+        title: "Validating card\u2026",
+        sub:   "Running Luhn check, BIN lookup, and ownership check",
+        icon: "\ud83d\udd0d", spin: true, cls: "active", progress: 75,
+        done: ["waiting","collecting","decrypting"], current: "validating",
+      },
+      "validated": {
+        title: "Validation passed \u2713",
+        sub:   "All checks passed \u2014 returning customer to agent",
+        icon: "\u2705", spin: false, cls: "success", progress: 95,
+        done: ["waiting","collecting","decrypting","validating"], current: "complete",
+      },
+      "complete": {
+        title: "Capture complete \u2713",
+        sub:   "Customer has been returned to agent \u2014 see result below",
+        icon: "\u2705", spin: false, cls: "success", progress: 100,
+        done: ["waiting","collecting","decrypting","validating","complete"], current: "",
+      },
+      "failed": {
+        title: "Capture failed",
+        sub:   "Customer entered incorrect digits or timed out \u2014 see error below",
+        icon: "\u274c", spin: false, cls: "error", progress: 50,
+        done: ["waiting"], current: "collecting", isError: true,
+      },
+      "validation_failed": {
+        title: "Validation failed",
+        sub:   "Format or ownership check failed \u2014 may need escalation",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 80,
+        done: ["waiting","collecting","decrypting"], current: "validating", isError: true,
+      },
+      "ownership_mismatch": {
+        title: "Ownership mismatch \u2014 escalate",
+        sub:   "Entered details do not match customer record \u2014 fraud signal \u2014 escalate immediately",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 80,
+        done: ["waiting","collecting","decrypting"], current: "validating", isError: true,
+      },
+      "escalating": {
+        title: "Escalation required",
+        sub:   "Capture accepted but flagged for agent review",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 90,
+        done: ["waiting","collecting","decrypting","validating"], current: "complete", isError: false,
+      },
+      "timeout": {
+        title: "Timed out",
+        sub:   "Customer did not enter digits within the allowed time",
+        icon: "\u23f1\ufe0f", spin: false, cls: "warning", progress: 30,
+        done: ["waiting"], current: "collecting", isError: true,
+      },
+      "validation_service_error": {
+        title: "Validation service unavailable",
+        sub:   "Ownership check temporarily unavailable \u2014 capture accepted with warning",
+        icon: "\u26a0\ufe0f", spin: false, cls: "warning", progress: 100,
+        done: ["waiting","collecting","decrypting","validating"], current: "complete", isError: false,
+      },
+      "system_error": {
+        title: "System error \u2014 customer returned to agent",
+        sub:   "A technical error occurred during secure capture. Collect details manually.",
+        icon: "\ud83d\udea8", spin: false, cls: "error", progress: 0,
+        done: [], current: "waiting", isError: true,
+      },
+    };
+
+    // ── PURPOSE LABELS ────────────────────────────────────────────────────
+    const PURPOSE_LABELS = {
+      "full_card_number": "Full Card",
+      "card_last_four":   "Last 4 Digits",
+      "cvv":              "CVV",
+      "pin":              "PIN",
+      "ssn":              "SSN",
+      "account_number":   "Account No.",
+      "sort_code":        "Sort Code",
+      "generic":          "Secure Input",
+    };
+
+    // Purposes that show a card-type result row
+    const CARD_PURPOSES = new Set(["full_card_number", "card_last_four"]);
+
+    // ── RENDER ────────────────────────────────────────────────────────────
+    function renderStatus(attrs) {
+      const status   = (attrs.dtmf_status          || "").trim();
+      const masked   = (attrs.dtmf_masked           || "").trim();
+      const cardType = (attrs.dtmf_card_type        || "").trim();
+      const valRes   = (attrs.dtmf_validation_status || "").trim();
+      const errMsg   = (attrs.dtmf_error            || "").trim();
+      const purpose  = (attrs.collection_purpose    || attrs.collectionPurpose || "").trim();
+
+      // Update purpose badge
+      if (purpose) {
+        purposeBadge.textContent    = PURPOSE_LABELS[purpose] || purpose;
+        purposeBadge.style.display  = "inline-block";
+      }
+
+      // Show/hide card-type result row based on purpose
+      resultTypeRow.style.display = CARD_PURPOSES.has(purpose) ? "" : "none";
+      if (purpose && !CARD_PURPOSES.has(purpose)) {
+        resultTypeLabel.textContent = "Validated";
+      }
+
+      if (!status || status === "idle" || status === "false") {
+        showIdle();
+        lastStatus = status;
+        return;
+      }
+
+      if (status === "awaiting_trigger" && lastStatus === "") {
+        showIdle();
+        showCard();
+        applyStatus(STATUS_MAP["awaiting_trigger"], errMsg);
+        lastStatus = status;
+        return;
+      }
+
+      showCard();
+      lastStatus = status;
+
+      const cfg = STATUS_MAP[status];
+      if (!cfg) {
+        title.textContent     = "Status: " + status;
+        sub.textContent       = "Secure capture in progress";
+        icon.textContent      = "\ud83d\udd04";
+        icon.classList.add("spin");
+        fill.style.width      = "50%";
+        fill.style.background = "var(--active)";
+        card.className        = "status-card active";
+        return;
+      }
+
+      applyStatus(cfg, errMsg);
+
+      if (masked) {
+        resultSection.classList.add("visible");
+        resultMasked.textContent = formatMasked(masked, purpose);
+        resultType.textContent   = cardType || "\u2014";
+        const valOk = valRes.includes("pass") || valRes === "complete" || valRes === "valid";
+        resultVal.textContent    = valRes    || "\u2014";
+        resultVal.className      = "result-value " + (valOk ? "ok" : "bad");
+      } else {
+        resultSection.classList.remove("visible");
+      }
+    }
+
+    function applyStatus(cfg, errMsg) {
+      const badge = purposeBadge.outerHTML;
+      title.innerHTML   = cfg.title + " " + badge;
+      sub.textContent   = errMsg || cfg.sub;
+      icon.textContent  = cfg.icon;
+      icon.className    = "status-icon" + (cfg.spin ? " spin" : "");
+      fill.style.width    = cfg.progress + "%";
+      fill.style.background = cfg.cls === "success" ? "var(--success)"
+                            : cfg.cls === "error"   ? "var(--error)"
+                            : cfg.cls === "warning" ? "var(--warn)"
+                            : "var(--active)";
+      card.className = "status-card " + cfg.cls;
+
+      Object.keys(steps).forEach(function(key) {
+        const el = steps[key];
+        el.className = "step";
+        if (cfg.done && cfg.done.includes(key)) el.className = "step done";
+        if (cfg.current === key)                el.className = "step current" + (cfg.isError ? " error" : "");
+      });
+    }
+
+    function formatMasked(raw, purpose) {
+      if (!purpose || purpose === "generic") return raw;
+      if (purpose === "full_card_number") {
+        // Show last 4 unmasked
+        if (raw.length >= 4) return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw.slice(-4);
+        return raw;
+      }
+      if (purpose === "card_last_four") return "\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 " + raw;
+      if (purpose === "cvv")   return "\u2022".repeat(raw.length || 3);
+      if (purpose === "pin")   return "\u2022".repeat(raw.length || 4);
+      if (purpose === "ssn")   return "\u2022\u2022\u2022-\u2022\u2022-" + raw.slice(-4);
+      if (purpose === "sort_code")      return raw.replace(/(\d{2})(\d{2})(\d{2})/, "$1-$2-$3") || raw;
+      if (purpose === "account_number") return "\u2022".repeat(Math.max(0, raw.length - 4)) + raw.slice(-4);
+      return raw;
+    }
+
+    function showCard() {
+      card.style.display = "";
+      idlePlaceholder.style.display = "none";
+    }
+    function showIdle() {
+      card.style.display = "none";
+      idlePlaceholder.style.display = "";
+      Object.values(steps).forEach(function(el) { el.className = "step"; });
+      resultSection.classList.remove("visible");
+      fill.style.width = "0%";
+    }
+
+    // ── POLLING ───────────────────────────────────────────────────────────
+    const TERMINAL_STATUSES = new Set([
+      "complete", "failed", "timeout", "validation_failed", "ownership_mismatch",
+      "system_error", "validation_service_error",
+    ]);
+
+    function setPollStatus(msg) {
+      const el = document.getElementById("poll-status");
+      if (el) el.textContent = msg;
+    }
+
+    async function doPoll() {
+      try {
+        const resp = await fetch(
+          STATUS_PROXY_URL + "?contactId=" + encodeURIComponent(CONTACT_ID)
+        );
+
+        if (resp.status === 404) {
+          setPollStatus("\u26ab Contact ended");
+          stopPolling();
+          setTimeout(resetToDiscovery, 4000);
+          return;
+        }
+
+        if (!resp.ok) {
+          setPollStatus("\u26a0\ufe0f Error " + resp.status);
+          return;
+        }
+
+        const data = await resp.json();
+        setPollStatus("\ud83d\udfe2 Live");
+        renderStatus(data);
+
+        const status = (data.dtmf_status || "").trim();
+        if (TERMINAL_STATUSES.has(status)) {
+          if (!terminalAt) {
+            terminalAt = Date.now();
+            stopPolling();
+            pollTimer = setInterval(doPoll, POLL_TERMINAL_MS);
+          }
+          if (Date.now() - terminalAt > RESULT_DISPLAY_MS) {
+            setPollStatus("\u23f9 Resetting\u2026");
+            setTimeout(resetToDiscovery, 500);
+            return;
+          }
+        } else if (terminalAt) {
+          terminalAt = null;
+          stopPolling();
+          pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
+        }
+
+      } catch (err) {
+        setPollStatus("\u26a0\ufe0f Network error");
+        console.error("DTMF panel poll error:", err);
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      terminalAt = null;
+      lastStatus = "";
+      setPollStatus("\ud83d\udd04 Polling\u2026");
+      doPoll();
+      pollTimer = setInterval(doPoll, POLL_INTERVAL_MS);
+    }
+
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function stopDiscovery() {
+      if (discoveryTimer) { clearInterval(discoveryTimer); discoveryTimer = null; }
+    }
+
+    function resetToDiscovery() {
+      stopPolling();
+      stopDiscovery();
+      CONTACT_ID = "";
+      lastStatus  = "";
+      terminalAt  = null;
+      showIdle();
+      startDiscovery();
+    }
+
+    // ── AUTO-DISCOVERY ────────────────────────────────────────────────────
+    // When no contactId is in the URL, poll /dtmf-active every 2 s to detect
+    // when the Connect flow writes an ACTIVE session record to DynamoDB.
+    function startDiscovery() {
+      stopDiscovery();
+      stopPolling();
+      CONTACT_ID = "";
+      lastStatus  = "";
+      terminalAt  = null;
+      setPollStatus("\ud83d\udd0d Watching for session\u2026");
+      idlePlaceholder.innerHTML = [
+        '<div class="idle-icon">\ud83d\udd12</div>',
+        '<strong>Waiting for secure capture session\u2026</strong><br/>',
+        'This panel will activate automatically when a secure DTMF capture',
+        ' is initiated for this customer.',
+      ].join("\n");
+
+      async function pollActive() {
+        try {
+          const resp = await fetch(ACTIVE_URL, { cache: "no-store" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const cid  = data.contactId || null;
+          if (cid) {
+            clearInterval(discoveryTimer);
+            discoveryTimer = null;
+            CONTACT_ID = cid;
+            startPolling();
+          }
+        } catch (_) { /* network blip — retry next tick */ }
+      }
+
+      pollActive();
+      discoveryTimer = setInterval(pollActive, POLL_INTERVAL_MS);
+    }
+
+    // ── INIT ──────────────────────────────────────────────────────────────
+    showIdle();
+
+    if (!CONTACT_ID) {
+      // No contactId in URL — auto-discover via /dtmf-active polling.
+      // The launcher iframe (dtmf-launcher.html) also polls this endpoint
+      // and brings this popup to the foreground when a session starts.
+      startDiscovery();
+    } else {
+      startPolling();
+    }
+  </script>
+</body>
+</html>
