@@ -78,6 +78,19 @@ export class ScenarioRunner {
         scenarioName: resolvedScenario.name,
       });
 
+      // Capture ARIA's personalized authenticated greeting as turn 0 in the transcript
+      if (adapter instanceof ConnectChatAdapter && adapter.openingGreeting) {
+        const greetingTurn: Turn = {
+          index: 0,
+          role: 'agent',
+          content: adapter.openingGreeting.content,
+          timestampMs: Date.now(),
+        };
+        turns.push(greetingTurn);
+        this.config.onProgress({ type: 'turn', turn: greetingTurn });
+        this.log(`    🤖 ARIA (greeting): ${greetingTurn.content.slice(0, 120)}`);
+      }
+
       let turnIndex = 0;
       let goalAchieved = false;
       let isOpening = true;

@@ -25,17 +25,23 @@ import type { BaseAdapter, AdapterMessage, ConnectOptions } from './base.js';
 import { AdapterError, SessionEndedError } from './base.js';
 import type { EscalationEvent, EscalationReason } from '../types/index.js';
 
-const FLOW_NOISE = [
-  'Let me transfer you to one of our agents',
-  'Welcome to Meridian Bank !!',
-  'Welcome to Nationwide Building Society !!',
-  'Hello !! Welcome to',
+// Regex patterns for IVR / Contact Flow prompts that should never appear in
+// the transcript as agent turns.  Matched case-insensitively against the full
+// message text.
+const FLOW_NOISE_PATTERNS: RegExp[] = [
+  /welcome to (nationwide|meridian)/i,
+  /^hello[.!,]?\s+welcome to/i,
+  /let me transfer you to one of our agents/i,
+  // Generic IVR hold / queue filler messages
+  /please (hold|wait)\b/i,
+  /^thank you for (calling|contacting|your patience)/i,
+  /your (call|chat) is (important|being connected)/i,
 ];
 
 const BOT_ROLES = new Set(['BOT', 'SYSTEM', 'AGENT', 'CUSTOM_BOT']);
 
 function isFlowNoise(content: string): boolean {
-  return FLOW_NOISE.some((p) => content.includes(p));
+  return FLOW_NOISE_PATTERNS.some((re) => re.test(content));
 }
 
 /** Resolve a flow name → flow ID via ListContactFlows */
@@ -88,6 +94,8 @@ export class ConnectChatAdapter implements BaseAdapter {
   private resolvedFlowId: string | null = null;
   private sessionEnded = false;
   private _escalationEvent: EscalationEvent | null = null;
+  /** ARIA's personalized greeting sent before the first customer turn (authenticated sessions) */
+  private _openingGreeting: AdapterMessage | null = null;
 
   // Same patterns as ConnectWebRTCAdapter — applied to chat messages
   private static readonly ESCALATION_PATTERNS: Array<{ re: RegExp; reason: EscalationReason }> = [
@@ -126,6 +134,11 @@ export class ConnectChatAdapter implements BaseAdapter {
 
   get escalationEvent(): EscalationEvent | null {
     return this._escalationEvent;
+  }
+
+  /** ARIA's personalized greeting captured during connect() for authenticated sessions */
+  get openingGreeting(): AdapterMessage | null {
+    return this._openingGreeting;
   }
 
   async connect(options: ConnectOptions): Promise<void> {
@@ -188,6 +201,7 @@ export class ConnectChatAdapter implements BaseAdapter {
     }
 
     await this.openWebSocket(wsUrl);
+    // Drain IVR / Contact Flow noise, keeping any non-noise messages in the queue
     await this.drainNoise(3000, 15_000);
 
     if (authenticated && customerId) {
@@ -213,7 +227,19 @@ export class ConnectChatAdapter implements BaseAdapter {
       } catch {
         // non-fatal
       }
-      await sleep(5000);
+
+      // Wait for ARIA's personalized greeting so the runner loop starts clean.
+      // We capture it as openingGreeting rather than letting it sit in the queue
+      // where it would be misidentified as the response to the first customer turn.
+      console.log(`    [auth] waiting for ARIA greeting…`);
+      const greeting = await this.receiveOne(8000);
+      if (greeting) {
+        this._openingGreeting = greeting;
+        const preview = greeting.content.slice(0, 80);
+        console.log(`    [auth] ARIA greeting: "${preview}${greeting.content.length > 80 ? '…' : ''}"`);
+      } else {
+        console.log(`    [auth] ⚠  no ARIA greeting received within 8s`);
+      }
     }
   }
 
@@ -425,24 +451,34 @@ export class ConnectChatAdapter implements BaseAdapter {
     }, 30_000);
   }
 
-  /** Drain flow noise — wait until queue is quiet for stableMs */
+  /** Drain flow noise — wait until queue is quiet for stableMs.
+   *  Only noise-tagged messages are discarded; non-noise messages are kept in
+   *  the queue for later consumption by the runner.
+   */
   private async drainNoise(stableMs: number, maxWaitMs: number): Promise<void> {
     const deadline = Date.now() + maxWaitMs;
-    let lastItemAt = Date.now();
+    let lastNoiseAt = Date.now();
     process.stdout.write('    [drain] waiting for flow');
 
     while (Date.now() < deadline) {
-      const idle = Date.now() - lastItemAt;
-      if (idle >= stableMs) break;
-
       await sleep(200);
-      if (this.messageQueue.length > 0) {
+      let drained = false;
+      // Remove noise-only messages from the front of the queue
+      while (this.messageQueue.length > 0 && this.messageQueue[0]!.isNoise) {
         this.messageQueue.shift();
-        lastItemAt = Date.now();
-        process.stdout.write('.');
+        lastNoiseAt = Date.now();
+        drained = true;
       }
+      if (drained) process.stdout.write('.');
+      // Exit once the queue has been quiet (no noise) for stableMs
+      if (Date.now() - lastNoiseAt >= stableMs) break;
     }
     process.stdout.write('. done\n');
+  }
+
+  /** Wait for exactly one non-noise agent message (used to capture the greeting). */
+  private receiveOne(timeoutMs: number): Promise<AdapterMessage | null> {
+    return this.receive(timeoutMs);
   }
 
   private async simulateTyping(text: string): Promise<void> {
