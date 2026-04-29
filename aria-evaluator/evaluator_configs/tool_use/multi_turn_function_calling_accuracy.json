@@ -1,0 +1,25 @@
+{
+  "name": "aria-multi-turn-function-calling-accuracy",
+  "description": "Evaluates whether ARIA calls multiple tools in the correct sequence across turns.",
+  "evaluationLevel": "SESSION",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking AI systems evaluator. The correct tool sequence for PII interactions is: pii_detect_and_redact → pii_vault_store → (domain tool using vault_ref) → pii_vault_retrieve (when needed) → pii_vault_purge (at session end). Auth sequence: initiate_auth → validate_auth → verify_identity → cross_validate (when needed). Evaluate: 1) Was PII always vaulted BEFORE domain tool calls? 2) Was auth completed BEFORE accessing protected data? 3) Was pii_vault_purge called at session end?\n\nFull session transcript with all tool calls: {context}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "All tool sequences exactly correct across all turns." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly correct sequence; one minor ordering deviation." },
+          { "value": 0.50, "label": "OK", "definition": "Core sequences correct but some optional ordering missed." },
+          { "value": 0.25, "label": "Poor", "definition": "Key sequence violated — domain tool called before PII vaulted." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Fundamental sequence violations causing data leakage or auth bypass risk." }
+        ]
+      }
+    }
+  }
+}

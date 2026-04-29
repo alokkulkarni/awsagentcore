@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ARIA Evaluator — CCP</title>
+  <style>
+    body { margin: 0; background: #111; color: #eee; font-family: monospace; }
+    #log { padding: 12px; font-size: 11px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+<div id="log">ARIA Evaluator CCP starting…\n</div>
+
+<script>
+// ── Intercept iframe creation to allow microphone/camera access ───────────────
+// The Connect widget creates sandboxed iframes.  Without allow="microphone" on
+// the iframe element, Chrome's Permissions Policy blocks getUserMedia even if
+// the parent page has mic permission and --use-fake-ui-for-media-stream is set.
+// We patch document.createElement so every iframe gets the attribute before the
+// widget appends it to the DOM.
+(function() {
+  var _origCreate = Document.prototype.createElement;
+  Document.prototype.createElement = function(tag, opts) {
+    var el = _origCreate.call(this, tag, opts);
+    if (typeof tag === 'string' && tag.toLowerCase() === 'iframe') {
+      el.setAttribute('allow', 'microphone *; camera *; autoplay *');
+    }
+    return el;
+  };
+  // Belt-and-braces: MutationObserver adds allow attr to any iframe that slips through
+  try {
+    new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var nodes = mutations[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          var n = nodes[j];
+          if (n && n.nodeType === 1 && n.tagName === 'IFRAME') {
+            if (!n.getAttribute('allow') || !n.getAttribute('allow').includes('microphone')) {
+              n.setAttribute('allow', 'microphone *; camera *; autoplay *');
+            }
+          }
+          if (n && n.querySelectorAll) {
+            n.querySelectorAll('iframe').forEach(function(f) {
+              if (!f.getAttribute('allow') || !f.getAttribute('allow').includes('microphone')) {
+                f.setAttribute('allow', 'microphone *; camera *; autoplay *');
+              }
+            });
+          }
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch(e) {}
+})();
+</script>
+
+<script>
+// ── Config injected by Playwright via window.ARIA_CONFIG ──────────────────────
+const cfg = window.ARIA_CONFIG || {
+  snippetId: '17638a13-f2b0-4371-a593-1f81f86548e8',
+  customerId: 'CUST-001',
+  authStatus: 'authenticated',
+  locale: 'en-GB',
+  botName: 'ARIA',
+};
+
+function log(msg) {
+  document.getElementById('log').textContent += msg + '\n';
+}
+
+log('Config: ' + JSON.stringify(cfg));
+
+// ── Bootstrap Connect widget ──────────────────────────────────────────────────
+(function(w, d, x, id) {
+  var s = d.createElement('script');
+  s.src = 'https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js';
+  s.async = 1;
+  s.id = id;
+  s.onload = function() { log('Widget script loaded'); };
+  s.onerror = function(e) { log('Widget script ERROR: ' + e); };
+  d.getElementsByTagName('head')[0].appendChild(s);
+  w[x] = w[x] || function() { (w[x].ac = w[x].ac || []).push(arguments); };
+})(window, document, 'amazon_connect', '17638a13-f2b0-4371-a593-1f81f86548e8');
+
+amazon_connect('styles', {
+  iconType: 'CHAT_VOICE',
+  openChat: { color: '#ffffff', backgroundColor: '#0D2A66' },
+  closeChat: { color: '#ffffff', backgroundColor: '#0D2A66' },
+});
+amazon_connect('snippetId', 'QVFJREFIajVuODFjZG5KeGtQTUc5YXVLbVZLTTBSNlU2ZllybUx4M3ArVWtaQlRCZ1FGb25Ka0IyMXp2WUxLNmxhMlpYdzMvQUFBQWJqQnNCZ2txaGtpRzl3MEJCd2FnWHpCZEFnRUFNRmdHQ1NxR1NJYjNEUUVIQVRBZUJnbGdoa2dCWlFNRUFTNHdFUVFNZlh1QUEzU05pNVNoZy9qS0FnRVFnQ3ZTc09QU3o5Sk5xUlJVSHE0bkNWVkl1R0xjV2lJWkh4Zy9MaU5KRTdQN1Z3SHJtb1FTU0Q1N0dKQTU6Oi85NW5nY28zTFNOdHlTblJtMy9vMnhSQ05ycDZzU1BFbzdSc2NqTVZjZFNEMlNWSGJwZ09FMkpyRjJRYjZDNTdYbVNabGl6S1VKVGdPb2N3OTZkSkk5U0V0R21wYWRxSFBjZkhpcHA2TlhKMzB5anhLR01weHJ4eVIrNERJVGlTa25Hb2o1N2kyRTRNWWVkbDQzaHJYRVFkSFdPbHFuVT0=');
+amazon_connect('supportedMessagingContentTypes', [
+  'text/plain',
+  'text/markdown',
+  'application/vnd.amazonaws.connect.message.interactive',
+  'application/vnd.amazonaws.connect.message.interactive.response',
+]);
+amazon_connect('customDisplayNames', {
+  transcript: { botMessageDisplayName: cfg.botName || 'ARIA', systemMessageDisplayName: 'Meridian' },
+});
+amazon_connect('contactAttributes', {
+  customerId: cfg.customerId,
+  authStatus: cfg.authStatus,
+  locale: cfg.locale,
+});
+
+// ── Audio injection API ───────────────────────────────────────────────────────
+// NOTE: window.injectAudio and window.RTCPeerConnection tracking are provided
+// by Playwright's addInitScript (runs before this inline script).
+// DO NOT redefine them here — the addInitScript versions use replaceTrack()
+// which works without intercepting getUserMedia.
+
+// ── Audio capture API ─────────────────────────────────────────────────────────
+// Called by Playwright to start capturing ARIA's audio from the WebRTC peer.
+let captureCtx = null;
+let captureNode = null;
+
+window.startAgentAudioCapture = function() {
+  if (captureNode) { log('Capture already running'); return; }
+
+  const pcs = window._rtcPeers || [];
+  let remoteStream = null;
+  for (const pc of pcs) {
+    const receivers = pc.getReceivers ? pc.getReceivers() : [];
+    for (const rx of receivers) {
+      if (rx.track && rx.track.kind === 'audio') {
+        remoteStream = new MediaStream([rx.track]);
+        break;
+      }
+    }
+    if (remoteStream) break;
+  }
+
+  if (!remoteStream) {
+    log('No remote audio stream yet — will retry in 1s');
+    setTimeout(window.startAgentAudioCapture, 1000);
+    return;
+  }
+
+  if (!captureCtx) captureCtx = new AudioContext({ sampleRate: 16000 });
+  const src = captureCtx.createMediaStreamSource(remoteStream);
+  captureNode = captureCtx.createScriptProcessor(4096, 1, 1);
+  captureNode.onaudioprocess = (e) => {
+    const data = e.inputBuffer.getChannelData(0);
+    const int16 = new Int16Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      int16[i] = Math.max(-32768, Math.min(32767, data[i] * 32768));
+    }
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
+    if (window.__onAgentAudio) window.__onAgentAudio(base64);
+  };
+  src.connect(captureNode);
+  captureNode.connect(captureCtx.destination);
+  log('Agent audio capture started');
+};
+
+window.stopAgentAudioCapture = function() {
+  if (captureNode) { captureNode.disconnect(); captureNode = null; }
+  log('Agent audio capture stopped');
+};
+
+// ── Status reporting ──────────────────────────────────────────────────────────
+// Extends the addInitScript version with page-level capture state.
+// addInitScript runs first; this overrides with a richer version.
+window.getStatus = function() {
+  return {
+    rtcPeers:      (window._rtcPeers || []).length,
+    gumCalls:      window._gumCallCount || 0,
+    captureActive: !!captureNode,
+    audioCtxState: window._evalAudioCtx ? window._evalAudioCtx.state : (captureCtx ? captureCtx.state : 'none'),
+    trackReplaced: !!window._trackReplaced,
+    micDestination: !!(window._evalMicDest),
+  };
+};
+
+log('CCP page ready');
+</script>
+</body>
+</html>

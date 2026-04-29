@@ -1,0 +1,25 @@
+{
+  "name": "aria-goal-accuracy",
+  "description": "Compares ARIA's session outputs against expected correct outcomes for Meridian Bank.",
+  "evaluationLevel": "SESSION",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator. Evaluate how accurately ARIA's responses match the expected correct outcome. Did ARIA use the right tools, provide correct account information (from tool responses), follow PCI-DSS and UK GDPR rules, and deliver the correct final outcome for a Meridian Bank customer?\n\nFull session transcript: {context}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "ARIA's output exactly matches the expected correct outcome." },
+          { "value": 0.75, "label": "Good", "definition": "Very close to expected; minor deviation with no real impact." },
+          { "value": 0.50, "label": "OK", "definition": "Partially accurate; key elements correct but some deviation from expected." },
+          { "value": 0.25, "label": "Poor", "definition": "Significant deviation from the expected correct outcome." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely wrong outcome delivered." }
+        ]
+      }
+    }
+  }
+}

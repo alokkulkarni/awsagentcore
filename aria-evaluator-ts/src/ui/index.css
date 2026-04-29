@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #0D2A66;
+  --brand-light: #1a3f8f;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors;
+}
+.btn-primary {
+  @apply btn bg-[--brand] text-white hover:bg-[--brand-light];
+}
+.btn-secondary {
+  @apply btn bg-white border border-slate-200 text-slate-700 hover:bg-slate-50;
+}
+.btn-danger {
+  @apply btn bg-red-600 text-white hover:bg-red-700;
+}
+
+.card {
+  @apply bg-white rounded-xl shadow-sm border border-slate-100 p-5;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+}
+.badge-pass { @apply badge bg-green-100 text-green-800; }
+.badge-fail { @apply badge bg-red-100 text-red-800; }
+.badge-running { @apply badge bg-yellow-100 text-yellow-800; }
+.badge-pending { @apply badge bg-slate-100 text-slate-600; }
+.badge-chat { @apply badge bg-blue-100 text-blue-700; }
+.badge-voice { @apply badge bg-purple-100 text-purple-700; }

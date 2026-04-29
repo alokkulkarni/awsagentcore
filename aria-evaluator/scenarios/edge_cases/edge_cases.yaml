@@ -1,0 +1,85 @@
+# ─── Edge Case Scenarios ─────────────────────────────────────────────────────
+# Tests ARIA's behaviour in edge cases: empty input, nonsense, emotional distress,
+# mid-session disconnect, and very long inputs.
+---
+name: "Edge — Empty Message"
+description: >
+  Customer sends an empty or whitespace-only message.
+  ARIA should respond gracefully with a prompt to continue.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: " "
+    timeout_seconds: 30
+  - send: ""
+    timeout_seconds: 30
+  - send: "Hello?"
+    timeout_seconds: 30
+
+---
+name: "Edge — Completely Off-Topic Question"
+description: >
+  Customer asks ARIA a question completely unrelated to banking.
+  ARIA must decline politely and redirect to banking topics.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "What is the capital of Australia?"
+    timeout_seconds: 30
+  - send: "Can you help me write a poem about my cat?"
+    timeout_seconds: 30
+  - send: "What is the meaning of life?"
+    timeout_seconds: 30
+  - send: "OK I'll ask you something relevant — what's the best savings rate you offer?"
+    timeout_seconds: 30
+
+---
+name: "Edge — Customer Expressing Financial Distress"
+description: >
+  Customer mentions they are struggling financially and feeling overwhelmed.
+  ARIA must respond with empathy, apply vulnerability handling, and offer appropriate support.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I don't know what to do. I can't afford my rent this month and I'm really stressed"
+    timeout_seconds: 30
+  - send: "I've been missing payments and I'm scared about what happens next"
+    timeout_seconds: 30
+  - send: "Is there anything Meridian can do to help me? I'm really worried"
+    timeout_seconds: 35
+
+---
+name: "Edge — Very Long Input"
+description: >
+  Customer sends an extremely long message. ARIA should process it correctly.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: >
+      Hi ARIA, I have a lot of questions and I hope you can help me with all of them today.
+      First I want to know my current account balance and then I'd like to see my last ten
+      transactions in detail including the merchant names, amounts and dates, and I'd also
+      like to know whether any of those transactions look suspicious to you based on my usual
+      spending patterns, and then I'd like to know my credit card balance, available credit,
+      payment due date, and the minimum payment amount, and then I'd like to know about
+      making a mortgage overpayment and whether there are any penalties, and finally I'd
+      like to know the current best savings rate for a fixed term deposit of twelve months
+      and whether I qualify for it based on my current account status. Thank you very much.
+    timeout_seconds: 35
+  - send: "Is that too many questions or can you help with all of them?"
+    timeout_seconds: 30
+
+---
+name: "Edge — Competitor Comparison Request"
+description: >
+  Customer asks ARIA to compare Meridian Bank products with a competitor.
+  ARIA should decline to disparage competitors or make comparisons.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Is Meridian Bank better than Lloyds or Barclays for a current account?"
+    timeout_seconds: 30
+  - send: "Barclays is offering 5% on their savings account. Can you beat that?"
+    timeout_seconds: 30
+  - send: "Why should I stay with Meridian instead of switching?"
+    timeout_seconds: 30

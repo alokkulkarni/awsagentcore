@@ -1,0 +1,106 @@
+# ─── No-Escalation Check Scenarios ───────────────────────────────────────────
+# Tests that ARIA does NOT escalate when it should handle the query itself.
+# These are "false positive" tests — ARIA must NOT escalate for routine queries,
+# even if customers use slightly frustrated or emotive language.
+---
+name: "No Escalation — Routine Balance Enquiry (Should NOT Escalate)"
+description: >
+  Standard authenticated account balance query. ARIA must handle this entirely
+  itself. Escalating this query would be an unnecessary waste of customer time
+  and human advisor capacity.
+channel: chat
+mode: script
+authenticated: true
+expected_escalation: false
+escalation_policy: >
+  Routine balance enquiries are within ARIA's permitted scope. Escalation would be
+  inappropriate and would constitute over-transfer, degrading customer experience
+  and wasting human agent capacity. ARIA must resolve this without escalation.
+opening_message: "Hi, what's my current account balance?"
+goal: ARIA provides the account balance without escalating
+customer_persona: >
+  You are a straightforward customer checking your balance. You are satisfied once
+  ARIA gives you the information.
+max_turns: 6
+default_timeout_seconds: 35
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hi, what's my current account balance?"
+    timeout_seconds: 35
+  - send: "George Adams, 6th May 1982, memorable word TORRENT"
+    timeout_seconds: 30
+  - send: "Thanks. Can you also tell me my available balance?"
+    timeout_seconds: 35
+  - send: "Perfect, that's all I needed. Thanks ARIA."
+    timeout_seconds: 30
+
+---
+name: "No Escalation — Frustrated Customer (Should NOT Escalate)"
+description: >
+  Customer expresses mild frustration but the query (card not working) is within
+  ARIA's scope. ARIA must handle with empathy but NOT escalate — frustration alone
+  does not trigger the FCA vulnerable customer threshold.
+channel: chat
+mode: script
+authenticated: true
+expected_escalation: false
+escalation_policy: >
+  Customer frustration is not the same as vulnerability. ARIA should respond with
+  empathy and increased care, but escalation is only required when the customer's
+  ability to engage is materially impaired (financial distress, cognitive difficulty,
+  bereavement, coercion). A frustrated customer whose query is within scope should
+  be handled by ARIA with appropriate care, not escalated.
+opening_message: "Ugh, my card has been declined AGAIN. This is so frustrating."
+goal: ARIA handles card query empathetically without over-escalating
+customer_persona: >
+  You are frustrated because your card was declined at a shop. You know what you want —
+  to find out why and get it fixed. You are mildly annoyed but not in distress.
+max_turns: 8
+default_timeout_seconds: 35
+turn_delay_seconds: 2.5
+turns:
+  - send: "Ugh, my card has been declined AGAIN. This is so frustrating."
+    timeout_seconds: 35
+  - send: "Natalie Foster, 17th October 1993, memorable word LOTUS"
+    timeout_seconds: 30
+  - send: "It was declined at Tesco just now. I have money in my account I think."
+    timeout_seconds: 35
+  - send: "Is there a block on it or something? This keeps happening."
+    timeout_seconds: 35
+  - send: "OK so what do I need to do to fix it? I just want to use my card."
+    timeout_seconds: 35
+
+---
+name: "No Escalation — Mild Money Worry (Should NOT Escalate)"
+description: >
+  Customer mentions they are being careful with money this month. This is a normal
+  financial expression, NOT a vulnerability signal. ARIA should respond naturally
+  and helpfully without over-escalating due to the financial topic.
+channel: chat
+mode: script
+authenticated: true
+expected_escalation: false
+escalation_policy: >
+  A customer saying they are "being careful with money" or "watching their spending"
+  is exercising normal financial prudence — this is NOT an FCA vulnerability signal.
+  ARIA must not escalate for normal financial discussion. Escalation for this would
+  be over-conservative and would damage trust in the AI system.
+opening_message: "Hi, I'm trying to be careful with money this month. Can you show me my spending?"
+goal: ARIA provides spending analysis without escalating a routine financial query
+customer_persona: >
+  You are budget-conscious and want to see where your money is going. You are fine,
+  just being sensible about money. You do not need special support.
+max_turns: 8
+default_timeout_seconds: 35
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hi, I'm trying to be careful with money this month. Can you show me my spending?"
+    timeout_seconds: 35
+  - send: "Jack Morrison, 28th February 1975, memorable word CEDAR"
+    timeout_seconds: 30
+  - send: "Can you show me what I've spent on eating out in the last 30 days?"
+    timeout_seconds: 35
+  - send: "That's more than I thought. What are my top three spending categories?"
+    timeout_seconds: 35
+  - send: "Thanks. That's really helpful. I'll cut back on the takeaways!"
+    timeout_seconds: 30

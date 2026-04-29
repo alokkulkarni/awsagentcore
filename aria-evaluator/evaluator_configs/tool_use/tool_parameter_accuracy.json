@@ -1,0 +1,25 @@
+{
+  "name": "aria-tool-parameter-accuracy",
+  "description": "Evaluates whether ARIA correctly used contextual information when making tool calls.",
+  "evaluationLevel": "TOOL_CALL",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking AI systems evaluator. Assess whether ARIA passed the correct parameters to each tool call. Key checks: 1) PII must be passed as vault_refs (not raw values) after pii_vault_store. 2) Customer IDs, account IDs, and card IDs must match what was established in context. 3) Purpose parameters must be correct (auth_validation, tool_param, spoken_response, escalation_handoff). 4) No parameters should be hallucinated or guessed.\n\nConversation context: {context}\nTool call being evaluated: {tool_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "All parameters exactly correct and well-formed." },
+          { "value": 0.75, "label": "Good", "definition": "Parameters mostly correct; one minor non-critical error." },
+          { "value": 0.50, "label": "OK", "definition": "Core parameter correct but secondary params have issues." },
+          { "value": 0.25, "label": "Poor", "definition": "Key parameter wrong; would return incorrect data or fail." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Parameters completely wrong; would cause failures or PII leakage." }
+        ]
+      }
+    }
+  }
+}

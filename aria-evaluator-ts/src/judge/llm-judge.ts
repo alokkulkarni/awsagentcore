@@ -9,9 +9,11 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import type { Transcript, Turn } from '../types/transcript.js';
 import type { EvalResult, DimensionScore } from '../types/evaluation.js';
+import type { Scenario } from '../types/scenario.js';
 import {
   SESSION_DIMENSIONS,
   TRACE_DIMENSIONS,
+  ESCALATION_DIMENSIONS,
   ALL_DIMENSIONS_BY_ID,
   type Dimension,
 } from './dimensions.js';
@@ -78,6 +80,27 @@ function formatConversationUpTo(transcript: Transcript, turnIndex: number): stri
     .join('\n');
 }
 
+function buildEscalationVars(
+  transcript: Transcript,
+  scenario?: Pick<Scenario, 'expected_escalation' | 'escalation_reason' | 'escalation_policy'>,
+): Record<string, string> {
+  return {
+    escalated: transcript.escalated ? 'YES' : 'NO',
+    expected_escalation:
+      scenario?.expected_escalation == null
+        ? 'not specified by scenario'
+        : scenario.expected_escalation
+          ? 'YES'
+          : 'NO',
+    escalation_reason:
+      transcript.escalation?.reason ??
+      scenario?.escalation_reason ??
+      'not detected',
+    escalation_policy:
+      scenario?.escalation_policy ?? 'Meridian Bank general compliance policy',
+  };
+}
+
 export class LLMJudge {
   private readonly client: BedrockRuntimeClient;
 
@@ -88,7 +111,11 @@ export class LLMJudge {
     this.client = new BedrockRuntimeClient({ region });
   }
 
-  async evaluate(transcript: Transcript, goal: string): Promise<EvalResult> {
+  async evaluate(
+    transcript: Transcript,
+    goal: string,
+    scenario?: Pick<Scenario, 'expected_escalation' | 'escalation_reason' | 'escalation_policy'>,
+  ): Promise<EvalResult> {
     console.log(`\n  🔍 Evaluating: ${transcript.scenarioName}`);
 
     const scores: Record<string, DimensionScore> = {};
@@ -143,6 +170,32 @@ export class LLMJudge {
             .join('\n'),
         };
       }
+    }
+
+    // ── Batch 3: ESCALATION dimensions ─────────────────────────────────
+    // Evaluated whenever: escalation occurred OR scenario has expected_escalation defined.
+    const hasEscalationContext =
+      transcript.escalated ||
+      transcript.escalation != null ||
+      scenario?.expected_escalation != null;
+
+    if (hasEscalationContext) {
+      process.stdout.write('     [judge] ESCALATION dims... ');
+      const escalationVars = buildEscalationVars(transcript, scenario);
+      const escalationResults = await this.judgeEscalationBatch(
+        ESCALATION_DIMENSIONS,
+        fullContext,
+        escalationVars,
+      );
+      for (const dim of ESCALATION_DIMENSIONS) {
+        const r = escalationResults[dim.id] ?? { score: 0.5, reason: 'No response' };
+        scores[dim.id] = {
+          score: Math.round(r.score * 10),
+          justification: r.reason,
+          evidence: r.evidence,
+        };
+      }
+      console.log('✓');
     }
 
     // ── Overall score (weighted average) ──────────────────────────────────
@@ -216,6 +269,42 @@ export class LLMJudge {
       `- "score": 0.0 to 1.0\n` +
       `- "reason": concise explanation\n` +
       `- "evidence": a direct quote from ARIA's response or the conversation that supports your score\n\n` +
+      `${dimList}\n\n` +
+      `Respond with valid JSON only: {"dimension_id": {"score": 0.75, "reason": "...", "evidence": "..."}, ...}`;
+
+    return this.callBedrock(prompt);
+  }
+
+  private async judgeEscalationBatch(
+    dims: Dimension[],
+    fullConversation: string,
+    vars: Record<string, string>,
+  ): Promise<JudgeBatchResult> {
+    const dimList = dims
+      .map(
+        (d, i) =>
+          `${i + 1}. **${d.id}** — ${d.description}\n` +
+          `   ${d.instruction
+            .replace('{conversation}', '[see full conversation above]')
+            .replace('{escalated}', vars['escalated'] ?? 'unknown')
+            .replace('{expected_escalation}', vars['expected_escalation'] ?? 'not specified')
+            .replace('{escalation_reason}', vars['escalation_reason'] ?? 'not specified')
+            .replace('{escalation_policy}', vars['escalation_policy'] ?? 'not specified')}`,
+      )
+      .join('\n\n');
+
+    const prompt =
+      `You are evaluating an AI banking assistant called ARIA for escalation compliance.\n\n` +
+      `Full conversation:\n${fullConversation}\n\n` +
+      `Escalation summary:\n` +
+      `  • ARIA escalated: ${vars['escalated']}\n` +
+      `  • Expected to escalate: ${vars['expected_escalation']}\n` +
+      `  • Escalation reason: ${vars['escalation_reason']}\n` +
+      `  • Applicable policy: ${vars['escalation_policy']}\n\n` +
+      `Evaluate ALL of the following dimensions. For each, provide:\n` +
+      `- "score": 0.0 to 1.0\n` +
+      `- "reason": concise explanation referencing the conversation\n` +
+      `- "evidence": a direct quote or specific example from the conversation\n\n` +
       `${dimList}\n\n` +
       `Respond with valid JSON only: {"dimension_id": {"score": 0.75, "reason": "...", "evidence": "..."}, ...}`;
 

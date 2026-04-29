@@ -1,0 +1,25 @@
+{
+  "name": "aria-goal-success",
+  "description": "Evaluates whether ARIA successfully completed all customer goals within the session.",
+  "evaluationLevel": "SESSION",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator assessing ARIA, Meridian Bank's AI banking assistant. Review the entire conversation and identify each distinct goal the customer expressed. A goal is 'complete' when the customer received the information or action they needed, or was properly escalated to a human agent with context. Goals that were ignored or incorrectly handled are failures.\n\nFull session transcript: {context}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "All customer goals fully completed or appropriately escalated." },
+          { "value": 0.75, "label": "Good", "definition": "Most goals completed; one minor goal partially addressed." },
+          { "value": 0.50, "label": "OK", "definition": "Core goal completed but one or more secondary goals missed." },
+          { "value": 0.25, "label": "Poor", "definition": "Primary goal not completed or incorrectly handled." },
+          { "value": 0.00, "label": "Very Poor", "definition": "No customer goals completed; session was entirely unsuccessful." }
+        ]
+      }
+    }
+  }
+}

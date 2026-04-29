@@ -1,0 +1,25 @@
+{
+  "name": "aria-reasoning-logical-consistency",
+  "description": "Evaluates logical consistency across ARIA's reasoning process.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert AI reasoning evaluator. Assess whether ARIA's reasoning is internally logically consistent — free from contradictions between reasoning steps. Does it contradict itself within a single response? Does it reach a conclusion that does not follow from its stated premises? Does it apply rules inconsistently?\n\nConversation context: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Perfectly logically consistent throughout." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly consistent; one minor logical imprecision." },
+          { "value": 0.50, "label": "OK", "definition": "Partial inconsistency that doesn't affect the outcome." },
+          { "value": 0.25, "label": "Poor", "definition": "Notable logical contradiction that undermines the response." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Fundamental logical inconsistency — conclusion contradicts premises." }
+        ]
+      }
+    }
+  }
+}

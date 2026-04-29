@@ -111,6 +111,7 @@ OFFICIAL AWS REFERENCES
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -133,31 +134,28 @@ MEMORY_TABLE_NAME: str = os.environ.get("MEMORY_TABLE_NAME", "") # Empty = skip 
 TRANSCRIPT_TABLE_NAME: str = os.environ.get("TRANSCRIPT_TABLE_NAME", "aria-transcript-store")
 
 # ---------------------------------------------------------------------------
-# AWS clients — initialised once per Lambda container lifecycle
+# AWS clients — eagerly initialised at module load time so the SDK connection
+# pool and credential resolution happen during the cold-start phase, not on
+# the first in-handler call.  Warm invocations reuse the same client objects.
 # ---------------------------------------------------------------------------
-_connect_client = None
-_qconnect_client = None
-_dynamodb_client = None
+_connect_client  = boto3.client("connect",  region_name=AWS_REGION)
+_qconnect_client = boto3.client("qconnect", region_name=AWS_REGION)
+_dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION)
+
+# Circuit breaker: flipped to True when the DynamoDB memory table is confirmed
+# missing so subsequent invocations skip the wasteful API call immediately.
+_memory_table_unavailable: bool = False
 
 
 def _get_connect() -> Any:
-    global _connect_client
-    if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=AWS_REGION)
     return _connect_client
 
 
 def _get_qconnect() -> Any:
-    global _qconnect_client
-    if _qconnect_client is None:
-        _qconnect_client = boto3.client("qconnect", region_name=AWS_REGION)
     return _qconnect_client
 
 
 def _get_dynamodb() -> Any:
-    global _dynamodb_client
-    if _dynamodb_client is None:
-        _dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION)
     return _dynamodb_client
 
 
@@ -421,8 +419,14 @@ def _lookup_prior_summary(customer_id: str, session_id: str) -> str:
         PK: CUSTOMER#<customer_id>
         SK: LAST_SESSION_SUMMARY
         summary: "Customer asked about their balance and requested a statement."
+
+    A module-level circuit breaker (_memory_table_unavailable) is set on the
+    first ResourceNotFoundException so subsequent invocations skip the call
+    entirely rather than wasting ~160 ms on a known-missing table.
     """
-    if not MEMORY_TABLE_NAME:
+    global _memory_table_unavailable
+
+    if not MEMORY_TABLE_NAME or _memory_table_unavailable:
         return ""
 
     try:
@@ -436,7 +440,16 @@ def _lookup_prior_summary(customer_id: str, session_id: str) -> str:
         item = resp.get("Item", {})
         return item.get("summary", {}).get("S", "")
     except ClientError as e:
-        logger.warning(f"DynamoDB lookup for prior summary failed: {e}")
+        code = e.response.get("Error", {}).get("Code", "Unknown")
+        if code == "ResourceNotFoundException":
+            _memory_table_unavailable = True
+            logger.error(
+                f"DynamoDB table {MEMORY_TABLE_NAME!r} does not exist. "
+                "Disabling prior summary lookups for the lifetime of this container. "
+                "Either create the table or unset MEMORY_TABLE_NAME to silence this error."
+            )
+        else:
+            logger.warning(f"DynamoDB lookup for prior summary failed: {e}")
         return ""
 
 
@@ -648,10 +661,23 @@ def handler(event: dict, context: Any) -> dict:
         else:
             logger.info(f"Caller phone {caller_phone!r} has no mapped customerId — unauthenticated session")
 
-    # ── 2. Resolve Q Connect (Wisdom) session ARN — required for injection ────
-    # The Wisdom session ARN is stored on the contact after the "Connect assistant"
-    # block runs. It is DIFFERENT from the ContactId.
-    session_id: str = _resolve_wisdom_session_id(instance_id, contact_id)
+    # ── 2 + 4(prior summary) + 4b: Fan-out independent I/O calls ─────────────
+    # _resolve_wisdom_session_id  → DescribeContact API
+    # _lookup_prior_summary       → DynamoDB GetItem  (doesn't need the ARN)
+    # _get_cross_channel_transcript → DynamoDB GetItem
+    # All three are independent; run them concurrently to cut sequential wait.
+    with ThreadPoolExecutor(max_workers=3) as _pool:
+        _future_session_arn   = _pool.submit(_resolve_wisdom_session_id, instance_id, contact_id)
+        _future_prior_summary = (
+            _pool.submit(_lookup_prior_summary, customer_id, "")
+            if customer_id and MEMORY_TABLE_NAME and not _memory_table_unavailable
+            else None
+        )
+        _future_cross_channel = _pool.submit(_get_cross_channel_transcript, flow_attributes)
+
+        session_id: str    = _future_session_arn.result()
+        prior_summary: str = _future_prior_summary.result() if _future_prior_summary else ""
+        cross_channel_vars: dict = _future_cross_channel.result()
 
     logger.info(
         f"Contact: id={contact_id} wisdomSession={session_id!r} "
@@ -675,11 +701,11 @@ def handler(event: dict, context: Any) -> dict:
         customer = _lookup_customer(customer_id)
 
         if customer:
-            preferred_name       = customer.get("preferred_name", "")
-            product_summary      = _build_product_summary(customer)
-            product_context      = _build_product_context(customer)
+            preferred_name        = customer.get("preferred_name", "")
+            product_summary       = _build_product_summary(customer)
+            product_context       = _build_product_context(customer)
             vulnerability_context = _build_vulnerability_context(customer)
-            prior_summary        = _lookup_prior_summary(customer_id, session_id)
+            # prior_summary already fetched concurrently in the fan-out above
 
             session_vars.update({
                 "preferredName":        preferred_name,
@@ -704,7 +730,7 @@ def handler(event: dict, context: Any) -> dict:
         logger.info(f"No customerId — injecting base session variables only (phone={caller_phone!r})")
 
     # ── 4b. Cross-channel transfer context ────────────────────────────────────
-    cross_channel_vars = _get_cross_channel_transcript(flow_attributes)
+    # cross_channel_vars already fetched concurrently in the fan-out above
     if cross_channel_vars:
         session_vars.update(cross_channel_vars)
         logger.info(

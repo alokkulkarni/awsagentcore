@@ -1,0 +1,25 @@
+{
+  "name": "aria-response-relevance",
+  "description": "Evaluates how well ARIA's response addresses the specific question or request.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator. Assess whether ARIA's response directly addresses what the customer asked. Is the response on-topic and directly relevant? Penalise responses that answer the wrong question, go off-topic, or bury the relevant answer in excessive preamble.\n\nCustomer query and context: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Response directly and completely addresses the customer's question." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly relevant with minor tangential content." },
+          { "value": 0.50, "label": "OK", "definition": "Partially relevant; relevant content present but buried or incomplete." },
+          { "value": 0.25, "label": "Poor", "definition": "Mostly irrelevant; response addresses something other than what was asked." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely off-topic or unrelated to the customer's query." }
+        ]
+      }
+    }
+  }
+}

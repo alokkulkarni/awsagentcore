@@ -1,0 +1,25 @@
+{
+  "name": "aria-context-retrieval",
+  "description": "Evaluates whether ARIA correctly surfaces and uses the most relevant context.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking AI evaluator. Assess whether ARIA correctly retrieved and used contextual information: customer preferred name, product summary, prior session summary, cross-channel transcript, and information established during the current conversation. Did ARIA avoid re-asking for already-provided information? Did it use the correct product context?\n\nConversation so far: {context}\nARIA's current response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "ARIA perfectly recalled and applied all relevant context." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly correct context use; one minor piece of context missed." },
+          { "value": 0.50, "label": "OK", "definition": "Used some context but missed a notable piece." },
+          { "value": 0.25, "label": "Poor", "definition": "Largely ignored available context; asked for already-provided information." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely failed to use injected or established context." }
+        ]
+      }
+    }
+  }
+}

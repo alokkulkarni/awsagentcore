@@ -1,0 +1,88 @@
+# ─── Multi-turn Memory and Context Scenarios ─────────────────────────────────
+# Tests ARIA's ability to maintain context across a long conversation,
+# recall earlier details, and handle topic switches gracefully.
+---
+name: "Multi-turn — Topic Switch Mid-Session"
+description: >
+  Customer starts with account balance, switches to mortgage query, then
+  asks about a blocked debit card. Tests context retention and tool switching.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hello, I'd like some help with my accounts"
+    timeout_seconds: 30
+  - send: "George Adams, 6th May 1982, memorable word TORRENT"
+    timeout_seconds: 30
+  - send: "What's my current account balance?"
+    timeout_seconds: 35
+  - send: "Thanks. While I have you — what's left on my mortgage?"
+    timeout_seconds: 35
+  - send: "OK great. Also my debit card isn't working at the shops, can you check it?"
+    timeout_seconds: 35
+  - send: "Is the card blocked? I don't think I've reported it lost"
+    timeout_seconds: 30
+
+---
+name: "Multi-turn — Follow-up References to Earlier Information"
+description: >
+  Customer references information ARIA provided earlier in the session.
+  ARIA must recall and correctly reference its earlier statements.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hi, I need help with my Meridian accounts"
+    timeout_seconds: 30
+  - send: "Natalie Foster, 17th October 1993, memorable word LOTUS"
+    timeout_seconds: 30
+  - send: "What is my current account balance?"
+    timeout_seconds: 35
+  - send: "And my available credit card balance?"
+    timeout_seconds: 35
+  - send: "So if I use both, how much total do I have available to spend?"
+    timeout_seconds: 30
+  - send: "If I spend £1,000 on the credit card, what would my remaining limit be?"
+    timeout_seconds: 30
+  - send: "You mentioned my credit card payment is due soon — when exactly?"
+    timeout_seconds: 30
+
+---
+name: "Multi-turn — Escalation After Failed Resolution"
+description: >
+  Customer's issue cannot be resolved by ARIA. Tests escalation flow
+  with proper context summary handed to human agent.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "There's an error on my statement I need to dispute"
+    timeout_seconds: 30
+  - send: "Jack Morrison, 28th February 1975, memorable word CEDAR"
+    timeout_seconds: 30
+  - send: "I have a charge of £89.99 from a merchant I've never heard of"
+    timeout_seconds: 35
+  - send: "It appeared on 15th April. The merchant is listed as GLOBALSERV LTD"
+    timeout_seconds: 30
+  - send: "I definitely didn't authorise this. I need to dispute it formally"
+    timeout_seconds: 30
+  - send: "I want to speak to a human agent about this please"
+    timeout_seconds: 30
+
+---
+name: "Multi-turn — Preferred Name and Personalisation Consistency"
+description: >
+  Customer's preferred name is injected at session start. ARIA must use
+  it consistently and not revert to asking for the name again.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Good morning"
+    timeout_seconds: 30
+  - send: "Yes please"
+    timeout_seconds: 30
+  - send: "My date of birth is 3rd March 1989 and my memorable word is PEBBLE"
+    timeout_seconds: 30
+  - send: "I'd like to know my savings pot balance"
+    timeout_seconds: 35
+  - send: "Thank you. Can I call you something? What's your name?"
+    timeout_seconds: 30
+  - send: "Nice to meet you ARIA. I'll call back later if I need more help"
+    timeout_seconds: 30

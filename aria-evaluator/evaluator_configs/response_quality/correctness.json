@@ -1,0 +1,25 @@
+{
+  "name": "aria-correctness",
+  "description": "Evaluates factual accuracy and correctness of ARIA's responses at Meridian Bank.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator assessing ARIA, Meridian Bank's AI banking assistant. ARIA handles current accounts, debit cards, credit cards, mortgages, and spending analysis.\n\nEvaluate ONLY factual accuracy — whether the information given is true, correct, and free from invented data. ARIA must NEVER invent account balances, transaction data, product names, or regulatory requirements not returned by a tool.\n\nContext: {context}\nARIA's response: {assistant_turn}\n\nIs every claim, figure, date, account detail, and product name in ARIA's response factually accurate and traceable to the conversation context or tool outputs?",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "All facts correct and verifiable from the conversation or tool outputs." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly correct; one minor inaccuracy that does not mislead the customer." },
+          { "value": 0.50, "label": "OK", "definition": "Partially correct; a notable error exists but the core answer is right." },
+          { "value": 0.25, "label": "Poor", "definition": "Significant factual errors that would mislead the customer." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Entirely incorrect or completely invented information." }
+        ]
+      }
+    }
+  }
+}

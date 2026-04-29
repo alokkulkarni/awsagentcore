@@ -141,8 +141,10 @@ if (!g['AudioContext']) {
 import {
   ConnectClient,
   StartWebRTCContactCommand,
+  DescribeContactCommand,
 } from '@aws-sdk/client-connect';
 import type { Meeting, Attendee } from '@aws-sdk/client-connect';
+import type { EscalationEvent, EscalationReason } from '../types/index.js';
 import {
   PollyClient,
   SynthesizeSpeechCommand,
@@ -247,6 +249,26 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   private readonly SILENCE_GAP_MS = 1_800;
   private readonly MIN_SPEECH_MS = 300;
 
+  // Escalation detection
+  private _escalationEvent: EscalationEvent | null = null;
+
+  // Phrases ARIA uses when transferring to a human agent (case-insensitive)
+  private static readonly ESCALATION_PATTERNS: Array<{ re: RegExp; reason: EscalationReason }> = [
+    { re: /transferr?ing you (to|now)/i,              reason: 'unresolvable' },
+    { re: /connect(ing)? you (to|with) (a )?(human|live|real|our) (agent|advisor|specialist|colleague|team)/i, reason: 'unresolvable' },
+    { re: /speak(ing)? to (a )?(human|live|real|our) (agent|advisor|specialist|colleague)/i, reason: 'customer_requested' },
+    { re: /pass(ing)? you (over|through) to (a )?/i,  reason: 'unresolvable' },
+    { re: /handl(ing|ed) by (a |one of )?our (team|advisors?|specialists?|colleagues?)/i, reason: 'unresolvable' },
+    { re: /need(s)? to (speak|talk) with (a |an )?(agent|advisor|human)/i, reason: 'unresolvable' },
+    { re: /one of our (advisors?|team|specialists?|colleagues?) will/i, reason: 'unresolvable' },
+    { re: /placing you (in|into) (a |the )?(queue|hold)/i, reason: 'unresolvable' },
+    { re: /auth(entication)? (has )?fail/i,            reason: 'auth_failure' },
+    { re: /vulnerab/i,                                  reason: 'vulnerable_customer' },
+    { re: /compliance|regulatory|regulator/i,          reason: 'compliance_blocked' },
+    { re: /formal (complaint|dispute)/i,               reason: 'compliance_blocked' },
+    { re: /bereavement|bereavements/i,                 reason: 'compliance_blocked' },
+  ];
+
   constructor(config: WebRTCAdapterConfig) {
     this.config = {
       instanceId: config.instanceId,
@@ -260,6 +282,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   }
 
   get contactId(): string | null { return this._contactId; }
+  get escalationEvent(): EscalationEvent | null { return this._escalationEvent; }
 
   // ── connect ────────────────────────────────────────────────────────────────
 
@@ -395,6 +418,18 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
 
         audioVideoDidStop: (status) => {
           console.log(`  ℹ  Chime session stopped: ${String(status)}`);
+          // If the meeting ended while we had received at least one agent turn and no
+          // escalation has been detected by keyword yet, treat it as a possible
+          // escalation (ARIA transferred the call → Chime meeting ends).
+          if (!this._escalationEvent && this.receiveQueue.length === 0 && !resolved) {
+            // Pre-connect stop → not an escalation, handled as error below
+          } else if (!this._escalationEvent) {
+            this._escalationEvent = {
+              detectedAtTurn: -1, // populated in disconnect() after we know turn count
+              trigger: 'meeting_ended',
+              reason: 'unknown',
+            };
+          }
           this.sessionEnded = true;
           if (!resolved) {
             resolved = true;
@@ -497,8 +532,56 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
       this.meetingSession = null;
     }
 
+    // Fetch contact attributes from Connect — the Contact Flow may have set
+    // escalation metadata (e.g. escalationReason, escalationType).
+    if (this._contactId) {
+      try {
+        const desc = await this.connectClient.send(
+          new DescribeContactCommand({
+            InstanceId: this.config.instanceId,
+            ContactId: this._contactId,
+          }),
+        );
+        const attrs = desc.Contact?.Attributes ?? {};
+        if (Object.keys(attrs).length > 0) {
+          if (this._escalationEvent) {
+            this._escalationEvent.contactAttributes = attrs;
+            // Refine reason from contact attributes if available
+            const attrReason = (attrs['escalationReason'] ?? attrs['escalation_reason'] ?? '').toLowerCase();
+            if (attrReason) {
+              this._escalationEvent.reason = this.normaliseContactReason(attrReason);
+            }
+          } else {
+            // Contact attributes indicate escalation even if we missed the keyword
+            const attrReason = attrs['escalationReason'] ?? attrs['escalation_reason'] ?? '';
+            if (attrReason) {
+              this._escalationEvent = {
+                detectedAtTurn: -1,
+                trigger: 'contact_attribute',
+                reason: this.normaliseContactReason(attrReason.toLowerCase()),
+                contactAttributes: attrs,
+              };
+            }
+          }
+        }
+      } catch (err) {
+        // DescribeContact is best-effort — ignore errors (e.g. insufficient IAM perms)
+        console.debug(`  ℹ  DescribeContact skipped: ${(err as Error).message}`);
+      }
+    }
+
     for (const r of this.receiveResolvers) r(null);
     this.receiveResolvers = [];
+  }
+
+  private normaliseContactReason(raw: string): EscalationReason {
+    if (raw.includes('vulnerable')) return 'vulnerable_customer';
+    if (raw.includes('auth')) return 'auth_failure';
+    if (raw.includes('compliance') || raw.includes('regulat') || raw.includes('complaint')) return 'compliance_blocked';
+    if (raw.includes('customer_requested') || raw.includes('human_requested')) return 'customer_requested';
+    if (raw.includes('unresolvable') || raw.includes('unable')) return 'unresolvable';
+    if (raw.includes('scope')) return 'out_of_scope';
+    return 'unknown';
   }
 
   // ── Private: TTS synthesis ─────────────────────────────────────────────────
@@ -684,6 +767,24 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   // ── Private: message delivery ─────────────────────────────────────────────
 
   private deliverMessage(msg: AdapterMessage): void {
+    // Escalation keyword detection — scan every agent turn
+    if (msg.role === 'agent' && !this._escalationEvent) {
+      for (const { re, reason } of ConnectWebRTCAdapter.ESCALATION_PATTERNS) {
+        if (re.test(msg.content)) {
+          this._escalationEvent = {
+            detectedAtTurn: this.receiveQueue.length + this.receiveResolvers.length,
+            trigger: 'text_keyword',
+            detectedFrom: msg.content,
+            reason,
+          };
+          console.log(`  ⚡ Escalation detected (${reason}): "${msg.content.substring(0, 80)}…"`);
+          // Mark session ended — no more customer turns needed after transfer
+          this.sessionEnded = true;
+          break;
+        }
+      }
+    }
+
     if (this.receiveResolvers.length > 0) {
       const resolver = this.receiveResolvers.shift()!;
       resolver(msg);

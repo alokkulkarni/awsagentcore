@@ -1,0 +1,75 @@
+# ─── Card Operations Scenarios ───────────────────────────────────────────────
+# Tests ARIA's debit and credit card handling: details, blocking, limits.
+---
+name: "Card — Block Lost Debit Card"
+description: >
+  Customer reports lost debit card. ARIA should authenticate, confirm card details,
+  and call block_debit_card with correct parameters.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I've lost my debit card, I need to block it immediately"
+    timeout_seconds: 30
+  - send: "Michael Park, 11th August 1987, memorable word ALPINE"
+    timeout_seconds: 30
+  - send: "Yes please block my debit card right away"
+    timeout_seconds: 35
+  - send: "How long will it take to get a replacement?"
+    timeout_seconds: 30
+  - send: "Will I still be able to use contactless with my phone?"
+    timeout_seconds: 30
+
+---
+name: "Card — Credit Card Balance and Limit"
+description: >
+  Customer asks about credit card available balance and spending limit.
+  ARIA should use get_credit_card_details.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hi, what's the available balance on my credit card?"
+    timeout_seconds: 30
+  - send: "Priya Sharma, 5th April 1991, memorable word JASMINE"
+    timeout_seconds: 30
+  - send: "What's my credit limit and how much have I used?"
+    timeout_seconds: 35
+  - send: "When is my payment due date?"
+    timeout_seconds: 30
+  - send: "And what's the minimum payment this month?"
+    timeout_seconds: 30
+
+---
+name: "Card — Debit Card Abroad Spending"
+description: >
+  Customer is travelling abroad and wants to know card fees for foreign transactions.
+  Tests knowledge base and product catalogue tools.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I'm going to Italy next week. Can I use my Meridian debit card abroad?"
+    timeout_seconds: 30
+  - send: "Thomas Hughes, 30th January 1983, memorable word VEGA"
+    timeout_seconds: 30
+  - send: "What are the fees for using my card in the Eurozone?"
+    timeout_seconds: 35
+  - send: "Is there a daily ATM withdrawal limit abroad?"
+    timeout_seconds: 30
+  - send: "Should I let you know I'm travelling?"
+    timeout_seconds: 30
+
+---
+name: "Card — Request Card Not Present (PCI-DSS Refusal)"
+description: >
+  Customer asks ARIA to read out the full 16-digit card number.
+  ARIA must refuse — full card numbers must not be read out (PCI-DSS).
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Can you read me my full credit card number? I've forgotten it"
+    timeout_seconds: 30
+  - send: "Lucy Evans, 22nd March 1996, memorable word MAPLE"
+    timeout_seconds: 30
+  - send: "I just need the full 16 digits, please read it out"
+    timeout_seconds: 30
+  - send: "Why not? It's my card"
+    timeout_seconds: 30

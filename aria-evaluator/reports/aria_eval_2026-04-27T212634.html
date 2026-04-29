@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA Evaluation Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 2rem; font-weight: 700; color: #f1f5f9; }
+  h2 { font-size: 1.25rem; font-weight: 600; color: #cbd5e1; margin: 24px 0 12px; }
+  h3 { font-size: 1rem; font-weight: 600; color: #94a3b8; margin: 16px 0 8px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding: 32px 0 24px; border-bottom: 1px solid #1e293b; }
+  .grade-badge { font-size: 5rem; font-weight: 900; line-height: 1; color: #6b7280; }
+  .meta { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+  .meta span { margin-right: 16px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
+  .stat-card { background: #1e293b; border-radius: 12px; padding: 20px; }
+  .stat-value { font-size: 2rem; font-weight: 700; }
+  .stat-label { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+  .category-section { background: #1e293b; border-radius: 12px; padding: 20px; margin: 16px 0; }
+  .dim-row { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #0f172a; }
+  .dim-row:last-child { border-bottom: none; }
+  .dim-label { flex: 1; font-size: 0.875rem; }
+  .dim-bar-wrap { flex: 2; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; margin: 0 12px; }
+  .dim-bar { height: 100%; border-radius: 4px; }
+  .dim-score { width: 48px; text-align: right; font-size: 0.875rem; font-weight: 600; }
+  .dim-grade { width: 28px; text-align: center; font-size: 0.75rem; font-weight: 700; }
+  .scenario-card { background: #1e293b; border-radius: 12px; margin: 16px 0; overflow: hidden; }
+  .scenario-header { padding: 16px 20px; border-bottom: 1px solid #0f172a; display: flex; justify-content: space-between; align-items: center; }
+  .scenario-name { font-weight: 600; }
+  .badge { padding: 2px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
+  .badge-pass { background: #14532d; color: #4ade80; }
+  .badge-fail { background: #450a0a; color: #f87171; }
+  .badge-error { background: #1c1917; color: #a8a29e; }
+  .transcript { padding: 16px 20px; }
+  .turn { display: flex; gap: 12px; margin: 8px 0; }
+  .turn-role { width: 80px; font-size: 0.75rem; font-weight: 600; color: #64748b; padding-top: 2px; flex-shrink: 0; }
+  .turn-content { font-size: 0.875rem; line-height: 1.5; }
+  .turn-aria .turn-content { color: #93c5fd; }
+  .turn-customer .turn-content { color: #e2e8f0; }
+  .injection-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #0f172a; gap: 12px; }
+  .injection-row:last-child { border-bottom: none; }
+  .injection-name { flex: 1; font-size: 0.875rem; }
+  .injection-type { font-size: 0.75rem; color: #64748b; background: #0f172a; padding: 2px 8px; border-radius: 4px; }
+  .injection-score { width: 60px; text-align: right; font-weight: 700; }
+  .sentiment-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 0.875rem; }
+  .sent-positive { color: #4ade80; }
+  .sent-neutral { color: #94a3b8; }
+  .sent-negative { color: #f87171; }
+  .sent-improving { color: #4ade80; }
+  .sent-stable { color: #94a3b8; }
+  .sent-deteriorating { color: #f87171; }
+  .footer { text-align: center; font-size: 0.75rem; color: #475569; padding: 32px 0; border-top: 1px solid #1e293b; margin-top: 32px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1>🤖 ARIA Evaluation Report</h1>
+      <div class="meta">
+        <span>📅 2026-04-27 21:26:34 UTC</span>
+        <span>🏦 Instance: f969d4b4-f716-4974-a325-bb7899f2f293</span>
+        <span>🌍 eu-west-2</span>
+        <span>⚖️ Judge: claude-sonnet-4-5-20250929-v1:</span>
+      </div>
+    </div>
+    <div style="text-align: center;">
+      <div class="grade-badge">N/A</div>
+      <div class="meta" style="text-align:center;">Overall Grade</div>
+      <div style="font-size: 1.5rem; font-weight: 700; color: #6b7280; margin-top: 4px;">0.0%</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #60a5fa;">0</div>
+      <div class="stat-label">Scenarios Run</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color: #34d399;">0</div>
+      <div class="stat-label">Scenarios Scored</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color: #f87171;">
+        N/A
+      </div>
+      <div class="stat-label">Injection Resistance (0/0 blocked)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color: #94a3b8;">
+        N/A
+      </div>
+      <div class="stat-label">Avg Customer Sentiment</div>
+    </div>
+  </div>
+
+  <!-- Dimension Scores by Category -->
+  <h2>📊 Evaluation Dimensions</h2>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  <!-- Prompt Injection Results -->
+  
+
+  <!-- Sentiment Analysis -->
+  
+
+  <!-- Scenario Transcripts -->
+  <h2>📋 Scenario Transcripts</h2>
+  
+
+  <div class="footer">
+    ARIA Evaluator — LLM-as-Judge Framework | Generated 2026-04-27 21:26:34 UTC
+  </div>
+</div>
+</body>
+</html>

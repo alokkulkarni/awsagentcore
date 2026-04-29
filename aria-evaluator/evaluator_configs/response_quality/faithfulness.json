@@ -1,0 +1,25 @@
+{
+  "name": "aria-faithfulness",
+  "description": "Evaluates whether ARIA's response is consistent with the conversation history.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator. Assess whether ARIA's current response contradicts or ignores information established earlier in the conversation. Penalise if ARIA contradicts an earlier statement, forgets a confirmed detail, or re-asks something the customer already provided.\n\nFull conversation history: {context}\nCurrent ARIA response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Fully consistent with all prior conversation turns." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly consistent; minor inconsequential discrepancy." },
+          { "value": 0.50, "label": "OK", "definition": "Notable inconsistency but does not cause serious confusion." },
+          { "value": 0.25, "label": "Poor", "definition": "Contradicts earlier statements or ignores key confirmed details." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely contradicts established facts from earlier in the conversation." }
+        ]
+      }
+    }
+  }
+}

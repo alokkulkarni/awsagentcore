@@ -1,0 +1,25 @@
+{
+  "name": "aria-conciseness",
+  "description": "Evaluates whether ARIA communicates efficiently without unnecessary verbosity.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator. Assess whether ARIA's response is appropriately concise. For VOICE channel: penalise verbosity heavily — spoken responses must be short and natural. For CHAT: a structured, slightly longer response is acceptable when complexity warrants it. Does the response include all needed information without padding, repetition, or excessive caveats?\n\nConversation context: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Appropriately brief — all key information, no padding or repetition." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly concise with minor verbosity that doesn't impede understanding." },
+          { "value": 0.50, "label": "OK", "definition": "Somewhat verbose; information present but could be 30-50% shorter." },
+          { "value": 0.25, "label": "Poor", "definition": "Significantly verbose; excessive padding, repetition, or unnecessary caveats." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Excessively long; the key information is completely obscured by verbosity." }
+        ]
+      }
+    }
+  }
+}

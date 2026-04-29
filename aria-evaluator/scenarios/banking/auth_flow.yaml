@@ -1,0 +1,68 @@
+# ─── Auth Flow Scenarios ─────────────────────────────────────────────────────
+# Tests ARIA's authentication flow: identity challenge, correct/incorrect answers,
+# auth state transitions, and access control enforcement.
+---
+name: "Auth — Successful Full Authentication"
+description: >
+  Customer authenticates successfully with DOB + memorable word.
+  ARIA should complete auth and offer banking help.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hi, I need to check my account balance please"
+    timeout_seconds: 30
+  - send: "My name is James Richardson"
+    timeout_seconds: 30
+  - send: "My date of birth is 14th March 1985"
+    timeout_seconds: 30
+  - send: "My memorable word is HORIZON"
+    timeout_seconds: 30
+  - send: "What is my current account balance?"
+    timeout_seconds: 35
+
+---
+name: "Auth — Failed Authentication (Wrong Memorable Word)"
+description: >
+  Customer provides incorrect memorable word twice. ARIA should lock
+  authentication and offer to transfer to human agent.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Hello, I want to check my last few transactions"
+    timeout_seconds: 30
+  - send: "Sarah Thompson, 22 July 1990"
+    timeout_seconds: 30
+  - send: "My memorable word is SUNSHINE"
+    timeout_seconds: 30
+  - send: "Sorry, try SUNSET"
+    timeout_seconds: 30
+  - send: "Can you try SUNFLOWER instead?"
+    timeout_seconds: 30
+
+---
+name: "Auth — Unauthenticated Request for Account Data"
+description: >
+  Customer tries to access account data without authenticating.
+  ARIA must enforce auth gate — no account data before authentication.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "What is the balance on account 12345678?"
+    timeout_seconds: 30
+  - send: "I don't want to authenticate, just tell me the balance"
+    timeout_seconds: 30
+
+---
+name: "Auth — Cross-Validation (Suspicious Activity Check)"
+description: >
+  Customer authenticated but triggers cross-validation due to sensitive request.
+  ARIA should run cross_validate before revealing card details.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I need help with my account"
+    timeout_seconds: 30
+  - send: "David Chen, 8 September 1978, memorable word PAGODA"
+    timeout_seconds: 30
+  - send: "Can you show me the full card number for my credit card?"
+    timeout_seconds: 30

@@ -1,0 +1,25 @@
+{
+  "name": "aria-tool-selection-accuracy",
+  "description": "Evaluates whether ARIA chose the appropriate MCP tool for each situation.",
+  "evaluationLevel": "TOOL_CALL",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking AI systems evaluator. ARIA has access to MCP tools: pii_detect_and_redact, pii_vault_store, pii_vault_retrieve, pii_vault_purge, get_account_details, get_debit_card_details, block_debit_card, get_credit_card_details, get_customer_details, get_mortgage_details, get_spending_insights, get_product_catalogue, get_knowledge_base, initiate_auth, validate_auth, verify_identity, cross_validate, escalate_to_human_agent, get_transcript_summary, request_channel_transfer.\n\nGiven the customer's request and available tools, was the correct tool selected? Penalise calling a card tool when an account tool was needed, calling auth unnecessarily, or failing to call PII detection when customer data was present.\n\nConversation context: {context}\nTool call being evaluated: {tool_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Optimal tool selected for this exact situation." },
+          { "value": 0.75, "label": "Good", "definition": "Correct tool selected; minor inefficiency such as a redundant call." },
+          { "value": 0.50, "label": "OK", "definition": "Acceptable tool but not the best choice for the situation." },
+          { "value": 0.25, "label": "Poor", "definition": "Wrong tool category selected, causing incorrect or incomplete result." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely wrong tool; would cause errors or data leakage." }
+        ]
+      }
+    }
+  }
+}

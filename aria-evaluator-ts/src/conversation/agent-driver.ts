@@ -1,0 +1,135 @@
+// src/conversation/agent-driver.ts
+// Drives the customer side of the conversation using Amazon Bedrock Converse API.
+// Optionally delegates to a Bedrock Agent if BEDROCK_AGENT_ID is configured.
+//
+// The driver receives the conversation history so far and the scenario persona/goal,
+// then generates the next natural customer message — making the evaluation more
+// realistic than reading from a fixed script.
+
+import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+  type Message,
+  type ContentBlock,
+} from '@aws-sdk/client-bedrock-runtime';
+import type { Scenario } from '../types/index.js';
+import type { Turn } from '../types/transcript.js';
+
+export interface AgentDriverConfig {
+  modelId?: string;
+  region?: string;
+}
+
+export class AgentDriver {
+  private readonly client: BedrockRuntimeClient;
+  private readonly modelId: string;
+  private conversationHistory: Message[] = [];
+
+  constructor(config: AgentDriverConfig = {}) {
+    this.modelId =
+      config.modelId ??
+      process.env['JUDGE_MODEL_ID'] ??
+      'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
+    this.client = new BedrockRuntimeClient({
+      region: config.region ?? process.env['BEDROCK_REGION'] ?? 'eu-west-2',
+    });
+  }
+
+  /** Build the system prompt from the scenario */
+  private buildSystemPrompt(scenario: Scenario): string {
+    return [
+      `You are playing the role of a customer interacting with a bank's AI assistant called ARIA.`,
+      ``,
+      `Customer persona:`,
+      scenario.customer_persona,
+      ``,
+      `Conversation goal:`,
+      scenario.goal,
+      ``,
+      `Instructions:`,
+      `- Stay in character as the customer at all times.`,
+      `- Respond naturally and concisely, as a real person would speak or type.`,
+      `- Do NOT use greetings like "Hello" or "Hi" unless it is your opening message.`,
+      `- Do NOT explain your role or the scenario to ARIA.`,
+      `- If ARIA cannot help with something, react naturally (confusion, frustration, acceptance).`,
+      `- CRITICAL: Only signal [GOAL_ACHIEVED] when ARIA has ACTUALLY delivered the specific information or completed the task (e.g., provided an actual balance figure, account number, confirmed a transaction). Do NOT signal [GOAL_ACHIEVED] just because ARIA says "let me look that up" or "I'll pull that up for you now" — that is a promise, not delivery.`,
+      `- If ARIA acknowledges your request without providing the information, ask for the actual information (e.g., "Can I have that balance figure please?").`,
+      `- If the conversation exceeds ${scenario.max_turns} turns with no progress, end with: [GIVE_UP]`,
+    ].join('\n');
+  }
+
+  /** Reset history for a new scenario */
+  reset(): void {
+    this.conversationHistory = [];
+  }
+
+  /**
+   * Generate the next customer message given the current conversation state.
+   * @param scenario   The active scenario (for persona + goal)
+   * @param history    All turns so far (used to build the assistant/user alternation)
+   * @param isOpening  True for the very first customer message (use opening_message if set)
+   */
+  async nextMessage(
+    scenario: Scenario,
+    history: Turn[],
+    isOpening: boolean,
+  ): Promise<{ message: string; goalAchieved: boolean; giveUp: boolean }> {
+    if (isOpening && scenario.opening_message) {
+      return { message: scenario.opening_message, goalAchieved: false, giveUp: false };
+    }
+
+    const systemPrompt = this.buildSystemPrompt(scenario);
+
+    // Rebuild conversation history from turns for the Converse API.
+    // Converse requires alternating user/assistant messages.
+    const messages: Message[] = [];
+    for (const turn of history) {
+      const role = turn.role === 'customer' ? 'user' : 'assistant';
+      const lastMsg = messages.at(-1);
+      if (lastMsg?.role === role) {
+        // Merge consecutive same-role turns
+        const existing = lastMsg.content as ContentBlock[];
+        existing.push({ text: turn.content });
+      } else {
+        messages.push({ role, content: [{ text: turn.content }] });
+      }
+    }
+
+    // If the last message was from the customer (user), we need to add a placeholder
+    // assistant message so that Converse sees an alternating pattern ending with "user".
+    // (This happens if the agent hasn't responded yet.)
+    if (messages.at(-1)?.role !== 'assistant' && messages.length > 0) {
+      // Remove the trailing user turn — we'll re-add it below as the prompt
+      messages.pop();
+    }
+
+    // Add the prompt: "What do you say next?"
+    messages.push({
+      role: 'user',
+      content: [{ text: 'What do you say next as the customer? Respond only with the customer text, nothing else.' }],
+    });
+
+    const resp = await this.client.send(
+      new ConverseCommand({
+        modelId: this.modelId,
+        system: [{ text: systemPrompt }],
+        messages,
+        inferenceConfig: {
+          maxTokens: 200,
+          temperature: 0.7,
+        },
+      }),
+    );
+
+    const rawText =
+      (resp.output?.message?.content?.[0] as ContentBlock & { text?: string })?.text ?? '';
+    const goalAchieved = rawText.includes('[GOAL_ACHIEVED]');
+    const giveUp = rawText.includes('[GIVE_UP]');
+    const message = rawText
+      .replace('[GOAL_ACHIEVED]', '')
+      .replace('[GIVE_UP]', '')
+      .trim();
+
+    return { message, goalAchieved, giveUp };
+  }
+}

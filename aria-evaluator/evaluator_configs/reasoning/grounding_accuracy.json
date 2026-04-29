@@ -1,0 +1,25 @@
+{
+  "name": "aria-grounding-accuracy",
+  "description": "Evaluates whether ARIA's reasoning is grounded in provided context and tool data.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert AI reasoning evaluator. Assess whether ARIA's reasoning and conclusions are grounded in actual data returned by tools and established conversation context, rather than invented or assumed. Did ARIA correctly interpret tool outputs? Did it correctly apply data to the customer's specific situation?\n\nConversation and tool outputs: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "All reasoning fully grounded in tool data and established context." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly grounded; one minor assumption not strictly supported by data." },
+          { "value": 0.50, "label": "OK", "definition": "Core reasoning grounded but contains some unsupported assumptions." },
+          { "value": 0.25, "label": "Poor", "definition": "Significant reasoning based on invented or assumed data." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Reasoning entirely disconnected from the actual tool data or context." }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "aria-context-score",
+  "description": "Evaluates whether each ARIA reasoning step is contextually appropriate.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert AI reasoning evaluator. Assess whether each reasoning step ARIA takes is appropriate given the current conversational and situational context. Did ARIA correctly identify the customer's situation (channel, auth status, products, vulnerability flags) and tailor its actions accordingly? Penalise if ARIA used markdown in a voice response or accessed protected data without auth.\n\nConversation context: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Every step perfectly appropriate for the current context." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly contextually appropriate; one minor context mismatch." },
+          { "value": 0.50, "label": "OK", "definition": "Generally appropriate but missed a contextual nuance." },
+          { "value": 0.25, "label": "Poor", "definition": "Key contextual factors ignored such as wrong channel formatting." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely context-unaware — ignores channel, auth state, and customer context." }
+        ]
+      }
+    }
+  }
+}

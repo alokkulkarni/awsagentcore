@@ -181,7 +181,7 @@ for (const file of scenarioFiles) {
     allTranscripts.push(transcript);
 
     if (judge && !transcript.error) {
-      const result = await judge.evaluate(transcript, scenario.goal ?? scenario.name);
+      const result = await judge.evaluate(transcript, scenario.goal ?? scenario.name, scenario);
       allResults.push(result);
     }
   }

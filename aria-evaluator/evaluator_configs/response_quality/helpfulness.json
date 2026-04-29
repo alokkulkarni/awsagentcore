@@ -1,0 +1,25 @@
+{
+  "name": "aria-helpfulness",
+  "description": "Evaluates how effectively ARIA's response helps the customer progress toward their goal.",
+  "evaluationLevel": "TRACE",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking QA evaluator. Assess how helpful ARIA's response is in enabling the customer to accomplish what they asked for. Consider: Did it answer the question? Did it provide actionable next steps? Did it avoid unnecessary deflection or excessive caveats? Penalise vague, hedging, or non-actionable responses.\n\nConversation context: {context}\nARIA's response: {assistant_turn}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Directly and fully answers the customer's need with clear, actionable information." },
+          { "value": 0.75, "label": "Good", "definition": "Helpful with minor omissions or one unnecessary caveat." },
+          { "value": 0.50, "label": "OK", "definition": "Partially helpful; answers some of the need but leaves key questions unanswered." },
+          { "value": 0.25, "label": "Poor", "definition": "Mostly unhelpful; heavy hedging, deflection, or misunderstands the customer's need." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Completely unhelpful — refuses, deflects, or provides irrelevant information." }
+        ]
+      }
+    }
+  }
+}

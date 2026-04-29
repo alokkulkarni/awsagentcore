@@ -1,0 +1,81 @@
+// Prisma schema for aria-evaluator-ts
+// Run: npm run db:migrate
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Scenario ─────────────────────────────────────────────────────────────────
+model Scenario {
+  id          String   @id @default(cuid())
+  filePath    String   @unique        // relative path, e.g. "banking/account_query#0"
+  name        String
+  channel     String                  // "chat" | "voice"
+  description String?
+  yamlContent String                  // full YAML text of the scenario block
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  runs        Run[]
+}
+
+// ─── Run ──────────────────────────────────────────────────────────────────────
+model Run {
+  id           String    @id @default(cuid())
+  scenarioId   String?
+  scenario     Scenario? @relation(fields: [scenarioId], references: [id])
+  scenarioName String
+  channel      String
+  status       String    @default("pending") // pending|running|completed|failed
+  startedAt    DateTime?
+  completedAt  DateTime?
+  errorMessage String?
+  audioPath    String?   // WAV filename under transcripts/audio/ (voice runs)
+  turns        Turn[]
+  evalResult   EvalResult?
+  report       Report?
+  createdAt    DateTime  @default(now())
+}
+
+// ─── Turn ─────────────────────────────────────────────────────────────────────
+model Turn {
+  id          String   @id @default(cuid())
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id])
+  index       Int
+  role        String   // "customer" | "agent"
+  content     String
+  durationMs  Int?
+  timestampMs BigInt
+  createdAt   DateTime @default(now())
+
+  @@index([runId])
+}
+
+// ─── EvalResult ───────────────────────────────────────────────────────────────
+model EvalResult {
+  id              String   @id @default(cuid())
+  runId           String   @unique
+  run             Run      @relation(fields: [runId], references: [id])
+  overallScore    Float
+  passed          Boolean
+  dimensionScores String   // JSON: Record<string, DimensionScore>
+  summary         String
+  recommendation  String?
+  judgeModel      String
+  createdAt       DateTime @default(now())
+}
+
+// ─── Report ───────────────────────────────────────────────────────────────────
+model Report {
+  id        String   @id @default(cuid())
+  runId     String   @unique
+  run       Run      @relation(fields: [runId], references: [id])
+  htmlPath  String
+  jsonPath  String
+  createdAt DateTime @default(now())
+}

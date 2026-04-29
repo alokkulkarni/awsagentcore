@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-04-27T21:26:34.674255+00:00",
+  "started_at": "2026-04-27T21:26:34.619438+00:00",
+  "finished_at": "2026-04-27T21:26:34.674255+00:00",
+  "connect_instance_id": "f969d4b4-f716-4974-a325-bb7899f2f293",
+  "connect_region": "eu-west-2",
+  "judge_model": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "scenarios": [],
+  "injection_results": []
+}

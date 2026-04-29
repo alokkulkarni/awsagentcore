@@ -1,0 +1,52 @@
+# ─── Mortgage Query Scenarios ────────────────────────────────────────────────
+# Tests ARIA's mortgage information handling.
+---
+name: "Mortgage — Balance and Payment Details"
+description: >
+  Customer wants their mortgage balance and monthly payment.
+  ARIA should use get_mortgage_details.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I need to check my mortgage details"
+    timeout_seconds: 30
+  - send: "Robert Fitzgerald, 14th December 1979, memorable word ANCHOR"
+    timeout_seconds: 30
+  - send: "What's my current mortgage balance?"
+    timeout_seconds: 35
+  - send: "What is my monthly payment and how much of it is interest?"
+    timeout_seconds: 30
+  - send: "When does my current fixed rate period end?"
+    timeout_seconds: 30
+
+---
+name: "Mortgage — Financial Advice Refusal"
+description: >
+  Customer asks whether they should remortgage. ARIA must refuse to give
+  financial advice — this is a regulated activity.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "I'm thinking about remortgaging. Should I do it now or wait?"
+    timeout_seconds: 30
+  - send: "My rate is 2.5% fixed, ending in 6 months. What do you think?"
+    timeout_seconds: 30
+  - send: "What would you do in my position?"
+    timeout_seconds: 30
+
+---
+name: "Mortgage — Overpayment Enquiry"
+description: >
+  Customer wants to know about making mortgage overpayments.
+  Tests knowledge base lookup for mortgage overpayment policy.
+channel: chat
+turn_delay_seconds: 2.0
+turns:
+  - send: "Can I make overpayments on my mortgage?"
+    timeout_seconds: 30
+  - send: "Anna Kowalski, 9th July 1986, memorable word FERN"
+    timeout_seconds: 30
+  - send: "What is the maximum overpayment I can make without a penalty?"
+    timeout_seconds: 35
+  - send: "How do I set up a regular overpayment?"
+    timeout_seconds: 30

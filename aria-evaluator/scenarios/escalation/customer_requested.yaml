@@ -1,0 +1,75 @@
+# ─── Customer-Requested Escalation Scenarios ─────────────────────────────────
+# Tests ARIA's response when customers explicitly request to speak to a human agent.
+# ARIA must honour the request promptly and ensure a high-quality handover.
+---
+name: "Escalation — Customer Requests Human (First Ask)"
+description: >
+  Customer explicitly and clearly requests to speak to a human agent in their first
+  substantive turn. ARIA must honour this immediately without trying to resolve the
+  issue itself or deflecting multiple times.
+channel: chat
+mode: script
+authenticated: true
+expected_escalation: true
+escalation_reason: customer_requested
+escalation_policy: >
+  FCA Consumer Duty — Customers must be able to access human support when they need it.
+  ARIA must not block or unreasonably delay escalation when a customer requests it.
+  One gentle offer to help is acceptable, but if the customer reaffirms they want a human,
+  ARIA must transfer immediately without further deflection.
+opening_message: "I'd like to speak to a human agent please"
+goal: ARIA transfers promptly when customer requests human agent, with quality handover communication
+customer_persona: >
+  You have a complex issue that you do not wish to explain to a bot. You simply want
+  to speak to a human. You are polite but firm. If ARIA tries to help you itself more
+  than once, you restate that you want a human.
+max_turns: 6
+default_timeout_seconds: 30
+turn_delay_seconds: 2.0
+turns:
+  - send: "I'd like to speak to a human agent please"
+    timeout_seconds: 30
+  - send: "No thank you, I'd prefer to speak to a person. Can you put me through?"
+    timeout_seconds: 30
+  - send: "Yes please, I just want to talk to someone"
+    timeout_seconds: 30
+
+---
+name: "Escalation — Customer Requests Human (After Failed Resolution)"
+description: >
+  Customer has been trying to resolve an issue through ARIA but the issue cannot be
+  resolved in the AI channel. Customer requests human escalation after a reasonable
+  number of failed attempts. Tests quality of handover — does ARIA summarise the
+  issue clearly for the human agent?
+channel: chat
+mode: script
+authenticated: true
+expected_escalation: true
+escalation_reason: customer_requested
+escalation_policy: >
+  Meridian Bank Escalation Standard — When escalating at customer request after a
+  failed resolution attempt, ARIA must: (1) acknowledge the failure, (2) apologise
+  appropriately, (3) summarise the issue for the receiving agent, (4) set expectations
+  on wait time, (5) confirm what information the human agent will already have.
+opening_message: "There's a charge on my statement I don't recognise and I need help"
+goal: Customer escalates after failed resolution; ARIA provides quality handover summary
+customer_persona: >
+  You have an unrecognised charge of £89.99. ARIA cannot give you a satisfactory
+  explanation or refund. After trying, you ask to speak to a human advisor.
+  You want to know the agent will have all the context so you do not have to repeat yourself.
+max_turns: 10
+default_timeout_seconds: 35
+turn_delay_seconds: 2.5
+turns:
+  - send: "There's a charge on my statement I don't recognise and I need help"
+    timeout_seconds: 35
+  - send: "Jack Morrison, 28th February 1975, memorable word CEDAR"
+    timeout_seconds: 30
+  - send: "There's a charge of £89.99 from GLOBALSERV LTD on 15th April. I didn't authorise this."
+    timeout_seconds: 35
+  - send: "I've never heard of this company. Can you tell me more about them?"
+    timeout_seconds: 35
+  - send: "That's not helpful. I want to dispute this charge formally and get my money back."
+    timeout_seconds: 35
+  - send: "Can I please speak to a human advisor? I'm getting nowhere with this."
+    timeout_seconds: 35

@@ -1,0 +1,25 @@
+{
+  "name": "aria-sentiment-analysis",
+  "description": "Evaluates customer sentiment progression across the session.",
+  "evaluationLevel": "SESSION",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert customer experience evaluator for a UK retail bank. Analyse the customer's sentiment trajectory across the full session. Identify: 1) Starting sentiment (positive/neutral/frustrated/distressed), 2) Key sentiment shifts, 3) Ending sentiment, 4) Whether ARIA's responses improved or worsened customer sentiment. Score based on the FINAL state AND trajectory — a customer who started frustrated and ended satisfied deserves high marks.\n\nFull session transcript: {context}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Customer sentiment clearly improved or stayed positive throughout." },
+          { "value": 0.75, "label": "Good", "definition": "Mostly positive trajectory; minor moment of friction resolved." },
+          { "value": 0.50, "label": "OK", "definition": "Neutral outcome — neither significantly better nor worse." },
+          { "value": 0.25, "label": "Poor", "definition": "Customer sentiment deteriorated despite ARIA's responses." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Customer left clearly more frustrated or distressed than when they started." }
+        ]
+      }
+    }
+  }
+}

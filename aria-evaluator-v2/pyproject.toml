@@ -1,0 +1,38 @@
+[project]
+name = "aria-evaluator-v2"
+version = "2.0.0"
+description = "LLM-as-judge evaluator for Connect AI Agents — WebSocket, local transcript, generic adapter"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.34.0",
+    "botocore>=1.34.0",
+    "websockets>=12.0",
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.1.0",
+]
+voice = [
+    "aiortc>=1.9.0",
+    "av>=12.0.0",
+    "amazon-transcribe>=0.6.0",
+    "numpy>=1.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["adapters", "conversation", "transcript", "judge", "report", "scripts"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

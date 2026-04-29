@@ -1,0 +1,25 @@
+{
+  "name": "aria-tool-call-error-rate",
+  "description": "Evaluates the frequency of tool call failures across the session.",
+  "evaluationLevel": "SESSION",
+  "config": {
+    "llmAsAJudge": {
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "inferenceConfig": { "maxTokens": 500, "temperature": 0.0 }
+        }
+      },
+      "instructions": "You are an expert banking AI systems evaluator. Count the total number of tool calls made across the session and identify any that failed (error response, missing required parameter, wrong tool name, or incorrect result due to bad params). Score based on the error rate: 0 errors = 1.0, <10%% error rate = 0.75.\n\nFull session transcript including tool calls and responses: {context}",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.00, "label": "Very Good", "definition": "Zero tool call errors in the entire session." },
+          { "value": 0.75, "label": "Good", "definition": "One minor tool error that was self-corrected." },
+          { "value": 0.50, "label": "OK", "definition": "2-3 tool errors but session still completed." },
+          { "value": 0.25, "label": "Poor", "definition": "Multiple tool errors causing degraded or incorrect outcomes." },
+          { "value": 0.00, "label": "Very Poor", "definition": "Frequent tool failures; session largely broken by tool errors." }
+        ]
+      }
+    }
+  }
+}
