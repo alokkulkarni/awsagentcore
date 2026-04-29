@@ -462,19 +462,18 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     this.transcribeInput = new PassThrough();
     void this.runTranscribeLoop();
 
-    // 8. Wait for ARIA's opening greeting (IVR prompt) before returning — this
-    //    prevents the runner from speaking the first customer turn over the top
-    //    of the greeting, which would cause ARIA to respond mid-prompt.
-    console.log(`  ⏳ Waiting for ARIA opening greeting…`);
-    const openingMsg = await this.receive(12_000);
-    if (openingMsg) {
-      this._openingGreeting = openingMsg;
-      console.log(`  ✓  Opening greeting: "${openingMsg.content.slice(0, 80)}${openingMsg.content.length > 80 ? '…' : ''}"`);
+    // 8. On voice, ARIA typically waits for the customer to speak first before
+    //    greeting — so we do a short opportunistic check for any immediate IVR
+    //    prompt (e.g. hold music, queue messages).  If nothing arrives quickly we
+    //    proceed: the ARIA greeting will arrive as part of the first agent response.
+    const earlyGreeting = await this.receive(3_000);
+    if (earlyGreeting) {
+      this._openingGreeting = earlyGreeting;
+      console.log(`  ✓  Early greeting: "${earlyGreeting.content.slice(0, 80)}${earlyGreeting.content.length > 80 ? '…' : ''}"`);
+      await sleep(400);
     } else {
-      console.warn(`  ⚠  No opening greeting within 12s — proceeding anyway`);
+      console.log(`  ℹ  No immediate greeting — ARIA will greet after first customer message`);
     }
-    // Small pause after greeting so ARIA is fully ready for input
-    await sleep(800);
   }
 
   // ── sendMessage ────────────────────────────────────────────────────────────

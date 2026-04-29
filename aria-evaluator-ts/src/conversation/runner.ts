@@ -140,20 +140,33 @@ export class ScenarioRunner {
           break;
         }
 
-        // Collect follow-on messages (agents sometimes send multiple quick chunks).
-        // If the first chunk is an acknowledgement ("let me pull that up…") use a
-        // longer window so we capture the ACTUAL response that follows, not just
-        // the promise that it's coming.
+        // Collect ARIA's complete response.
+        //
+        // Approach: content-driven, not time-driven.
+        //
+        // 1. If the first chunk is acknowledgement-only ("let me pull that up…"),
+        //    ARIA is still working — keep waiting (using the full scenario timeout)
+        //    until a chunk arrives that contains actual content.
+        // 2. For chat: after receiving substantive content, collect any rapid
+        //    follow-on packets (ARIA sometimes splits a reply into multiple messages).
+        // 3. For voice: RTCAudioSink already delivers one complete utterance per
+        //    receive() call (silence-gap bounded), so no follow-on is needed.
         const parts = [agentMsg.content];
-        let followOnMs = isAcknowledgement(agentMsg.content) ? 10_000 : 3_000;
-        if (followOnMs === 10_000) {
-          this.log(`    ⏳ Acknowledgement detected — waiting up to 10s for full response…`);
+
+        while (isAcknowledgementOnly(parts.join('\n'))) {
+          this.log(`    ⏳ ARIA is still working — waiting for full response…`);
+          const cont = await adapter.receive(timeoutMs);
+          if (!cont) break;
+          parts.push(cont.content);
         }
-        while (true) {
-          const next = await adapter.receive(followOnMs);
-          if (!next) break;
-          parts.push(next.content);
-          followOnMs = 3_000; // after real content arrives revert to normal window
+
+        if (resolvedScenario.channel === 'chat') {
+          // Collect any rapid follow-on packets from ARIA
+          while (true) {
+            const next = await adapter.receive(2_500);
+            if (!next) break;
+            parts.push(next.content);
+          }
         }
 
         const agentTurn: Turn = {
@@ -271,9 +284,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Acknowledgement phrases — ARIA is still processing, real data is coming soon.
-// If the first chunk matches, we hold the follow-on window open longer so the
-// actual response is captured in the same agent turn rather than a new one.
+// Phrases that signal ARIA is processing but hasn't delivered content yet.
 const ACK_PATTERNS: RegExp[] = [
   /let me (pull|fetch|check|look|get|find|retrieve)/i,
   /i'?ll (pull|fetch|check|look|get|find|get that|retrieve)/i,
@@ -284,8 +295,24 @@ const ACK_PATTERNS: RegExp[] = [
   /one moment/i,
   /i('m| am) (checking|looking|pulling|fetching|retrieving)/i,
   /let me (just )?(check|see|have a look)/i,
+  /of course[,.]?\s*$/i,
+  /certainly[,.]?\s*$/i,
+  /sure[,.]?\s*$/i,
 ];
 
-function isAcknowledgement(text: string): boolean {
-  return ACK_PATTERNS.some((re) => re.test(text));
+/**
+ * Returns true when every sentence of the response is an acknowledgement
+ * phrase with no substantive content (i.e. ARIA said "let me pull that up"
+ * but hasn't actually delivered the information yet).
+ */
+function isAcknowledgementOnly(text: string): boolean {
+  const sentences = text
+    .trim()
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return (
+    sentences.length > 0 &&
+    sentences.every((s) => ACK_PATTERNS.some((re) => re.test(s)))
+  );
 }

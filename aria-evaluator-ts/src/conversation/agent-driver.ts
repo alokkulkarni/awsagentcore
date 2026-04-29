@@ -51,9 +51,11 @@ export class AgentDriver {
       `- Respond naturally and concisely, as a real person would speak or type.`,
       `- Do NOT use greetings like "Hello" or "Hi" unless it is your opening message.`,
       `- Do NOT explain your role or the scenario to ARIA.`,
+      `- GREETING RULE: If ARIA greets you by name (e.g. "Hello James" or "Welcome back, James"), do NOT confirm your identity. Do NOT say things like "Yes, that's me", "Yes, it is", or "That's correct". You have already identified yourself. Simply continue with your request or ask for the information you need.`,
+      `- If ARIA greeted you but has not yet answered your question, re-state your original request directly and concisely (e.g. "Can you check my current account balance please?").`,
       `- If ARIA cannot help with something, react naturally (confusion, frustration, acceptance).`,
       `- CRITICAL: Only signal [GOAL_ACHIEVED] when ARIA has ACTUALLY delivered the specific information or completed the task (e.g., provided an actual balance figure, account number, confirmed a transaction). Do NOT signal [GOAL_ACHIEVED] just because ARIA says "let me look that up" or "I'll pull that up for you now" — that is a promise, not delivery.`,
-      `- If ARIA acknowledges your request without providing the information, ask for the actual information (e.g., "Can I have that balance figure please?").`,
+      `- If ARIA acknowledges your request without providing the information, wait for ARIA to deliver it. Only chase if ARIA explicitly asks "is there anything else?" without having answered.`,
       `- If the conversation exceeds ${scenario.max_turns} turns with no progress, end with: [GIVE_UP]`,
     ].join('\n');
   }
