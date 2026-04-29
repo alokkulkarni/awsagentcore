@@ -252,6 +252,9 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   // Escalation detection
   private _escalationEvent: EscalationEvent | null = null;
 
+  /** Opening greeting captured during connect() — exposed so runner can record it as turn 0 */
+  private _openingGreeting: AdapterMessage | null = null;
+
   // Phrases ARIA uses when transferring to a human agent (case-insensitive)
   private static readonly ESCALATION_PATTERNS: Array<{ re: RegExp; reason: EscalationReason }> = [
     { re: /transferr?ing you (to|now)/i,              reason: 'unresolvable' },
@@ -283,6 +286,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
 
   get contactId(): string | null { return this._contactId; }
   get escalationEvent(): EscalationEvent | null { return this._escalationEvent; }
+  get openingGreeting(): AdapterMessage | null { return this._openingGreeting; }
 
   // ── connect ────────────────────────────────────────────────────────────────
 
@@ -458,8 +462,19 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     this.transcribeInput = new PassThrough();
     void this.runTranscribeLoop();
 
-    // 8. Give ARIA a moment to prepare its greeting
-    await sleep(500);
+    // 8. Wait for ARIA's opening greeting (IVR prompt) before returning — this
+    //    prevents the runner from speaking the first customer turn over the top
+    //    of the greeting, which would cause ARIA to respond mid-prompt.
+    console.log(`  ⏳ Waiting for ARIA opening greeting…`);
+    const openingMsg = await this.receive(12_000);
+    if (openingMsg) {
+      this._openingGreeting = openingMsg;
+      console.log(`  ✓  Opening greeting: "${openingMsg.content.slice(0, 80)}${openingMsg.content.length > 80 ? '…' : ''}"`);
+    } else {
+      console.warn(`  ⚠  No opening greeting within 12s — proceeding anyway`);
+    }
+    // Small pause after greeting so ARIA is fully ready for input
+    await sleep(800);
   }
 
   // ── sendMessage ────────────────────────────────────────────────────────────

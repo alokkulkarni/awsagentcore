@@ -78,19 +78,22 @@ export class ScenarioRunner {
         scenarioName: resolvedScenario.name,
       });
 
-      // Capture ARIA's personalized authenticated greeting as turn 0 in the transcript
-      if (adapter instanceof ConnectChatAdapter && adapter.openingGreeting) {
+      // Capture opening greeting as turn 0 (chat authenticated OR voice IVR greeting)
+      const openingGreeting =
+        adapter instanceof ConnectChatAdapter    ? adapter.openingGreeting :
+        adapter instanceof ConnectWebRTCAdapter  ? adapter.openingGreeting :
+        null;
+      if (openingGreeting) {
         const greetingTurn: Turn = {
           index: 0,
           role: 'agent',
-          content: adapter.openingGreeting.content,
+          content: openingGreeting.content,
           timestampMs: Date.now(),
         };
         turns.push(greetingTurn);
         this.config.onProgress({ type: 'turn', turn: greetingTurn });
         this.log(`    🤖 ARIA (greeting): ${greetingTurn.content.slice(0, 120)}`);
       }
-
       let turnIndex = 0;
       let goalAchieved = false;
       let isOpening = true;
@@ -137,12 +140,20 @@ export class ScenarioRunner {
           break;
         }
 
-        // Collect follow-on messages (agents sometimes send multiple quick chunks)
+        // Collect follow-on messages (agents sometimes send multiple quick chunks).
+        // If the first chunk is an acknowledgement ("let me pull that up…") use a
+        // longer window so we capture the ACTUAL response that follows, not just
+        // the promise that it's coming.
         const parts = [agentMsg.content];
+        let followOnMs = isAcknowledgement(agentMsg.content) ? 10_000 : 3_000;
+        if (followOnMs === 10_000) {
+          this.log(`    ⏳ Acknowledgement detected — waiting up to 10s for full response…`);
+        }
         while (true) {
-          const next = await adapter.receive(2000);
+          const next = await adapter.receive(followOnMs);
           if (!next) break;
           parts.push(next.content);
+          followOnMs = 3_000; // after real content arrives revert to normal window
         }
 
         const agentTurn: Turn = {
@@ -258,4 +269,23 @@ export class ScenarioRunner {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Acknowledgement phrases — ARIA is still processing, real data is coming soon.
+// If the first chunk matches, we hold the follow-on window open longer so the
+// actual response is captured in the same agent turn rather than a new one.
+const ACK_PATTERNS: RegExp[] = [
+  /let me (pull|fetch|check|look|get|find|retrieve)/i,
+  /i'?ll (pull|fetch|check|look|get|find|get that|retrieve)/i,
+  /just (a )?(moment|one moment|a second|bear with)/i,
+  /bear with me/i,
+  /pulling (that|your|the)/i,
+  /looking (that|your|the)/i,
+  /one moment/i,
+  /i('m| am) (checking|looking|pulling|fetching|retrieving)/i,
+  /let me (just )?(check|see|have a look)/i,
+];
+
+function isAcknowledgement(text: string): boolean {
+  return ACK_PATTERNS.some((re) => re.test(text));
 }
