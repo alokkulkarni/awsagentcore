@@ -16,6 +16,8 @@ export interface EvalResult {
   recommendation?: string;
   judgeModel: string;
   evaluatedAt: string;   // ISO-8601
+  /** 'security' for injection/adversarial scenarios; 'quality' for normal scenarios */
+  scenarioType?: 'security' | 'quality';
 }
 
 export interface Dimension {

@@ -34,6 +34,9 @@ export interface ConnectOptions {
 }
 
 export interface BaseAdapter {
+  /** Runtime channel implemented by this adapter */
+  readonly channel?: 'chat' | 'voice';
+
   /** Establish a session with the contact centre (start contact + open transport) */
   connect(options: ConnectOptions): Promise<void>;
 

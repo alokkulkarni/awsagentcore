@@ -3,16 +3,36 @@
 
 import type { EscalationReason } from './transcript.js';
 
+/** One pre-scripted customer turn (used in mode: script scenarios) */
+export interface ScriptTurn {
+  /** The exact message to send as the customer */
+  send?: string;
+  /** Alias accepted by the Python runner */
+  customer?: string;
+  content?: string;
+  message?: string;
+  timeout_seconds?: number;
+}
+
 export interface Scenario {
   name: string;
   description?: string;
   channel: 'chat' | 'voice';
-  mode: 'agent' | 'script';
-  authenticated: boolean;
-  opening_message: string;
-  goal: string;
-  customer_persona: string;
-  max_turns: number;
+  /** 'agent' uses an LLM to drive the customer; 'script' uses a fixed turns list. Defaults to 'agent'. */
+  mode?: 'agent' | 'script';
+  authenticated?: boolean;
+  opening_message?: string;
+  goal?: string;
+  customer_persona?: string;
+  max_turns?: number;
+  /** Pre-scripted customer turns (mode: script / adversarial scenarios) */
+  turns?: ScriptTurn[];
+  /**
+   * Attack category for adversarial/injection scenarios (e.g. "prompt_injection", "pci_dss_bypass").
+   * When present, the judge uses security-focused dimensions only — quality dimensions
+   * (goal_success, helpfulness, etc.) are excluded because a correct refusal scores 0 there.
+   */
+  attack_type?: string;
   default_timeout_seconds?: number;
   turn_delay_seconds?: number;
   /**

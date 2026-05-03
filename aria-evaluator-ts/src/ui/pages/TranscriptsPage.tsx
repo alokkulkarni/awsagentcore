@@ -9,10 +9,11 @@ interface TranscriptFile {
   modifiedAt: string;
 }
 
-export function TranscriptsPage() {
+export function TranscriptsPage({ initialFilename }: { initialFilename?: string }) {
   const [files, setFiles] = useState<TranscriptFile[]>([]);
   const [selected, setSelected] = useState<Transcript | null>(null);
   const [loading, setLoading] = useState(true);
+  const [autoLoadedInitial, setAutoLoadedInitial] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/transcripts')
@@ -25,6 +26,22 @@ export function TranscriptsPage() {
     const t = await apiFetch(`/api/transcripts/${filename}`) as Transcript;
     setSelected(t);
   }
+
+  useEffect(() => {
+    if (loading || autoLoadedInitial) return;
+    if (!initialFilename) {
+      setAutoLoadedInitial(true);
+      return;
+    }
+    const exists = files.some((f) => f.filename === initialFilename);
+    if (!exists) {
+      setAutoLoadedInitial(true);
+      return;
+    }
+    void loadTranscript(initialFilename)
+      .catch(() => {})
+      .finally(() => setAutoLoadedInitial(true));
+  }, [loading, autoLoadedInitial, initialFilename, files]);
 
   return (
     <div className="space-y-6">

@@ -1,0 +1,511 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Low-cost VPC-based ECS Fargate deployment for aria-evaluator-ts with CloudFront,
+  ALB origin, S3 state storage, and required IAM roles/policies.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: aria-evaluator-ts
+  AppImageUri:
+    Type: String
+    Description: Full ECR image URI (e.g. 123456789012.dkr.ecr.eu-west-2.amazonaws.com/repo:tag)
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 1
+    Description: Keep at 1 for always-on, or 0 for near-idle cost.
+  Cpu:
+    Type: Number
+    Default: 256
+    AllowedValues: [256, 512, 1024]
+  Memory:
+    Type: Number
+    Default: 512
+    AllowedValues: [512, 1024, 2048, 3072]
+  ContainerPort:
+    Type: Number
+    Default: 3001
+  S3StatePrefix:
+    Type: String
+    Default: aria-evaluator
+  S3SyncIntervalSeconds:
+    Type: Number
+    Default: 30
+  VpcCidr:
+    Type: String
+    Default: 10.42.0.0/16
+  PublicSubnetACidr:
+    Type: String
+    Default: 10.42.1.0/24
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.42.2.0/24
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-igw
+
+  VpcIgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-public-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-public-rt
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcIgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB ingress
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-alb-sg
+
+  EcsServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS service ingress from ALB only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppName}-svc-sg
+
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldMultipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      RepositoryName: !Sub ${AppName}
+      EmptyOnDelete: true
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: false
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${AppName}
+      RetentionInDays: 7
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AppName}-state-s3
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt StateBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub ${StateBucket.Arn}/*
+        - PolicyName: !Sub ${AppName}-runtime-aws-services
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - connect:StartChatContact
+                  - connect:StartWebRTCContact
+                  - connect:DescribeContact
+                  - connect:DescribeContactFlow
+                  - connect:ListContactFlows
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - connectparticipant:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock-agent-runtime:InvokeAgent
+                  - bedrock-agent-runtime:Retrieve
+                  - bedrock-agent-runtime:RetrieveAndGenerate
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - polly:SynthesizeSpeech
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - transcribe:StartStreamTranscription
+                  - transcribe:StartStreamTranscriptionWebSocket
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: '*'
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AppName}-cluster
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AppName}-task
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref AppImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: API_PORT
+              Value: !Ref ContainerPort
+            - Name: AWS_S3_STATE_BUCKET
+              Value: !Ref StateBucket
+            - Name: AWS_S3_STATE_PREFIX
+              Value: !Ref S3StatePrefix
+            - Name: S3_SYNC_INTERVAL_SECONDS
+              Value: !Ref S3SyncIntervalSeconds
+            - Name: DATABASE_URL
+              Value: file:/app/state/data/aria-evaluator.db
+            - Name: EVAL_REPORT_OUTPUT_DIR
+              Value: /app/state/reports
+            - Name: SCENARIOS_DIR
+              Value: /app/state/scenarios
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn: AlbListener
+    Properties:
+      ServiceName: !Sub ${AppName}-svc
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnetA
+            - !Ref PublicSubnetB
+          SecurityGroups:
+            - !Ref EcsServiceSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref AlbTargetGroup
+          ContainerName: app
+          ContainerPort: !Ref ContainerPort
+
+  StaticCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AppName}-static
+        Comment: Static asset cache policy
+        DefaultTTL: 300
+        MaxTTL: 86400
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  NoCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AppName}-no-cache
+        Comment: Disable edge caching for dynamic endpoints
+        DefaultTTL: 0
+        MaxTTL: 1
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: all
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: all
+
+  ApiOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub ${AppName}-api-origin
+        Comment: Forward all request context for API paths
+        CookiesConfig:
+          CookieBehavior: all
+        HeadersConfig:
+          HeaderBehavior: allViewer
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        DefaultRootObject: index.html
+        Origins:
+          - Id: alb-origin
+            DomainName: !GetAtt ApplicationLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: alb-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          CachePolicyId: !Ref StaticCachePolicy
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref NoCachePolicy
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /reports/*
+            TargetOriginId: alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref NoCachePolicy
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /transcripts/*
+            TargetOriginId: alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref NoCachePolicy
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /audio/*
+            TargetOriginId: alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref NoCachePolicy
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /health
+            TargetOriginId: alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref NoCachePolicy
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+  StateBucketName:
+    Value: !Ref StateBucket
+  EcrRepositoryUri:
+    Value: !GetAtt EcrRepository.RepositoryUri
+  EcsClusterName:
+    Value: !Ref EcsCluster
+  EcsServiceName:
+    Value: !Ref EcsService
+  AlbDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+  CloudFrontUrl:
+    Value: !Sub https://${CloudFrontDistribution.DomainName}

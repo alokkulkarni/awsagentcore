@@ -4,8 +4,9 @@ import { ScenariosPage } from './pages/ScenariosPage.js';
 import { RunsPage } from './pages/RunsPage.js';
 import { TranscriptsPage } from './pages/TranscriptsPage.js';
 import { ReportsPage } from './pages/ReportsPage.js';
+import { SettingsPage } from './pages/SettingsPage.js';
 
-type Page = 'dashboard' | 'scenarios' | 'runs' | 'transcripts' | 'reports';
+type Page = 'dashboard' | 'scenarios' | 'runs' | 'transcripts' | 'reports' | 'settings';
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard',   label: 'Dashboard',   icon: '🏠' },
@@ -13,10 +14,23 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'runs',        label: 'Runs',        icon: '▶️'  },
   { id: 'transcripts', label: 'Transcripts', icon: '💬' },
   { id: 'reports',     label: 'Reports',     icon: '📊' },
+  { id: 'settings',    label: 'Settings',    icon: '⚙️' },
 ];
 
+function getInitialPage(): Page {
+  if (typeof window === 'undefined') return 'dashboard';
+  const page = new URLSearchParams(window.location.search).get('page');
+  if (page === 'dashboard' || page === 'scenarios' || page === 'runs' || page === 'transcripts' || page === 'reports' || page === 'settings') {
+    return page;
+  }
+  return 'dashboard';
+}
+
 export default function App() {
-  const [page, setPage] = useState<Page>('dashboard');
+  const [page, setPage] = useState<Page>(getInitialPage);
+  const initialTranscriptFile = typeof window !== 'undefined'
+    ? (new URLSearchParams(window.location.search).get('file') ?? undefined)
+    : undefined;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -54,8 +68,9 @@ export default function App() {
         {page === 'dashboard'   && <Dashboard   onNavigate={setPage} />}
         {page === 'scenarios'   && <ScenariosPage />}
         {page === 'runs'        && <RunsPage />}
-        {page === 'transcripts' && <TranscriptsPage />}
+        {page === 'transcripts' && <TranscriptsPage initialFilename={initialTranscriptFile} />}
         {page === 'reports'     && <ReportsPage />}
+        {page === 'settings'    && <SettingsPage />}
       </main>
     </div>
   );

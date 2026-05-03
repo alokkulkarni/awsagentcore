@@ -132,6 +132,10 @@ export class ConnectChatAdapter implements BaseAdapter {
     return this._contactId;
   }
 
+  get channel(): 'chat' {
+    return 'chat';
+  }
+
   get escalationEvent(): EscalationEvent | null {
     return this._escalationEvent;
   }
@@ -246,6 +250,7 @@ export class ConnectChatAdapter implements BaseAdapter {
   async sendMessage(content: string, simulateTyping = true): Promise<void> {
     if (!this.connectionToken) throw new AdapterError('sendMessage called before connect()');
     if (this.sessionEnded) throw new SessionEndedError('Chat session has ended');
+    if (!content || !content.trim()) throw new AdapterError('sendMessage called with empty content');
 
     if (simulateTyping) await this.simulateTyping(content);
 

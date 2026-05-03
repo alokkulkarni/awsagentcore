@@ -13,6 +13,7 @@ import { scenariosRouter } from './routes/scenarios.js';
 import { runsRouter } from './routes/runs.js';
 import { transcriptsRouter } from './routes/transcripts.js';
 import { reportsRouter } from './routes/reports.js';
+import { settingsRouter } from './routes/settings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env['API_PORT'] ?? '3001', 10);
@@ -32,6 +33,7 @@ app.use('/api/scenarios', scenariosRouter);
 app.use('/api/runs', runsRouter);
 app.use('/api/transcripts', transcriptsRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/settings', settingsRouter);
 
 // ── Static file serving ────────────────────────────────────────────────────────
 app.use('/reports',     express.static(REPORTS_DIR));

@@ -37,6 +37,9 @@ export class ReportGenerator {
 
   private renderHtml(data: ReportData): string {
     const { transcripts, results } = data;
+    const providers = Array.from(
+      new Set(transcripts.map((t) => t.provider ?? 'unknown')),
+    );
 
     const overallAvg =
       results.length > 0
@@ -50,11 +53,13 @@ export class ReportGenerator {
       .map((r) => {
         const t = transcripts.find((t) => t.id === r.runId);
         const channel = t?.channel ?? 'unknown';
+        const provider = t?.provider ?? 'unknown';
         const turns = t?.turns.length ?? 0;
         const statusIcon = r.passed ? '✅' : '❌';
         return `
         <tr>
           <td>${r.scenarioName}</td>
+          <td>${provider}</td>
           <td>${channel}</td>
           <td>${turns}</td>
           <td class="${r.passed ? 'pass' : 'fail'}">${statusIcon} ${r.overallScore.toFixed(1)}/10</td>
@@ -129,7 +134,7 @@ export class ReportGenerator {
 <body>
 <div class="header">
   <h1>ARIA Evaluation Report</h1>
-  <p>Generated ${data.generatedAt} · Run ID: ${data.runId}</p>
+  <p>Generated ${data.generatedAt} · Run ID: ${data.runId} · Provider(s): ${providers.join(', ')}</p>
 </div>
 <div class="container">
 
@@ -155,7 +160,7 @@ export class ReportGenerator {
   <section>
     <h2>Scenario Results</h2>
     <table>
-      <thead><tr><th>Scenario</th><th>Channel</th><th>Turns</th><th>Score</th><th>Summary</th></tr></thead>
+      <thead><tr><th>Scenario</th><th>Provider</th><th>Channel</th><th>Turns</th><th>Score</th><th>Summary</th></tr></thead>
       <tbody>${scenarioRows}</tbody>
     </table>
   </section>
@@ -254,7 +259,7 @@ export class ReportGenerator {
 
         return `
         <div class="transcript-card">
-          <h3>📋 ${escapeHtml(t.scenarioName)} <small style="color:#718096">[${t.channel}]</small></h3>
+          <h3>📋 ${escapeHtml(t.scenarioName)} <small style="color:#718096">[${t.provider ?? 'unknown'} · ${t.channel}]</small></h3>
           ${turns}
           ${t.error ? `<p style="color:#e53e3e;margin-top:8px">⚠ Error: ${escapeHtml(t.error)}</p>` : ''}
         </div>`;

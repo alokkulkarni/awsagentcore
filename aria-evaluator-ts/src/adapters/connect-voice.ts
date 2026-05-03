@@ -98,6 +98,10 @@ export class ConnectVoiceAdapter implements BaseAdapter {
 
   readonly contactId: string | null = null;
 
+  get channel(): 'voice' {
+    return 'voice';
+  }
+
   constructor(config: VoiceAdapterConfig = {}) {
     this.config = {
       deepgramApiKey: config.deepgramApiKey ?? process.env['DEEPGRAM_API_KEY'] ?? '',

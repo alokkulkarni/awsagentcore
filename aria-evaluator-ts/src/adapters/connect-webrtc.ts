@@ -13,6 +13,7 @@
 // ── Node.js shims BEFORE any Chime SDK import ─────────────────────────────────
 // These globals must exist before amazon-chime-sdk-js is first evaluated.
 import wrtcModule from '@roamhq/wrtc';
+import WebSocket from 'ws';
 
 const wrtc = wrtcModule as typeof import('@roamhq/wrtc') & {
   RTCRtpSender: typeof RTCRtpSender;
@@ -71,6 +72,9 @@ g['RTCRtpTransceiver'] = wrtc.RTCRtpTransceiver;
 g['RTCDtlsTransport'] = wrtc.RTCDtlsTransport;
 g['RTCIceTransport'] = wrtc.RTCIceTransport;
 g['RTCSctpTransport'] = wrtc.RTCSctpTransport;
+// Use the ws implementation for Node; it's more battle-tested for Chime signaling
+// than the built-in WHATWG WebSocket in newer Node runtimes.
+g['WebSocket'] = WebSocket;
 
 // window alias (Chime SDK checks window.RTCPeerConnection in some paths)
 if (!g['window']) g['window'] = g;
@@ -154,7 +158,10 @@ import {
   TranscribeStreamingClient,
   StartStreamTranscriptionCommand,
 } from '@aws-sdk/client-transcribe-streaming';
+import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'node:stream';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 // ── Chime SDK (CJS, imported after globals are set) ───────────────────────────
 import {
@@ -185,6 +192,12 @@ interface AudioDataFrame {
   numberOfFrames: number;
 }
 
+interface RecordedAudioSlice {
+  startMs: number;
+  samples: Int16Array;
+  sampleRate: number;
+}
+
 // ── Filtered Chime logger ─────────────────────────────────────────────────────
 // Suppress noisy health-check WARNs that don't affect functionality.
 class FilteredChimeLogger extends ConsoleLogger {
@@ -208,6 +221,66 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function buildWavHeader(dataByteLength: number, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + dataByteLength, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(dataByteLength, 40);
+  return header;
+}
+
+function pcmBufferToInt16Copy(pcmBuffer: Buffer): Int16Array {
+  const view = new Int16Array(
+    pcmBuffer.buffer,
+    pcmBuffer.byteOffset,
+    Math.floor(pcmBuffer.byteLength / 2),
+  );
+  return new Int16Array(view);
+}
+
+function resamplePcmInt16(input: Int16Array, inRate: number, outRate: number): Int16Array {
+  if (input.length === 0) return input;
+  if (inRate === outRate) return new Int16Array(input);
+
+  const outputLength = Math.max(1, Math.round((input.length * outRate) / inRate));
+  const out = new Int16Array(outputLength);
+  const ratio = inRate / outRate;
+  for (let i = 0; i < outputLength; i++) {
+    const srcPos = i * ratio;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+    const s0 = input[idx] ?? input[input.length - 1] ?? 0;
+    const s1 = input[idx + 1] ?? s0;
+    out[i] = Math.round(s0 + (s1 - s0) * frac);
+  }
+  return out;
+}
+
+function applyNoiseGateInt16(input: Int16Array, thresholdPcm: number): Int16Array {
+  if (input.length === 0 || thresholdPcm <= 0) return new Int16Array(input);
+  const out = new Int16Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    const v = input[i] ?? 0;
+    out[i] = Math.abs(v) < thresholdPcm ? 0 : v;
+  }
+  return out;
+}
+
 // Convenience types to avoid complex ReturnType<Constructor> gymnastics
 interface AudioSource {
   createTrack(): MediaStreamTrack;
@@ -227,6 +300,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
 
   private _contactId: string | null = null;
   private sessionEnded = false;
+  private sessionEndReason: string | null = null;
   private meetingSession: DefaultMeetingSession | null = null;
 
   // Audio pipeline
@@ -241,13 +315,25 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   // Speech detection state
   private speechState: 'idle' | 'speaking' = 'idle';
   private speechText = '';
+  private speechPartialText = '';
   private speechStartMs = 0;
   private speechLastActiveMs = 0;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private audioSinkPollTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly SPEECH_THRESHOLD = 0.008; // ~-42dBFS
   private readonly SILENCE_GAP_MS = 1_800;
   private readonly MIN_SPEECH_MS = 300;
+  private readonly SAVED_AUDIO_SAMPLE_RATE = 16_000;
+  private readonly AUDIO_NOISE_GATE_PCM = (() => {
+    const raw = Number.parseInt(process.env['VOICE_AUDIO_NOISE_GATE_PCM'] ?? '180', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 180;
+  })();
+  private readonly MIX_TRACK_GAIN = 0.6;
+
+  // Call recording (agent inbound + customer outbound)
+  private readonly recordedAgentSlices: RecordedAudioSlice[] = [];
+  private readonly recordedCustomerSlices: RecordedAudioSlice[] = [];
 
   // Escalation detection
   private _escalationEvent: EscalationEvent | null = null;
@@ -284,20 +370,131 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     this.transcribeClient = new TranscribeStreamingClient({ region: this.config.region });
   }
 
+  get channel(): 'voice' {
+    return 'voice';
+  }
+
   get contactId(): string | null { return this._contactId; }
   get escalationEvent(): EscalationEvent | null { return this._escalationEvent; }
   get openingGreeting(): AdapterMessage | null { return this._openingGreeting; }
+  get lastSessionEndReason(): string | null { return this.sessionEndReason; }
+  hasAudio(): boolean {
+    return this.recordedAgentSlices.length > 0 || this.recordedCustomerSlices.length > 0;
+  }
+
+  saveAudio(outputPath: string): string {
+    if (!this.hasAudio()) {
+      throw new AdapterError('No audio captured');
+    }
+
+    const normalizedSlices: RecordedAudioSlice[] = [
+      ...this.recordedAgentSlices,
+      ...this.recordedCustomerSlices,
+    ].map((slice) => ({
+      startMs: slice.startMs,
+      sampleRate: this.SAVED_AUDIO_SAMPLE_RATE,
+      samples: resamplePcmInt16(slice.samples, slice.sampleRate, this.SAVED_AUDIO_SAMPLE_RATE),
+    }));
+
+    const allSlices: RecordedAudioSlice[] = normalizedSlices.filter((slice) => slice.samples.length > 0);
+    if (allSlices.length === 0) {
+      throw new AdapterError('No audio captured');
+    }
+
+    const firstStartMs = Math.min(...allSlices.map((slice) => slice.startMs));
+    const totalSamples = Math.max(
+      1,
+      ...allSlices.map((slice) => {
+        const offset = Math.max(
+          0,
+          Math.round(((slice.startMs - firstStartMs) * this.SAVED_AUDIO_SAMPLE_RATE) / 1000),
+        );
+        return offset + slice.samples.length;
+      }),
+    );
+    const mix = new Float32Array(totalSamples);
+    const gainPerTrack = this.MIX_TRACK_GAIN;
+
+    for (const slice of allSlices) {
+      const offset = Math.max(
+        0,
+        Math.round(((slice.startMs - firstStartMs) * this.SAVED_AUDIO_SAMPLE_RATE) / 1000),
+      );
+      for (let i = 0; i < slice.samples.length; i++) {
+        const idx = offset + i;
+        if (idx >= mix.length) break;
+        const current = mix[idx] ?? 0;
+        mix[idx] = current + (slice.samples[i] ?? 0) * gainPerTrack;
+      }
+    }
+
+    const mixedInt16 = new Int16Array(mix.length);
+    for (let i = 0; i < mix.length; i++) {
+      const sample = Math.round(mix[i] ?? 0);
+      const v = Math.abs(sample) < this.AUDIO_NOISE_GATE_PCM ? 0 : sample;
+      mixedInt16[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+    }
+    const pcmData = Buffer.from(mixedInt16.buffer);
+    const wav = Buffer.concat([
+      buildWavHeader(pcmData.byteLength, this.SAVED_AUDIO_SAMPLE_RATE),
+      pcmData,
+    ]);
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, wav);
+    return outputPath;
+  }
 
   // ── connect ────────────────────────────────────────────────────────────────
 
   async connect(options: ConnectOptions): Promise<void> {
+    const rawMaxAttempts = Number.parseInt(process.env['CONNECT_WEBRTC_CONNECT_ATTEMPTS'] ?? '2', 10);
+    const maxAttempts = Number.isFinite(rawMaxAttempts) && rawMaxAttempts > 0 ? rawMaxAttempts : 2;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.connectOnce(options);
+        return;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        lastError = error;
+        const canRetry = attempt < maxAttempts && this.shouldRetryConnectError(error);
+        if (!canRetry) throw error;
+
+        console.warn(`  ⚠  WebRTC connect attempt ${attempt}/${maxAttempts} failed: ${error.message}`);
+        this.resetAfterFailedConnect();
+        const backoffMs = attempt * 1_500;
+        console.log(`  ↻ Retrying with a new WebRTC contact in ${(backoffMs / 1000).toFixed(1)}s…`);
+        await sleep(backoffMs);
+      }
+    }
+
+    throw (lastError ?? new AdapterError('WebRTC connect failed'));
+  }
+
+  private async connectOnce(options: ConnectOptions): Promise<void> {
     const {
-      sessionId,
       customerId,
       authenticated = false,
       channel = 'voice',
       scenarioName = '',
     } = options;
+
+    this.sessionEnded = false;
+    this.sessionEndReason = null;
+    this._openingGreeting = null;
+    this._escalationEvent = null;
+    this.receiveQueue = [];
+    this.clearAudioSinkPoll();
+    this.speechState = 'idle';
+    this.speechText = '';
+    this.speechPartialText = '';
+    this.speechStartMs = 0;
+    this.speechLastActiveMs = 0;
+    this.recordedAgentSlices.length = 0;
+    this.recordedCustomerSlices.length = 0;
+    for (const r of this.receiveResolvers) r(null);
+    this.receiveResolvers = [];
 
     console.log(`  📡 Starting WebRTC contact…`);
     console.log(`     Flow   : ${this.config.contactFlowId}`);
@@ -308,6 +505,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
       new StartWebRTCContactCommand({
         InstanceId: this.config.instanceId,
         ContactFlowId: this.config.contactFlowId,
+        ClientToken: randomUUID(),
         ParticipantDetails: { DisplayName: this.config.displayName },
         Attributes: {
           customerId: customerId ?? '',
@@ -340,6 +538,39 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     // 3. Set up RTCPeerConnection intercept so we can attach RTCAudioSink later
     let capturedPC: RTCPeerConnection | null = null;
     _chimePCCallback = (pc) => { capturedPC = pc; };
+    const attachAudioSink = (phase: 'initial' | 'reconnected' | 'delayed') => {
+      if (!capturedPC) return false;
+      const audioRx = capturedPC
+        .getReceivers()
+        .find((r: RTCRtpReceiver) => r.track?.kind === 'audio');
+      if (!audioRx) return false;
+
+      if (this.audioSink) {
+        try {
+          this.audioSink.stop();
+        } catch (err) {
+          console.debug(`  ℹ  audioSink.stop() during reattach: ${this.formatUnknownError(err)}`);
+        }
+      }
+
+      this.audioSink = new RTCAudioSink(audioRx.track);
+      this.audioSink.ondata = (frame: AudioDataFrame) => {
+        this.onAudioData(frame);
+      };
+      this.clearAudioSinkPoll();
+      const tag = phase === 'reconnected' ? ' (reconnected)' : phase === 'delayed' ? ' (delayed)' : '';
+      console.log(`  ✓  RTCAudioSink attached${tag} — listening for ARIA speech`);
+      return true;
+    };
+    const ensureAudioSinkAttached = (phase: 'initial' | 'reconnected') => {
+      if (attachAudioSink(phase)) return;
+      console.warn(`  ⚠  No audio receiver found — waiting for track`);
+      this.clearAudioSinkPoll();
+      this.audioSinkPollTimer = setInterval(() => {
+        void attachAudioSink('delayed');
+      }, 500);
+      setTimeout(() => this.clearAudioSinkPoll(), 10_000);
+    };
 
     // 4. Build Chime meeting session
     const logger = new FilteredChimeLogger('ARIA-Chime', LogLevel.WARN);
@@ -380,65 +611,52 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
         },
 
         audioVideoDidStart: () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeout);
-          console.log(`  ✓  Chime meeting connected (contactId=${this._contactId})`);
-
-          // Attach RTCAudioSink to the remote audio track
-          if (capturedPC) {
-            const audioRx = capturedPC
-              .getReceivers()
-              .find((r: RTCRtpReceiver) => r.track?.kind === 'audio');
-
-            if (audioRx) {
-              this.audioSink = new RTCAudioSink(audioRx.track);
-              this.audioSink.ondata = (frame: AudioDataFrame) => {
-                this.onAudioData(frame);
-              };
-              console.log(`  ✓  RTCAudioSink attached — listening for ARIA speech`);
-            } else {
-              console.warn(`  ⚠  No audio receiver found — waiting for track`);
-              // Poll for receiver — it may arrive after audioVideoDidStart
-              const poll = setInterval(() => {
-                const rx = capturedPC!
-                  .getReceivers()
-                  .find((r: RTCRtpReceiver) => r.track?.kind === 'audio');
-                if (rx) {
-                  clearInterval(poll);
-                  this.audioSink = new RTCAudioSink(rx.track);
-                  this.audioSink.ondata = (f: AudioDataFrame) => this.onAudioData(f);
-                  console.log(`  ✓  RTCAudioSink attached (delayed)`);
-                }
-              }, 500);
-              setTimeout(() => clearInterval(poll), 10_000);
-            }
+          const reconnecting = resolved;
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            console.log(`  ✓  Chime meeting connected (contactId=${this._contactId})`);
           } else {
-            console.warn(`  ⚠  RTCPeerConnection was not captured`);
+            console.log(`  ✓  Chime media reconnected`);
           }
 
-          resolve();
+          ensureAudioSinkAttached(reconnecting ? 'reconnected' : 'initial');
+
+          if (!reconnecting) resolve();
         },
 
         audioVideoDidStop: (status) => {
-          console.log(`  ℹ  Chime session stopped: ${String(status)}`);
-          // If the meeting ended while we had received at least one agent turn and no
-          // escalation has been detected by keyword yet, treat it as a possible
-          // escalation (ARIA transferred the call → Chime meeting ends).
-          if (!this._escalationEvent && this.receiveQueue.length === 0 && !resolved) {
-            // Pre-connect stop → not an escalation, handled as error below
-          } else if (!this._escalationEvent) {
-            this._escalationEvent = {
-              detectedAtTurn: -1, // populated in disconnect() after we know turn count
-              trigger: 'meeting_ended',
-              reason: 'unknown',
-            };
+          const statusInfo = status as {
+            statusCode?: () => unknown;
+            isTerminal?: () => boolean;
+          };
+          const statusText = String(status);
+          const statusCode = typeof statusInfo.statusCode === 'function'
+            ? String(statusInfo.statusCode())
+            : statusText;
+          const isTerminal = typeof statusInfo.isTerminal === 'function'
+            ? statusInfo.isTerminal()
+            : true;
+          if (statusText && statusText !== statusCode) {
+            console.log(`  ℹ  Chime session stopped: ${statusText} (code=${statusCode})`);
+          } else {
+            console.log(`  ℹ  Chime session stopped: ${statusCode}`);
           }
+
+          if (resolved && !isTerminal) {
+            console.warn(`  ⚠  Chime stop was non-terminal; waiting for reconnect`);
+            return;
+          }
+
+          this.flushPendingSpeech('session stop');
+          this.sessionEndReason = statusText && statusText !== 'undefined'
+            ? statusText
+            : `status_code_${statusCode}`;
           this.sessionEnded = true;
           if (!resolved) {
             resolved = true;
             clearTimeout(timeout);
-            reject(new AdapterError(`Chime session stopped before connecting: ${String(status)}`));
+            reject(new AdapterError(`Chime session stopped before connecting: ${statusText}`));
           }
           for (const r of this.receiveResolvers) r(null);
           this.receiveResolvers = [];
@@ -462,24 +680,142 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     this.transcribeInput = new PassThrough();
     void this.runTranscribeLoop();
 
-    // 8. On voice, ARIA typically waits for the customer to speak first before
-    //    greeting — so we do a short opportunistic check for any immediate IVR
-    //    prompt (e.g. hold music, queue messages).  If nothing arrives quickly we
-    //    proceed: the ARIA greeting will arrive as part of the first agent response.
-    const earlyGreeting = await this.receive(3_000);
-    if (earlyGreeting) {
-      this._openingGreeting = earlyGreeting;
-      console.log(`  ✓  Early greeting: "${earlyGreeting.content.slice(0, 80)}${earlyGreeting.content.length > 80 ? '…' : ''}"`);
-      await sleep(400);
-    } else {
-      console.log(`  ℹ  No immediate greeting — ARIA will greet after first customer message`);
+    // 8. Wait for ARIA's opening greeting before allowing the runner to send
+    //    the first customer message. For this flow, greeting-first is preferred
+    //    but no longer hard-required by default.
+    const rawGreetingTimeoutMs = Number.parseInt(
+      process.env['VOICE_INITIAL_GREETING_TIMEOUT_MS'] ?? '120000',
+      10,
+    );
+    const greetingTimeoutMs = Number.isFinite(rawGreetingTimeoutMs) && rawGreetingTimeoutMs > 0
+      ? rawGreetingTimeoutMs
+      : 120_000;
+    const rawGreetingFollowupMs = Number.parseInt(
+      process.env['VOICE_GREETING_FOLLOWUP_TIMEOUT_MS'] ?? '6000',
+      10,
+    );
+    const greetingFollowupMs = Number.isFinite(rawGreetingFollowupMs) && rawGreetingFollowupMs > 0
+      ? rawGreetingFollowupMs
+      : 6_000;
+    const requireOpeningGreeting = process.env['VOICE_REQUIRE_OPENING_GREETING'] === 'true';
+
+    console.log(`  ⏳ Waiting for ARIA opening greeting…`);
+    const opening = await this.receive(greetingTimeoutMs);
+    if (!opening) {
+      if (this.sessionEnded) {
+        throw new AdapterError(`Session ended before ARIA greeting: ${this.sessionEndReason ?? 'unknown'}`);
+      }
+      if (requireOpeningGreeting) {
+        throw new AdapterError(
+          `No ARIA opening greeting received within ${Math.round(greetingTimeoutMs / 1000)}s`,
+        );
+      }
+      console.log('  ℹ  No immediate greeting — ARIA will greet after first customer message');
+      await sleep(200);
+      return;
     }
+
+    let greetingContent = opening.content;
+    while (true) {
+      const extra = await this.receive(greetingFollowupMs);
+      if (!extra) break;
+      greetingContent += `\n${extra.content}`;
+    }
+    this._openingGreeting = { ...opening, content: greetingContent };
+    console.log(
+      `  ✓  Opening greeting: "${greetingContent.slice(0, 80)}${greetingContent.length > 80 ? '…' : ''}"`,
+    );
+    await sleep(400);
+  }
+
+  private shouldRetryConnectError(error: Error): boolean {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes('chime session stopped before connecting') ||
+      msg.includes('meeting ended') ||
+      msg.includes('meeting unavailable') ||
+      msg.includes('websocket') ||
+      msg.includes('timed out')
+    );
+  }
+
+  private resetAfterFailedConnect(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+    this.clearAudioSinkPoll();
+    if (this.audioSink) {
+      try {
+        this.audioSink.stop();
+      } catch (err) {
+        console.debug(`  ℹ  audioSink.stop() during retry cleanup: ${(err as Error).message}`);
+      }
+      this.audioSink = null;
+    }
+    if (this.transcribeInput) {
+      try {
+        this.transcribeInput.destroy();
+      } catch (err) {
+        console.debug(`  ℹ  transcribeInput.destroy() during retry cleanup: ${(err as Error).message}`);
+      }
+      this.transcribeInput = null;
+    }
+    if (this.meetingSession) {
+      try {
+        this.meetingSession.audioVideo.stop();
+      } catch (err) {
+        console.debug(`  ℹ  meetingSession.stop() during retry cleanup: ${(err as Error).message}`);
+      }
+      this.meetingSession = null;
+    }
+    this.audioSource = null;
+    this.sessionEnded = false;
+    this.sessionEndReason = null;
+    this._contactId = null;
+    this._openingGreeting = null;
+    this._escalationEvent = null;
+    this.speechState = 'idle';
+    this.speechText = '';
+    this.speechPartialText = '';
+    this.speechStartMs = 0;
+    this.speechLastActiveMs = 0;
+    this.recordedAgentSlices.length = 0;
+    this.recordedCustomerSlices.length = 0;
+    this.clearAudioSinkPoll();
+    this.receiveQueue = [];
+    for (const r of this.receiveResolvers) r(null);
+    this.receiveResolvers = [];
+    _chimePCCallback = null;
+  }
+
+  private clearAudioSinkPoll(): void {
+    if (this.audioSinkPollTimer) {
+      clearInterval(this.audioSinkPollTimer);
+      this.audioSinkPollTimer = null;
+    }
+  }
+
+  private formatUnknownError(err: unknown): string {
+    if (err instanceof Error) {
+      return err.message || err.name;
+    }
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== '{}') return json;
+    } catch {
+      // fall through
+    }
+    return String(err);
   }
 
   // ── sendMessage ────────────────────────────────────────────────────────────
 
   async sendMessage(text: string, simulateTyping = true): Promise<void> {
-    if (this.sessionEnded) throw new SessionEndedError('WebRTC session has ended');
+    if (this.sessionEnded) {
+      const reason = this.sessionEndReason ? `: ${this.sessionEndReason}` : '';
+      throw new SessionEndedError(`WebRTC session has ended${reason}`);
+    }
     if (!this.audioSource) throw new AdapterError('sendMessage called before connect()');
 
     if (simulateTyping) {
@@ -496,17 +832,30 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     }
 
     const pcm = await this.synthesize(text);
+    this.recordedCustomerSlices.push({
+      startMs: Date.now(),
+      sampleRate: 16_000,
+      samples: pcmBufferToInt16Copy(pcm),
+    });
     await this.injectAudio(pcm);
+
+    // Inject a silence tail so Connect's VAD gets a clean speech→silence
+    // transition. On ECS (same AWS region as Connect), audio arrives with
+    // near-zero latency; without a silence tail the audio ends abruptly,
+    // Transcribe finalises early on a partial utterance, and the Lambda is
+    // called twice (acknowledgment + filler) instead of once with the full
+    // customer request. Default 700ms; tune via VOICE_POST_SPEECH_SILENCE_MS.
+    const silenceMs = Number.parseInt(process.env['VOICE_POST_SPEECH_SILENCE_MS'] ?? '700', 10);
+    if (silenceMs > 0) await this.injectSilence(silenceMs);
   }
 
   // ── receive ────────────────────────────────────────────────────────────────
 
   async receive(timeoutMs = 45_000): Promise<AdapterMessage | null> {
-    if (this.sessionEnded) return null;
-
     // Check pre-queued messages
     const queued = this.receiveQueue.shift();
     if (queued) return queued;
+    if (this.sessionEnded) return null;
 
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -533,6 +882,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
     }
+    this.clearAudioSinkPoll();
     if (this.audioSink) {
       try { this.audioSink.stop(); } catch { /* ignore */ }
       this.audioSink = null;
@@ -583,6 +933,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
         console.debug(`  ℹ  DescribeContact skipped: ${(err as Error).message}`);
       }
     }
+    this._contactId = null;
 
     for (const r of this.receiveResolvers) r(null);
     this.receiveResolvers = [];
@@ -646,7 +997,13 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
           })();
 
       let offset = 0;
+      let frameIndex = 0;
+      const startMs = Date.now();
 
+      // Drift-compensating scheduler: compute when each frame *should* fire
+      // based on wall-clock time rather than accumulating setTimeout delays.
+      // On ECS Fargate, setTimeout(10) can fire 15–25ms late, stretching the
+      // injected audio and creating silence gaps that confuse Connect's VAD.
       const sendFrame = () => {
         if (offset >= padded.length) { resolve(); return; }
 
@@ -663,7 +1020,50 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
         });
 
         offset += frameSize;
-        setTimeout(sendFrame, 10); // 10ms per frame
+        frameIndex++;
+
+        // Schedule the next frame relative to the absolute start time so
+        // accumulated timer drift doesn't stretch the audio stream.
+        const nextMs = startMs + frameIndex * 10;
+        const delay = Math.max(0, nextMs - Date.now());
+        setTimeout(sendFrame, delay);
+      };
+
+      sendFrame();
+    });
+  }
+
+  // Inject silent PCM frames for `durationMs` milliseconds.
+  // Called after each customer speech injection to give Connect's VAD a clean
+  // speech→silence transition, ensuring Transcribe finalises the COMPLETE
+  // utterance before invoking the Lambda. Without this, ECS's near-zero
+  // network latency to Connect causes an abrupt audio cutoff that triggers
+  // early Transcribe partials and splits one utterance into two Lambda calls.
+  private injectSilence(durationMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.audioSource) { resolve(); return; }
+
+      const sampleRate = 16_000;
+      const frameSize = 160; // 10ms @ 16kHz
+      const totalFrames = Math.ceil(durationMs / 10);
+      const startMs = Date.now();
+      let frameIndex = 0;
+
+      const sendFrame = () => {
+        if (frameIndex >= totalFrames) { resolve(); return; }
+        // Fresh zero-filled Int16Array per frame (byteLength === 320 exactly)
+        const samples = new Int16Array(frameSize);
+        this.audioSource!.onData({
+          samples,
+          sampleRate,
+          bitsPerSample: 16,
+          channelCount: 1,
+          numberOfFrames: frameSize,
+        });
+        frameIndex++;
+        const nextMs = startMs + frameIndex * 10;
+        const delay = Math.max(0, nextMs - Date.now());
+        setTimeout(sendFrame, delay);
       };
 
       sendFrame();
@@ -674,6 +1074,15 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
 
   private onAudioData(frame: AudioDataFrame): void {
     const { samples, sampleRate } = frame;
+    const gatedForRecording = applyNoiseGateInt16(samples, this.AUDIO_NOISE_GATE_PCM);
+    const resampled = resamplePcmInt16(gatedForRecording, sampleRate, this.SAVED_AUDIO_SAMPLE_RATE);
+    if (resampled.length > 0) {
+      this.recordedAgentSlices.push({
+        startMs: Date.now(),
+        sampleRate: this.SAVED_AUDIO_SAMPLE_RATE,
+        samples: resampled,
+      });
+    }
 
     // Write raw PCM to Transcribe's input stream
     if (this.transcribeInput?.writable) {
@@ -695,6 +1104,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
         this.speechState = 'speaking';
         this.speechStartMs = now;
         this.speechText = '';
+        this.speechPartialText = '';
       }
       this.speechLastActiveMs = now;
 
@@ -708,20 +1118,22 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
         this.silenceTimer = setTimeout(() => {
           this.silenceTimer = null;
           const duration = this.speechLastActiveMs - this.speechStartMs;
+          const candidateText = (this.speechText || this.speechPartialText).trim();
 
-          if (duration > this.MIN_SPEECH_MS && this.speechText.trim()) {
-            const text = this.speechText.trim();
+          if (duration > this.MIN_SPEECH_MS && candidateText) {
             this.speechState = 'idle';
             this.speechText = '';
+            this.speechPartialText = '';
             this.deliverMessage({
               role: 'agent',
-              content: text,
+              content: candidateText,
               isNoise: false,
               timestampMs: Date.now(),
             });
           } else {
             this.speechState = 'idle';
             this.speechText = '';
+            this.speechPartialText = '';
           }
         }, this.SILENCE_GAP_MS);
       }
@@ -730,51 +1142,94 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     void sampleRate; // used above, suppress lint
   }
 
+  private flushPendingSpeech(trigger: string): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+
+    const candidateText = (this.speechText || this.speechPartialText).trim();
+    this.speechState = 'idle';
+    this.speechText = '';
+    this.speechPartialText = '';
+
+    if (!candidateText) return;
+    this.deliverMessage({
+      role: 'agent',
+      content: candidateText,
+      isNoise: false,
+      timestampMs: Date.now(),
+    });
+    console.log(
+      `  ℹ  Flushed pending speech on ${trigger}: "${candidateText.slice(0, 80)}${candidateText.length > 80 ? '…' : ''}"`,
+    );
+  }
+
   // ── Private: Transcribe Streaming ─────────────────────────────────────────
 
   private async runTranscribeLoop(): Promise<void> {
-    const input = this.transcribeInput!;
     const SAMPLE_RATE = 48_000; // wrtc delivers 48kHz PCM from WebRTC
+    let restartCount = 0;
 
-    const audioGenerator = async function* () {
-      for await (const chunk of input as AsyncIterable<Buffer>) {
-        yield { AudioEvent: { AudioChunk: new Uint8Array(chunk) } };
-      }
-    };
+    while (!this.sessionEnded && this.transcribeInput) {
+      const input = this.transcribeInput;
 
-    try {
-      const response = await this.transcribeClient.send(
-        new StartStreamTranscriptionCommand({
-          LanguageCode: 'en-GB',
-          MediaSampleRateHertz: SAMPLE_RATE,
-          MediaEncoding: 'pcm',
-          AudioStream: audioGenerator(),
-        }),
-      );
-
-      for await (const event of response.TranscriptResultStream!) {
-        const results = event.TranscriptEvent?.Transcript?.Results;
-        if (!results) continue;
-
-        for (const result of results) {
-          if (result.IsPartial) continue;
-          const text = result.Alternatives?.[0]?.Transcript?.trim();
-          if (text) this.appendTranscript(text);
+      const audioGenerator = async function* () {
+        for await (const chunk of input as AsyncIterable<Buffer>) {
+          yield { AudioEvent: { AudioChunk: new Uint8Array(chunk) } };
         }
-      }
-    } catch (err) {
-      if (!this.sessionEnded) {
-        console.error('  ⚠  Transcribe loop error:', (err as Error).message);
+      };
+
+      try {
+        const response = await this.transcribeClient.send(
+          new StartStreamTranscriptionCommand({
+            LanguageCode: 'en-GB',
+            MediaSampleRateHertz: SAMPLE_RATE,
+            MediaEncoding: 'pcm',
+            AudioStream: audioGenerator(),
+          }),
+        );
+
+        restartCount = 0;
+        for await (const event of response.TranscriptResultStream!) {
+          const results = event.TranscriptEvent?.Transcript?.Results;
+          if (!results) continue;
+
+          for (const result of results) {
+            const text = result.Alternatives?.[0]?.Transcript?.trim();
+            if (text) this.appendTranscript(text, !!result.IsPartial);
+          }
+        }
+
+        if (!this.sessionEnded && this.transcribeInput === input) {
+          throw new AdapterError('Transcribe stream ended unexpectedly');
+        }
+      } catch (err) {
+        if (this.sessionEnded || this.transcribeInput !== input) break;
+        restartCount += 1;
+        const delayMs = Math.min(restartCount, 3) * 1_000;
+        console.error(`  ⚠  Transcribe loop error: ${this.formatUnknownError(err)} (retrying)`);
+        await sleep(delayMs);
       }
     }
   }
 
-  private appendTranscript(text: string): void {
+  private appendTranscript(text: string, isPartial: boolean): void {
+    if (isPartial) {
+      if (this.speechState === 'speaking' || this.speechState === 'idle') {
+        // Partial transcripts are snapshots of the current utterance; keep latest.
+        this.speechPartialText = text;
+      }
+      return;
+    }
+
     if (this.speechState === 'speaking') {
       this.speechText += (this.speechText ? ' ' : '') + text;
+      this.speechPartialText = '';
     } else if (this.speechState === 'idle' && text) {
       // Transcript arrived slightly after silence timer fired — re-open window
       this.speechText += (this.speechText ? ' ' : '') + text;
+      this.speechPartialText = '';
     }
   }
 

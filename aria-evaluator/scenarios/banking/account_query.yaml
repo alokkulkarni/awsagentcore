@@ -12,7 +12,7 @@ description: >
 channel: chat
 mode: agent
 authenticated: true
-opening_message: "Hi, I'd like to check my current account balance please"
+opening_message: "Hi, I'd like to check my current account balance and my recent transactions please"
 goal: >
   ARIA greets the customer by their first name ({customer_first_name}), acknowledges their
   products, provides the current account balance as a specific figure, and
@@ -26,7 +26,7 @@ customer_persona: |
   You are polite, slightly impatient — you want the answer quickly.
   After you have your balance and some transactions, you are satisfied.
 max_turns: 12
-default_timeout_seconds: 40
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 
 ---
@@ -50,7 +50,7 @@ customer_persona: |
   You want a clear picture of where your money is going this month.
   You will ask follow-up questions until the picture is clear.
 max_turns: 14
-default_timeout_seconds: 40
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 
 ---
@@ -73,7 +73,7 @@ customer_persona: |
   You want both the sort code and account number. Ask for each one if ARIA does
   not volunteer both.
 max_turns: 10
-default_timeout_seconds: 40
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 
 ---
@@ -94,5 +94,5 @@ customer_persona: |
   You will push back once if ARIA refuses, asking why it cannot help.
   After ARIA explains, you accept the answer.
 max_turns: 6
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0

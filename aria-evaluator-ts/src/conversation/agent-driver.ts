@@ -56,6 +56,11 @@ export class AgentDriver {
       `- If ARIA cannot help with something, react naturally (confusion, frustration, acceptance).`,
       `- CRITICAL: Only signal [GOAL_ACHIEVED] when ARIA has ACTUALLY delivered the specific information or completed the task (e.g., provided an actual balance figure, account number, confirmed a transaction). Do NOT signal [GOAL_ACHIEVED] just because ARIA says "let me look that up" or "I'll pull that up for you now" — that is a promise, not delivery.`,
       `- If ARIA acknowledges your request without providing the information, wait for ARIA to deliver it. Only chase if ARIA explicitly asks "is there anything else?" without having answered.`,
+      `- Do NOT send filler replies while waiting (for example: "thanks", "I'm waiting", "okay").`,
+      `- If ARIA is actively working and you should stay silent, respond with exactly: [WAIT_FOR_AGENT]`,
+      `- NEVER output [WAIT_FOR_AGENT] twice in a row.`,
+      `- NEVER output [GOAL_ACHIEVED] in the same response as [WAIT_FOR_AGENT].`,
+      `- If ARIA replies with a courtesy or closing line (for example: "take your time", "I'm here whenever you're ready", "anything else?") before delivering the requested data, ask ARIA to provide the pending results now instead of waiting again.`,
       `- If the conversation exceeds ${scenario.max_turns} turns with no progress, end with: [GIVE_UP]`,
     ].join('\n');
   }
@@ -75,9 +80,9 @@ export class AgentDriver {
     scenario: Scenario,
     history: Turn[],
     isOpening: boolean,
-  ): Promise<{ message: string; goalAchieved: boolean; giveUp: boolean }> {
+  ): Promise<{ message: string; goalAchieved: boolean; giveUp: boolean; waitForAgent: boolean }> {
     if (isOpening && scenario.opening_message) {
-      return { message: scenario.opening_message, goalAchieved: false, giveUp: false };
+      return { message: scenario.opening_message, goalAchieved: false, giveUp: false, waitForAgent: false };
     }
 
     const systemPrompt = this.buildSystemPrompt(scenario);
@@ -86,6 +91,8 @@ export class AgentDriver {
     // Converse requires alternating user/assistant messages.
     const messages: Message[] = [];
     for (const turn of history) {
+      // Skip turns with empty content — Bedrock rejects blank ContentBlock text.
+      if (!turn.content || !turn.content.trim()) continue;
       const role = turn.role === 'customer' ? 'user' : 'assistant';
       const lastMsg = messages.at(-1);
       if (lastMsg?.role === role) {
@@ -95,6 +102,12 @@ export class AgentDriver {
       } else {
         messages.push({ role, content: [{ text: turn.content }] });
       }
+    }
+
+    // Bedrock Converse requires the first message to be 'user'.
+    // Drop any leading assistant turns (e.g. an empty greeting that slipped through).
+    while (messages.length > 0 && messages[0]?.role !== 'user') {
+      messages.shift();
     }
 
     // If the last message was from the customer (user), we need to add a placeholder
@@ -125,13 +138,19 @@ export class AgentDriver {
 
     const rawText =
       (resp.output?.message?.content?.[0] as ContentBlock & { text?: string })?.text ?? '';
-    const goalAchieved = rawText.includes('[GOAL_ACHIEVED]');
+    let goalAchieved = rawText.includes('[GOAL_ACHIEVED]');
     const giveUp = rawText.includes('[GIVE_UP]');
+    const waitForAgent = rawText.includes('[WAIT_FOR_AGENT]');
+    if (waitForAgent) {
+      // Waiting for the agent and goal completion are mutually exclusive states.
+      goalAchieved = false;
+    }
     const message = rawText
-      .replace('[GOAL_ACHIEVED]', '')
-      .replace('[GIVE_UP]', '')
+      .replaceAll('[GOAL_ACHIEVED]', '')
+      .replaceAll('[GIVE_UP]', '')
+      .replaceAll('[WAIT_FOR_AGENT]', '')
       .trim();
 
-    return { message, goalAchieved, giveUp };
+    return { message, goalAchieved, giveUp, waitForAgent };
   }
 }

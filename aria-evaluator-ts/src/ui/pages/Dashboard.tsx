@@ -8,7 +8,7 @@ interface Run {
   channel: string;
   status: string;
   createdAt: string;
-  evalResult?: { overallScore: number; passed: boolean } | null;
+  evalResult?: { overallScore: number; passed: boolean; scenarioType?: string } | null;
 }
 
 interface Props {
@@ -29,12 +29,13 @@ export function Dashboard({ onNavigate }: Props) {
   const total = runs.length;
   const passed = runs.filter((r) => r.evalResult?.passed === true).length;
   const failed = runs.filter((r) => r.evalResult?.passed === false).length;
+
+  // Exclude security-only runs from the quality average so adversarial tests
+  // don't drag down the headline score.
+  const qualityRuns = runs.filter((r) => r.evalResult && r.evalResult.scenarioType !== 'security');
   const avgScore =
-    runs.filter((r) => r.evalResult).length > 0
-      ? (
-          runs.filter((r) => r.evalResult).reduce((a, b) => a + (b.evalResult?.overallScore ?? 0), 0) /
-          runs.filter((r) => r.evalResult).length
-        ).toFixed(1)
+    qualityRuns.length > 0
+      ? (qualityRuns.reduce((a, b) => a + (b.evalResult?.overallScore ?? 0), 0) / qualityRuns.length).toFixed(1)
       : '—';
 
   const recent = runs.slice(0, 8);
@@ -97,9 +98,14 @@ export function Dashboard({ onNavigate }: Props) {
                   </td>
                   <td className="py-2.5">
                     {r.evalResult ? (
-                      <span className={r.evalResult.passed ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>
-                        {r.evalResult.overallScore.toFixed(1)}/10
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {r.evalResult.scenarioType === 'security' && (
+                          <span title="Security test" className="text-xs bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 font-semibold">🛡 Security</span>
+                        )}
+                        <span className={r.evalResult.passed ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>
+                          {r.evalResult.overallScore.toFixed(1)}/10
+                        </span>
+                      </div>
                     ) : '—'}
                   </td>
                   <td className="py-2.5 text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</td>

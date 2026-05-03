@@ -57,15 +57,18 @@ export function filterScenarios(
 
 /** Substitute {customer_name} etc. in all string fields of a scenario */
 export function applyTemplateVars(scenario: Scenario, vars: TemplateVars): Scenario {
-  const replace = (str: string): string =>
-    str.replace(/\{(\w+)\}/g, (_, key: string) => vars[key] ?? `{${key}}`);
+  // Safe replace: passes undefined/null through unchanged (script-mode scenarios omit some fields)
+  const replace = (str: string | undefined): string | undefined => {
+    if (str == null) return str;
+    return str.replace(/\{(\w+)\}/g, (_, key: string) => vars[key] ?? `{${key}}`);
+  };
 
   return {
     ...scenario,
-    name: replace(scenario.name),
+    name: replace(scenario.name) ?? scenario.name,
     description: scenario.description ? replace(scenario.description) : undefined,
     goal: replace(scenario.goal),
     customer_persona: replace(scenario.customer_persona),
     opening_message: replace(scenario.opening_message),
-  };
+  } as Scenario;
 }

@@ -55,6 +55,7 @@ export interface EscalationEvent {
 export interface Transcript {
   id: string;
   scenarioName: string;
+  provider?: 'connect' | 'lex' | 'azure' | 'strands' | 'copilot' | 'custom' | string;
   channel: 'chat' | 'voice';
   startedAt: string;       // ISO-8601
   completedAt?: string;

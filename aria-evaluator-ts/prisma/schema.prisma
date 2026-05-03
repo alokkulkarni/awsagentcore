@@ -2,7 +2,8 @@
 // Run: npm run db:migrate
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -67,6 +68,7 @@ model EvalResult {
   summary         String
   recommendation  String?
   judgeModel      String
+  scenarioType    String?  // 'security' | 'quality'
   createdAt       DateTime @default(now())
 }
 

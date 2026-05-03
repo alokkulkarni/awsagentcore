@@ -1,0 +1,9 @@
+{
+  "role_name": "aria-meeting-id-capture-role",
+  "role_arn": "arn:aws:iam::395402194296:role/aria-meeting-id-capture-role",
+  "function_name": "aria-meeting-id-capture",
+  "lambda_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-meeting-id-capture",
+  "lambda_alias_arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-meeting-id-capture:prod",
+  "lambda_version": "1",
+  "connect_instance_id": "f969d4b4-f716-4974-a325-bb7899f2f293"
+}

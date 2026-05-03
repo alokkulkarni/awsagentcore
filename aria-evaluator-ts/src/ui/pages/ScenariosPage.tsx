@@ -1,5 +1,5 @@
 // src/ui/pages/ScenariosPage.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api.js';
 import type { Scenario } from '../../types/scenario.js';
 
@@ -8,26 +8,58 @@ interface ScenarioFile {
   scenarios: Scenario[];
 }
 
+interface RunDetail {
+  status: string;
+  errorMessage?: string | null;
+  evalResult?: { overallScore: number } | null;
+}
+
+type Provider = 'connect' | 'lex' | 'azure' | 'strands' | 'copilot' | 'custom';
+
+function supportedChannels(provider: Provider): Array<'chat' | 'voice'> {
+  if (provider === 'connect' || provider === 'custom') return ['chat', 'voice'];
+  return ['chat'];
+}
+
 export function ScenariosPage() {
   const [files, setFiles] = useState<string[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Scenario | null>(null);
   const [channelFilter, setChannelFilter] = useState<'all' | 'chat' | 'voice'>('all');
+  const [provider, setProvider] = useState<Provider>('connect');
   const [runState, setRunState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [runId, setRunId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [liveEvents, setLiveEvents] = useState<string[]>([]);
+  const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    apiFetch('/api/scenarios')
-      .then((d: { scenarios: Scenario[] }) => {
+    Promise.all([
+      apiFetch('/api/scenarios'),
+      apiFetch('/api/settings').catch(() => ({ settings: {} })),
+    ])
+      .then(([scenariosData, settingsData]) => {
+        const d = scenariosData as { scenarios: Scenario[] };
+        const s = settingsData as { settings?: Record<string, string> };
         setScenarios(d.scenarios ?? []);
-        const unique = [...new Set((d.scenarios ?? []).map((s: Scenario) => s.filePath?.split('#')[0] ?? ''))];
+        const unique = [...new Set((d.scenarios ?? []).map((sc: Scenario) => sc.filePath?.split('#')[0] ?? ''))];
         setFiles(unique.filter(Boolean));
+        const defaultProvider = (s.settings?.['EVAL_PROVIDER_DEFAULT'] ?? 'connect').toLowerCase();
+        if (defaultProvider === 'connect' || defaultProvider === 'lex' || defaultProvider === 'azure' || defaultProvider === 'strands' || defaultProvider === 'copilot' || defaultProvider === 'custom') {
+          setProvider(defaultProvider);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (esRef.current) esRef.current.close();
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, []);
 
   const filtered = scenarios.filter(
@@ -35,6 +67,15 @@ export function ScenariosPage() {
   );
 
   async function startRun(scenario: Scenario, channel: 'chat' | 'voice') {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+
     setRunState('running');
     setLiveEvents([]);
     setRunError(null);
@@ -43,26 +84,82 @@ export function ScenariosPage() {
     try {
       const data = await apiFetch('/api/runs', {
         method: 'POST',
-        body: JSON.stringify({ scenarioFile: filePath, scenarioIndex: indexInFile, channel }),
+        body: JSON.stringify({ scenarioFile: filePath, scenarioIndex: indexInFile, channel, provider }),
       }) as { runId: string };
       setRunId(data.runId);
 
       const es = new EventSource(`/api/runs/${data.runId}/events`);
-      es.addEventListener('turn', (e) => {
-        const t = JSON.parse(e.data);
-        setLiveEvents((prev) => [...prev, `${t.role === 'customer' ? '👤' : '🤖'} ${t.content}`]);
+      esRef.current = es;
+
+      const finishFromServerState = async () => {
+        try {
+          const d = await apiFetch(`/api/runs/${data.runId}`) as { run: RunDetail };
+          const status = d.run?.status;
+          if (status === 'completed') {
+            const score = typeof d.run?.evalResult?.overallScore === 'number'
+              ? ` — Score: ${d.run.evalResult.overallScore}/10`
+              : '';
+            setLiveEvents((prev) => [...prev, `✅ Complete${score}`]);
+            setRunState('done');
+            if (esRef.current) {
+              esRef.current.close();
+              esRef.current = null;
+            }
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+          } else if (status === 'failed') {
+            setRunError(d.run?.errorMessage ?? 'Run failed');
+            setRunState('error');
+            if (esRef.current) {
+              esRef.current.close();
+              esRef.current = null;
+            }
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+          }
+        } catch {
+          // ignore transient fetch failures
+        }
+      };
+
+      pollRef.current = setInterval(() => {
+        void finishFromServerState();
+      }, 3000);
+
+      es.addEventListener('log', (e) => {
+        const d = JSON.parse(e.data);
+        setLiveEvents((prev) => [...prev, d.message]);
       });
       es.addEventListener('complete', (e) => {
         const d = JSON.parse(e.data);
-        setLiveEvents((prev) => [...prev, `✅ Complete — Score: ${d.overallScore}/10`]);
+        const score = typeof d.overallScore === 'number' ? ` — Score: ${d.overallScore}/10` : '';
+        setLiveEvents((prev) => [...prev, `✅ Complete${score}`]);
         setRunState('done');
-        es.close();
+        if (esRef.current) {
+          esRef.current.close();
+          esRef.current = null;
+        }
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
       });
       es.addEventListener('failed', (e) => {
         const d = JSON.parse(e.data);
         setRunError(d.error);
         setRunState('error');
-        es.close();
+        if (esRef.current) {
+          esRef.current.close();
+          esRef.current = null;
+        }
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
       });
     } catch (err) {
       setRunError((err as Error).message);
@@ -77,7 +174,19 @@ export function ScenariosPage() {
           <h2 className="text-2xl font-bold text-slate-900">Scenarios</h2>
           <p className="text-slate-500 mt-1">{filtered.length} scenario(s) available</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="flex gap-1">
+            {(['connect', 'lex', 'azure', 'strands', 'copilot', 'custom'] as const).map((p) => (
+              <button key={p} onClick={() => setProvider(p)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  provider === p
+                    ? 'bg-[#0D2A66] text-white border-[#0D2A66]'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}>
+                {p}
+              </button>
+            ))}
+          </div>
           {(['all', 'chat', 'voice'] as const).map((c) => (
             <button key={c} onClick={() => setChannelFilter(c)}
               className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
@@ -132,7 +241,7 @@ export function ScenariosPage() {
                     ['Channel', selected.channel],
                     ['Authenticated', selected.authenticated ? 'Yes' : 'No'],
                     ['Max turns', selected.max_turns ?? '—'],
-                    ['Timeout', `${selected.default_timeout_seconds ?? 40}s`],
+                    ['Timeout', `${selected.default_timeout_seconds ?? 120}s`],
                   ].map(([k, v]) => (
                     <tr key={k} className="border-b border-slate-50">
                       <td className="py-1.5 text-slate-500 font-medium w-1/3">{k}</td>
@@ -156,13 +265,13 @@ export function ScenariosPage() {
 
               <div className="flex gap-2">
                 <button
-                  disabled={runState === 'running'}
+                  disabled={runState === 'running' || !supportedChannels(provider).includes('chat')}
                   onClick={() => startRun(selected, 'chat')}
                   className="btn-primary flex-1 disabled:opacity-50">
                   {runState === 'running' ? '⏳ Running…' : '💬 Run Chat'}
                 </button>
                 <button
-                  disabled={runState === 'running'}
+                  disabled={runState === 'running' || !supportedChannels(provider).includes('voice')}
                   onClick={() => startRun(selected, 'voice')}
                   className="btn-secondary flex-1 disabled:opacity-50">
                   🎤 Run Voice
