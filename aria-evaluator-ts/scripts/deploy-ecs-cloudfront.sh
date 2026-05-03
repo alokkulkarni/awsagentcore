@@ -56,6 +56,42 @@ require_docker_daemon() {
   fi
 }
 
+# Run a local production build (lint + tsc + vite) before committing to a
+# Docker build.  Fails fast with readable errors rather than waiting several
+# minutes for the Docker build to report the same thing.
+run_local_production_build() {
+  echo "ℹ Running production build check (lint + tsc + vite)…" >&2
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "✗ node not found — install Node.js 20+ to validate the build locally." >&2
+    exit 1
+  fi
+
+  local node_ver
+  node_ver="$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)"
+  if [[ -n "${node_ver}" && "${node_ver}" -lt 18 ]]; then
+    echo "✗ Node.js 18+ required (found v${node_ver})." >&2
+    exit 1
+  fi
+
+  # Install / sync deps if node_modules is missing or package-lock changed
+  if [[ ! -d "${ROOT_DIR}/node_modules" ]]; then
+    echo "ℹ node_modules not found — running npm ci…" >&2
+    npm ci --prefix "${ROOT_DIR}" --no-audit --no-fund >&2 \
+      || { echo "✗ npm ci failed." >&2; exit 1; }
+  fi
+
+  echo "  → tsc --noEmit (lint)" >&2
+  npm run --prefix "${ROOT_DIR}" lint >&2 \
+    || { echo "✗ TypeScript type-check failed. Fix errors before deploying." >&2; exit 1; }
+
+  echo "  → tsc + vite (production build)" >&2
+  npm run --prefix "${ROOT_DIR}" build >&2 \
+    || { echo "✗ Production build failed. Fix errors before deploying." >&2; exit 1; }
+
+  echo "✓ Local production build passed." >&2
+}
+
 stack_exists() {
   aws cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" \
@@ -188,6 +224,10 @@ run_deploy_flow() {
     echo "✗ Template not found: ${TEMPLATE_FILE}" >&2
     exit 1
   fi
+
+  # Validate the production build locally first for fast feedback before
+  # committing to a full Docker build + ECR push.
+  run_local_production_build
 
   # Wait for any prior in-progress operation before touching the stack
   if stack_exists; then
