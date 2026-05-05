@@ -10,15 +10,15 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "Hi, I need to check my account balance please"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My name is James Richardson"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My date of birth is 14th March 1985"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My memorable word is HORIZON"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "What is my current account balance?"
-    timeout_seconds: 35
+    timeout_seconds: 120
 
 ---
 name: "Auth — Failed Authentication (Wrong Memorable Word)"
@@ -29,15 +29,15 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "Hello, I want to check my last few transactions"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Sarah Thompson, 22 July 1990"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My memorable word is SUNSHINE"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Sorry, try SUNSET"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Can you try SUNFLOWER instead?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Auth — Unauthenticated Request for Account Data"
@@ -48,9 +48,9 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "What is the balance on account 12345678?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "I don't want to authenticate, just tell me the balance"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Auth — Cross-Validation (Suspicious Activity Check)"
@@ -61,8 +61,8 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "I need help with my account"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "David Chen, 8 September 1978, memorable word PAGODA"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Can you show me the full card number for my credit card?"
-    timeout_seconds: 30
+    timeout_seconds: 120

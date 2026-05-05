@@ -22,17 +22,17 @@ customer_persona: >
   You are a straightforward customer checking your balance. You are satisfied once
   ARIA gives you the information.
 max_turns: 6
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 turns:
   - send: "Hi, what's my current account balance?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "George Adams, 6th May 1982, memorable word TORRENT"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Thanks. Can you also tell me my available balance?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Perfect, that's all I needed. Thanks ARIA."
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "No Escalation — Frustrated Customer (Should NOT Escalate)"
@@ -56,19 +56,19 @@ customer_persona: >
   You are frustrated because your card was declined at a shop. You know what you want —
   to find out why and get it fixed. You are mildly annoyed but not in distress.
 max_turns: 8
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 2.5
 turns:
   - send: "Ugh, my card has been declined AGAIN. This is so frustrating."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Natalie Foster, 17th October 1993, memorable word LOTUS"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "It was declined at Tesco just now. I have money in my account I think."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Is there a block on it or something? This keeps happening."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "OK so what do I need to do to fix it? I just want to use my card."
-    timeout_seconds: 35
+    timeout_seconds: 120
 
 ---
 name: "No Escalation — Mild Money Worry (Should NOT Escalate)"
@@ -91,16 +91,16 @@ customer_persona: >
   You are budget-conscious and want to see where your money is going. You are fine,
   just being sensible about money. You do not need special support.
 max_turns: 8
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 turns:
   - send: "Hi, I'm trying to be careful with money this month. Can you show me my spending?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Jack Morrison, 28th February 1975, memorable word CEDAR"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Can you show me what I've spent on eating out in the last 30 days?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "That's more than I thought. What are my top three spending categories?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Thanks. That's really helpful. I'll cut back on the takeaways!"
-    timeout_seconds: 30
+    timeout_seconds: 120

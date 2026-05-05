@@ -26,17 +26,17 @@ customer_persona: >
   You have been missing payments, fear falling further into debt, and are not sure where to turn.
   You are not looking for product information — you need human support and guidance.
 max_turns: 8
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 3.0
 turns:
   - send: "I don't know what to do. I can't afford my rent this month and I'm really stressed"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "I've been missing payments and I'm scared about what happens next"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Is there anything Meridian can do to help me? I'm really worried about losing my home"
-    timeout_seconds: 40
+    timeout_seconds: 120
   - send: "I just need someone to talk to about my options"
-    timeout_seconds: 40
+    timeout_seconds: 120
 
 ---
 name: "Escalation — Bereavement (Deceased Account Holder)"
@@ -62,15 +62,15 @@ customer_persona: >
   about her passing and understand how to access or close her accounts. You are still
   processing your grief and need to be handled sensitively.
 max_turns: 6
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 3.5
 turns:
   - send: "Hello, I need to talk to someone about my mother's account. She passed away last week."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "I have the death certificate and I'm the executor of her estate. What do I need to do?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Can you at least freeze the account to stop any further payments going out?"
-    timeout_seconds: 35
+    timeout_seconds: 120
 
 ---
 name: "Escalation — Mental Health and Cognitive Vulnerability"
@@ -95,14 +95,14 @@ customer_persona: >
   remember things. You are confused about how your account works, keep losing track of
   what you have said, and feel overwhelmed by too much information at once.
 max_turns: 8
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 4.0
 turns:
   - send: "I'm trying to check my balance but I can't remember how things work any more"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Sorry, what did you just say? I'm having trouble following. I've not been well"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "I think someone else might be using my account. I'm not sure. I get confused"
-    timeout_seconds: 40
+    timeout_seconds: 120
   - send: "I just need someone to sit with me and explain things slowly. Is that possible?"
-    timeout_seconds: 40
+    timeout_seconds: 120

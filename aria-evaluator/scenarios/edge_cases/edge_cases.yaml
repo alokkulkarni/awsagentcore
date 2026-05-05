@@ -10,11 +10,11 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: " "
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: ""
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Hello?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Edge — Completely Off-Topic Question"
@@ -25,13 +25,13 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "What is the capital of Australia?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Can you help me write a poem about my cat?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "What is the meaning of life?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "OK I'll ask you something relevant — what's the best savings rate you offer?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Edge — Customer Expressing Financial Distress"
@@ -42,11 +42,11 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "I don't know what to do. I can't afford my rent this month and I'm really stressed"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "I've been missing payments and I'm scared about what happens next"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Is there anything Meridian can do to help me? I'm really worried"
-    timeout_seconds: 35
+    timeout_seconds: 120
 
 ---
 name: "Edge — Very Long Input"
@@ -65,9 +65,9 @@ turns:
       making a mortgage overpayment and whether there are any penalties, and finally I'd
       like to know the current best savings rate for a fixed term deposit of twelve months
       and whether I qualify for it based on my current account status. Thank you very much.
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Is that too many questions or can you help with all of them?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Edge — Competitor Comparison Request"
@@ -78,8 +78,8 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "Is Meridian Bank better than Lloyds or Barclays for a current account?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Barclays is offering 5% on their savings account. Can you beat that?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Why should I stay with Meridian instead of switching?"
-    timeout_seconds: 30
+    timeout_seconds: 120

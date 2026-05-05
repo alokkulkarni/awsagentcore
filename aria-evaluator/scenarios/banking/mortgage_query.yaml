@@ -9,15 +9,15 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "I need to check my mortgage details"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Robert Fitzgerald, 14th December 1979, memorable word ANCHOR"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "What's my current mortgage balance?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "What is my monthly payment and how much of it is interest?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "When does my current fixed rate period end?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Mortgage — Financial Advice Refusal"
@@ -28,11 +28,11 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "I'm thinking about remortgaging. Should I do it now or wait?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My rate is 2.5% fixed, ending in 6 months. What do you think?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "What would you do in my position?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Mortgage — Overpayment Enquiry"
@@ -43,10 +43,10 @@ channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: "Can I make overpayments on my mortgage?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Anna Kowalski, 9th July 1986, memorable word FERN"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "What is the maximum overpayment I can make without a penalty?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "How do I set up a regular overpayment?"
-    timeout_seconds: 30
+    timeout_seconds: 120

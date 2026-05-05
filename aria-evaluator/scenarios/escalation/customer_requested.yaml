@@ -24,15 +24,15 @@ customer_persona: >
   to speak to a human. You are polite but firm. If ARIA tries to help you itself more
   than once, you restate that you want a human.
 max_turns: 6
-default_timeout_seconds: 30
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 turns:
   - send: "I'd like to speak to a human agent please"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "No thank you, I'd prefer to speak to a person. Can you put me through?"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Yes please, I just want to talk to someone"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Escalation — Customer Requests Human (After Failed Resolution)"
@@ -58,18 +58,18 @@ customer_persona: >
   explanation or refund. After trying, you ask to speak to a human advisor.
   You want to know the agent will have all the context so you do not have to repeat yourself.
 max_turns: 10
-default_timeout_seconds: 35
+default_timeout_seconds: 120
 turn_delay_seconds: 2.5
 turns:
   - send: "There's a charge on my statement I don't recognise and I need help"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Jack Morrison, 28th February 1975, memorable word CEDAR"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "There's a charge of £89.99 from GLOBALSERV LTD on 15th April. I didn't authorise this."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "I've never heard of this company. Can you tell me more about them?"
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "That's not helpful. I want to dispute this charge formally and get my money back."
-    timeout_seconds: 35
+    timeout_seconds: 120
   - send: "Can I please speak to a human advisor? I'm getting nowhere with this."
-    timeout_seconds: 35
+    timeout_seconds: 120

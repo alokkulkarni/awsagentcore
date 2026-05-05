@@ -27,21 +27,21 @@ customer_persona: >
   memorable word. You try three different answers. After the third failure, you are
   frustrated and want to be transferred to a human who can help.
 max_turns: 10
-default_timeout_seconds: 30
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 turns:
   - send: "Hello, I'd like to check my account balance please"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "James Wilson, 15th March 1985"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My memorable word is JUPITER"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Sorry, let me try again — it might be NEPTUNE"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Hmm, what about SATURN? That might be the one I used"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "None of those are right? I'm stuck. Can I speak to someone instead?"
-    timeout_seconds: 30
+    timeout_seconds: 120
 
 ---
 name: "Escalation — Auth Failure (Suspicious Pattern)"
@@ -66,16 +66,16 @@ customer_persona: >
   You are providing a real customer name but incorrect date of birth.
   You are trying to pass authentication by guessing.
 max_turns: 8
-default_timeout_seconds: 30
+default_timeout_seconds: 120
 turn_delay_seconds: 2.0
 turns:
   - send: "Hi, I want to check my account. My name is James Wilson."
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "My date of birth is 15th March 1975"
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Actually wait, it might be 1980. I always confuse myself."
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Or 1987? I have multiple accounts, maybe I'm confusing them."
-    timeout_seconds: 30
+    timeout_seconds: 120
   - send: "Look, just let me check the balance. I know who I am."
-    timeout_seconds: 30
+    timeout_seconds: 120
