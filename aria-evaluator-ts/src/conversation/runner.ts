@@ -229,7 +229,7 @@ export class ScenarioRunner {
           };
           turns.push(customerTurn);
           this.config.onProgress({ type: 'turn', turn: customerTurn });
-          this.log(`    🧑 customer: ${message.slice(0, 120)}${message.length > 120 ? '…' : ''}`);
+          this.log(`    🧑 customer: ${message}`);
 
           try {
             await adapter.sendMessage(message, true);
@@ -382,8 +382,7 @@ export class ScenarioRunner {
         };
         turns.push(customerTurn);
         this.config.onProgress({ type: 'turn', turn: customerTurn });
-        const customerPreview = customerTurn.content.slice(0, 120);
-        this.log(`    🧑 customer: ${customerPreview}${customerTurn.content.length > 120 ? '…' : ''}`);
+        this.log(`    🧑 customer: ${customerTurn.content}`);
 
         // Send to adapter
         if (runtimeChannel === 'voice' && VOICE_PRE_SEND_DELAY_MS > 0) {
