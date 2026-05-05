@@ -110,7 +110,7 @@ export class ScenarioRunner {
           };
           turns.push(greetingTurn);
           this.config.onProgress({ type: 'turn', turn: greetingTurn });
-          this.log(`    🤖 ARIA (greeting): ${greetingTurn.content.slice(0, 120)}`);
+          this.log(`    🤖 ARIA (greeting): ${greetingTurn.content}`);
         }
       }
       let turnIndex = 0;
@@ -198,8 +198,7 @@ export class ScenarioRunner {
         turns.push(agentTurn);
         this.config.onProgress({ type: 'turn', turn: agentTurn });
 
-        const displayContent = agentTurn.content.slice(0, 120);
-        this.log(`    🤖 agent: ${displayContent}${agentTurn.content.length > 120 ? '…' : ''}`);
+        this.log(`    🤖 agent: ${agentTurn.content}`);
 
         turnIndex++;
         return true;
@@ -272,7 +271,7 @@ export class ScenarioRunner {
           };
           turns.push(agentTurn);
           this.config.onProgress({ type: 'turn', turn: agentTurn });
-          this.log(`    🤖 agent: ${agentTurn.content.slice(0, 120)}${agentTurn.content.length > 120 ? '…' : ''}`);
+          this.log(`    🤖 agent: ${agentTurn.content}`);
 
           if (turnDelayMs > 0) await sleep(turnDelayMs);
         }
@@ -287,8 +286,7 @@ export class ScenarioRunner {
               lastTurn.content = `${lastTurn.content}\n${trailing.content}`;
               lastTurn.timestampMs = Date.now();
               this.config.onProgress({ type: 'turn', turn: lastTurn });
-              const displayContent = trailing.content.slice(0, 120);
-              this.log(`    🤖 agent (continued): ${displayContent}${trailing.content.length > 120 ? '…' : ''}`);
+              this.log(`    🤖 agent (continued): ${trailing.content}`);
               continue;
             }
             const endedReason = getSessionEndedReason(adapter);
