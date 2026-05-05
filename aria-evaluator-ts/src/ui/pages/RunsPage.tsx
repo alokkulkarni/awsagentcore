@@ -106,10 +106,12 @@ interface LiveScenarioBlock {
 /**
  * Parses raw terminal log lines into per-scenario conversation blocks.
  * Extracts:
- *  - Scenario headers:  "▶  <name>"
- *  - Customer turns:    "🎤 Speaking \"<text>\""
- *  - Agent turns:       "🤖 agent: <text>"
- *  - Completion lines:  "✓ <name> (N turns)" / "✗ <name> (N turns)"
+ *  - Scenario headers:    "▶  <name>"
+ *  - Opening greeting:    "🤖 ARIA (greeting): <text>"
+ *  - Agent turns:         "🤖 agent: <text>"
+ *  - Customer (script):   "🧑 customer: <text>"
+ *  - Customer (speaking): "🎤 Speaking \"<text>\""
+ *  - Completion lines:    "✓ <name> (N turns)" / "✗ <name> (N turns)"
  */
 function parseLiveTranscript(logs: string[]): LiveScenarioBlock[] {
   const blocks: LiveScenarioBlock[] = [];
@@ -126,25 +128,49 @@ function parseLiveTranscript(logs: string[]): LiveScenarioBlock[] {
       continue;
     }
 
-    // Customer message from Speaking line — extract quoted text, trim trailing ellipsis/tilde
-    const customerMatch = line.match(/🎤\s+Speaking\s+"([^"]+)"/);
-    if (customerMatch && current) {
-      const text = customerMatch[1].replace(/…$/, '').trim();
-      current.turns.push({ role: 'customer', content: text });
+    if (!current) continue;
+
+    // Opening greeting — "🤖 ARIA (greeting): <text>"
+    const greetingMatch = line.match(/🤖\s+ARIA\s*\(greeting\):\s*(.+)/);
+    if (greetingMatch) {
+      current.turns.push({ role: 'agent', content: greetingMatch[1].trim() });
       continue;
     }
 
-    // Agent message — everything after "🤖 agent: "
+    // Agent turn — "🤖 agent: <text>"
     const agentMatch = line.match(/🤖\s+agent:\s+(.+)/);
-    if (agentMatch && current) {
+    if (agentMatch) {
       current.turns.push({ role: 'agent', content: agentMatch[1].trim() });
+      continue;
+    }
+
+    // Customer turn from script log — "🧑 customer: <text>"
+    const customerLogMatch = line.match(/🧑\s+customer:\s+(.+)/);
+    if (customerLogMatch) {
+      const text = customerLogMatch[1].replace(/…$/, '').trim();
+      // Avoid duplicating if a 🎤 Speaking line for same text follows
+      const last = current.turns.at(-1);
+      if (!last || last.role !== 'customer' || last.content !== text) {
+        current.turns.push({ role: 'customer', content: text });
+      }
+      continue;
+    }
+
+    // Customer turn from voice speaking line — "🎤 Speaking \"<text>\""
+    // This arrives after the 🧑 customer log line in voice mode so deduplicate
+    const customerMatch = line.match(/🎤\s+Speaking\s+"([^"]+)"/);
+    if (customerMatch) {
+      const text = customerMatch[1].replace(/…$/, '').trim();
+      const last = current.turns.at(-1);
+      if (!last || last.role !== 'customer') {
+        current.turns.push({ role: 'customer', content: text });
+      }
       continue;
     }
 
     // Scenario completion (✓ or ✗)
     const doneMatch = line.match(/^([✓✗])\s+(.+?)\s+\((\d+)\s+turns?\)/);
-    if (doneMatch && current) {
-      // Match to the most recently opened block with same name
+    if (doneMatch) {
       const target = [...blocks].reverse().find((b) => b.name === doneMatch[2]?.trim() || b.outcome === null);
       if (target) {
         target.outcome = doneMatch[1] === '✓';
