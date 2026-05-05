@@ -88,6 +88,151 @@ function toTranscriptViewerUrl(filename: string): string {
   return `/?page=transcripts&file=${encodeURIComponent(filename)}`;
 }
 
+// ── Live transcript parser ──────────────────────────────────────────────────
+
+interface LiveTurn {
+  role: 'customer' | 'agent';
+  content: string;
+}
+
+interface LiveScenarioBlock {
+  name: string;
+  turns: LiveTurn[];
+  /** null = still running, true = passed, false = failed */
+  outcome: boolean | null;
+  turnCount: number | null;
+}
+
+/**
+ * Parses raw terminal log lines into per-scenario conversation blocks.
+ * Extracts:
+ *  - Scenario headers:  "▶  <name>"
+ *  - Customer turns:    "🎤 Speaking \"<text>\""
+ *  - Agent turns:       "🤖 agent: <text>"
+ *  - Completion lines:  "✓ <name> (N turns)" / "✗ <name> (N turns)"
+ */
+function parseLiveTranscript(logs: string[]): LiveScenarioBlock[] {
+  const blocks: LiveScenarioBlock[] = [];
+  let current: LiveScenarioBlock | null = null;
+
+  for (const raw of logs) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, '').trim(); // strip ANSI
+
+    // Scenario start
+    const scenarioStart = line.match(/^▶\s+(.+)$/);
+    if (scenarioStart) {
+      current = { name: scenarioStart[1].trim(), turns: [], outcome: null, turnCount: null };
+      blocks.push(current);
+      continue;
+    }
+
+    // Customer message from Speaking line — extract quoted text, trim trailing ellipsis/tilde
+    const customerMatch = line.match(/🎤\s+Speaking\s+"([^"]+)"/);
+    if (customerMatch && current) {
+      const text = customerMatch[1].replace(/…$/, '').trim();
+      current.turns.push({ role: 'customer', content: text });
+      continue;
+    }
+
+    // Agent message — everything after "🤖 agent: "
+    const agentMatch = line.match(/🤖\s+agent:\s+(.+)/);
+    if (agentMatch && current) {
+      current.turns.push({ role: 'agent', content: agentMatch[1].trim() });
+      continue;
+    }
+
+    // Scenario completion (✓ or ✗)
+    const doneMatch = line.match(/^([✓✗])\s+(.+?)\s+\((\d+)\s+turns?\)/);
+    if (doneMatch && current) {
+      // Match to the most recently opened block with same name
+      const target = [...blocks].reverse().find((b) => b.name === doneMatch[2]?.trim() || b.outcome === null);
+      if (target) {
+        target.outcome = doneMatch[1] === '✓';
+        target.turnCount = Number.parseInt(doneMatch[3] ?? '0', 10);
+      }
+    }
+  }
+
+  return blocks.filter((b) => b.turns.length > 0);
+}
+
+function LiveTranscriptPanel({ logs, isLive }: { logs: string[]; isLive: boolean }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const blocks = parseLiveTranscript(logs);
+
+  useEffect(() => {
+    if (isLive) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [logs, isLive]);
+
+  if (blocks.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <p className="text-xs font-semibold text-slate-500 uppercase">Live Transcript</p>
+        {isLive && (
+          <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+            Live
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+        {blocks.map((block, bi) => (
+          <div key={bi} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+            {/* Scenario header */}
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+              <span className="text-xs font-semibold text-slate-600 truncate">{block.name}</span>
+              {block.outcome !== null ? (
+                <span className={`text-xs font-bold ml-2 flex-shrink-0 ${block.outcome ? 'text-green-600' : 'text-red-500'}`}>
+                  {block.outcome ? '✓' : '✗'} {block.turnCount ?? 0} turns
+                </span>
+              ) : (
+                <span className="text-xs text-slate-400 ml-2 flex-shrink-0 animate-pulse">running…</span>
+              )}
+            </div>
+
+            {/* Conversation bubbles */}
+            <div className="p-3 space-y-2">
+              {block.turns.map((t, ti) => {
+                const isAgent = t.role === 'agent';
+                return (
+                  <div key={ti} className={`flex gap-2 items-end ${isAgent ? '' : 'flex-row-reverse'}`}>
+                    <span className="text-base flex-shrink-0">{isAgent ? '🤖' : '👤'}</span>
+                    <div className={`rounded-2xl px-3 py-2 text-sm leading-snug max-w-[82%] ${
+                      isAgent
+                        ? 'bg-slate-100 text-slate-800 rounded-bl-sm'
+                        : 'bg-[#0D2A66] text-white rounded-br-sm'
+                    }`}>
+                      {t.content}
+                    </div>
+                  </div>
+                );
+              })}
+              {block.outcome === null && isLive && (
+                <div className="flex gap-2 items-end">
+                  <span className="text-base">🤖</span>
+                  <div className="bg-slate-100 rounded-2xl rounded-bl-sm px-3 py-2">
+                    <span className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
 // ── Artifact preview modal ──────────────────────────────────────────────────
 
 type ArtifactModalType = 'transcript' | 'json' | 'html' | 'report';
@@ -830,6 +975,13 @@ export function RunsPage() {
                   </div>
                 )}
 
+                {liveEvents.length > 0 && (
+                  <LiveTranscriptPanel
+                    logs={liveEvents}
+                    isLive={selected.status === 'running' || selected.status === 'evaluating'}
+                  />
+                )}
+
                 {(() => {
                   const transcriptPaths = extractTranscriptPaths(liveEvents);
                   const reportPaths = extractReportPaths(liveEvents);
@@ -920,7 +1072,7 @@ export function RunsPage() {
                   </div>
                 )}
 
-                {selected.turns && selected.turns.length > 0 && (
+                {selected.turns && selected.turns.length > 0 && liveEvents.length === 0 && (
                   <div>
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Transcript</p>
                     <div className="space-y-2 max-h-64 overflow-y-auto">
