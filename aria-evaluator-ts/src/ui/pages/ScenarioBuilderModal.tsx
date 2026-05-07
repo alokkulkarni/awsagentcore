@@ -569,14 +569,6 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                     rows={6}
                   />
                 </div>
-                <div>
-                  <Label hint="Maximum number of conversation turns the LLM customer will attempt.">Max turns</Label>
-                  <input
-                    type="number" min={1} max={30} value={form.max_turns}
-                    onChange={(e) => set('max_turns', parseInt(e.target.value) || 10)}
-                    className="w-24 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
               </Section>
             )}
 
