@@ -14,20 +14,20 @@ export interface Turn {
 
 /**
  * How escalation was detected.
- *  text_keyword     – ARIA's utterance contained a known transfer phrase
+ *  text_keyword     – the agent's utterance contained a known transfer phrase
  *  meeting_ended    – Chime MeetingEnded fired while conversation was active (voice only)
  *  contact_attribute – DescribeContact returned an escalation attribute set by the Contact Flow
  */
 export type EscalationTrigger = 'text_keyword' | 'meeting_ended' | 'contact_attribute';
 
 /**
- * Why ARIA escalated. Mirrors the values set by the ARIA Contact Flow and scenario YAML.
+ * Why the agent escalated. Mirrors the values set by the ARIA Contact Flow and scenario YAML.
  *  customer_requested   – Customer explicitly asked for a human agent
  *  auth_failure         – Authentication failed too many times
  *  vulnerable_customer  – Vulnerability indicators detected (FCA Consumer Duty)
  *  compliance_blocked   – Request blocked by regulatory policy (formal complaint, bereavement, etc.)
- *  unresolvable         – ARIA could not resolve the issue after multiple attempts
- *  out_of_scope         – Request outside ARIA's permitted scope
+ *  unresolvable         – the agent could not resolve the issue after multiple attempts
+ *  out_of_scope         – Request outside the agent's permitted scope
  *  unknown              – Escalation detected but reason not determined
  */
 export type EscalationReason =
@@ -44,7 +44,7 @@ export interface EscalationEvent {
   detectedAtTurn: number;
   /** How the escalation was detected */
   trigger: EscalationTrigger;
-  /** The ARIA utterance that triggered detection (for text_keyword trigger) */
+  /** The agent's utterance that triggered detection (for text_keyword trigger) */
   detectedFrom?: string;
   /** Reason inferred from text or contact attributes */
   reason: EscalationReason;
@@ -63,7 +63,7 @@ export interface Transcript {
   error?: string;
   /** Relative path to the WAV recording (voice runs only) */
   audioPath?: string;
-  /** Whether ARIA escalated this conversation to a human agent */
+  /** Whether the agent escalated this conversation to a human agent */
   escalated: boolean;
   /** Details of the escalation event, if escalation occurred */
   escalation?: EscalationEvent;

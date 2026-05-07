@@ -94,7 +94,7 @@ export class ConnectChatAdapter implements BaseAdapter {
   private resolvedFlowId: string | null = null;
   private sessionEnded = false;
   private _escalationEvent: EscalationEvent | null = null;
-  /** ARIA's personalized greeting sent before the first customer turn (authenticated sessions) */
+  /** the agent's personalized greeting sent before the first customer turn (authenticated sessions) */
   private _openingGreeting: AdapterMessage | null = null;
 
   // Same patterns as ConnectWebRTCAdapter — applied to chat messages
@@ -140,7 +140,7 @@ export class ConnectChatAdapter implements BaseAdapter {
     return this._escalationEvent;
   }
 
-  /** ARIA's personalized greeting captured during connect() for authenticated sessions */
+  /** the agent's personalized greeting captured during connect() for authenticated sessions */
   get openingGreeting(): AdapterMessage | null {
     return this._openingGreeting;
   }
@@ -232,17 +232,17 @@ export class ConnectChatAdapter implements BaseAdapter {
         // non-fatal
       }
 
-      // Wait for ARIA's personalized greeting so the runner loop starts clean.
+      // Wait for the agent's personalized greeting so the runner loop starts clean.
       // We capture it as openingGreeting rather than letting it sit in the queue
       // where it would be misidentified as the response to the first customer turn.
-      console.log(`    [auth] waiting for ARIA greeting…`);
+      console.log(`    [auth] waiting for agent greeting…`);
       const greeting = await this.receiveOne(8000);
       if (greeting) {
         this._openingGreeting = greeting;
         const preview = greeting.content.slice(0, 80);
-        console.log(`    [auth] ARIA greeting: "${preview}${greeting.content.length > 80 ? '…' : ''}"`);
+        console.log(`    [auth] agent greeting: "${preview}${greeting.content.length > 80 ? '…' : ''}"`);
       } else {
-        console.log(`    [auth] ⚠  no ARIA greeting received within 8s`);
+        console.log(`    [auth] ⚠  no agent greeting received within 8s`);
       }
     }
   }

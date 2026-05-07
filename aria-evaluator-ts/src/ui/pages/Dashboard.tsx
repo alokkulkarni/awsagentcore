@@ -44,7 +44,7 @@ export function Dashboard({ onNavigate }: Props) {
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">Dashboard</h2>
-        <p className="text-slate-500 mt-1">ARIA quality evaluation overview</p>
+        <p className="text-slate-500 mt-1">Agent quality evaluation overview</p>
       </div>
 
       {/* ── Summary Cards ── */}

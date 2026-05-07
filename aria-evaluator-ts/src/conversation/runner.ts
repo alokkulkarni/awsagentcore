@@ -110,7 +110,7 @@ export class ScenarioRunner {
           };
           turns.push(greetingTurn);
           this.config.onProgress({ type: 'turn', turn: greetingTurn });
-          this.log(`    🤖 ARIA (greeting): ${greetingTurn.content}`);
+          this.log(`    🤖 agent (greeting): ${greetingTurn.content}`);
         }
       }
       let turnIndex = 0;
@@ -129,8 +129,8 @@ export class ScenarioRunner {
       };
       const receiveAndRecordAgentTurn = async (goalFromDriver: boolean): Promise<boolean> => {
         // ── Agent turn ─────────────────────────────────────────────────────
-        // Always receive ARIA's response — even if goal is achieved, we want
-        // ARIA's acknowledgement/closing message in the transcript.
+        // Always receive the agent's response — even if goal is achieved, we want
+        // the agent's acknowledgement/closing message in the transcript.
         const beforeReceive = Date.now();
         const agentMsg = await adapter.receive(timeoutMs);
 
@@ -163,19 +163,19 @@ export class ScenarioRunner {
           return false;
         }
 
-        // Collect ARIA's complete response using conversational timing only
+        // Collect the agent's complete response using conversational timing only
         // (no keyword/phrase validation).
         const parts = [agentMsg.content];
 
         if (runtimeChannel === 'chat') {
-          // Collect any rapid follow-on packets from ARIA
+          // Collect any rapid follow-on packets from the agent
           while (true) {
             const next = await adapter.receive(2_500);
             if (!next) break;
             parts.push(next.content);
           }
         } else if (runtimeChannel === 'voice') {
-          // Do not interrupt ARIA mid-utterance. Wait for a short quiet window
+          // Do not interrupt the agent mid-utterance. Wait for a short quiet window
           // before sending the next customer message, and merge any trailing
           // speech chunks into the same agent turn.
           const settleDeadline = Date.now() + VOICE_TURN_SETTLE_MAX_MS;
@@ -315,7 +315,7 @@ export class ScenarioRunner {
         if (waitForAgent) {
           if (consecutiveSilentWaits >= VOICE_MAX_CONSECUTIVE_SILENT_WAITS) {
             const followup = VOICE_SILENT_WAIT_FOLLOWUP_PROMPT;
-            this.log(`    ℹ  ARIA still has not delivered the result — prompting for completion.`);
+            this.log(`    ℹ  the agent still has not delivered the result — prompting for completion.`);
             const customerTurn: Turn = {
               index: turnIndex,
               role: 'customer',
@@ -345,7 +345,7 @@ export class ScenarioRunner {
             continue;
           }
 
-          this.log(`    ⏳ customer is waiting for ARIA to finish...`);
+          this.log(`    ⏳ customer is waiting for the agent to finish...`);
           consecutiveSilentWaits += 1;
           const received = await receiveAndRecordAgentTurn(achieved);
           if (!received) break;

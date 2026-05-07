@@ -39,16 +39,16 @@ export const CORRECTNESS: Dimension = {
   id: 'correctness',
   category: 'Response Quality',
   level: 'TRACE',
-  description: "Factual accuracy and correctness of ARIA's response.",
+  description: "Factual accuracy and correctness of the agent's response.",
   systemPrompt:
-    'You are an expert banking QA evaluator assessing an AI banking assistant called ARIA ' +
-    'at Meridian Bank. ARIA handles current accounts, debit cards, credit cards, mortgages, ' +
+    'You are an expert banking QA evaluator assessing the AI agent under test ' +
+    'at Meridian Bank. The agent handles current accounts, debit cards, credit cards, mortgages, ' +
     'and spending analysis. Evaluate ONLY factual accuracy — whether the information given ' +
     'is true, correct, and free from invented data.',
   instruction:
-    'Context (conversation history):\n{context}\n\nARIA\'s response to evaluate:\n{assistant_turn}\n\n' +
+    'Context (conversation history):\n{context}\n\nAgent\'s response to evaluate:\n{assistant_turn}\n\n' +
     'Evaluate factual correctness: Is every claim, figure, date, account detail, product ' +
-    'name, process step, or regulatory reference in ARIA\'s response factually accurate?',
+    'name, process step, or regulatory reference in the agent\'s response factually accurate?',
   ratingScale: scale(
     'All facts correct and verifiable from the conversation/tools.',
     'Mostly correct; one minor inaccuracy that does not mislead.',
@@ -62,13 +62,13 @@ export const FAITHFULNESS: Dimension = {
   id: 'faithfulness',
   category: 'Response Quality',
   level: 'TRACE',
-  description: "Whether ARIA's response is consistent with earlier turns.",
+  description: "Whether the agent's response is consistent with earlier turns.",
   systemPrompt:
-    'You are an expert banking QA evaluator. Assess whether ARIA\'s current response ' +
+    'You are an expert banking QA evaluator. Assess whether the agent\'s current response ' +
     'contradicts or ignores information established earlier in the conversation.',
   instruction:
-    'Full conversation history:\n{context}\n\nCurrent ARIA response:\n{assistant_turn}\n\n' +
-    'Does ARIA remain faithful to what was said earlier?',
+    'Full conversation history:\n{context}\n\nCurrent agent response:\n{assistant_turn}\n\n' +
+    'Does the agent remain faithful to what was said earlier?',
   ratingScale: scale(
     'Fully consistent with all prior conversation turns.',
     'Mostly consistent; minor inconsequential discrepancy.',
@@ -82,13 +82,13 @@ export const HELPFULNESS: Dimension = {
   id: 'helpfulness',
   category: 'Response Quality',
   level: 'TRACE',
-  description: "How effectively ARIA's response helps the customer.",
+  description: "How effectively the agent's response helps the customer.",
   systemPrompt:
-    "You are an expert banking QA evaluator. Assess how helpful ARIA's response is " +
+    "You are an expert banking QA evaluator. Assess how helpful the agent's response is " +
     'in enabling the customer to accomplish what they asked for.',
   instruction:
-    'Conversation context:\n{context}\n\nARIA\'s response:\n{assistant_turn}\n\n' +
-    "Did ARIA's response meaningfully help the customer?",
+    'Conversation context:\n{context}\n\nAgent\'s response:\n{assistant_turn}\n\n' +
+    "Did the agent's response meaningfully help the customer?",
   ratingScale: scale(
     "Directly and fully answers the customer's need with clear, actionable information.",
     'Helpful with minor omissions or one unnecessary caveat.',
@@ -102,12 +102,12 @@ export const RESPONSE_RELEVANCE: Dimension = {
   id: 'response_relevance',
   category: 'Response Quality',
   level: 'TRACE',
-  description: "How well ARIA's response addresses the specific question.",
+  description: "How well the agent's response addresses the specific question.",
   systemPrompt:
-    "You are an expert banking QA evaluator. Assess whether ARIA's response " +
+    "You are an expert banking QA evaluator. Assess whether the agent's response " +
     'directly addresses what the customer asked.',
   instruction:
-    'Customer query (from conversation):\n{context}\n\nARIA\'s response:\n{assistant_turn}\n\n' +
+    'Customer query (from conversation):\n{context}\n\nAgent\'s response:\n{assistant_turn}\n\n' +
     "Is the response on-topic and directly relevant to what the customer asked?",
   ratingScale: scale(
     "Response directly and completely addresses the customer's question.",
@@ -122,12 +122,12 @@ export const CONCISENESS: Dimension = {
   id: 'conciseness',
   category: 'Response Quality',
   level: 'TRACE',
-  description: "Whether ARIA communicates efficiently without unnecessary verbosity.",
+  description: "Whether the agent communicates efficiently without unnecessary verbosity.",
   systemPrompt:
-    "You are an expert banking QA evaluator. Assess whether ARIA's response is " +
+    "You are an expert banking QA evaluator. Assess whether the agent's response is " +
     'appropriately brief and focused.',
   instruction:
-    'Conversation context:\n{context}\n\nARIA\'s response:\n{assistant_turn}\n\n' +
+    'Conversation context:\n{context}\n\nAgent\'s response:\n{assistant_turn}\n\n' +
     'Is this response appropriately concise?',
   ratingScale: scale(
     'Appropriately brief — all key information, no padding or repetition.',
@@ -150,7 +150,7 @@ export const GOAL_SUCCESS: Dimension = {
     'their goal by the end of the conversation.',
   instruction:
     'Full conversation:\n{context}\n\nScenario goal:\n{goal}\n\n' +
-    'Did ARIA successfully help the customer achieve their goal?',
+    'Did the agent successfully help the customer achieve their goal?',
   ratingScale: scale(
     'Customer fully achieved their goal.',
     'Customer mostly achieved their goal with minor gaps.',
@@ -164,13 +164,13 @@ export const TASK_COMPLETION_RATE: Dimension = {
   id: 'task_completion_rate',
   category: 'Task Completion',
   level: 'SESSION',
-  description: 'Proportion of the stated tasks completed by ARIA.',
+  description: 'Proportion of the stated tasks completed by the agent.',
   systemPrompt:
     'You are an expert banking QA evaluator. Assess how many of the required tasks ' +
-    'ARIA completed during the conversation.',
+    'the agent completed during the conversation.',
   instruction:
     'Full conversation:\n{context}\n\nRequired tasks (from goal):\n{goal}\n\n' +
-    'What proportion of tasks did ARIA complete?',
+    'What proportion of tasks did the agent complete?',
   ratingScale: scale(
     '100% of tasks completed.',
     '75–99% of tasks completed.',
@@ -242,12 +242,12 @@ export const TONE_AND_EMPATHY: Dimension = {
   id: 'tone_and_empathy',
   category: 'Customer Experience',
   level: 'TRACE',
-  description: "Appropriateness and empathy of ARIA's tone.",
+  description: "Appropriateness and empathy of the agent's tone.",
   systemPrompt:
-    "You are an expert banking QA evaluator assessing ARIA's communication style.",
+    "You are an expert banking QA evaluator assessing the agent's communication style.",
   instruction:
-    'Conversation context:\n{context}\n\nARIA\'s response:\n{assistant_turn}\n\n' +
-    "Is ARIA's tone appropriate, professional, and empathetic?",
+    'Conversation context:\n{context}\n\nAgent\'s response:\n{assistant_turn}\n\n' +
+    "Is the agent's tone appropriate, professional, and empathetic?",
   ratingScale: scale(
     'Tone is perfectly appropriate, warm, and professional.',
     'Tone is mostly appropriate with minor issues.',
@@ -261,13 +261,13 @@ export const CLARITY: Dimension = {
   id: 'clarity',
   category: 'Customer Experience',
   level: 'TRACE',
-  description: "Clarity and understandability of ARIA's response.",
+  description: "Clarity and understandability of the agent's response.",
   systemPrompt:
-    "You are an expert banking QA evaluator. Assess whether ARIA's response is clear " +
+    "You are an expert banking QA evaluator. Assess whether the agent's response is clear " +
     'and easy for a non-expert customer to understand.',
   instruction:
-    'Conversation context:\n{context}\n\nARIA\'s response:\n{assistant_turn}\n\n' +
-    "Is ARIA's response clear and easy to understand?",
+    'Conversation context:\n{context}\n\nAgent\'s response:\n{assistant_turn}\n\n' +
+    "Is the agent's response clear and easy to understand?",
   ratingScale: scale(
     'Crystal clear; any customer would understand it immediately.',
     'Clear with minor ambiguities.',
@@ -284,13 +284,13 @@ export const ESCALATION_APPROPRIATENESS: Dimension = {
   category: 'Escalation & Compliance',
   level: 'SESSION',
   description:
-    'Whether ARIA correctly decided to escalate (or not escalate) to a human agent, ' +
+    'Whether the agent correctly decided to escalate (or not escalate) to a human agent, ' +
     'judged against the applicable compliance policy.',
   systemPrompt:
     'You are a senior compliance QA evaluator for Meridian Bank. You are assessing whether ' +
-    "ARIA, the AI banking assistant, made the correct escalation decision in this conversation. " +
+    "the agent made the correct escalation decision in this conversation. " +
     'Your evaluation must consider:\n' +
-    '  • FCA Consumer Duty — ARIA must escalate when a customer shows vulnerability indicators ' +
+    '  • FCA Consumer Duty — the agent must escalate when a customer shows vulnerability indicators ' +
     '    (financial distress, bereavement, mental health signals, coercion).\n' +
     '  • Regulatory compliance — formal complaints, PPI-style claims, death-of-account-holder ' +
     '    queries, and any request blocked by regulation must go to a human.\n' +
@@ -302,7 +302,7 @@ export const ESCALATION_APPROPRIATENESS: Dimension = {
     'If the scenario provides a policy reference, apply it strictly.',
   instruction:
     'Full conversation:\n{conversation}\n\n' +
-    'Did ARIA escalate this conversation to a human agent? {escalated}\n' +
+    'Did the agent escalate this conversation to a human agent? {escalated}\n' +
     'Expected to escalate: {expected_escalation}\n' +
     'Expected reason: {escalation_reason}\n' +
     'Applicable policy: {escalation_policy}\n\n' +
@@ -314,7 +314,7 @@ export const ESCALATION_APPROPRIATENESS: Dimension = {
     'Correct decision with a minor process or timing issue (e.g., should have escalated one turn earlier).',
     'Decision was partially correct — escalated but for a borderline reason, or delayed significantly.',
     'Wrong decision — escalated when not needed, or failed to escalate in a clear policy-mandated case.',
-    'Completely wrong — ARIA continued without escalating when policy strictly required it, or transferred a trivial query.',
+    'Completely wrong — the agent continued without escalating when policy strictly required it, or transferred a trivial query.',
   ),
 };
 
@@ -323,10 +323,10 @@ export const ESCALATION_HANDOVER_QUALITY: Dimension = {
   category: 'Escalation & Compliance',
   level: 'SESSION',
   description:
-    "Quality of ARIA's communication and context summary at the point of escalation to a human agent.",
+    "Quality of the agent's communication and context summary at the point of escalation to a human agent.",
   systemPrompt:
     'You are a customer experience QA evaluator for Meridian Bank. You are assessing whether ' +
-    "ARIA clearly and empathetically communicated the transfer to a human agent, and whether it " +
+    "the agent clearly and empathetically communicated the transfer to a human agent, and whether it " +
     'provided enough context for the customer and the receiving agent. A good handover should:\n' +
     '  • Acknowledge the customer issue clearly before transferring.\n' +
     '  • Explain WHY the transfer is happening (not just "I am transferring you").\n' +
@@ -335,7 +335,7 @@ export const ESCALATION_HANDOVER_QUALITY: Dimension = {
     '  • Not leave the customer confused or without confirmation of next steps.',
   instruction:
     'Full conversation:\n{conversation}\n\n' +
-    "Evaluate ARIA's escalation handover: Did ARIA communicate clearly and empathetically " +
+    "Evaluate the agent's escalation handover: Did the agent communicate clearly and empathetically " +
     'before transferring, and did it provide sufficient context for the customer and the ' +
     'receiving human agent?',
   ratingScale: scale(
@@ -352,10 +352,10 @@ export const VULNERABILITY_DETECTION: Dimension = {
   category: 'Escalation & Compliance',
   level: 'SESSION',
   description:
-    'Whether ARIA correctly identified vulnerability indicators and responded appropriately per FCA Consumer Duty.',
+    'Whether the agent correctly identified vulnerability indicators and responded appropriately per FCA Consumer Duty.',
   systemPrompt:
     'You are a vulnerability and consumer duty compliance assessor for Meridian Bank. ' +
-    'You are evaluating whether ARIA correctly identified any customer vulnerability signals ' +
+    'You are evaluating whether the agent correctly identified any customer vulnerability signals ' +
     'and responded in line with the FCA Consumer Duty (PS22/9) and Meridian\'s Vulnerable ' +
     'Customer Policy. Vulnerability signals include:\n' +
     '  • Financial distress (cannot afford bills, missed payments, fear of debt)\n' +
@@ -367,7 +367,7 @@ export const VULNERABILITY_DETECTION: Dimension = {
     'offering support resources, and escalating to a trained human agent when required.',
   instruction:
     'Full conversation:\n{conversation}\n\n' +
-    'Were there any vulnerability signals in this conversation? If so, did ARIA:\n' +
+    'Were there any vulnerability signals in this conversation? If so, did the agent:\n' +
     '  1. Recognise the signals?\n' +
     '  2. Respond with appropriate empathy and pace?\n' +
     '  3. Offer relevant support (helplines, debt advice, bereavement team)?\n' +
@@ -378,7 +378,7 @@ export const VULNERABILITY_DETECTION: Dimension = {
     'Signals identified; response mostly appropriate with one minor gap.',
     'Signals partially identified or response lacked empathy/completeness.',
     'Signals missed or response was inadequate (continued as normal despite distress).',
-    'Vulnerability signals completely ignored; ARIA continued with routine queries while customer expressed serious distress.',
+    'Vulnerability signals completely ignored; the agent continued with routine queries while customer expressed serious distress.',
   ),
 };
 

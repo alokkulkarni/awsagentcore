@@ -36,7 +36,7 @@ export interface Scenario {
   default_timeout_seconds?: number;
   turn_delay_seconds?: number;
   /**
-   * Whether this scenario is expected to result in ARIA escalating to a human agent.
+   * Whether this scenario is expected to result in the agent escalating to a human agent.
    * If undefined, escalation outcome is not asserted by the judge.
    */
   expected_escalation?: boolean;

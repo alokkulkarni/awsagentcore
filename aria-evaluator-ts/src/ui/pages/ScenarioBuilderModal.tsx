@@ -412,13 +412,13 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                 />
               </div>
               <div>
-                <Label hint="Brief description of what this scenario tests and what the expected ARIA behaviour is.">
+                <Label hint="Brief description of what this scenario tests and what the expected agent behaviour is.">
                   Description
                 </Label>
                 <Textarea
                   value={form.description}
                   onChange={(v) => set('description', v)}
-                  placeholder="Pre-authenticated session. ARIA should greet the customer by name and provide their balance…"
+                  placeholder="Pre-authenticated session. the agent should greet the customer by name and provide their balance…"
                   rows={2}
                 />
               </div>
@@ -449,7 +449,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                       short: 'AI plays the customer',
                       bullets: [
                         'An LLM acts as the customer and drives the conversation naturally',
-                        'Adapts its replies based on what ARIA says — like a real user would',
+                        'Adapts its replies based on what the agent says — like a real user would',
                         'You define a persona (name, KBA answers, personality) and a goal',
                         'Best for: open-ended queries, banking enquiries, multi-turn flows',
                       ],
@@ -503,7 +503,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                   className="w-4 h-4 accent-blue-600"
                 />
                 <label htmlFor="auth" className="text-sm text-slate-700">
-                  Pre-authenticated (send SESSION_START so ARIA skips KBA)
+                  Pre-authenticated (send SESSION_START so the agent skips KBA)
                 </label>
               </div>
             </Section>
@@ -538,7 +538,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
             {form.mode === 'agent' && (
               <Section title="💬 Conversation">
                 <div>
-                  <Label hint="The first message the customer sends. Sets context for ARIA before the LLM takes over.">
+                  <Label hint="The first message the customer sends. Sets context for the agent before the LLM customer takes over.">
                     Opening message
                   </Label>
                   <TextInput
@@ -548,13 +548,13 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                   />
                 </div>
                 <div>
-                  <Label hint="What ARIA must achieve for this scenario to pass. The LLM judge evaluates the full conversation against this goal.">
+                  <Label hint="What the agent must achieve for this scenario to pass. The LLM judge evaluates the full conversation against this goal.">
                     Goal <span className="text-red-500">*</span>
                   </Label>
                   <Textarea
                     value={form.goal}
                     onChange={(v) => set('goal', v)}
-                    placeholder="ARIA greets the customer by first name, provides the current account balance as a specific figure, and lists at least 3 recent transactions."
+                    placeholder="The agent greets the customer by first name, provides the current account balance as a specific figure, and lists at least 3 recent transactions."
                     rows={3}
                   />
                 </div>
@@ -576,7 +576,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
             {form.mode === 'script' && (
               <Section title="📋 Script Turns">
                 <p className="text-xs text-slate-500 -mt-2">
-                  Turns are sent to ARIA in order. Add one turn per customer message.
+                  Turns are sent to the agent in order. Add one turn per customer message.
                   {form.scenarioType === 'adversarial' && ' Write each attack payload as a separate turn.'}
                 </p>
                 <div className="space-y-3">
@@ -624,7 +624,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                     <Textarea
                       value={form.goal}
                       onChange={(v) => set('goal', v)}
-                      placeholder="ARIA transfers the customer to a human agent within 2 turns of the initial request."
+                      placeholder="The agent transfers the customer to a human agent within 2 turns of the initial request."
                       rows={2}
                     />
                   </div>
@@ -640,7 +640,7 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                     onChange={(e) => set('expected_escalation', e.target.checked)}
                     className="w-4 h-4 accent-blue-600" />
                   <label htmlFor="esc" className="text-sm text-slate-700">
-                    This scenario expects ARIA to escalate to a human agent
+                    This scenario expects the agent to escalate to a human agent
                   </label>
                 </div>
                 {form.expected_escalation && (

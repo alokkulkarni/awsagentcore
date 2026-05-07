@@ -107,7 +107,7 @@ interface LiveScenarioBlock {
  * Parses raw terminal log lines into per-scenario conversation blocks.
  * Extracts:
  *  - Scenario headers:    "▶  <name>"
- *  - Opening greeting:    "🤖 ARIA (greeting): <text>"
+ *  - Opening greeting:    "🤖 agent (greeting): <text>"
  *  - Agent turns:         "🤖 agent: <text>"
  *  - Customer (script):   "🧑 customer: <text>"
  *  - Customer (speaking): "🎤 Speaking \"<text>\""
@@ -130,8 +130,8 @@ function parseLiveTranscript(logs: string[]): LiveScenarioBlock[] {
 
     if (!current) continue;
 
-    // Opening greeting — "🤖 ARIA (greeting): <text>"
-    const greetingMatch = line.match(/🤖\s+ARIA\s*\(greeting\):\s*(.+)/);
+    // Opening greeting — "🤖 agent (greeting): <text>"
+    const greetingMatch = line.match(/🤖\s+agent\s*\(greeting\):\s*(.+)/);
     if (greetingMatch) {
       current.turns.push({ role: 'agent', content: greetingMatch[1].trim() });
       continue;

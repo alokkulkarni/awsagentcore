@@ -5,8 +5,8 @@
 //   1. AWS Connect StartWebRTCContact → Chime Meeting + Attendee credentials
 //   2. @roamhq/wrtc provides RTCPeerConnection in Node.js (no browser needed)
 //   3. amazon-chime-sdk-js handles Chime WebSocket signaling + SDP negotiation
-//   4. RTCAudioSource injects Polly TTS PCM → ARIA hears the customer
-//   5. RTCAudioSink captures ARIA's PCM → Amazon Transcribe Streaming → text
+//   4. RTCAudioSource injects Polly TTS PCM → the agent hears the customer
+//   5. RTCAudioSink captures the agent's PCM → Amazon Transcribe Streaming → text
 //
 // No Playwright, no widget, no approved origins, no getUserMedia headaches.
 
@@ -341,7 +341,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
   /** Opening greeting captured during connect() — exposed so runner can record it as turn 0 */
   private _openingGreeting: AdapterMessage | null = null;
 
-  // Phrases ARIA uses when transferring to a human agent (case-insensitive)
+  // Phrases the agent uses when transferring to a human agent (case-insensitive)
   private static readonly ESCALATION_PATTERNS: Array<{ re: RegExp; reason: EscalationReason }> = [
     { re: /transferr?ing you (to|now)/i,              reason: 'unresolvable' },
     { re: /connect(ing)? you (to|with) (a )?(human|live|real|our) (agent|advisor|specialist|colleague|team)/i, reason: 'unresolvable' },
@@ -515,7 +515,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
           locale: 'en-GB',
           ...(authenticated && customerId
             ? {
-                // SESSION_START equivalent for voice — tells ARIA the customer is authed
+                // SESSION_START equivalent for voice — tells the agent the customer is authed
                 sessionStart: `SESSION_START authenticated ${customerId}`,
               }
             : {}),
@@ -559,7 +559,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
       };
       this.clearAudioSinkPoll();
       const tag = phase === 'reconnected' ? ' (reconnected)' : phase === 'delayed' ? ' (delayed)' : '';
-      console.log(`  ✓  RTCAudioSink attached${tag} — listening for ARIA speech`);
+      console.log(`  ✓  RTCAudioSink attached${tag} — listening for agent speech`);
       return true;
     };
     const ensureAudioSinkAttached = (phase: 'initial' | 'reconnected') => {
@@ -680,7 +680,7 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
     this.transcribeInput = new PassThrough();
     void this.runTranscribeLoop();
 
-    // 8. Wait for ARIA's opening greeting before allowing the runner to send
+    // 8. Wait for the agent's opening greeting before allowing the runner to send
     //    the first customer message. For this flow, greeting-first is preferred
     //    but no longer hard-required by default.
     const rawGreetingTimeoutMs = Number.parseInt(
@@ -699,18 +699,18 @@ export class ConnectWebRTCAdapter implements BaseAdapter {
       : 6_000;
     const requireOpeningGreeting = process.env['VOICE_REQUIRE_OPENING_GREETING'] === 'true';
 
-    console.log(`  ⏳ Waiting for ARIA opening greeting…`);
+    console.log(`  ⏳ Waiting for agent opening greeting…`);
     const opening = await this.receive(greetingTimeoutMs);
     if (!opening) {
       if (this.sessionEnded) {
-        throw new AdapterError(`Session ended before ARIA greeting: ${this.sessionEndReason ?? 'unknown'}`);
+        throw new AdapterError(`Session ended before agent greeting: ${this.sessionEndReason ?? 'unknown'}`);
       }
       if (requireOpeningGreeting) {
         throw new AdapterError(
-          `No ARIA opening greeting received within ${Math.round(greetingTimeoutMs / 1000)}s`,
+          `No agent opening greeting received within ${Math.round(greetingTimeoutMs / 1000)}s`,
         );
       }
-      console.log('  ℹ  No immediate greeting — ARIA will greet after first customer message');
+      console.log('  ℹ  No immediate greeting — agent will greet after first customer message');
       await sleep(200);
       return;
     }

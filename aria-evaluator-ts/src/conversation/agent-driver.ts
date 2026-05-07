@@ -38,7 +38,7 @@ export class AgentDriver {
   /** Build the system prompt from the scenario */
   private buildSystemPrompt(scenario: Scenario): string {
     return [
-      `You are playing the role of a customer interacting with a bank's AI assistant called ARIA.`,
+      `You are playing the role of a customer interacting with a bank's AI assistant.`,
       ``,
       `Customer persona:`,
       scenario.customer_persona,
@@ -50,17 +50,17 @@ export class AgentDriver {
       `- Stay in character as the customer at all times.`,
       `- Respond naturally and concisely, as a real person would speak or type.`,
       `- Do NOT use greetings like "Hello" or "Hi" unless it is your opening message.`,
-      `- Do NOT explain your role or the scenario to ARIA.`,
-      `- GREETING RULE: If ARIA greets you by name (e.g. "Hello James" or "Welcome back, James"), do NOT confirm your identity. Do NOT say things like "Yes, that's me", "Yes, it is", or "That's correct". You have already identified yourself. Simply continue with your request or ask for the information you need.`,
-      `- If ARIA greeted you but has not yet answered your question, re-state your original request directly and concisely (e.g. "Can you check my current account balance please?").`,
-      `- If ARIA cannot help with something, react naturally (confusion, frustration, acceptance).`,
-      `- CRITICAL: Only signal [GOAL_ACHIEVED] when ARIA has ACTUALLY delivered the specific information or completed the task (e.g., provided an actual balance figure, account number, confirmed a transaction). Do NOT signal [GOAL_ACHIEVED] just because ARIA says "let me look that up" or "I'll pull that up for you now" — that is a promise, not delivery.`,
-      `- If ARIA acknowledges your request without providing the information, wait for ARIA to deliver it. Only chase if ARIA explicitly asks "is there anything else?" without having answered.`,
+      `- Do NOT explain your role or the scenario to the agent.`,
+      `- GREETING RULE: If the agent greets you by name (e.g. "Hello James" or "Welcome back, James"), do NOT confirm your identity. Do NOT say things like "Yes, that's me", "Yes, it is", or "That's correct". You have already identified yourself. Simply continue with your request or ask for the information you need.`,
+      `- If the agent greeted you but has not yet answered your question, re-state your original request directly and concisely (e.g. "Can you check my current account balance please?").`,
+      `- If the agent cannot help with something, react naturally (confusion, frustration, acceptance).`,
+      `- CRITICAL: Only signal [GOAL_ACHIEVED] when the agent has ACTUALLY delivered the specific information or completed the task (e.g., provided an actual balance figure, account number, confirmed a transaction). Do NOT signal [GOAL_ACHIEVED] just because the agent says "let me look that up" or "I'll pull that up for you now" — that is a promise, not delivery.`,
+      `- If the agent acknowledges your request without providing the information, wait for the agent to deliver it. Only chase if the agent explicitly asks "is there anything else?" without having answered.`,
       `- Do NOT send filler replies while waiting (for example: "thanks", "I'm waiting", "okay").`,
-      `- If ARIA is actively working and you should stay silent, respond with exactly: [WAIT_FOR_AGENT]`,
+      `- If the agent is actively working and you should stay silent, respond with exactly: [WAIT_FOR_AGENT]`,
       `- NEVER output [WAIT_FOR_AGENT] twice in a row.`,
       `- NEVER output [GOAL_ACHIEVED] in the same response as [WAIT_FOR_AGENT].`,
-      `- If ARIA replies with a courtesy or closing line (for example: "take your time", "I'm here whenever you're ready", "anything else?") before delivering the requested data, ask ARIA to provide the pending results now instead of waiting again.`,
+      `- If the agent replies with a courtesy or closing line (for example: "take your time", "I'm here whenever you're ready", "anything else?") before delivering the requested data, ask the agent to provide the pending results now instead of waiting again.`,
       `- If the conversation exceeds ${scenario.max_turns} turns with no progress, end with: [GIVE_UP]`,
     ].join('\n');
   }

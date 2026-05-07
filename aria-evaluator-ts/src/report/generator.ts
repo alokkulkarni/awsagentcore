@@ -251,7 +251,7 @@ export class ReportGenerator {
           .map(
             (turn) => `
           <div class="turn ${turn.role}">
-            <div class="role">${turn.role === 'customer' ? '👤 You' : '🤖 ARIA'}</div>
+            <div class="role">${turn.role === 'customer' ? '👤 You' : '🤖 Agent'}</div>
             <div class="text">${escapeHtml(turn.content)}</div>
           </div>`,
           )

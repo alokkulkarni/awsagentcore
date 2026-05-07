@@ -52,7 +52,7 @@ interface VoiceAdapterConfig {
   deepgramApiKey?: string;
   pollyVoiceId?: string;
   pollyRegion?: string;
-  /** Seconds to wait for ARIA to stop speaking after each turn */
+  /** Seconds to wait for the agent to stop speaking after each turn */
   silenceTimeoutSecs?: number;
   headless?: boolean;
 }
@@ -497,9 +497,9 @@ export class ConnectVoiceAdapter implements BaseAdapter {
       clicked = true;
     }
 
-    // Wait for chat to be established: "Customer has joined" or ARIA's first message
+    // Wait for chat to be established: "Customer has joined" or the agent's first message
     // The "Start a Call" button only appears AFTER the chat session is connected.
-    console.log(`  ⏳ Waiting for chat session to connect (ARIA first message)...`);
+    console.log(`  ⏳ Waiting for chat session to connect (agent first message)...`);
     const chatReady = await this._waitForChatConnected(30_000);
     if (!chatReady) {
       console.log(`  ⚠  Chat connection not confirmed within 30s — trying voice button anyway`);
@@ -1026,7 +1026,7 @@ export class ConnectVoiceAdapter implements BaseAdapter {
 
       const transcript = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? '';
       if (transcript.trim()) {
-        console.log(`  🤖 ARIA (voice): "${transcript.trim().slice(0, 100)}"`);
+        console.log(`  🤖 agent (voice): "${transcript.trim().slice(0, 100)}"`);
         const msg: AdapterMessage = {
           role: 'agent',
           content: transcript.trim(),
