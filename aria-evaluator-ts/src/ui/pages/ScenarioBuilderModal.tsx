@@ -435,16 +435,63 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                     <option value="both">🔀 Both (chat + voice)</option>
                   </select>
                 </div>
-                <div>
-                  <Label hint="Agent: LLM drives the customer. Script: fixed turns sent in order.">Mode</Label>
-                  <select
-                    value={form.mode}
-                    onChange={(e) => set('mode', e.target.value as 'agent' | 'script')}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="agent">🤖 Agent (LLM customer)</option>
-                    <option value="script">📋 Script (fixed turns)</option>
-                  </select>
+              </div>
+
+              {/* Mode — card picker */}
+              <div>
+                <Label>Mode <span className="text-red-500">*</span></Label>
+                <div className="grid grid-cols-2 gap-3 mt-1">
+                  {([
+                    {
+                      value: 'agent' as const,
+                      icon: '🤖',
+                      title: 'Conversational (LLM)',
+                      short: 'AI plays the customer',
+                      bullets: [
+                        'An LLM acts as the customer and drives the conversation naturally',
+                        'Adapts its replies based on what ARIA says — like a real user would',
+                        'You define a persona (name, KBA answers, personality) and a goal',
+                        'Best for: open-ended queries, banking enquiries, multi-turn flows',
+                      ],
+                      example: '"Hi, I\'d like to check my balance…" → LLM continues from there',
+                    },
+                    {
+                      value: 'script' as const,
+                      icon: '📋',
+                      title: 'Scripted (fixed turns)',
+                      short: 'You write every message',
+                      bullets: [
+                        'You pre-write exactly what the customer says, turn by turn',
+                        'The same messages are sent every run — fully deterministic',
+                        'No AI customer — just your exact payloads delivered in order',
+                        'Best for: escalation flows, compliance checks, security injection attacks',
+                      ],
+                      example: 'Turn 1: "Transfer me to a human." Turn 2: "I insist."',
+                    },
+                  ] as const).map(({ value, icon, title, short, bullets, example }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => set('mode', value)}
+                      className={`text-left p-3 rounded-xl border-2 transition-all space-y-2 ${
+                        form.mode === value
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{icon}</span>
+                        <div>
+                          <div className="text-sm font-semibold text-slate-800 leading-tight">{title}</div>
+                          <div className="text-xs text-slate-500">{short}</div>
+                        </div>
+                      </div>
+                      <ul className="text-xs text-slate-500 space-y-0.5 pl-1">
+                        {bullets.map((b, i) => <li key={i} className="flex gap-1.5"><span className="text-slate-300 shrink-0">•</span>{b}</li>)}
+                      </ul>
+                      <p className="text-xs text-slate-400 italic border-t border-slate-100 pt-1.5 mt-1">{example}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="flex items-center gap-3">
