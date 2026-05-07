@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api.js';
 import type { Scenario } from '../../types/scenario.js';
+import { ScenarioBuilderModal } from './ScenarioBuilderModal.js';
 
 interface ScenarioFile {
   filename: string;
@@ -32,6 +33,7 @@ export function ScenariosPage() {
   const [runId, setRunId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [liveEvents, setLiveEvents] = useState<string[]>([]);
+  const [builder, setBuilder] = useState<{ mode: 'create' | 'edit'; scenario?: Scenario } | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -167,7 +169,26 @@ export function ScenariosPage() {
     }
   }
 
+  async function reloadScenarios() {
+    try {
+      const data = await apiFetch('/api/scenarios') as { scenarios: Scenario[] };
+      setScenarios(data.scenarios ?? []);
+      const unique = [...new Set((data.scenarios ?? []).map((sc: Scenario) => sc.filePath?.split('#')[0] ?? ''))];
+      setFiles(unique.filter(Boolean));
+    } catch { /* ignore */ }
+  }
+
   return (
+    <>
+    {builder && (
+      <ScenarioBuilderModal
+        mode={builder.mode}
+        scenario={builder.scenario}
+        existingFiles={files}
+        onClose={() => setBuilder(null)}
+        onSaved={() => { void reloadScenarios(); }}
+      />
+    )}
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -175,6 +196,11 @@ export function ScenariosPage() {
           <p className="text-slate-500 mt-1">{filtered.length} scenario(s) available</p>
         </div>
         <div className="flex gap-2 items-center">
+          <button
+            onClick={() => setBuilder({ mode: 'create' })}
+            className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#0D2A66] text-white hover:bg-blue-900 transition-colors">
+            ✨ New Scenario
+          </button>
           <div className="flex gap-1">
             {(['connect', 'lex', 'azure', 'strands', 'copilot', 'custom'] as const).map((p) => (
               <button key={p} onClick={() => setProvider(p)}
@@ -276,6 +302,12 @@ export function ScenariosPage() {
                   className="btn-secondary flex-1 disabled:opacity-50">
                   🎤 Run Voice
                 </button>
+                <button
+                  onClick={() => setBuilder({ mode: 'edit', scenario: selected })}
+                  className="px-3 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                  title="Edit this scenario">
+                  ✏️ Edit
+                </button>
               </div>
 
               {/* Live output */}
@@ -295,5 +327,6 @@ export function ScenariosPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
