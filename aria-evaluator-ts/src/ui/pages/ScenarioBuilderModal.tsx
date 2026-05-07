@@ -687,32 +687,6 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
               </Section>
             )}
 
-            {/* ── Timing ── */}
-            <Section title="⏱ Timing">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label hint="Seconds the evaluator waits for ARIA to respond before timing out. 120s recommended to allow tool calls.">
-                    Turn timeout (seconds)
-                  </Label>
-                  <input
-                    type="number" min={30} max={300} value={form.default_timeout_seconds}
-                    onChange={(e) => set('default_timeout_seconds', parseInt(e.target.value) || 120)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <Label hint="Seconds to pause between turns. Gives ARIA time to process before the next message.">
-                    Turn delay (seconds)
-                  </Label>
-                  <input
-                    type="number" min={0} max={10} step={0.5} value={form.turn_delay_seconds}
-                    onChange={(e) => set('turn_delay_seconds', parseFloat(e.target.value) || 2)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            </Section>
-
             {/* ── File Location (create only) ── */}
             {mode === 'create' && (
               <Section title="💾 Save Location">
