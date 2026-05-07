@@ -65,7 +65,7 @@ export function ScenariosPage() {
   }, []);
 
   const filtered = scenarios.filter(
-    (s) => channelFilter === 'all' || s.channel === channelFilter,
+    (s) => channelFilter === 'all' || s.channel === channelFilter || s.channel === 'both',
   );
 
   function cleanup() {
@@ -238,8 +238,11 @@ export function ScenariosPage() {
                     <p className="font-semibold text-slate-900">{s.name}</p>
                     <p className="text-xs text-slate-400 mt-0.5">{s.filePath?.split('#')[0]}</p>
                   </div>
-                  <span className={s.channel === 'voice' ? 'badge-voice' : 'badge-chat'}>
-                    {s.channel}
+                  <span className={
+                    s.channel === 'voice' ? 'badge-voice' :
+                    s.channel === 'both' ? 'badge-both' : 'badge-chat'
+                  }>
+                    {s.channel === 'both' ? '🔀 both' : s.channel}
                   </span>
                 </div>
                 {s.goal && <p className="text-sm text-slate-500 mt-2 line-clamp-2">{s.goal}</p>}

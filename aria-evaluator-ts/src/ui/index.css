@@ -37,3 +37,4 @@ body {
 .badge-pending { @apply badge bg-slate-100 text-slate-600; }
 .badge-chat { @apply badge bg-blue-100 text-blue-700; }
 .badge-voice { @apply badge bg-purple-100 text-purple-700; }
+.badge-both { @apply badge bg-violet-100 text-violet-700; }

@@ -17,7 +17,7 @@ export interface ScriptTurn {
 export interface Scenario {
   name: string;
   description?: string;
-  channel: 'chat' | 'voice';
+  channel: 'chat' | 'voice' | 'both';
   /** 'agent' uses an LLM to drive the customer; 'script' uses a fixed turns list. Defaults to 'agent'. */
   mode?: 'agent' | 'script';
   authenticated?: boolean;

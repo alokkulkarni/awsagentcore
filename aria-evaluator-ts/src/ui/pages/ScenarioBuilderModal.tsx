@@ -19,7 +19,7 @@ interface TurnRow {
 interface FormState {
   name: string;
   description: string;
-  channel: 'chat' | 'voice';
+  channel: 'chat' | 'voice' | 'both';
   scenarioType: ScenarioType;
   mode: 'agent' | 'script';
   authenticated: boolean;
@@ -427,11 +427,12 @@ export function ScenarioBuilderModal({ mode, scenario, existingFiles, onClose, o
                   <Label hint="Chat for text-based testing. Voice for WebRTC via Amazon Connect.">Channel</Label>
                   <select
                     value={form.channel}
-                    onChange={(e) => set('channel', e.target.value as 'chat' | 'voice')}
+                    onChange={(e) => set('channel', e.target.value as 'chat' | 'voice' | 'both')}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="chat">💬 Chat</option>
                     <option value="voice">🎤 Voice</option>
+                    <option value="both">🔀 Both (chat + voice)</option>
                   </select>
                 </div>
                 <div>
