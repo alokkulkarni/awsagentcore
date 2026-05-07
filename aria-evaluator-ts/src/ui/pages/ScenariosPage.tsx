@@ -68,101 +68,94 @@ export function ScenariosPage() {
     (s) => channelFilter === 'all' || s.channel === channelFilter,
   );
 
-  async function startRun(scenario: Scenario, channel: 'chat' | 'voice') {
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+  function cleanup() {
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
 
+  // Core helper: starts one run and resolves/rejects when it finishes.
+  // appendEvent is called for every log/status line so callers can prefix them.
+  function runOneChannel(
+    scenario: Scenario,
+    channel: 'chat' | 'voice',
+    appendEvent: (line: string) => void,
+  ): Promise<void> {
+    const filePath = scenario.filePath?.split('#')[0] ?? '';
+    const indexInFile = parseInt(scenario.filePath?.split('#')[1] ?? '0', 10);
+
+    return apiFetch('/api/runs', {
+      method: 'POST',
+      body: JSON.stringify({ scenarioFile: filePath, scenarioIndex: indexInFile, channel, provider }),
+    }).then((raw) => {
+      const data = raw as { runId: string };
+      setRunId(data.runId);
+
+      return new Promise<void>((resolve, reject) => {
+        const es = new EventSource(`/api/runs/${data.runId}/events`);
+        esRef.current = es;
+
+        const finish = (scoreLine?: string) => {
+          cleanup();
+          if (scoreLine) appendEvent(scoreLine);
+          resolve();
+        };
+        const fail = (msg: string) => {
+          cleanup();
+          reject(new Error(msg));
+        };
+
+        pollRef.current = setInterval(async () => {
+          try {
+            const d = await apiFetch(`/api/runs/${data.runId}`) as { run: RunDetail };
+            if (d.run?.status === 'completed') {
+              const score = typeof d.run?.evalResult?.overallScore === 'number'
+                ? ` — Score: ${d.run.evalResult.overallScore}/10` : '';
+              finish(`✅ Complete${score}`);
+            } else if (d.run?.status === 'failed') {
+              fail(d.run?.errorMessage ?? 'Run failed');
+            }
+          } catch { /* ignore transient */ }
+        }, 3000);
+
+        es.addEventListener('log', (e) => {
+          appendEvent((JSON.parse(e.data) as { message: string }).message);
+        });
+        es.addEventListener('complete', (e) => {
+          const d = JSON.parse(e.data) as { overallScore?: number };
+          const score = typeof d.overallScore === 'number' ? ` — Score: ${d.overallScore}/10` : '';
+          finish(`✅ Complete${score}`);
+        });
+        es.addEventListener('failed', (e) => {
+          fail((JSON.parse(e.data) as { error: string }).error);
+        });
+      });
+    });
+  }
+
+  async function startRun(scenario: Scenario, channel: 'chat' | 'voice') {
+    cleanup();
     setRunState('running');
     setLiveEvents([]);
     setRunError(null);
-    const filePath = scenario.filePath?.split('#')[0] ?? '';
-    const indexInFile = parseInt(scenario.filePath?.split('#')[1] ?? '0', 10);
     try {
-      const data = await apiFetch('/api/runs', {
-        method: 'POST',
-        body: JSON.stringify({ scenarioFile: filePath, scenarioIndex: indexInFile, channel, provider }),
-      }) as { runId: string };
-      setRunId(data.runId);
+      await runOneChannel(scenario, channel, (line) => setLiveEvents((p) => [...p, line]));
+      setRunState('done');
+    } catch (err) {
+      setRunError((err as Error).message);
+      setRunState('error');
+    }
+  }
 
-      const es = new EventSource(`/api/runs/${data.runId}/events`);
-      esRef.current = es;
-
-      const finishFromServerState = async () => {
-        try {
-          const d = await apiFetch(`/api/runs/${data.runId}`) as { run: RunDetail };
-          const status = d.run?.status;
-          if (status === 'completed') {
-            const score = typeof d.run?.evalResult?.overallScore === 'number'
-              ? ` — Score: ${d.run.evalResult.overallScore}/10`
-              : '';
-            setLiveEvents((prev) => [...prev, `✅ Complete${score}`]);
-            setRunState('done');
-            if (esRef.current) {
-              esRef.current.close();
-              esRef.current = null;
-            }
-            if (pollRef.current) {
-              clearInterval(pollRef.current);
-              pollRef.current = null;
-            }
-          } else if (status === 'failed') {
-            setRunError(d.run?.errorMessage ?? 'Run failed');
-            setRunState('error');
-            if (esRef.current) {
-              esRef.current.close();
-              esRef.current = null;
-            }
-            if (pollRef.current) {
-              clearInterval(pollRef.current);
-              pollRef.current = null;
-            }
-          }
-        } catch {
-          // ignore transient fetch failures
-        }
-      };
-
-      pollRef.current = setInterval(() => {
-        void finishFromServerState();
-      }, 3000);
-
-      es.addEventListener('log', (e) => {
-        const d = JSON.parse(e.data);
-        setLiveEvents((prev) => [...prev, d.message]);
-      });
-      es.addEventListener('complete', (e) => {
-        const d = JSON.parse(e.data);
-        const score = typeof d.overallScore === 'number' ? ` — Score: ${d.overallScore}/10` : '';
-        setLiveEvents((prev) => [...prev, `✅ Complete${score}`]);
-        setRunState('done');
-        if (esRef.current) {
-          esRef.current.close();
-          esRef.current = null;
-        }
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      });
-      es.addEventListener('failed', (e) => {
-        const d = JSON.parse(e.data);
-        setRunError(d.error);
-        setRunState('error');
-        if (esRef.current) {
-          esRef.current.close();
-          esRef.current = null;
-        }
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      });
+  async function startBothRun(scenario: Scenario) {
+    cleanup();
+    setRunState('running');
+    setLiveEvents(['── 💬 Chat ──']);
+    setRunError(null);
+    try {
+      await runOneChannel(scenario, 'chat', (line) => setLiveEvents((p) => [...p, line]));
+      setLiveEvents((p) => [...p, '', '── 🎤 Voice ──']);
+      await runOneChannel(scenario, 'voice', (line) => setLiveEvents((p) => [...p, line]));
+      setRunState('done');
     } catch (err) {
       setRunError((err as Error).message);
       setRunState('error');
@@ -294,14 +287,23 @@ export function ScenariosPage() {
                   disabled={runState === 'running' || !supportedChannels(provider).includes('chat')}
                   onClick={() => startRun(selected, 'chat')}
                   className="btn-primary flex-1 disabled:opacity-50">
-                  {runState === 'running' ? '⏳ Running…' : '💬 Run Chat'}
+                  {runState === 'running' ? '⏳ Running…' : '💬 Chat'}
                 </button>
                 <button
                   disabled={runState === 'running' || !supportedChannels(provider).includes('voice')}
                   onClick={() => startRun(selected, 'voice')}
                   className="btn-secondary flex-1 disabled:opacity-50">
-                  🎤 Run Voice
+                  🎤 Voice
                 </button>
+                {supportedChannels(provider).includes('voice') && (
+                  <button
+                    disabled={runState === 'running'}
+                    onClick={() => void startBothRun(selected)}
+                    title="Run on Chat then Voice sequentially"
+                    className="px-3 py-2 text-sm font-medium border-2 border-purple-300 text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 disabled:opacity-50 transition-colors flex-1">
+                    {runState === 'running' ? '⏳ Running…' : '🔀 Both'}
+                  </button>
+                )}
                 <button
                   onClick={() => setBuilder({ mode: 'edit', scenario: selected })}
                   className="px-3 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
