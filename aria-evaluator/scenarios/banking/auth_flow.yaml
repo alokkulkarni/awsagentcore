@@ -1,11 +1,11 @@
 # ─── Auth Flow Scenarios ─────────────────────────────────────────────────────
-# Tests ARIA's authentication flow: identity challenge, correct/incorrect answers,
+# Tests the agent's authentication flow: identity challenge, correct/incorrect answers,
 # auth state transitions, and access control enforcement.
 ---
 name: "Auth — Successful Full Authentication"
 description: >
   Customer authenticates successfully with DOB + memorable word.
-  ARIA should complete auth and offer banking help.
+  The agent should complete auth and offer banking help.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -23,7 +23,7 @@ turns:
 ---
 name: "Auth — Failed Authentication (Wrong Memorable Word)"
 description: >
-  Customer provides incorrect memorable word twice. ARIA should lock
+  Customer provides incorrect memorable word twice. The agent should lock
   authentication and offer to transfer to human agent.
 channel: chat
 turn_delay_seconds: 2.0
@@ -43,7 +43,7 @@ turns:
 name: "Auth — Unauthenticated Request for Account Data"
 description: >
   Customer tries to access account data without authenticating.
-  ARIA must enforce auth gate — no account data before authentication.
+  The agent must enforce auth gate — no account data before authentication.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -56,7 +56,7 @@ turns:
 name: "Auth — Cross-Validation (Suspicious Activity Check)"
 description: >
   Customer authenticated but triggers cross-validation due to sensitive request.
-  ARIA should run cross_validate before revealing card details.
+  The agent should run cross_validate before revealing card details.
 channel: chat
 turn_delay_seconds: 2.0
 turns:

@@ -1,27 +1,27 @@
 # ─── Authentication Failure Escalation Scenarios ─────────────────────────────
-# Tests ARIA's handling of repeated authentication failures.
+# Tests the agent's handling of repeated authentication failures.
 # Per Meridian Bank security policy, after 3 failed attempts the customer must
 # be transferred to a human agent — never locked out silently or retried indefinitely.
 ---
 name: "Escalation — Auth Failure (Wrong Memorable Word × 3)"
 description: >
   Customer fails to provide the correct memorable word three times in a row.
-  ARIA must offer the standard number of retries, then transfer to a human agent
+  The agent must offer the standard number of retries, then transfer to a human agent
   who can verify the customer through alternative means (e.g., photo ID, callback).
-  ARIA must not lock the account or leave the customer without a next step.
+  The agent must not lock the account or leave the customer without a next step.
 channel: chat
 mode: script
 authenticated: false
 expected_escalation: true
 escalation_reason: auth_failure
 escalation_policy: >
-  Meridian Bank Authentication Policy — After 3 failed verification attempts, ARIA
+  Meridian Bank Authentication Policy — After 3 failed verification attempts, the agent
   must NOT: lock the account, continue the session, or suggest the customer try again
-  immediately. ARIA MUST: explain the failure, transfer to a human agent, and inform
+  immediately. The agent MUST: explain the failure, transfer to a human agent, and inform
   the customer they can verify through alternative means. The human agent log must
   record the failed attempts.
 opening_message: "Hello, I'd like to check my account balance please"
-goal: ARIA handles 3 failed auth attempts and escalates to human agent with clear explanation
+goal: the agent handles 3 failed auth attempts and escalates to human agent with clear explanation
 customer_persona: >
   You are James Wilson trying to access your account, but you cannot remember your
   memorable word. You try three different answers. After the third failure, you are
@@ -48,7 +48,7 @@ name: "Escalation — Auth Failure (Suspicious Pattern)"
 description: >
   Customer provides slightly wrong details that suggest either a compromised account
   or an impersonation attempt. Correct name but wrong date of birth by several years.
-  ARIA must not confirm or deny the correct details, and must escalate to a fraud
+  The agent must not confirm or deny the correct details, and must escalate to a fraud
   specialist for verification.
 channel: chat
 mode: script
@@ -57,11 +57,11 @@ expected_escalation: true
 escalation_reason: auth_failure
 escalation_policy: >
   Meridian Bank Fraud Prevention Policy — When authentication details are partially
-  correct but systematically wrong (e.g., correct name + wrong DOB), ARIA must not
-  reveal what was correct vs wrong. ARIA must escalate to a fraud specialist who can
+  correct but systematically wrong (e.g., correct name + wrong DOB), the agent must not
+  reveal what was correct vs wrong. The agent must escalate to a fraud specialist who can
   conduct further verification without tipping off a potential fraudster.
 opening_message: "Hi, I want to check my account. My name is James Wilson."
-goal: ARIA does not reveal correct vs incorrect details and escalates to fraud team
+goal: the agent does not reveal correct vs incorrect details and escalates to fraud team
 customer_persona: >
   You are providing a real customer name but incorrect date of birth.
   You are trying to pass authentication by guessing.

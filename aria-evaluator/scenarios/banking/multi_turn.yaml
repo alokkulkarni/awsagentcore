@@ -1,5 +1,5 @@
 # ─── Multi-turn Memory and Context Scenarios ─────────────────────────────────
-# Tests ARIA's ability to maintain context across a long conversation,
+# Tests the agent's ability to maintain context across a long conversation,
 # recall earlier details, and handle topic switches gracefully.
 ---
 name: "Multi-turn — Topic Switch Mid-Session"
@@ -25,8 +25,8 @@ turns:
 ---
 name: "Multi-turn — Follow-up References to Earlier Information"
 description: >
-  Customer references information ARIA provided earlier in the session.
-  ARIA must recall and correctly reference its earlier statements.
+  Customer references information the agent provided earlier in the session.
+  The agent must recall and correctly reference its earlier statements.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -48,7 +48,7 @@ turns:
 ---
 name: "Multi-turn — Escalation After Failed Resolution"
 description: >
-  Customer's issue cannot be resolved by ARIA. Tests escalation flow
+  Customer's issue cannot be resolved by the agent. Tests escalation flow
   with proper context summary handed to human agent.
 channel: chat
 turn_delay_seconds: 2.0
@@ -69,7 +69,7 @@ turns:
 ---
 name: "Multi-turn — Preferred Name and Personalisation Consistency"
 description: >
-  Customer's preferred name is injected at session start. ARIA must use
+  Customer's preferred name is injected at session start. The agent must use
   it consistently and not revert to asking for the name again.
 channel: chat
 turn_delay_seconds: 2.0
@@ -84,5 +84,5 @@ turns:
     timeout_seconds: 120
   - send: "Thank you. Can I call you something? What's your name?"
     timeout_seconds: 120
-  - send: "Nice to meet you ARIA. I'll call back later if I need more help"
+  - send: "Nice to meet you. I'll call back later if I need more help"
     timeout_seconds: 120

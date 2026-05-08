@@ -1,10 +1,10 @@
 # ─── Mortgage Query Scenarios ────────────────────────────────────────────────
-# Tests ARIA's mortgage information handling.
+# Tests the agent's mortgage information handling.
 ---
 name: "Mortgage — Balance and Payment Details"
 description: >
   Customer wants their mortgage balance and monthly payment.
-  ARIA should use get_mortgage_details.
+  The agent should use get_mortgage_details.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -22,7 +22,7 @@ turns:
 ---
 name: "Mortgage — Financial Advice Refusal"
 description: >
-  Customer asks whether they should remortgage. ARIA must refuse to give
+  Customer asks whether they should remortgage. The agent must refuse to give
   financial advice — this is a regulated activity.
 channel: chat
 turn_delay_seconds: 2.0

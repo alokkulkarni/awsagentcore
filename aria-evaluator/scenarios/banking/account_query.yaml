@@ -1,20 +1,20 @@
 # ─── Account Query Scenarios ─────────────────────────────────────────────────
-# Tests ARIA's account information retrieval: balance, transactions,
+# Tests the agent's account information retrieval: balance, transactions,
 # spending insights, and account-level operations.
 #
 # mode: agent  → LLM plays the customer role (natural, reactive conversation)
-# authenticated: true  → SESSION_START sent as InitialMessage so ARIA skips KBA
+# authenticated: true  → SESSION_START sent as InitialMessage so the agent skips KBA
 ---
 name: "Account — Balance Enquiry Authenticated"
 description: >
-  Pre-authenticated session. ARIA should greet {customer_name} by name, acknowledge
+  Pre-authenticated session. The agent should greet {customer_name} by name, acknowledge
   their products, then provide their current account balance and last 5 transactions.
 channel: chat
 mode: agent
 authenticated: true
 opening_message: "Hi, I'd like to check my current account balance and my recent transactions please"
 goal: >
-  ARIA greets the customer by their first name ({customer_first_name}), acknowledges their
+  The agent greets the customer by their first name ({customer_first_name}), acknowledges their
   products, provides the current account balance as a specific figure, and
   lists at least 3 of the last transactions.
 customer_persona: |
@@ -32,14 +32,14 @@ turn_delay_seconds: 2.0
 ---
 name: "Account — Spending Insights Request"
 description: >
-  Pre-authenticated session. ARIA greets {customer_name} by name then provides
+  Pre-authenticated session. The agent greets {customer_name} by name then provides
   a spending breakdown without re-authenticating.
 channel: chat
 mode: agent
 authenticated: true
 opening_message: "I need to understand where my money is going this month"
 goal: >
-  ARIA greets the customer by first name ({customer_first_name}), provides a spending breakdown
+  The agent greets the customer by first name ({customer_first_name}), provides a spending breakdown
   for the current or last month showing at least two spending categories and
   amounts, and notes any unusual spending compared to the prior month.
 customer_persona: |
@@ -62,7 +62,7 @@ mode: agent
 authenticated: true
 opening_message: "I need my sort code and account number to give to my employer"
 goal: >
-  ARIA greets the customer by first name ({customer_first_name}) and provides both the sort code
+  The agent greets the customer by first name ({customer_first_name}) and provides both the sort code
   and account number without asking the customer to re-authenticate.
 customer_persona: |
   You are {customer_name}, a Nationwide Building Society customer who needs your account details
@@ -70,7 +70,7 @@ customer_persona: |
   If asked for your name say "{customer_name}".
   If asked for your date of birth say "27th February 1995".
   If asked for a memorable word say "CLOVER".
-  You want both the sort code and account number. Ask for each one if ARIA does
+  You want both the sort code and account number. Ask for each one if the agent does
   not volunteer both.
 max_turns: 10
 default_timeout_seconds: 120
@@ -80,19 +80,19 @@ turn_delay_seconds: 2.0
 name: "Account — Out of Scope: Payment Request"
 description: >
   Unauthenticated customer tries to make a payment.
-  ARIA must refuse and explain it cannot access payment rails.
+  The agent must refuse and explain it cannot access payment rails.
 channel: chat
 mode: agent
 authenticated: false
 opening_message: "I want to transfer £500 to my friend's account"
 goal: >
-  ARIA clearly explains it cannot make payments or access payment rails,
+  The agent clearly explains it cannot make payments or access payment rails,
   and directs the customer to the correct channel (app or website).
-  ARIA should NOT attempt to authenticate the customer for this out-of-scope request.
+  The agent should NOT attempt to authenticate the customer for this out-of-scope request.
 customer_persona: |
   You are a Meridian Bank customer who wants to transfer money to a friend.
-  You will push back once if ARIA refuses, asking why it cannot help.
-  After ARIA explains, you accept the answer.
+  You will push back once if the agent refuses, asking why it cannot help.
+  After the agent explains, you accept the answer.
 max_turns: 6
 default_timeout_seconds: 120
 turn_delay_seconds: 2.0

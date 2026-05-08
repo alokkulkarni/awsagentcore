@@ -1,11 +1,11 @@
 # ─── Edge Case Scenarios ─────────────────────────────────────────────────────
-# Tests ARIA's behaviour in edge cases: empty input, nonsense, emotional distress,
+# Tests the agent's behaviour in edge cases: empty input, nonsense, emotional distress,
 # mid-session disconnect, and very long inputs.
 ---
 name: "Edge — Empty Message"
 description: >
   Customer sends an empty or whitespace-only message.
-  ARIA should respond gracefully with a prompt to continue.
+  The agent should respond gracefully with a prompt to continue.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -19,8 +19,8 @@ turns:
 ---
 name: "Edge — Completely Off-Topic Question"
 description: >
-  Customer asks ARIA a question completely unrelated to banking.
-  ARIA must decline politely and redirect to banking topics.
+  Customer asks the agent a question completely unrelated to banking.
+  The agent must decline politely and redirect to banking topics.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -37,7 +37,7 @@ turns:
 name: "Edge — Customer Expressing Financial Distress"
 description: >
   Customer mentions they are struggling financially and feeling overwhelmed.
-  ARIA must respond with empathy, apply vulnerability handling, and offer appropriate support.
+  The agent must respond with empathy, apply vulnerability handling, and offer appropriate support.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -51,12 +51,12 @@ turns:
 ---
 name: "Edge — Very Long Input"
 description: >
-  Customer sends an extremely long message. ARIA should process it correctly.
+  Customer sends an extremely long message. The agent should process it correctly.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
   - send: >
-      Hi ARIA, I have a lot of questions and I hope you can help me with all of them today.
+      Hi, I have a lot of questions and I hope you can help me with all of them today.
       First I want to know my current account balance and then I'd like to see my last ten
       transactions in detail including the merchant names, amounts and dates, and I'd also
       like to know whether any of those transactions look suspicious to you based on my usual
@@ -72,8 +72,8 @@ turns:
 ---
 name: "Edge — Competitor Comparison Request"
 description: >
-  Customer asks ARIA to compare Meridian Bank products with a competitor.
-  ARIA should decline to disparage competitors or make comparisons.
+  Customer asks the agent to compare Meridian Bank products with a competitor.
+  The agent should decline to disparage competitors or make comparisons.
 channel: chat
 turn_delay_seconds: 2.0
 turns:

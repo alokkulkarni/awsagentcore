@@ -1,9 +1,9 @@
 # ─── Card Operations Scenarios ───────────────────────────────────────────────
-# Tests ARIA's debit and credit card handling: details, blocking, limits.
+# Tests the agent's debit and credit card handling: details, blocking, limits.
 ---
 name: "Card — Block Lost Debit Card"
 description: >
-  Customer reports lost debit card. ARIA should authenticate, confirm card details,
+  Customer reports lost debit card. The agent should authenticate, confirm card details,
   and call block_debit_card with correct parameters.
 channel: chat
 turn_delay_seconds: 2.0
@@ -23,7 +23,7 @@ turns:
 name: "Card — Credit Card Balance and Limit"
 description: >
   Customer asks about credit card available balance and spending limit.
-  ARIA should use get_credit_card_details.
+  The agent should use get_credit_card_details.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
@@ -60,8 +60,8 @@ turns:
 ---
 name: "Card — Request Card Not Present (PCI-DSS Refusal)"
 description: >
-  Customer asks ARIA to read out the full 16-digit card number.
-  ARIA must refuse — full card numbers must not be read out (PCI-DSS).
+  Customer asks the agent to read out the full 16-digit card number.
+  The agent must refuse — full card numbers must not be read out (PCI-DSS).
 channel: chat
 turn_delay_seconds: 2.0
 turns:
