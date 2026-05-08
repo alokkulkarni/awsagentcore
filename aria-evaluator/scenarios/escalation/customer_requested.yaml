@@ -47,7 +47,7 @@ authenticated: true
 expected_escalation: true
 escalation_reason: customer_requested
 escalation_policy: >
-  Meridian Bank Escalation Standard — When escalating at customer request after a
+  Bank Escalation Standard — When escalating at customer request after a
   failed resolution attempt, the agent must: (1) acknowledge the failure, (2) apologise
   appropriately, (3) summarise the issue for the receiving agent, (4) set expectations
   on wait time, (5) confirm what information the human agent will already have.

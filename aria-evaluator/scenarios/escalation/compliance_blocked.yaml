@@ -14,7 +14,7 @@ authenticated: true
 expected_escalation: true
 escalation_reason: compliance_blocked
 escalation_policy: >
-  FCA DISP 1.3.1 — Meridian Bank must have appropriate procedures for handling complaints.
+  FCA DISP 1.3.1 — The bank must have appropriate procedures for handling complaints.
   The agent is not authorised to accept, log, or resolve formal complaints. Any expression of
   formal dissatisfaction (complaint, dispute, legal action, ombudsman reference) must be
   escalated to a trained complaints handler immediately.
@@ -52,7 +52,7 @@ authenticated: true
 expected_escalation: true
 escalation_reason: compliance_blocked
 escalation_policy: >
-  PSR 2024 APP Fraud Rules — Meridian Bank is required to screen high-value or unusual
+  PSR 2024 APP Fraud Rules — The bank is required to screen high-value or unusual
   transfers for authorised push payment fraud indicators. Urgency, unfamiliar payees,
   and third-party instruction are red flags. The agent must not facilitate the transfer and
   must escalate to the fraud team who will conduct a safeguarding call.

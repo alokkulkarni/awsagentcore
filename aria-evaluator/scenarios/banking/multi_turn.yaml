@@ -30,7 +30,7 @@ description: >
 channel: chat
 turn_delay_seconds: 2.0
 turns:
-  - send: "Hi, I need help with my Meridian accounts"
+  - send: "Hi, I need help with my accounts"
     timeout_seconds: 120
   - send: "Natalie Foster, 17th October 1993, memorable word LOTUS"
     timeout_seconds: 120

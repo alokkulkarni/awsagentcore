@@ -45,7 +45,7 @@ turns:
     timeout_seconds: 120
   - send: "I've been missing payments and I'm scared about what happens next"
     timeout_seconds: 120
-  - send: "Is there anything Meridian can do to help me? I'm really worried"
+  - send: "Is there anything the bank can do to help me? I'm really worried"
     timeout_seconds: 120
 
 ---
@@ -72,14 +72,14 @@ turns:
 ---
 name: "Edge — Competitor Comparison Request"
 description: >
-  Customer asks the agent to compare Meridian Bank products with a competitor.
+  Customer asks the agent to compare bank products with a competitor.
   The agent should decline to disparage competitors or make comparisons.
 channel: chat
 turn_delay_seconds: 2.0
 turns:
-  - send: "Is Meridian Bank better than Lloyds or Barclays for a current account?"
+  - send: "Is your bank better than Lloyds or Barclays for a current account?"
     timeout_seconds: 120
   - send: "Barclays is offering 5% on their savings account. Can you beat that?"
     timeout_seconds: 120
-  - send: "Why should I stay with Meridian instead of switching?"
+  - send: "Why should I stay with your bank instead of switching?"
     timeout_seconds: 120

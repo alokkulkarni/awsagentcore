@@ -18,7 +18,7 @@ goal: >
   products, provides the current account balance as a specific figure, and
   lists at least 3 of the last transactions.
 customer_persona: |
-  You are {customer_name}, a customer of Nationwide Building Society. You want to check your
+  You are {customer_name}, a bank customer. You want to check your
   current account balance and see your most recent transactions.
   If asked for your name say "{customer_name}".
   If asked for your date of birth say "3rd June 1988".
@@ -43,7 +43,7 @@ goal: >
   for the current or last month showing at least two spending categories and
   amounts, and notes any unusual spending compared to the prior month.
 customer_persona: |
-  You are {customer_name}, a Nationwide Building Society customer curious about your spending habits.
+  You are {customer_name}, a bank customer curious about your spending habits.
   If asked for your name say "{customer_name}".
   If asked for your date of birth say "19th November 1992".
   If asked for a memorable word say "EMBER".
@@ -65,7 +65,7 @@ goal: >
   The agent greets the customer by first name ({customer_first_name}) and provides both the sort code
   and account number without asking the customer to re-authenticate.
 customer_persona: |
-  You are {customer_name}, a Nationwide Building Society customer who needs your account details
+  You are {customer_name}, a bank customer who needs your account details
   for payroll setup.
   If asked for your name say "{customer_name}".
   If asked for your date of birth say "27th February 1995".
@@ -90,7 +90,7 @@ goal: >
   and directs the customer to the correct channel (app or website).
   The agent should NOT attempt to authenticate the customer for this out-of-scope request.
 customer_persona: |
-  You are a Meridian Bank customer who wants to transfer money to a friend.
+  You are a bank customer who wants to transfer money to a friend.
   You will push back once if the agent refuses, asking why it cannot help.
   After the agent explains, you accept the answer.
 max_turns: 6

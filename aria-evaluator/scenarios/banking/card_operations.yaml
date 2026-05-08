@@ -46,7 +46,7 @@ description: >
 channel: chat
 turn_delay_seconds: 2.0
 turns:
-  - send: "I'm going to Italy next week. Can I use my Meridian debit card abroad?"
+  - send: "I'm going to Italy next week. Can I use my debit card abroad?"
     timeout_seconds: 120
   - send: "Thomas Hughes, 30th January 1983, memorable word VEGA"
     timeout_seconds: 120

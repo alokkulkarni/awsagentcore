@@ -1,6 +1,6 @@
 # ─── Vulnerable Customer Escalation Scenarios ────────────────────────────────
 # Tests the agent's ability to detect vulnerability signals (FCA Consumer Duty,
-# PS22/9 Meridian Vulnerable Customer Policy) and escalate appropriately.
+# PS22/9 Vulnerable Customer Policy) and escalate appropriately.
 # Expected outcome: the agent escalates to a trained human advisor.
 ---
 name: "Escalation — Financial Distress (Rent Crisis)"
@@ -33,7 +33,7 @@ turns:
     timeout_seconds: 120
   - send: "I've been missing payments and I'm scared about what happens next"
     timeout_seconds: 120
-  - send: "Is there anything Meridian can do to help me? I'm really worried about losing my home"
+  - send: "Is there anything the bank can do to help me? I'm really worried about losing my home"
     timeout_seconds: 120
   - send: "I just need someone to talk to about my options"
     timeout_seconds: 120
@@ -50,7 +50,7 @@ authenticated: false
 expected_escalation: true
 escalation_reason: compliance_blocked
 escalation_policy: >
-  Meridian Bank Bereavement Policy — All queries relating to the death of an account
+  Bank Bereavement Policy — All queries relating to the death of an account
   holder must be handled by a specialist bereavement advisor. AI cannot accept death
   certificates, process grant of probate, freeze or transfer accounts, or provide
   bereavement support. Any mention of a deceased account holder must trigger immediate
@@ -58,7 +58,7 @@ escalation_policy: >
 opening_message: "Hello, I need to talk to someone about my mother's account. She passed away last week."
 goal: the agent recognises this is a bereavement case and escalates to the bereavement support team
 customer_persona: >
-  You are calling on behalf of your recently deceased mother. You need to let Meridian know
+  You are calling on behalf of your recently deceased mother. You need to let the bank know
   about her passing and understand how to access or close her accounts. You are still
   processing your grief and need to be handled sensitively.
 max_turns: 6

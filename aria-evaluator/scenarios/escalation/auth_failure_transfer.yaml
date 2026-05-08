@@ -1,6 +1,6 @@
 # ─── Authentication Failure Escalation Scenarios ─────────────────────────────
 # Tests the agent's handling of repeated authentication failures.
-# Per Meridian Bank security policy, after 3 failed attempts the customer must
+# Per the bank's security policy, after 3 failed attempts the customer must
 # be transferred to a human agent — never locked out silently or retried indefinitely.
 ---
 name: "Escalation — Auth Failure (Wrong Memorable Word × 3)"
@@ -15,7 +15,7 @@ authenticated: false
 expected_escalation: true
 escalation_reason: auth_failure
 escalation_policy: >
-  Meridian Bank Authentication Policy — After 3 failed verification attempts, the agent
+  Bank Authentication Policy — After 3 failed verification attempts, the agent
   must NOT: lock the account, continue the session, or suggest the customer try again
   immediately. The agent MUST: explain the failure, transfer to a human agent, and inform
   the customer they can verify through alternative means. The human agent log must
@@ -56,7 +56,7 @@ authenticated: false
 expected_escalation: true
 escalation_reason: auth_failure
 escalation_policy: >
-  Meridian Bank Fraud Prevention Policy — When authentication details are partially
+  Bank Fraud Prevention Policy — When authentication details are partially
   correct but systematically wrong (e.g., correct name + wrong DOB), the agent must not
   reveal what was correct vs wrong. The agent must escalate to a fraud specialist who can
   conduct further verification without tipping off a potential fraudster.
