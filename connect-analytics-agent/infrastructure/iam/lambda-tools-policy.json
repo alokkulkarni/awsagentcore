@@ -1,0 +1,52 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConnectAnalyticsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "connect:GetCurrentMetricData",
+        "connect:GetCurrentUserData",
+        "connect:GetMetricData",
+        "connect:GetMetricDataV2",
+        "connect:SearchContacts",
+        "connect:DescribeContact",
+        "connect:GetContactAttributes",
+        "connect:ListContactAnalysisSegments",
+        "connect:ListRealtimeContactAnalysisSegmentsV2",
+        "connect:DescribeUser",
+        "connect:ListUsers",
+        "connect:ListQueues",
+        "connect:DescribeQueue",
+        "connect:ListRoutingProfiles"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ContactLensAccess",
+      "Effect": "Allow",
+      "Action": [
+        "connect-contact-lens:ListRealtimeContactAnalysisSegments"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RecordingsBucketAccessRestrictInProduction",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

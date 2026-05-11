@@ -1,0 +1,117 @@
+{
+  "tools": [
+    {
+      "name": "get_realtime_metrics",
+      "description": "Get real-time queue and agent metrics from Amazon Connect including agents online, available, on call, and contacts in queue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "queue_ids": {"type": "string", "description": "Comma-separated queue IDs to filter by (optional)"},
+          "routing_profile_ids": {"type": "string", "description": "Comma-separated routing profile IDs to filter by (optional)"}
+        }
+      }
+    },
+    {
+      "name": "get_historical_metrics",
+      "description": "Get historical Amazon Connect performance metrics grouped by agent, queue, or routing profile.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["start_time", "end_time"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "start_time": {"type": "string", "description": "ISO 8601 start time"},
+          "end_time": {"type": "string", "description": "ISO 8601 end time"},
+          "group_by": {"type": "string", "enum": ["AGENT", "QUEUE", "ROUTING_PROFILE"], "description": "Grouping dimension"},
+          "metrics": {"type": "string", "description": "Comma-separated list of supported metrics"}
+        }
+      }
+    },
+    {
+      "name": "get_agent_states",
+      "description": "Get current Amazon Connect agent states, including active queues, contacts, and time spent in state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "agent_status_filter": {"type": "string", "enum": ["AVAILABLE", "BUSY", "ON_CALL", "AFTER_CONTACT_WORK", "NON_PRODUCTIVE", "ERROR", "OFFLINE"], "description": "Optional status filter"},
+          "queue_id": {"type": "string", "description": "Optional queue ID to scope the results"}
+        }
+      }
+    },
+    {
+      "name": "search_contacts",
+      "description": "Search Amazon Connect contact records by time range, queue, agent, and duration filters.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["start_time", "end_time"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "start_time": {"type": "string", "description": "ISO 8601 start time"},
+          "end_time": {"type": "string", "description": "ISO 8601 end time"},
+          "queue_id": {"type": "string", "description": "Optional queue ID filter"},
+          "agent_id": {"type": "string", "description": "Optional agent ID filter"},
+          "contact_status": {"type": "string", "enum": ["CONNECTED", "CONNECTING", "INCOMING", "MISSED", "REJECTED", "ENDED"], "description": "Optional derived contact status filter"},
+          "min_duration_seconds": {"type": "integer", "description": "Optional minimum contact duration"},
+          "max_duration_seconds": {"type": "integer", "description": "Optional maximum contact duration"},
+          "next_token": {"type": "string", "description": "Pagination token"},
+          "max_results": {"type": "integer", "description": "Result size, default 25, max 100"}
+        }
+      }
+    },
+    {
+      "name": "get_contact_detail",
+      "description": "Get merged Amazon Connect contact metadata, attributes, and recording information for a contact.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["contact_id"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "contact_id": {"type": "string", "description": "Amazon Connect contact ID"}
+        }
+      }
+    },
+    {
+      "name": "get_transcript",
+      "description": "Get Amazon Connect Contact Lens transcript, issue, category, or sensitive data segments for a contact.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["contact_id"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "contact_id": {"type": "string", "description": "Amazon Connect contact ID"},
+          "segment_types": {"type": "string", "description": "Comma-separated list from TRANSCRIPT, ISSUES, CATEGORIES, SENSITIVE_DATA"}
+        }
+      }
+    },
+    {
+      "name": "keyword_search",
+      "description": "Search contacts by a keyword in Contact Lens transcripts.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["keyword", "start_time", "end_time"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "keyword": {"type": "string", "description": "Transcript keyword to search for"},
+          "start_time": {"type": "string", "description": "ISO 8601 start time"},
+          "end_time": {"type": "string", "description": "ISO 8601 end time"},
+          "queue_id": {"type": "string", "description": "Optional queue filter"},
+          "max_results": {"type": "integer", "description": "Result size, default 25"}
+        }
+      }
+    },
+    {
+      "name": "get_recording_url",
+      "description": "Generate a pre-signed S3 URL for an Amazon Connect call recording when a recording exists.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["contact_id"],
+        "properties": {
+          "instance_id": {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "contact_id": {"type": "string", "description": "Amazon Connect contact ID"},
+          "expiry_seconds": {"type": "integer", "description": "URL expiry time in seconds, default 3600, max 43200"}
+        }
+      }
+    }
+  ]
+}

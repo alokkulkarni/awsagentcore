@@ -1,0 +1,10 @@
+{
+  "bot_events_queue_url": "https://sqs.eu-west-2.amazonaws.com/395402194296/connect-analytics-bot-contact-events",
+  "bot_events_queue_arn": "arn:aws:sqs:eu-west-2:395402194296:connect-analytics-bot-contact-events",
+  "eventbridge_rule_name": "connect-analytics-bot-contact-events",
+  "local_mock_mode": "false",
+  "local_aws_profile": "default",
+  "local_aws_region": "eu-west-2",
+  "connect_instance_id": "f969d4b4-f716-4974-a325-bb7899f2f293",
+  "connect_alias": "conversationalbot"
+}

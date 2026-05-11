@@ -34,9 +34,31 @@ interface ScenarioOption {
 
 type Provider = 'connect' | 'lex' | 'azure' | 'strands' | 'copilot' | 'custom';
 
-function supportedChannels(provider: Provider): Array<'chat' | 'voice'> {
-  if (provider === 'connect' || provider === 'custom') return ['chat', 'voice'];
-  return ['chat'];
+/** Providers that are chat-only bots and can never handle voice. */
+const CHAT_ONLY_PROVIDERS: ReadonlySet<Provider> = new Set(['lex', 'azure', 'strands', 'copilot']);
+
+function isChatOnlyBot(provider: Provider): boolean {
+  return CHAT_ONLY_PROVIDERS.has(provider);
+}
+
+/**
+ * Returns the channels a provider supports.
+ * - lex / azure / strands / copilot are bot providers — chat only.
+ * - connect always supports both chat and voice.
+ * - custom supports voice only when at least one voice setting is configured.
+ */
+function supportedChannels(provider: Provider, settings: Record<string, string> = {}): Array<'chat' | 'voice'> {
+  if (isChatOnlyBot(provider)) return ['chat'];
+  if (provider === 'custom') {
+    const hasVoiceConfig = !!(
+      settings['CUSTOM_VOICE_PROTOCOL'] ||
+      settings['CUSTOM_VOICE_WS_URL'] ||
+      settings['DEEPGRAM_VOICE_WS_URL']
+    );
+    return hasVoiceConfig ? ['chat', 'voice'] : ['chat'];
+  }
+  // connect
+  return ['chat', 'voice'];
 }
 
 function fileNameFromPath(rawPath: string): string {
@@ -550,6 +572,7 @@ function NewRunModal({
   const [selectedScenarioRefs, setSelectedScenarioRefs] = useState<string[]>([]);
   const [channel, setChannel] = useState<'chat' | 'voice'>('chat');
   const [provider, setProvider] = useState<Provider>('connect');
+  const [providerSettings, setProviderSettings] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -561,6 +584,7 @@ function NewRunModal({
       .then(([scenariosData, settingsData]) => {
         const d = scenariosData as { scenarios: ScenarioSummary[] };
         const settings = settingsData as { settings?: Record<string, string> };
+        const settingsMap = settings.settings ?? {};
         const list: ScenarioOption[] = [];
         for (const s of d.scenarios ?? []) {
           const ref = s.filePath ?? '';
@@ -578,7 +602,8 @@ function NewRunModal({
           ? a.name.localeCompare(b.name)
           : a.filePath.localeCompare(b.filePath));
         setOptions(list);
-        const defaultProvider = (settings.settings?.['EVAL_PROVIDER_DEFAULT'] ?? 'connect').toLowerCase();
+        setProviderSettings(settingsMap);
+        const defaultProvider = (settingsMap['EVAL_PROVIDER_DEFAULT'] ?? 'connect').toLowerCase();
         if (defaultProvider === 'connect' || defaultProvider === 'lex' || defaultProvider === 'azure' || defaultProvider === 'strands' || defaultProvider === 'copilot' || defaultProvider === 'custom') {
           setProvider(defaultProvider);
         }
@@ -587,10 +612,10 @@ function NewRunModal({
   }, []);
 
   useEffect(() => {
-    if (!supportedChannels(provider).includes(channel)) {
+    if (!supportedChannels(provider, providerSettings).includes(channel)) {
       setChannel('chat');
     }
-  }, [provider, channel]);
+  }, [provider, channel, providerSettings]);
 
   const filtered = options.filter((o) =>
     (o.channel === channel || (channel === 'voice' && o.channel === 'chat'))
@@ -683,19 +708,28 @@ function NewRunModal({
 
         <div className="px-6 py-4 border-t border-slate-100 space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className="text-xs text-slate-500 font-medium">Provider:</span>
               {(['connect', 'lex', 'azure', 'strands', 'copilot', 'custom'] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => setProvider(p)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  title={isChatOnlyBot(p) ? 'Chat only — this bot provider does not support voice' : undefined}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors flex items-center gap-1 ${
                     provider === p
                       ? 'bg-[#0D2A66] text-white border-[#0D2A66]'
                       : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
                   {p}
+                  {isChatOnlyBot(p) && (
+                    <span
+                      className={`text-[10px] leading-none ${provider === p ? 'text-blue-200' : 'text-slate-400'}`}
+                      aria-label="chat only"
+                    >
+                      💬
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -703,7 +737,7 @@ function NewRunModal({
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500 font-medium">Channel:</span>
-              {(supportedChannels(provider)).map((c) => (
+              {(supportedChannels(provider, providerSettings)).map((c) => (
                 <button
                   key={c}
                   onClick={() => setChannel(c)}
@@ -716,6 +750,16 @@ function NewRunModal({
                   {c === 'chat' ? '💬 Chat' : '🎤 Voice'}
                 </button>
               ))}
+              {isChatOnlyBot(provider) && (
+                <span className="text-xs text-slate-400 italic">
+                  Voice is not available for bot providers (lex, azure, strands, copilot)
+                </span>
+              )}
+              {provider === 'custom' && !supportedChannels('custom', providerSettings).includes('voice') && (
+                <span className="text-xs text-slate-400 italic">
+                  Configure a voice protocol in Settings to enable voice
+                </span>
+              )}
             </div>
             <span className="text-xs text-slate-500">{selectedScenarioRefs.length} scenario(s) selected</span>
           </div>

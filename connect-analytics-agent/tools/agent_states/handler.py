@@ -6,6 +6,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_parameters
+from shared.scan_resources import get_queue_id_map
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -62,10 +63,27 @@ def lambda_handler(event, _context):
         if queue_id:
             filters["Queues"] = [queue_id]
 
-        paginator = connect_client.get_paginator("get_current_user_data")
+        queue_name_map = get_queue_id_map(instance_id, connect_client)
+
+        # GetCurrentUserData requires at least one filter (Queue, RoutingProfile, Agent, or UserHierarchyGroup)
+        if queue_id:
+            filters = {"Queues": [queue_id]}
+        elif queue_name_map:
+            # Use all discovered standard queues as the filter
+            filters = {"Queues": list(queue_name_map.keys())}
+        else:
+            filters = {}
+
+        if not filters:
+            return build_response(event, {"instance_id": instance_id, "agent_count": 0, "agents": [],
+                                          "message": "No queues found — cannot query user data without a filter."})
+
+        # get_current_user_data does not support paginators — use NextToken manually
         results: List[Dict[str, Any]] = []
-        for page in paginator.paginate(InstanceId=instance_id, Filters=filters or {}, MaxResults=100):
-            for user_data in page.get("UserDataList", []):
+        kwargs: Dict[str, Any] = {"InstanceId": instance_id, "Filters": filters, "MaxResults": 100}
+        while True:
+            response = connect_client.get_current_user_data(**kwargs)
+            for user_data in response.get("UserDataList", []):
                 derived_status = _derive_status(user_data)
                 if not _matches_filter(derived_status, status_filter):
                     continue
@@ -95,6 +113,7 @@ def lambda_handler(event, _context):
                         "current_status": derived_status,
                         "raw_status_name": (user_data.get("Status", {}) or {}).get("StatusName"),
                         "current_queue": current_queue,
+                        "current_queue_name": queue_name_map.get(current_queue, current_queue) if current_queue else None,
                         "contact_id": contact_id,
                         "time_in_status_seconds": time_in_status_seconds,
                         "time_in_status": format_duration(time_in_status_seconds),
@@ -103,6 +122,10 @@ def lambda_handler(event, _context):
                         "active_slots_by_channel": user_data.get("ActiveSlotsByChannel", {}),
                     }
                 )
+            next_token = response.get("NextToken")
+            if not next_token:
+                break
+            kwargs["NextToken"] = next_token
 
         return build_response(
             event,

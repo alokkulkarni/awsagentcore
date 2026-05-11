@@ -148,7 +148,7 @@ export class LLMJudge {
   private readonly client: BedrockRuntimeClient;
 
   constructor(
-    private readonly modelId: string = process.env['JUDGE_MODEL_ID'] ?? 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    private readonly modelId: string = process.env['JUDGE_MODEL_ID'] ?? 'eu.anthropic.claude-sonnet-4-6',
     region: string = process.env['BEDROCK_REGION'] ?? 'eu-west-2',
   ) {
     this.client = new BedrockRuntimeClient({ region });

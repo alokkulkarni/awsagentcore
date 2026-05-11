@@ -1,0 +1,979 @@
+{
+  "scan_id": "71bbea19-6059-4312-99d5-631368af84c8",
+  "scanned_at": "2026-05-09T11:52:21.151224+00:00",
+  "instance_id": "f969d4b4-f716-4974-a325-bb7899f2f293",
+  "region": "eu-west-2",
+  "connect": {
+    "instance": {
+      "id": "f969d4b4-f716-4974-a325-bb7899f2f293",
+      "alias": "conversationalbot",
+      "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293",
+      "status": "ACTIVE",
+      "created": "2026-04-06 17:44:21+00:00"
+    },
+    "queues": [
+      {
+        "id": "42646d26-77fb-49f7-a525-a40856c97539",
+        "name": "Fraud Security Queue",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/42646d26-77fb-49f7-a525-a40856c97539",
+        "type": "STANDARD"
+      },
+      {
+        "id": "846c08b2-574a-415f-84d3-11d46a5f8a16",
+        "name": "Current Account and savings account Queue",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/846c08b2-574a-415f-84d3-11d46a5f8a16",
+        "type": "STANDARD"
+      },
+      {
+        "id": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",
+        "name": "Mortgage Advisors",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/a87c313c-53dc-4272-8a20-03b7f2cce4a7",
+        "type": "STANDARD"
+      },
+      {
+        "id": "ac5724b6-3602-4045-bb60-1fa81a6fa22c",
+        "name": "Complaints queue",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/ac5724b6-3602-4045-bb60-1fa81a6fa22c",
+        "type": "STANDARD"
+      },
+      {
+        "id": "ae9b5b06-06e6-487c-945e-e67dc1462ea9",
+        "name": "BasicQueue",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/ae9b5b06-06e6-487c-945e-e67dc1462ea9",
+        "type": "STANDARD"
+      },
+      {
+        "id": "af5530ee-0836-4ecd-b50b-3798390df612",
+        "name": "",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/agent/af5530ee-0836-4ecd-b50b-3798390df612",
+        "type": "AGENT"
+      },
+      {
+        "id": "d3037cfb-f265-47ff-a28e-f96bf6ab1279",
+        "name": "Credit Cards",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/queue/d3037cfb-f265-47ff-a28e-f96bf6ab1279",
+        "type": "STANDARD"
+      }
+    ],
+    "agents": [
+      {
+        "id": "af5530ee-0836-4ecd-b50b-3798390df612",
+        "username": "alokkulkarni",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/agent/af5530ee-0836-4ecd-b50b-3798390df612"
+      }
+    ],
+    "routing_profiles": [
+      {
+        "id": "6f8927ee-aef3-439a-a88f-0b29ba0b398a",
+        "name": "Admin-All-Routes",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/routing-profile/6f8927ee-aef3-439a-a88f-0b29ba0b398a"
+      },
+      {
+        "id": "7bc5b620-b3d2-4a43-a81c-0ee593edddbf",
+        "name": "Basic Routing Profile",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/routing-profile/7bc5b620-b3d2-4a43-a81c-0ee593edddbf"
+      }
+    ],
+    "contact_flows": [
+      {
+        "id": "65bdca8c-2a13-418a-8d80-cf8860e30a16",
+        "name": "Default agent hold",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/65bdca8c-2a13-418a-8d80-cf8860e30a16",
+        "type": "AGENT_HOLD"
+      },
+      {
+        "id": "32138105-889f-4404-8d7b-c5c31a336758",
+        "name": "Default agent transfer",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/32138105-889f-4404-8d7b-c5c31a336758",
+        "type": "AGENT_TRANSFER"
+      },
+      {
+        "id": "c3ab8a73-954d-4f90-b4d7-296b200247f8",
+        "name": "Default agent whisper",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/c3ab8a73-954d-4f90-b4d7-296b200247f8",
+        "type": "AGENT_WHISPER"
+      },
+      {
+        "id": "4e98ff0c-c9a7-419c-b114-37383bc0cf17",
+        "name": "ARIA-DTMF-SecureCollection",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/4e98ff0c-c9a7-419c-b114-37383bc0cf17",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "4b85d55a-3d5d-4ff8-88b1-33034272e86d",
+        "name": "ARIA-Agent-Screen-Pop-Flow",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/4b85d55a-3d5d-4ff8-88b1-33034272e86d",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "f5857a6b-0bce-4d1e-8148-9c99b544e48f",
+        "name": "Sample queue configurations flow",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/f5857a6b-0bce-4d1e-8148-9c99b544e48f",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f",
+        "name": "conversation bot flow",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "d0e0cb1f-e215-43ca-a65c-e5bf1493cacc",
+        "name": "Sample note for screenpop",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/d0e0cb1f-e215-43ca-a65c-e5bf1493cacc",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "e274911b-5fc3-4471-ae65-c42d08556829",
+        "name": "Sample inbound flow (first contact experience)",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/e274911b-5fc3-4471-ae65-c42d08556829",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "62b97686-4690-4b78-ad99-165476c7eaab",
+        "name": "Sample after contact work flow",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/62b97686-4690-4b78-ad99-165476c7eaab",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "b15a3e40-9daa-4e16-9333-d72fe6fa5b50",
+        "name": "capture meeting id",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/b15a3e40-9daa-4e16-9333-d72fe6fa5b50",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "4ec6560c-5833-4d6f-b061-9bb542ba8020",
+        "name": "Sample recording behavior",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/4ec6560c-5833-4d6f-b061-9bb542ba8020",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "63ca12aa-541f-4894-896f-31f9b180393e",
+        "name": "Sample disconnect flow",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/63ca12aa-541f-4894-896f-31f9b180393e",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "20c9d002-e851-4b16-8b0b-652353c08d2e",
+        "name": "Sample AB test",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/20c9d002-e851-4b16-8b0b-652353c08d2e",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "f90cdaa2-2415-40ff-b050-98a293ce8285",
+        "name": "Sample secure input with no agent",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/f90cdaa2-2415-40ff-b050-98a293ce8285",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "d80415d2-fe88-4d85-9d8d-5a9f8c5d7db8",
+        "name": "Sample Lambda integration",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/d80415d2-fe88-4d85-9d8d-5a9f8c5d7db8",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "bb33f12c-e814-4272-ad81-a857b83ba80b",
+        "name": "Sample queue customer",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/bb33f12c-e814-4272-ad81-a857b83ba80b",
+        "type": "CONTACT_FLOW"
+      },
+      {
+        "id": "37e140c2-4b24-402e-9a2f-5c5d5434a954",
+        "name": "Default customer hold",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/37e140c2-4b24-402e-9a2f-5c5d5434a954",
+        "type": "CUSTOMER_HOLD"
+      },
+      {
+        "id": "a5c797e8-7858-4f5d-b312-72ef93197f43",
+        "name": "Sample interruptible queue flow with callback",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/a5c797e8-7858-4f5d-b312-72ef93197f43",
+        "type": "CUSTOMER_QUEUE"
+      },
+      {
+        "id": "c14ea78b-b5ff-4e8e-99e3-d07804ea1781",
+        "name": "Default customer queue",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/c14ea78b-b5ff-4e8e-99e3-d07804ea1781",
+        "type": "CUSTOMER_QUEUE"
+      },
+      {
+        "id": "32ff55f6-1bb1-4792-91bd-7e14eda47d27",
+        "name": "Default customer whisper",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/32ff55f6-1bb1-4792-91bd-7e14eda47d27",
+        "type": "CUSTOMER_WHISPER"
+      },
+      {
+        "id": "66a5e717-bf8c-4417-b380-ef58889c9f64",
+        "name": "Default outbound",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/66a5e717-bf8c-4417-b380-ef58889c9f64",
+        "type": "OUTBOUND_WHISPER"
+      },
+      {
+        "id": "1604e67c-8e75-4df7-89e0-3447c409c041",
+        "name": "ARIA-DTMF-HumanAgentWrapper",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/1604e67c-8e75-4df7-89e0-3447c409c041",
+        "type": "QUEUE_TRANSFER"
+      },
+      {
+        "id": "5aa212e9-e846-4075-bd07-99680c5a50b3",
+        "name": "Sample secure input with agent",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/5aa212e9-e846-4075-bd07-99680c5a50b3",
+        "type": "QUEUE_TRANSFER"
+      },
+      {
+        "id": "be1eb967-5aae-4ff2-84c1-d1626b75412b",
+        "name": "Default queue transfer",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/be1eb967-5aae-4ff2-84c1-d1626b75412b",
+        "type": "QUEUE_TRANSFER"
+      }
+    ],
+    "phone_numbers": [
+      {
+        "id": "e84ff0fb-c571-423f-b077-8f4d36c91a71",
+        "number": "+442046394728",
+        "type": "DID",
+        "country": "GB"
+      }
+    ],
+    "hours_of_operation": [
+      {
+        "id": "e86d392d-42b3-472d-801f-37f343a766a1",
+        "name": "Basic Hours",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/operating-hours/e86d392d-42b3-472d-801f-37f343a766a1"
+      }
+    ],
+    "security_profiles": [
+      {
+        "id": "9f8d0aa5-b3fa-4a7b-ac45-7692e2d88732",
+        "name": "CallCenterManager",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/security-profile/9f8d0aa5-b3fa-4a7b-ac45-7692e2d88732"
+      },
+      {
+        "id": "125e7192-4e64-46bd-971a-b19409ba03f7",
+        "name": "QualityAnalyst",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/security-profile/125e7192-4e64-46bd-971a-b19409ba03f7"
+      },
+      {
+        "id": "d7ddaa88-1e98-4a08-ba71-55aa8c4bd6e5",
+        "name": "Agent",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/security-profile/d7ddaa88-1e98-4a08-ba71-55aa8c4bd6e5"
+      },
+      {
+        "id": "91a41717-5cbe-4786-9431-7157e3f2c9cc",
+        "name": "Admin",
+        "arn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/security-profile/91a41717-5cbe-4786-9431-7157e3f2c9cc"
+      }
+    ],
+    "storage_configs": {},
+    "totals": {
+      "queues": 7,
+      "agents": 1,
+      "routing_profiles": 2,
+      "contact_flows": 25,
+      "phone_numbers": 1,
+      "storage_configs": 0
+    }
+  },
+  "bots": {
+    "lex_v2": [],
+    "lex_v1": [],
+    "q_assistants": [
+      {
+        "id": "5ff13e49-7987-4c4b-bcdc-83d01362fe50",
+        "name": "myconversationalaidomain",
+        "type": "AGENT",
+        "status": "ACTIVE"
+      },
+      {
+        "id": "9b416072-0bca-4117-aa38-7a734a58f749",
+        "name": "meridian-aria-domain",
+        "type": "AGENT",
+        "status": "ACTIVE"
+      },
+      {
+        "id": "f5059639-b4ec-4f83-af1e-24e90a2fbe65",
+        "name": "aria-meridian-bank-domain",
+        "type": "AGENT",
+        "status": "ACTIVE"
+      },
+      {
+        "id": "e6991ed4-e11c-4194-8d20-13889a36bd15",
+        "name": "conversational-ai-domain",
+        "type": "AGENT",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "lambda": {
+    "all_functions": [
+      {
+        "name": "aria-dtmf-validate",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-validate",
+        "runtime": "python3.12",
+        "description": "Amazon Connect DTMF card validation \u2014 Meridian Bank",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-mortgage-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-mortgage-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 mortgage domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-voice-to-chat-transfer-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-voice-to-chat-transfer-prod",
+        "runtime": "python3.12",
+        "description": "ARIA voice\u2192chat transfer \u2014 creates chat contact and sends SMS deep-link",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-banking-mcp-escalation-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-escalation-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 escalation domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-auth-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-auth-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 auth domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-customer-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-customer-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 customer domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-routing-lookup",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-routing-lookup",
+        "runtime": "python3.12",
+        "description": "",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-dtmf-status-proxy",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-status-proxy",
+        "runtime": "python3.12",
+        "description": "DTMF status proxy \u2014 reads contact attributes for CCP panel",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-debit-card-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-debit-card-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 debit-card domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-dtmf-start-session",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-start-session",
+        "runtime": "python3.12",
+        "description": "DTMF session start \u2014 writes DynamoDB ACTIVE record + sets dtmf_status",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-credit-card-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-credit-card-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 credit-card domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-chat-to-voice-transfer-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-chat-to-voice-transfer-prod",
+        "runtime": "python3.12",
+        "description": "ARIA chat\u2192voice transfer \u2014 retrieves chat transcript and initiates outbound call",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-dtmf-decrypt",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-decrypt",
+        "runtime": "python3.12",
+        "description": "Amazon Connect DTMF RSA decryption \u2014 Meridian Bank",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-knowledge-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-knowledge-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 knowledge domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-session-injector-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-session-injector-prod",
+        "runtime": "python3.12",
+        "description": "ARIA session injector \u2014 injects customer context into Q Connect sessions",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-products-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-products-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 products domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-pii-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-pii-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 pii domain tools",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-session-injector-qconnect",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-session-injector-qconnect",
+        "runtime": "python3.12",
+        "description": "",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-meeting-id-capture",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-meeting-id-capture",
+        "runtime": "python3.12",
+        "description": "ARIA Connect meeting ID capture (6-digit) from customer input",
+        "is_connect_related": false
+      },
+      {
+        "name": "aria-banking-mcp-account-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-mcp-account-prod",
+        "runtime": "python3.12",
+        "description": "ARIA MCP Gateway \u2014 account domain tools",
+        "is_connect_related": false
+      }
+    ],
+    "connect_associations": [
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-decrypt",
+        "name": "aria-dtmf-decrypt"
+      },
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-start-session",
+        "name": "aria-dtmf-start-session"
+      },
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-dtmf-validate",
+        "name": "aria-dtmf-validate"
+      },
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-meeting-id-capture",
+        "name": "aria-meeting-id-capture"
+      },
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-routing-lookup",
+        "name": "aria-routing-lookup"
+      },
+      {
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-session-injector-qconnect",
+        "name": "aria-session-injector-qconnect"
+      }
+    ],
+    "connect_related": [
+      {
+        "name": "aria-banking-voice-to-chat-transfer-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-voice-to-chat-transfer-prod",
+        "runtime": "python3.12",
+        "description": "ARIA voice\u2192chat transfer \u2014 creates chat contact and sends SMS deep-link",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-routing-lookup",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-routing-lookup",
+        "runtime": "python3.12",
+        "description": "",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-banking-chat-to-voice-transfer-prod",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-chat-to-voice-transfer-prod",
+        "runtime": "python3.12",
+        "description": "ARIA chat\u2192voice transfer \u2014 retrieves chat transcript and initiates outbound call",
+        "is_connect_related": true
+      },
+      {
+        "name": "aria-session-injector-qconnect",
+        "arn": "arn:aws:lambda:eu-west-2:395402194296:function:aria-session-injector-qconnect",
+        "runtime": "python3.12",
+        "description": "",
+        "is_connect_related": true
+      }
+    ]
+  },
+  "s3": {
+    "connect_buckets": {
+      "DISCOVERED_0": "amazon-connect-422eef658337",
+      "DISCOVERED_1": "amazon-connect-422eef658337-access-logs",
+      "DISCOVERED_2": "amazon-connect-52122dae5fa7",
+      "DISCOVERED_3": "amazon-connect-52122dae5fa7-access-logs",
+      "DISCOVERED_4": "amazon-connect-595787fd7288",
+      "DISCOVERED_5": "amazon-connect-7bf0af033869",
+      "DISCOVERED_6": "amazon-connect-7bf0af033869-access-logs",
+      "DISCOVERED_7": "amazon-connect-85a3dda1cf69",
+      "DISCOVERED_8": "amazon-connect-85a3dda1cf69-access-logs",
+      "DISCOVERED_9": "amazon-connect-b4af8013dc54",
+      "DISCOVERED_10": "amazon-connect-b4af8013dc54-access-logs",
+      "DISCOVERED_11": "amazon-connect-ba8466a9b72e",
+      "DISCOVERED_12": "amazon-connect-ba8466a9b72e-access-logs",
+      "DISCOVERED_13": "amazon-connect-e02b3df72d77",
+      "DISCOVERED_14": "amazon-connect-e02b3df72d77-access-logs",
+      "DISCOVERED_15": "amazon-connect-fa0057205929",
+      "DISCOVERED_16": "amazon-connect-fa0057205929-access-logs",
+      "DISCOVERED_17": "amazon-connect-ffcf6689a5af",
+      "DISCOVERED_18": "amazon-connect-ffcf6689a5af-access-logs",
+      "DISCOVERED_19": "meridian-connect-widget-prod",
+      "DISCOVERED_20": "nationwide-connect-widget-prod"
+    },
+    "recording_bucket": "",
+    "transcript_bucket": "",
+    "ctr_bucket": "",
+    "all_connect_buckets": [
+      {
+        "name": "amazon-connect-422eef658337",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-422eef658337-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-52122dae5fa7",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-52122dae5fa7-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-595787fd7288",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-7bf0af033869",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-7bf0af033869-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-85a3dda1cf69",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-85a3dda1cf69-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-b4af8013dc54",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-b4af8013dc54-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-ba8466a9b72e",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-ba8466a9b72e-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-e02b3df72d77",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-e02b3df72d77-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-fa0057205929",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-fa0057205929-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-ffcf6689a5af",
+        "is_connect": true
+      },
+      {
+        "name": "amazon-connect-ffcf6689a5af-access-logs",
+        "is_connect": true
+      },
+      {
+        "name": "meridian-connect-widget-prod",
+        "is_connect": true
+      },
+      {
+        "name": "nationwide-connect-widget-prod",
+        "is_connect": true
+      }
+    ]
+  },
+  "kinesis": {
+    "ctr_stream": "",
+    "agent_events_stream": "",
+    "all_streams": [],
+    "firehose_streams": []
+  },
+  "athena": {
+    "workgroups": [],
+    "databases": []
+  },
+  "glue": {
+    "databases": []
+  },
+  "cloudwatch": {
+    "log_groups": [
+      {
+        "name": "/aws/connect/conversationalbot",
+        "size_bytes": 2070980
+      },
+      {
+        "name": "/aws/lambda/aria-session-injector-qconnect",
+        "size_bytes": 645253
+      }
+    ]
+  },
+  "bedrock": {
+    "available_models": [
+      {
+        "id": "google.gemma-3-4b-it",
+        "name": "Gemma 3 4B IT",
+        "provider": "Google"
+      },
+      {
+        "id": "nvidia.nemotron-nano-12b-v2",
+        "name": "NVIDIA Nemotron Nano 12B v2 VL BF16",
+        "provider": "NVIDIA"
+      },
+      {
+        "id": "qwen.qwen3-coder-next",
+        "name": "Qwen3 Coder Next",
+        "provider": "Qwen"
+      },
+      {
+        "id": "qwen.qwen3-235b-a22b-2507-v1:0",
+        "name": "Qwen3 235B A22B 2507",
+        "provider": "Qwen"
+      },
+      {
+        "id": "openai.gpt-oss-safeguard-120b",
+        "name": "GPT OSS Safeguard 120B",
+        "provider": "OpenAI"
+      },
+      {
+        "id": "google.gemma-3-27b-it",
+        "name": "Gemma 3 27B PT",
+        "provider": "Google"
+      },
+      {
+        "id": "moonshotai.kimi-k2.5",
+        "name": "Kimi K2.5",
+        "provider": "Moonshot AI"
+      },
+      {
+        "id": "openai.gpt-oss-120b-1:0",
+        "name": "gpt-oss-120b",
+        "provider": "OpenAI"
+      },
+      {
+        "id": "qwen.qwen3-vl-235b-a22b",
+        "name": "Qwen3 VL 235B A22B",
+        "provider": "Qwen"
+      },
+      {
+        "id": "qwen.qwen3-next-80b-a3b",
+        "name": "Qwen3 Next 80B A3B",
+        "provider": "Qwen"
+      },
+      {
+        "id": "deepseek.v3.2",
+        "name": "DeepSeek V3.2",
+        "provider": "DeepSeek"
+      },
+      {
+        "id": "zai.glm-4.7",
+        "name": "GLM 4.7",
+        "provider": "Z.AI"
+      },
+      {
+        "id": "nvidia.nemotron-nano-3-30b",
+        "name": "Nemotron Nano 3 30B",
+        "provider": "NVIDIA"
+      },
+      {
+        "id": "anthropic.claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "minimax.minimax-m2",
+        "name": "MiniMax M2",
+        "provider": "MiniMax"
+      },
+      {
+        "id": "zai.glm-4.7-flash",
+        "name": "GLM 4.7 Flash",
+        "provider": "Z.AI"
+      },
+      {
+        "id": "mistral.voxtral-mini-3b-2507",
+        "name": "Voxtral Mini 3B 2507",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "amazon.nova-pro-v1:0",
+        "name": "Nova Pro",
+        "provider": "Amazon"
+      },
+      {
+        "id": "qwen.qwen3-coder-480b-a35b-v1:0",
+        "name": "Qwen3 Coder 480B A35B Instruct",
+        "provider": "Qwen"
+      },
+      {
+        "id": "minimax.minimax-m2.5",
+        "name": "MiniMax M2.5",
+        "provider": "MiniMax"
+      },
+      {
+        "id": "google.gemma-3-12b-it",
+        "name": "Gemma 3 12B IT",
+        "provider": "Google"
+      },
+      {
+        "id": "mistral.magistral-small-2509",
+        "name": "Magistral Small 2509",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "mistral.devstral-2-123b",
+        "name": "Devstral 2 123B",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "minimax.minimax-m2.1",
+        "name": "MiniMax M2.1",
+        "provider": "MiniMax"
+      },
+      {
+        "id": "deepseek.v3-v1:0",
+        "name": "DeepSeek-V3.1",
+        "provider": "DeepSeek"
+      },
+      {
+        "id": "mistral.ministral-3-3b-instruct",
+        "name": "Ministral 3B",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "qwen.qwen3-coder-30b-a3b-v1:0",
+        "name": "Qwen3-Coder-30B-A3B-Instruct",
+        "provider": "Qwen"
+      },
+      {
+        "id": "nvidia.nemotron-super-3-120b",
+        "name": "NVIDIA Nemotron 3 Super 120B A12B",
+        "provider": "NVIDIA"
+      },
+      {
+        "id": "qwen.qwen3-32b-v1:0",
+        "name": "Qwen3 32B (dense)",
+        "provider": "Qwen"
+      },
+      {
+        "id": "mistral.ministral-3-14b-instruct",
+        "name": "Ministral 14B 3.0",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "anthropic.claude-opus-4-6-v1",
+        "name": "Claude Opus 4.6",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "nvidia.nemotron-nano-9b-v2",
+        "name": "NVIDIA Nemotron Nano 9B v2",
+        "provider": "NVIDIA"
+      },
+      {
+        "id": "mistral.ministral-3-8b-instruct",
+        "name": "Ministral 3 8B",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "mistral.voxtral-small-24b-2507",
+        "name": "Voxtral Small 24B 2507",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "zai.glm-5",
+        "name": "GLM 5",
+        "provider": "Z.AI"
+      },
+      {
+        "id": "openai.gpt-oss-safeguard-20b",
+        "name": "GPT OSS Safeguard 20B",
+        "provider": "OpenAI"
+      },
+      {
+        "id": "openai.gpt-oss-20b-1:0",
+        "name": "gpt-oss-20b",
+        "provider": "OpenAI"
+      },
+      {
+        "id": "amazon.titan-embed-image-v1",
+        "name": "Titan Multimodal Embeddings G1",
+        "provider": "Amazon"
+      },
+      {
+        "id": "amazon.nova-lite-v1:0",
+        "name": "Nova Lite",
+        "provider": "Amazon"
+      },
+      {
+        "id": "amazon.nova-micro-v1:0",
+        "name": "Nova Micro",
+        "provider": "Amazon"
+      },
+      {
+        "id": "amazon.titan-embed-text-v2:0",
+        "name": "Titan Embeddings G2 - Text",
+        "provider": "Amazon"
+      },
+      {
+        "id": "anthropic.claude-3-sonnet-20240229-v1:0",
+        "name": "Claude 3 Sonnet",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "anthropic.claude-3-haiku-20240307-v1:0",
+        "name": "Claude 3 Haiku",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "name": "Claude 3.7 Sonnet",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "cohere.embed-english-v3",
+        "name": "Embed English",
+        "provider": "Cohere"
+      },
+      {
+        "id": "cohere.embed-multilingual-v3",
+        "name": "Embed Multilingual",
+        "provider": "Cohere"
+      },
+      {
+        "id": "meta.llama3-8b-instruct-v1:0",
+        "name": "Llama 3 8B Instruct",
+        "provider": "Meta"
+      },
+      {
+        "id": "meta.llama3-70b-instruct-v1:0",
+        "name": "Llama 3 70B Instruct",
+        "provider": "Meta"
+      },
+      {
+        "id": "mistral.mistral-7b-instruct-v0:2",
+        "name": "Mistral 7B Instruct",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "mistral.mixtral-8x7b-instruct-v0:1",
+        "name": "Mixtral 8x7B Instruct",
+        "provider": "Mistral AI"
+      },
+      {
+        "id": "mistral.mistral-large-2402-v1:0",
+        "name": "Mistral Large (24.02)",
+        "provider": "Mistral AI"
+      }
+    ],
+    "knowledge_bases": [
+      {
+        "id": "R3KJKCOJZF",
+        "name": "knowledge-base-quick-start-yuylb",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "q_in_connect": {
+    "assistants": [],
+    "knowledge_bases": [
+      {
+        "id": "d5c37bc9-629a-402f-a128-f5d8fcff7007",
+        "name": "amazon-connect-genai-ak"
+      },
+      {
+        "id": "51460daa-9784-4fb1-830a-63201dee243e",
+        "name": "amazon-connect-vmconnect"
+      },
+      {
+        "id": "71f289b6-6bdf-4f28-a1ed-f2f9bb84b149",
+        "name": "amazon-connect-bonzyconnect"
+      },
+      {
+        "id": "718b6d10-9116-47db-a31f-a56d85c01e66",
+        "name": "amazon-connect-genaitestinstance"
+      },
+      {
+        "id": "267ac58e-81a5-4d49-b8a7-648d39347367",
+        "name": "amazon-connect-bedrockaiinstance"
+      },
+      {
+        "id": "23f88752-f602-4957-9ba9-9fb7bfca6b98",
+        "name": "amazon-connect-virtual-test-user"
+      },
+      {
+        "id": "9e67dd44-0b27-424f-9e09-38ab6d5272d0",
+        "name": "amazon-connect-voicetestinstance"
+      },
+      {
+        "id": "bce085eb-129d-45de-8f12-a818e022dea7",
+        "name": "amazon-connect-voicetesting"
+      },
+      {
+        "id": "2765c803-f088-4729-8398-c1058fe664a6",
+        "name": "amazon-connect-testcaseinstance"
+      },
+      {
+        "id": "2ee1921a-a7e6-47f9-8121-f64fc1ed255c",
+        "name": "amazon-connect-conversationnovas2s"
+      }
+    ]
+  },
+  "account": {
+    "id": "395402194296",
+    "arn": "arn:aws:iam::395402194296:root",
+    "user_id": "395402194296"
+  },
+  "duration_sec": 4.4,
+  "totals": {
+    "instance": 1,
+    "queues": 7,
+    "agents": 1,
+    "routing_profiles": 2,
+    "flows": 25,
+    "phone_numbers": 1,
+    "q_assistants": 4,
+    "lambda_associations": 6,
+    "lambda_functions": 4,
+    "s3_buckets": 21,
+    "log_groups": 1,
+    "bedrock_models": 51,
+    "knowledge_bases": 1,
+    "qconn_knowledge_bases": 10,
+    "account": 1
+  }
+}

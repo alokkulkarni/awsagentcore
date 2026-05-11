@@ -123,8 +123,8 @@ The sample IAM policy uses `Resource: "*"` for Connect and S3 simplicity, but co
 
 Local development uses Docker Compose with two services:
 
-- `agent`: FastAPI app on port 8000
-- `frontend`: Vite dev server on port 5173
+- `agent`: FastAPI app on port 8100
+- `frontend`: Vite dev server on port 5274
 
 Default local behavior sets `MOCK_MODE=true`, which returns realistic canned responses and avoids AWS calls. Developers can switch to live local mode by setting `MOCK_MODE=false`, `CONNECT_INSTANCE_ID`, and AWS credentials in the shell or `.env`.
 

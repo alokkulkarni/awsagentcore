@@ -29,7 +29,7 @@ export class AgentDriver {
     this.modelId =
       config.modelId ??
       process.env['JUDGE_MODEL_ID'] ??
-      'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
+      'eu.anthropic.claude-sonnet-4-6';
     this.client = new BedrockRuntimeClient({
       region: config.region ?? process.env['BEDROCK_REGION'] ?? 'eu-west-2',
     });

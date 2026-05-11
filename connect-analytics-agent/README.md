@@ -32,7 +32,7 @@ cd connect-analytics-agent
 ./deploy.sh local
 ```
 
-Then open `http://localhost:5173`.
+Then open `http://localhost:5274`.
 
 Local mode defaults to `MOCK_MODE=true`, so no live AWS resources are required.
 
@@ -117,7 +117,7 @@ To stop local containers:
 
 - **`CONNECT_INSTANCE_ID is required`**: export `CONNECT_INSTANCE_ID` before cloud deploy.
 - **`bedrock-agentcore-control not available`**: the script automatically falls back to direct Lambda invocation mode and records that in state.
-- **Frontend cannot reach backend locally**: confirm Docker is running and `http://localhost:8000/health` returns healthy.
+- **Frontend cannot reach backend locally**: confirm Docker is running and `http://localhost:8100/health` returns healthy.
 - **Contact Lens transcript errors**: ensure Contact Lens is enabled for the Connect instance and the queried contact has analysis data.
 - **CloudFront not updated yet**: initial distributions can take several minutes to deploy.
 - **Bedrock access denied**: request model access for the configured Claude model in the deployment region.

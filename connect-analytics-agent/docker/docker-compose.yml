@@ -1,0 +1,57 @@
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/agent/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../agent:/app
+      - ../tools:/app/tools          # tools are imported directly in-process (no Lambda needed)
+      - ${HOME}/.aws:/root/.aws:ro   # mount local AWS credentials/config read-only
+      - agent_data:/app/data         # persistent scan results (shared between agent instances)
+      - ../.deploy-state.json:/app/deploy-state.json:ro   # read queue URL set by setup-eventbridge
+    environment:
+      MOCK_MODE: ${MOCK_MODE:-true}
+      # When MOCK_MODE=false the agent calls tool handlers directly from /app/tools
+      # using the AWS credentials in the mounted ~/.aws directory.
+      TOOLS_ROOT: /app/tools
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      CONNECT_INSTANCE_ID: ${CONNECT_INSTANCE_ID:-}
+      CONNECT_ALIAS: ${CONNECT_ALIAS:-}
+      BOT_EVENTS_QUEUE_URL: ${BOT_EVENTS_QUEUE_URL:-}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5}
+      AGENTCORE_GATEWAY_ENDPOINT: ${AGENTCORE_GATEWAY_ENDPOINT:-}
+      DATA_DIR: /app/data
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      # AGENT_API_URL is used by the Vite server-side proxy only (no VITE_ prefix = never sent to browser).
+      # The browser always uses relative /api paths which the proxy rewrites to this target.
+      AGENT_API_URL: http://agent:8100
+      # VITE_ prefixed vars are injected into the browser bundle at build time.
+      # VITE_CONNECT_ALIAS is read by useConnectStreams to build the CCP iframe URL.
+      VITE_CONNECT_ALIAS: ${CONNECT_ALIAS:-}
+    ports:
+      - "5274:5274"
+    depends_on:
+      - agent
+
+volumes:
+  frontend_node_modules:
+  agent_data:            # persists discovered_resources.json across container restarts

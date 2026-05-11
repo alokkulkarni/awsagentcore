@@ -51,6 +51,14 @@ def _transform_contact(contact: Dict[str, Any], connect_client, instance_id: str
     if initiation and disconnect:
         duration_seconds = max((disconnect - initiation).total_seconds(), 0)
 
+    # Check recording availability via describe_contact (Recordings field only exists there)
+    has_recording = False
+    try:
+        detail = connect_client.describe_contact(InstanceId=instance_id, ContactId=contact["Id"]).get("Contact", {})
+        has_recording = bool(detail.get("Recordings"))
+    except Exception:  # pylint: disable=broad-except
+        pass
+
     return {
         "contact_id": contact.get("Id"),
         "initial_contact_id": contact.get("InitialContactId"),
@@ -67,6 +75,7 @@ def _transform_contact(contact: Dict[str, Any], connect_client, instance_id: str
         "duration_seconds": duration_seconds,
         "duration": format_duration(duration_seconds),
         "contact_status": _derive_contact_status(contact),
+        "has_recording": has_recording,
     }
 
 
@@ -92,16 +101,20 @@ def lambda_handler(event, _context):
             search_criteria["QueueIds"] = [params["queue_id"]]
         if params.get("agent_id"):
             search_criteria["AgentIds"] = [params["agent_id"]]
+        # SearchContacts requires at least one non-empty criterion — default to all channels
+        if not search_criteria:
+            search_criteria = {"Channels": ["VOICE", "CHAT", "TASK"]}
 
         connect_client = boto3.client("connect")
-        response = connect_client.search_contacts(
-            InstanceId=instance_id,
-            TimeRange={"Type": "INITIATION_TIMESTAMP", "StartTime": start_time, "EndTime": end_time},
-            SearchCriteria=search_criteria,
-            MaxResults=max_results,
-            NextToken=params.get("next_token"),
-            Sort={"FieldName": "INITIATION_TIMESTAMP", "Order": "DESC"},
-        )
+        search_kwargs: Dict[str, Any] = {
+            "InstanceId": instance_id,
+            "TimeRange": {"Type": "INITIATION_TIMESTAMP", "StartTime": start_time, "EndTime": end_time},
+            "SearchCriteria": search_criteria,
+            "MaxResults": max_results,
+        }
+        if params.get("next_token"):
+            search_kwargs["NextToken"] = params["next_token"]
+        response = connect_client.search_contacts(**search_kwargs)
 
         queue_names = _queue_lookup(connect_client, instance_id)
         contacts = [_transform_contact(item, connect_client, instance_id, queue_names) for item in response.get("Contacts", [])]
@@ -137,7 +150,7 @@ def lambda_handler(event, _context):
         )
     except (ClientError, BotoCoreError) as exc:
         LOGGER.exception("Failed to search contacts")
-        return build_error_response(event, f"Unable to search Amazon Connect contacts: {exc}", status_code=502)
+        return build_error_response(event, "Unable to search Amazon Connect contacts", status_code=502)
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.exception("Unexpected error while searching contacts")
-        return build_error_response(event, str(exc), status_code=500)
+        return build_error_response(event, "An unexpected error occurred while searching contacts", status_code=500)

@@ -5,6 +5,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_csv, parse_parameters
+from shared.scan_resources import get_queue_id_map, get_queue_ids
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -19,15 +20,6 @@ CURRENT_METRICS = [
     {"Name": "CONTACTS_SCHEDULED", "Unit": "COUNT"},
     {"Name": "OLDEST_CONTACT_AGE", "Unit": "SECONDS"},
 ]
-
-
-def _list_queue_names(connect_client, instance_id: str) -> Dict[str, str]:
-    queue_map: Dict[str, str] = {}
-    paginator = connect_client.get_paginator("list_queues")
-    for page in paginator.paginate(InstanceId=instance_id, QueueTypes=["STANDARD", "AGENT"]):
-        for queue in page.get("QueueSummaryList", []):
-            queue_map[queue["Id"]] = queue.get("Name", queue["Id"])
-    return queue_map
 
 
 def _metric_map(collections: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -51,10 +43,11 @@ def lambda_handler(event, _context):
 
         queue_ids = parse_csv(params.get("queue_ids"))
         routing_profile_ids = parse_csv(params.get("routing_profile_ids"))
-        queue_lookup = _list_queue_names(connect_client, instance_id)
+        # Use scan data for the name→id lookup (falls back to live API automatically)
+        queue_lookup = get_queue_id_map(instance_id, connect_client)
 
         if not queue_ids and not routing_profile_ids:
-            queue_ids = list(queue_lookup.keys())
+            queue_ids = get_queue_ids(instance_id, connect_client)
             if not queue_ids:
                 return build_response(
                     event,

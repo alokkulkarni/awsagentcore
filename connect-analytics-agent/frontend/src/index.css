@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark light;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: linear-gradient(180deg, #020617 0%, #0f172a 100%);
+}
+
+.light body,
+body.light {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+/* Hide empty list items that Bedrock occasionally generates */
+.prose-chat li:empty,
+.prose-chat li > p:empty,
+.prose-chat li:only-child:not(:has(*)):not(:has(text)) {
+  display: none;
+}
+
+/* ─── Chat bubble prose fixes ───────────────────────────────────────────────
+   Force bold/strong to inherit the bubble's text colour so it's never
+   rendered near-black on the dark assistant bubble background.
+   (The base `prose` class can win the CSS cascade over `prose-chat`.)
+──────────────────────────────────────────────────────────────────────────── */
+.prose-chat strong,
+.prose-chat b {
+  color: inherit !important;
+  font-weight: 700 !important;
+}
+
+/* react-markdown wraps loose list items in <p> which add paragraph margins
+   inside list items — collapse them so spacing stays tight. */
+.prose-chat li > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Headings inherit colour too */
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  color: inherit !important;
+}
+
+/* ─── Light Mode Overrides ──────────────────────────────────────────────────
+   When html does NOT have the .dark class (light mode active), override all
+   the hardcoded dark Tailwind utilities used in child components.
+   Using html:not(.dark) so this is more specific than the base utilities.
+─────────────────────────────────────────────────────────────────────────── */
+
+/* Darkest backgrounds → near-white */
+html:not(.dark) .bg-slate-950\/80,
+html:not(.dark) .bg-slate-950\/70,
+html:not(.dark) .bg-slate-950\/60,
+html:not(.dark) .bg-slate-950 {
+  background-color: rgb(248 250 252) !important;
+}
+
+/* Main panel backgrounds → white */
+html:not(.dark) .bg-slate-900\/70,
+html:not(.dark) .bg-slate-900\/60,
+html:not(.dark) .bg-slate-900 {
+  background-color: rgb(255 255 255) !important;
+}
+
+/* Card / inner surface backgrounds → light slate */
+html:not(.dark) .bg-slate-800\/70,
+html:not(.dark) .bg-slate-800\/60,
+html:not(.dark) .bg-slate-800\/40,
+html:not(.dark) .bg-slate-800 {
+  background-color: rgb(241 245 249) !important;
+}
+
+html:not(.dark) .bg-slate-700 {
+  background-color: rgb(226 232 240) !important;
+}
+
+/* Hover overrides */
+html:not(.dark) .hover\:bg-slate-800:hover,
+html:not(.dark) .hover\:bg-slate-800\/60:hover {
+  background-color: rgb(226 232 240) !important;
+}
+html:not(.dark) .hover\:bg-slate-700:hover {
+  background-color: rgb(203 213 225) !important;
+}
+
+/* Disabled state */
+html:not(.dark) .disabled\:bg-slate-700:disabled {
+  background-color: rgb(203 213 225) !important;
+}
+
+/* Text overrides */
+html:not(.dark) .text-slate-100 { color: rgb(15 23 42) !important; }
+html:not(.dark) .text-slate-200 { color: rgb(30 41 59) !important; }
+html:not(.dark) .text-slate-300 { color: rgb(51 65 85) !important; }
+html:not(.dark) .text-slate-400 { color: rgb(71 85 105) !important; }
+html:not(.dark) .text-slate-500 { color: rgb(100 116 139) !important; }
+html:not(.dark) .text-slate-700 { color: rgb(51 65 85) !important; }
+
+/* Border overrides */
+html:not(.dark) .border-slate-800 { border-color: rgb(226 232 240) !important; }
+html:not(.dark) .border-slate-700 { border-color: rgb(203 213 225) !important; }
+html:not(.dark) .border-slate-600 { border-color: rgb(148 163 184) !important; }
+
+/* text-white in non-coloured contexts → dark text */
+html:not(.dark) .text-white { color: rgb(15 23 42) !important; }
+
+/* Table divider lines */
+html:not(.dark) .divide-slate-800 > * + * { border-color: rgb(226 232 240) !important; }
+
+/* Input/select placeholder & text in light mode */
+html:not(.dark) input.bg-transparent,
+html:not(.dark) textarea.bg-transparent {
+  color: rgb(15 23 42) !important;
+}
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: rgb(148 163 184) !important;
+}
+
+/* Dashed border in chat empty state */
+html:not(.dark) .border-dashed.border-slate-700 {
+  border-color: rgb(203 213 225) !important;
+}
+
+/* Shadow override for light mode panels */
+html:not(.dark) .shadow-panel {
+  box-shadow: 0 20px 45px -28px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* Keep chat message bubbles always dark for readability */
+html:not(.dark) .prose-chat {
+  color: inherit;
+}
+
