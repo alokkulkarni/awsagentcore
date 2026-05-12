@@ -1577,6 +1577,86 @@ def delete_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
+@app.get("/realtime-queue-metrics")
+def realtime_queue_metrics() -> Dict[str, Any]:
+    """
+    Current metric snapshot for all standard queues:
+    contacts_in_queue, agents_available, agents_on_call, oldest_contact_age.
+    Polled every 5 s by the frontend live-queue chart.
+    """
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        return {"timestamp": datetime.utcnow().isoformat(), "queues": []}
+
+    import boto3
+    connect = boto3.client("connect", region_name=os.getenv("AWS_REGION", "eu-west-2"))
+    ts = datetime.utcnow().isoformat()
+
+    # 1 — fetch all standard queues (names + IDs)
+    queues: List[Dict] = []
+    try:
+        paginator = connect.get_paginator("list_queues")
+        for page in paginator.paginate(InstanceId=instance_id, QueueTypes=["STANDARD"]):
+            queues.extend(page.get("QueueSummaryList", []))
+    except Exception as exc:
+        LOGGER.warning("realtime_queue_metrics: list_queues failed: %s", exc)
+        return {"timestamp": ts, "queues": [], "error": str(exc)}
+
+    if not queues:
+        return {"timestamp": ts, "queues": []}
+
+    queue_id_to_name = {q["Id"]: q["Name"] for q in queues}
+    queue_ids = list(queue_id_to_name.keys())[:100]  # API max 100
+
+    # 2 — GetCurrentMetricData for all queues in one call
+    metrics_by_queue: Dict[str, Dict] = {}
+    try:
+        resp = connect.get_current_metric_data(
+            InstanceId=instance_id,
+            Filters={"Queues": queue_ids, "Channels": ["VOICE", "CHAT"]},
+            Groupings=["QUEUE"],
+            CurrentMetrics=[
+                {"Name": "CONTACTS_IN_QUEUE",  "Unit": "COUNT"},
+                {"Name": "AGENTS_AVAILABLE",    "Unit": "COUNT"},
+                {"Name": "AGENTS_ON_CONTACT",   "Unit": "COUNT"},
+                {"Name": "AGENTS_ONLINE",       "Unit": "COUNT"},
+                {"Name": "OLDEST_CONTACT_AGE",  "Unit": "SECONDS"},
+                {"Name": "CONTACTS_SCHEDULED",  "Unit": "COUNT"},
+            ],
+        )
+        for result in resp.get("MetricResults", []):
+            queue_info = result.get("Dimensions", {}).get("Queue", {})
+            qid = queue_info.get("Id", "")
+            values: Dict[str, float] = {}
+            for item in result.get("Collections", []):
+                values[item["Metric"]["Name"]] = item.get("Value") or 0
+            metrics_by_queue[qid] = {
+                "id":                  qid,
+                "name":                queue_id_to_name.get(qid, qid),
+                "contacts_in_queue":   int(values.get("CONTACTS_IN_QUEUE", 0)),
+                "agents_available":    int(values.get("AGENTS_AVAILABLE", 0)),
+                "agents_on_call":      int(values.get("AGENTS_ON_CONTACT", 0)),
+                "agents_online":       int(values.get("AGENTS_ONLINE", 0)),
+                "oldest_contact_age":  int(values.get("OLDEST_CONTACT_AGE", 0)),
+                "contacts_scheduled":  int(values.get("CONTACTS_SCHEDULED", 0)),
+            }
+    except Exception as exc:
+        LOGGER.error("realtime_queue_metrics: get_current_metric_data failed: %s", exc)
+        return {"timestamp": ts, "queues": [], "error": str(exc)}
+
+    # Include queues with zero activity so they always appear in the chart
+    for qid, qname in queue_id_to_name.items():
+        if qid not in metrics_by_queue:
+            metrics_by_queue[qid] = {
+                "id": qid, "name": qname,
+                "contacts_in_queue": 0, "agents_available": 0,
+                "agents_on_call": 0, "agents_online": 0,
+                "oldest_contact_age": 0, "contacts_scheduled": 0,
+            }
+
+    return {"timestamp": ts, "queues": list(metrics_by_queue.values())}
+
+
 @app.delete("/sessions", status_code=200)
 def delete_all_sessions() -> Dict[str, Any]:
     try:

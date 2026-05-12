@@ -176,6 +176,11 @@ export const deleteSession = async (sessionId) => {
   return response.data;
 };
 
+export const getRealtimeQueueMetrics = async () => {
+  const response = await api.get('/realtime-queue-metrics');
+  return response.data;
+};
+
 export const deleteAllSessions = async () => {
   const response = await api.delete('/sessions');
   return response.data;

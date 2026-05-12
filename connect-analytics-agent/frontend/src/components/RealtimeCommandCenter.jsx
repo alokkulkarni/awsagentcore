@@ -56,6 +56,7 @@ import {
   summarizeTranscript,
 } from '../services/api';
 import SupervisorBargePanel from './SupervisorBargePanel';
+import LiveQueueMetricsChart from './LiveQueueMetricsChart';
 
 // ── constants ──────────────────────────────────────────────────────────────────
 const LIVE_POLL_MS      = 5_000;
@@ -1252,6 +1253,10 @@ export default function RealtimeCommandCenter({
                   )}
                 </div>
               )}
+
+              {/* ── Live Queue Metrics Chart ─────────────────────────────────── */}
+              <LiveQueueMetricsChart />
+
             </div>
 
             {/* RIGHT: Agent roster OR Contact detail panel */}
