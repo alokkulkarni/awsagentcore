@@ -112,6 +112,22 @@
           "expiry_seconds": {"type": "integer", "description": "URL expiry time in seconds, default 3600, max 43200"}
         }
       }
+    },
+    {
+      "name": "contact_flow_events",
+      "description": "Query Amazon Connect contact flow data from CloudWatch Logs. Supports two modes: (1) contact_events — returns the ordered block-by-block journey for a specific contact; (2) flow_funnel — runs CloudWatch Logs Insights to aggregate block hit counts across all contacts for a flow over a time period, enabling funnel drop-off analysis.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query_type"],
+        "properties": {
+          "instance_id":  {"type": "string", "description": "Amazon Connect instance ID (optional, uses default)"},
+          "query_type":   {"type": "string", "enum": ["contact_events", "flow_funnel"], "description": "contact_events = single contact journey; flow_funnel = aggregate funnel across all contacts"},
+          "contact_id":   {"type": "string", "description": "Required for query_type=contact_events. Amazon Connect contact ID."},
+          "flow_name":    {"type": "string", "description": "Required for query_type=flow_funnel. Exact or partial name of the Connect flow (e.g. conversationalbot, MainInboundFlow)."},
+          "days":         {"type": "string", "description": "For query_type=flow_funnel — number of days to aggregate (1–90, default 30)."},
+          "log_groups":   {"type": "string", "description": "Optional comma-separated extra CloudWatch log group names to include in search."}
+        }
+      }
     }
   ]
 }

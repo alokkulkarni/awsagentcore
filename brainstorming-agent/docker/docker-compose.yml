@@ -1,0 +1,37 @@
+services:
+  brainstorm-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    container_name: brainstorm-agent
+    environment:
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-eu.anthropic.claude-sonnet-4-6}
+      DB_PATH: /app/data/brainstorm.db
+    volumes:
+      - brainstorm_data:/app/data
+      - ${HOME}/.aws:/root/.aws:ro
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  brainstorm-frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: brainstorm-frontend
+    ports:
+      - "5175:5175"
+    depends_on:
+      - brainstorm-agent
+    restart: unless-stopped
+
+volumes:
+  brainstorm_data:

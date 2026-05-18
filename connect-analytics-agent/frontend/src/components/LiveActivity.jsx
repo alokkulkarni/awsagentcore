@@ -25,6 +25,7 @@ import {
   Clock,
   Hash,
   Headphones,
+  Network,
   Phone,
   PhoneCall,
   PhoneForwarded,
@@ -41,6 +42,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { getLiveContacts, getLiveCallbacks, getLiveOutbound } from '../services/api';
+import ContactFlowGraph from './ContactFlowGraph';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -137,7 +139,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Returns true if the string looks like a raw UUID rather than a human-readable name */
 const isRawId = (s) => !s || UUID_RE.test(s.trim());
 
-function ContactRow({ contact }) {
+function ContactRow({ contact, onJourneyClick, journeyActive }) {
   const ce = contact.customerEndpoint || {};
   const se = contact.systemEndpoint   || {};
 
@@ -200,6 +202,21 @@ function ContactRow({ contact }) {
       </td>
       <td className={`px-3 py-2 text-xs ${isEnded ? 'text-slate-500' : 'text-slate-400'}`}>
         {fmtContactTime(contact)}
+      </td>
+      <td className="px-3 py-2">
+        <button
+          type="button"
+          onClick={() => onJourneyClick(contact.contactId)}
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium transition ${
+            journeyActive
+              ? 'bg-indigo-600 text-white'
+              : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'
+          }`}
+          title="View flow journey for this contact"
+        >
+          <Network size={9} />
+          Journey
+        </button>
       </td>
     </tr>
   );
@@ -373,7 +390,12 @@ export default function LiveActivity({ darkMode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [journeyContactId, setJourneyContactId] = useState(null);
   const timerRef = useRef(null);
+
+  const toggleJourney = useCallback((contactId) => {
+    setJourneyContactId((prev) => (prev === contactId ? null : contactId));
+  }, []);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -518,8 +540,15 @@ export default function LiveActivity({ darkMode }) {
             {botContacts.filter(c => !c.contactTerminal).length === 0 ? (
               <p className="text-xs text-slate-500">No contacts currently in IVR or bot handling.</p>
             ) : (
-              <TableWrapper cols={['Contact ID', 'Channel', 'State', 'Queue', 'Customer', 'Started']}>
-                {botContacts.map(c => <ContactRow key={c.contactId} contact={c} />)}
+              <TableWrapper cols={['Contact ID', 'Channel', 'State', 'Queue', 'Customer', 'Started', 'Journey']}>
+                {botContacts.map(c => (
+                  <ContactRow
+                    key={c.contactId}
+                    contact={c}
+                    onJourneyClick={toggleJourney}
+                    journeyActive={journeyContactId === c.contactId}
+                  />
+                ))}
               </TableWrapper>
             )}
           </div>
@@ -532,13 +561,29 @@ export default function LiveActivity({ darkMode }) {
               count={[...inbound, ...transfers].filter(c => !c.contactTerminal).length}
               colour="text-blue-400"
             />
-            <TableWrapper cols={['Contact ID', 'Channel', 'State', 'Queue / Agent', 'Customer', 'Time']}>
+            <TableWrapper cols={['Contact ID', 'Channel', 'State', 'Queue / Agent', 'Customer', 'Time', 'Journey']}>
               {[...inbound, ...transfers].length === 0 && (
-                <EmptyRow cols={6} message="No inbound contacts right now." />
+                <EmptyRow cols={7} message="No inbound contacts right now." />
               )}
-              {[...inbound, ...transfers].map(c => <ContactRow key={c.contactId} contact={c} />)}
+              {[...inbound, ...transfers].map(c => (
+                <ContactRow
+                  key={c.contactId}
+                  contact={c}
+                  onJourneyClick={toggleJourney}
+                  journeyActive={journeyContactId === c.contactId}
+                />
+              ))}
             </TableWrapper>
           </div>
+
+          {/* Live journey panel — shown below tables when a contact is selected */}
+          {journeyContactId && (
+            <ContactFlowGraph
+              contactId={journeyContactId}
+              live={!([...inbound, ...transfers, ...botContacts].find(c => c.contactId === journeyContactId)?.contactTerminal)}
+              onClose={() => setJourneyContactId(null)}
+            />
+          )}
         </>
       )}
     </div>

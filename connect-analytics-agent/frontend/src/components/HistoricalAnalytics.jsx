@@ -8,34 +8,296 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  ComposedChart, Bar, Line, BarChart, LineChart, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
   AlertTriangle, Bot, RefreshCw, Sparkles, TrendingUp,
   Users, MessageSquare, Zap, ChevronDown, ChevronUp,
+  BarChart2, UserCheck,
 } from 'lucide-react';
-import { getHistoricalMetrics, getBotMetrics } from '../services/api';
+import { getHistoricalMetrics, getBotMetrics, getBotIntentTrend, getHistoricalBreakdown } from '../services/api';
 
 // ── constants ──────────────────────────────────────────────────────────────────
 
 const CHART_COLOURS = {
   CONTACTS_HANDLED:            '#10b981',
+  // Handle time — darker = avg per contact, lighter = total capacity
+  AVG_HANDLE_TIME_MIN:         '#2563eb',
+  TOTAL_HANDLE_TIME_MIN:       '#93c5fd',
+  // Keep raw-seconds key for backward compat (unused in charts now)
   AVG_HANDLE_TIME:             '#2563eb',
   CONTACTS_ABANDONED:          '#f59e0b',
   CONTACTS_QUEUED:             '#818cf8',
-  AVG_AFTER_CONTACT_WORK_TIME: '#f472b6',
+  // ACW time — pink = avg per contact, amber = total capacity
+  AVG_ACW_TIME_MIN:            '#db2777',
+  TOTAL_ACW_TIME_MIN:          '#fb923c',
+  AVG_AFTER_CONTACT_WORK_TIME: '#db2777',
 };
 
 const METRIC_LABELS = {
   CONTACTS_HANDLED:            'Contacts Handled',
+  AVG_HANDLE_TIME_MIN:         'Avg Handle Time',
+  TOTAL_HANDLE_TIME_MIN:       'Total Handle Time',
   AVG_HANDLE_TIME:             'Avg Handle Time',
   CONTACTS_ABANDONED:          'Contacts Abandoned',
   CONTACTS_QUEUED:             'Contacts Queued',
+  AVG_ACW_TIME_MIN:            'Avg ACW Time',
+  TOTAL_ACW_TIME_MIN:          'Total ACW Time',
   AVG_AFTER_CONTACT_WORK_TIME: 'Avg ACW Time',
 };
 
 const PIE_COLORS = ['#10b981', '#f59e0b', '#f43f5e', '#6366f1', '#22d3ee'];
+
+// Palette for up to 10 entities (queues or agents) in breakdown charts
+const ENTITY_PALETTE = [
+  '#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#22d3ee',
+  '#a855f7', '#3b82f6', '#ec4899', '#84cc16', '#fb923c',
+];
+
+function entityColor(idx) { return ENTITY_PALETTE[idx % ENTITY_PALETTE.length]; }
+
+// ── Stacked bar chart for daily entity breakdowns ────────────────────────────
+
+function BreakdownStackedChart({ title, data, entities, valueExtractor, yTickFmt, chartHeight = 220, emptyMsg }) {
+  const tickColor  = '#94a3b8';
+  const gridColor  = '#334155';
+  const tooltipBg  = '#1e293b';
+  const tooltipBdr = '#334155';
+
+  // Pivot raw data to [{label, EntityA: val, EntityB: val}]
+  const chartData = useMemo(() => data.map((row) => {
+    const out = { label: row.label };
+    entities.forEach((ent) => {
+      out[ent] = valueExtractor(row[ent] ?? {});
+    });
+    return out;
+  }), [data, entities, valueExtractor]);
+
+  if (!chartData.length) return (
+    <div className="flex h-40 items-center justify-center text-xs text-slate-500">{emptyMsg ?? 'No data'}</div>
+  );
+
+  return (
+    <div>
+      <p className="mb-3 text-sm font-semibold text-slate-300">{title}</p>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 32 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+          <XAxis
+            dataKey="label"
+            tick={{ fill: tickColor, fontSize: 10 }}
+            angle={-30}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis
+            tick={{ fill: tickColor, fontSize: 10 }}
+            tickFormatter={yTickFmt}
+            width={yTickFmt ? 44 : 32}
+            allowDecimals={!!yTickFmt}
+          />
+          <Tooltip
+            contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBdr}`, borderRadius: 8 }}
+            labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+            itemStyle={{ color: tickColor }}
+            formatter={(v, name) => [yTickFmt ? yTickFmt(v) : v, name]}
+          />
+          <Legend
+            wrapperStyle={{ fontSize: 10, color: tickColor, paddingTop: 6 }}
+            iconSize={10}
+          />
+          {entities.map((ent, i) => (
+            <Bar key={ent} dataKey={ent} stackId="stack" fill={entityColor(i)} radius={i === entities.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Grouped bar for Handled vs Abandoned totals per entity ──────────────────
+
+function HandledVsAbandonedChart({ title, totals, chartHeight = 240 }) {
+  const tickColor  = '#94a3b8';
+  const gridColor  = '#334155';
+  const tooltipBg  = '#1e293b';
+
+  if (!totals?.length) return (
+    <div className="flex h-40 items-center justify-center text-xs text-slate-500">No data</div>
+  );
+
+  return (
+    <div>
+      <p className="mb-3 text-sm font-semibold text-slate-300">{title}</p>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart data={totals} layout="vertical" margin={{ top: 4, right: 12, left: 80, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+          <XAxis type="number" tick={{ fill: tickColor, fontSize: 10 }} allowDecimals={false} />
+          <YAxis
+            type="category"
+            dataKey="entity"
+            tick={{ fill: tickColor, fontSize: 10 }}
+            width={76}
+          />
+          <Tooltip
+            contentStyle={{ backgroundColor: tooltipBg, border: '1px solid #334155', borderRadius: 8 }}
+            labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+            itemStyle={{ color: tickColor }}
+          />
+          <Legend wrapperStyle={{ fontSize: 10, color: tickColor, paddingTop: 4 }} iconSize={10} />
+          <Bar dataKey="CONTACTS_HANDLED" name="Handled" fill="#10b981" radius={[0, 3, 3, 0]} />
+          <Bar dataKey="CONTACTS_ABANDONED" name="Abandoned" fill="#f59e0b" radius={[0, 3, 3, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Performance Breakdown section ───────────────────────────────────────────
+
+function BreakdownSection({ days, onAskAssistant }) {
+  const [groupBy, setGroupBy]   = useState('QUEUE');
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
+
+  const load = async (d, gb) => {
+    setLoading(true); setError(null);
+    try {
+      const res = await getHistoricalBreakdown(d, gb);
+      setData(res);
+    } catch (e) {
+      setData(null);
+      setError(e?.response?.data?.detail || e?.message || 'Failed to load breakdown');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(days, groupBy); }, [days, groupBy]); // eslint-disable-line
+
+  const entities = data?.entities ?? [];
+
+  // Minutes extractor for handle time: avg_ht × contacts ÷ 60
+  const handleTimeMin = (m) => m.CONTACTS_HANDLED
+    ? Math.round((m.AVG_HANDLE_TIME * m.CONTACTS_HANDLED) / 60 * 10) / 10
+    : 0;
+
+  const acwTimeMin = (m) => m.CONTACTS_HANDLED
+    ? Math.round((m.AVG_AFTER_CONTACT_WORK_TIME * m.CONTACTS_HANDLED) / 60 * 10) / 10
+    : 0;
+
+  const handledCount = (m) => m.CONTACTS_HANDLED ?? 0;
+
+  const askLabel = groupBy === 'QUEUE' ? 'queue' : 'agent';
+
+  return (
+    <SectionCard
+      title="Performance Breakdown"
+      subtitle={`${groupBy === 'QUEUE' ? 'By queue' : 'By agent'} — ${data?.period ?? `Last ${days} days`}`}
+      icon={groupBy === 'QUEUE' ? BarChart2 : UserCheck}
+      iconCls={groupBy === 'QUEUE' ? 'text-cyan-400' : 'text-violet-400'}
+    >
+      {/* Tab bar + AI button */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex rounded-xl overflow-hidden border border-slate-700">
+          {['QUEUE', 'AGENT'].map((gb) => (
+            <button
+              key={gb}
+              type="button"
+              onClick={() => setGroupBy(gb)}
+              className={`px-4 py-2 text-xs font-medium transition ${
+                groupBy === gb
+                  ? 'bg-connect-500 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              {gb === 'QUEUE' ? 'By Queue' : 'By Agent'}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => load(days, groupBy)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 transition"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+        {onAskAssistant && (
+          <button
+            type="button"
+            onClick={() => onAskAssistant(
+              `Analyse contact centre performance breakdown by ${askLabel} over the last ${days} days. Which ${askLabel}s are busiest, which have the highest handle or ACW time, and which have the most abandoned contacts?`
+            )}
+            className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
+          >
+            <Sparkles size={14} /> Ask AI
+          </button>
+        )}
+        {data?.mock && (
+          <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs text-amber-300">mock data</span>
+        )}
+      </div>
+
+      {loading && (
+        <div className="flex h-40 items-center justify-center text-sm text-slate-400">
+          <RefreshCw size={18} className="mr-2 animate-spin" /> Loading breakdown…
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300 flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />{error}
+        </div>
+      )}
+      {!loading && !error && data && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* 1 — Contacts Handled per Day */}
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+            <BreakdownStackedChart
+              title={`Contacts Handled per Day — by ${groupBy === 'QUEUE' ? 'Queue' : 'Agent'}`}
+              data={data.daily}
+              entities={entities}
+              valueExtractor={handledCount}
+              chartHeight={220}
+            />
+          </div>
+
+          {/* 2 — Handle Time per Day */}
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+            <BreakdownStackedChart
+              title={`Handle Time per Day (min) — by ${groupBy === 'QUEUE' ? 'Queue' : 'Agent'}`}
+              data={data.daily}
+              entities={entities}
+              valueExtractor={handleTimeMin}
+              yTickFmt={fmtMinutes}
+              chartHeight={220}
+            />
+          </div>
+
+          {/* 3 — Contacts Handled vs Abandoned (totals per entity) */}
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 lg:col-span-2">
+            <HandledVsAbandonedChart
+              title={`Contacts Handled vs Abandoned — by ${groupBy === 'QUEUE' ? 'Queue' : 'Agent'}`}
+              totals={data.totals}
+              chartHeight={Math.max(180, entities.length * 44 + 60)}
+            />
+          </div>
+
+          {/* 4 — ACW Time per Day */}
+          <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 lg:col-span-2">
+            <BreakdownStackedChart
+              title={`ACW Time per Day (min) — by ${groupBy === 'QUEUE' ? 'Queue' : 'Agent'}`}
+              data={data.daily}
+              entities={entities}
+              valueExtractor={acwTimeMin}
+              yTickFmt={fmtMinutes}
+              chartHeight={200}
+            />
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +307,13 @@ function fmtSeconds(v) {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return m === 0 ? `${sec}s` : `${m}m ${sec < 10 ? '0' + sec : sec}s`;
+}
+
+function fmtMinutes(v) {
+  if (v == null || v === 0) return '0m';
+  const m = Math.floor(v);
+  const s = Math.round((v - m) * 60);
+  return s === 0 ? `${m}m` : `${m}m ${s < 10 ? '0' + s : s}s`;
 }
 
 // "08:00" → "8am–9am", everything else unchanged
@@ -60,8 +329,13 @@ function fmtXLabel(label) {
 }
 
 // ── shared chart wrapper ────────────────────────────────────────────────────────
+// bars       → left Y-axis bars (counts or normalised values)
+// rightBars  → right Y-axis bars (legacy / secondary metric)
+// rightLines → right Y-axis lines (legacy)
+// yTickFmt   → optional left-axis tick formatter (default: number)
+// chartHeight → chart height in px (default 200)
 
-function HistoricChart({ title, data, bars, rightBars = [] }) {
+function HistoricChart({ title, data, bars = [], rightBars = [], rightLines = [], yTickFmt, chartHeight = 200 }) {
   const gridColor   = '#334155';
   const tickColor   = '#94a3b8';
   const tooltipBg   = '#1e293b';
@@ -69,14 +343,32 @@ function HistoricChart({ title, data, bars, rightBars = [] }) {
   const tooltipLbl  = '#f1f5f9';
   const tooltipItem = '#94a3b8';
 
+  const hasLeft  = bars.length > 0;
+  const hasRight = rightBars.length > 0 || rightLines.length > 0;
+
   if (!data?.length) return (
     <div className="flex h-40 items-center justify-center text-xs text-slate-500">No data available</div>
   );
+
+  // Tooltip: _MIN keys → fmtMinutes, time/acw keys → fmtSeconds, else raw
+  const tooltipFormatter = (v, name) => {
+    if (yTickFmt) return [yTickFmt(v), METRIC_LABELS[name] ?? name];
+    if (/_MIN$/i.test(name)) return [fmtMinutes(v), METRIC_LABELS[name] ?? name];
+    if (/time|duration|acw/i.test(name)) return [fmtSeconds(v), METRIC_LABELS[name] ?? name];
+    return [v, METRIC_LABELS[name] ?? name];
+  };
+
+  const rightTickFmt = (v) =>
+    (rightLines.length > 0 && rightBars.length === 0) ? fmtMinutes(v) : fmtSeconds(v);
+
   return (
     <div>
       <p className="mb-3 text-sm font-semibold text-slate-300">{title}</p>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: rightBars.length ? 52 : 8, left: 0, bottom: 28 }}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <ComposedChart
+          data={data}
+          margin={{ top: 4, right: hasRight ? 56 : 8, left: hasLeft ? 0 : -20, bottom: 28 }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
           <XAxis
             dataKey="label"
@@ -86,24 +378,29 @@ function HistoricChart({ title, data, bars, rightBars = [] }) {
             textAnchor="end"
             interval={0}
           />
-          <YAxis yAxisId="left" tick={{ fill: tickColor, fontSize: 10 }} allowDecimals={false} width={28} />
-          {rightBars.length > 0 && (
+          {hasLeft && (
+            <YAxis
+              yAxisId="left"
+              tick={{ fill: tickColor, fontSize: 10 }}
+              tickFormatter={yTickFmt}
+              allowDecimals={!yTickFmt}
+              width={yTickFmt ? 44 : 28}
+            />
+          )}
+          {hasRight && (
             <YAxis
               yAxisId="right"
               orientation="right"
               tick={{ fill: tickColor, fontSize: 10 }}
-              tickFormatter={fmtSeconds}
-              width={44}
+              tickFormatter={rightTickFmt}
+              width={48}
             />
           )}
           <Tooltip
             contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBdr}`, borderRadius: 8 }}
             labelStyle={{ color: tooltipLbl, fontWeight: 600 }}
             itemStyle={{ color: tooltipItem }}
-            formatter={(v, name) => [
-              /time|duration|acw/i.test(name) ? fmtSeconds(v) : v,
-              METRIC_LABELS[name] ?? name,
-            ]}
+            formatter={tooltipFormatter}
           />
           <Legend
             wrapperStyle={{ fontSize: 11, color: tickColor, paddingTop: 8 }}
@@ -117,7 +414,20 @@ function HistoricChart({ title, data, bars, rightBars = [] }) {
             <Bar key={key} yAxisId="right" dataKey={key} name={key}
               fill={CHART_COLOURS[key] ?? '#8b5cf6'} radius={[3, 3, 0, 0]} />
           ))}
-        </BarChart>
+          {rightLines.map((key) => (
+            <Line
+              key={key}
+              yAxisId="right"
+              type="monotone"
+              dataKey={key}
+              name={key}
+              stroke={CHART_COLOURS[key] ?? '#f97316'}
+              strokeWidth={2}
+              dot={{ r: 3, fill: CHART_COLOURS[key] ?? '#f97316', strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
+            />
+          ))}
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
@@ -163,19 +473,33 @@ function StatCard({ label, value, icon: Icon, accentCls = 'text-slate-300', sub 
 
 // ── Contact-centre historical section ──────────────────────────────────────────
 
-function ContactCentreHistory({ onAskAssistant }) {
-  const [histDays, setHistDays]     = useState(30);
+function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
   const [historical, setHistorical] = useState(null);
   const [loading, setLoading]       = useState(false);
+  const [loadError, setLoadError]   = useState(null);
 
   const load = async (days) => {
     setLoading(true);
-    try { setHistorical(await getHistoricalMetrics(days)); }
-    catch { setHistorical(null); }
-    finally { setLoading(false); }
+    setLoadError(null);
+    try {
+      const data = await getHistoricalMetrics(days);
+      setHistorical(data);
+    } catch (err) {
+      setHistorical(null);
+      setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load metrics');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(histDays); }, [histDays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Normalise both avg and total to minutes so they share the same Y-axis scale
+  const timeData = useMemo(() => (historical?.data ?? []).map((r) => ({
+    ...r,
+    AVG_HANDLE_TIME_MIN: r.AVG_HANDLE_TIME ? Math.round((r.AVG_HANDLE_TIME / 60) * 100) / 100 : 0,
+    AVG_ACW_TIME_MIN:    r.AVG_AFTER_CONTACT_WORK_TIME ? Math.round((r.AVG_AFTER_CONTACT_WORK_TIME / 60) * 100) / 100 : 0,
+  })), [historical]);
 
   const mergedHandledAbandoned = useMemo(() => {
     const map = {};
@@ -233,13 +557,24 @@ function ContactCentreHistory({ onAskAssistant }) {
         <div className="flex h-40 items-center justify-center text-sm text-slate-400">
           <RefreshCw size={18} className="mr-2 animate-spin" /> Loading historical data…
         </div>
+      ) : loadError ? (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300 flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span>{loadError}</span>
+        </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
             <HistoricChart title="Contacts Handled per Day" data={historical?.data ?? []} bars={['CONTACTS_HANDLED']} />
           </div>
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
-            <HistoricChart title="Avg Handle Time per Day" data={historical?.data ?? []} bars={[]} rightBars={['AVG_HANDLE_TIME']} />
+            <HistoricChart
+              title="Handle Time per Day (minutes)"
+              data={timeData}
+              bars={['AVG_HANDLE_TIME_MIN', 'TOTAL_HANDLE_TIME_MIN']}
+              yTickFmt={fmtMinutes}
+              chartHeight={220}
+            />
           </div>
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 lg:col-span-2">
             <HistoricChart title="Contacts Handled vs Abandoned" data={mergedHandledAbandoned} bars={['CONTACTS_HANDLED', 'CONTACTS_ABANDONED']} />
@@ -248,7 +583,13 @@ function ContactCentreHistory({ onAskAssistant }) {
             <HistoricChart title="Contacts in Queue per Day" data={historical?.data ?? []} bars={['CONTACTS_QUEUED']} />
           </div>
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
-            <HistoricChart title="Avg ACW Time per Day" data={historical?.data ?? []} bars={[]} rightBars={['AVG_AFTER_CONTACT_WORK_TIME']} />
+            <HistoricChart
+              title="ACW Time per Day (minutes)"
+              data={timeData}
+              bars={['AVG_ACW_TIME_MIN', 'TOTAL_ACW_TIME_MIN']}
+              yTickFmt={fmtMinutes}
+              chartHeight={220}
+            />
           </div>
         </div>
       )}
@@ -258,15 +599,222 @@ function ContactCentreHistory({ onAskAssistant }) {
 
 // ── Bot / Conversational AI section ───────────────────────────────────────────
 
+// ── Intent category inference ──────────────────────────────────────────────────
+
+const CATEGORY_RULES = [
+  { re: /bill|payment|invoice|charge|fee|cost|price|refund|balance/i,   label: 'Billing & Payments',  color: '#3b82f6' },
+  { re: /order|delivery|ship|track|package|dispatch|return/i,           label: 'Orders & Delivery',   color: '#8b5cf6' },
+  { re: /tech|error|issue|problem|bug|fix|broken|device|internet/i,     label: 'Technical Support',   color: '#f59e0b' },
+  { re: /account|profile|login|password|user|setting|update|detail/i,   label: 'Account Management',  color: '#10b981' },
+  { re: /cancel|terminate|close|end|stop|leave/i,                       label: 'Cancellations',       color: '#f43f5e' },
+  { re: /new|signup|register|upgrade|plan|subscribe|quote|offer/i,      label: 'Sales & Onboarding',  color: '#06b6d4' },
+  { re: /complaint|complain|escalat|dissatisf/i,                        label: 'Complaints',          color: '#ec4899' },
+];
+
+function inferCategory(intentName) {
+  // Match both raw AWS name (AmazonQinConnect) and display name (Q in Connect)
+  if (/AmazonQinConnect|QinConnect|Q in Connect/i.test(intentName)) return { label: 'Q in Connect (LLM)', color: '#6366f1' };
+  if (/fallback|unmatched|default/i.test(intentName))               return { label: 'Unmatched',          color: '#475569' };
+  for (const { re, label, color } of CATEGORY_RULES) {
+    if (re.test(intentName)) return { label, color };
+  }
+  return { label: 'General Enquiry', color: '#64748b' };
+}
+
+// ── Intent Details Table ───────────────────────────────────────────────────────
+
+function IntentDetailsTable({ rows }) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 lg:col-span-2">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold text-slate-300">Intent Performance by Category</p>
+        <span className="text-xs text-slate-500">{rows.length} intent{rows.length !== 1 ? 's' : ''}</span>
+      </div>
+      {/* Explanation banner */}
+      <div className="mb-3 rounded-lg bg-indigo-900/20 border border-indigo-700/30 px-3 py-2 text-[11px] text-slate-400 leading-snug">
+        <span className="text-indigo-400 font-semibold">How to read these metrics: </span>
+        <span className="text-emerald-400 font-semibold">Session Containment</span> (top stat card) = % of unique conversations fully handled by the bot.&nbsp;
+        <span className="text-indigo-400 font-semibold">Bot Resolved %</span> (table below) = (Successful + Switched) ÷ Total intent invocations — both count as "bot handled" since Switched is an internal LLM re-delegation, never reaching a human.&nbsp;
+        <span className="text-purple-400 font-semibold">Switched</span> = internal LLM re-delegation to another flow in the same session (not a failure — the bot stayed in control).
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-slate-700/60">
+              <th className="text-left py-2 px-3 font-medium text-slate-400">Intent</th>
+              <th className="text-left py-2 px-3 font-medium text-slate-400">Category</th>
+              <th className="text-right py-2 px-3 font-medium text-slate-400">Total</th>
+              <th className="text-right py-2 px-3 font-medium text-emerald-400">Successful</th>
+              <th className="text-right py-2 px-3 font-medium text-purple-400">Switched</th>
+              <th className="text-right py-2 px-3 font-medium text-amber-400">Abandoned</th>
+              <th className="text-right py-2 px-3 font-medium text-rose-400">Failed</th>
+              <th className="text-left py-2 px-3 font-medium text-indigo-400 w-36">Bot Resolved %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-700/20 transition">
+                <td className="py-2.5 px-3 text-slate-200 font-medium">{row.name}</td>
+                <td className="py-2.5 px-3">
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    style={{ background: row.category.color + '25', color: row.category.color }}
+                  >
+                    {row.category.label}
+                  </span>
+                </td>
+                <td className="py-2.5 px-3 text-right text-slate-300 font-semibold tabular-nums">{row.Total ?? 0}</td>
+                <td className="py-2.5 px-3 text-right text-emerald-400 font-semibold tabular-nums">{row.Successful ?? 0}</td>
+                <td className="py-2.5 px-3 text-right text-purple-400 font-semibold tabular-nums">{row.Switched ?? 0}</td>
+                <td className="py-2.5 px-3 text-right text-amber-400 font-semibold tabular-nums">{row.Dropped ?? 0}</td>
+                <td className="py-2.5 px-3 text-right text-rose-400 font-semibold tabular-nums">{row.Failed ?? 0}</td>
+                <td className="py-2.5 px-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-slate-700 rounded-full h-1.5 min-w-[48px]">
+                      <div
+                        className="h-1.5 rounded-full"
+                        style={{
+                          width: `${row.hitRate}%`,
+                          background: row.hitRate >= 70 ? '#10b981' : row.hitRate >= 40 ? '#f59e0b' : '#f43f5e',
+                        }}
+                      />
+                    </div>
+                    <span className="text-slate-300 w-8 text-right tabular-nums">{row.hitRate}%</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Intent Outcome Trend Chart ─────────────────────────────────────────────────
+
+const TREND_SERIES = [
+  { key: 'Successful', color: '#10b981', label: 'Successful' },
+  { key: 'Dropped',    color: '#f59e0b', label: 'Abandoned'  },
+  { key: 'Failed',     color: '#f43f5e', label: 'Failed'     },
+];
+
+function IntentTrendChart({ data = [], synthesized = false, aggSuccessRate = null, intentHitRate = null }) {
+  const [focused, setFocused] = useState(null);
+
+  const visibleSeries = TREND_SERIES.filter(
+    (s) => s.key !== 'Failed' || data.some((d) => (d.Failed ?? 0) > 0),
+  );
+
+  if (!data.length) {
+    return (
+      <div className="flex h-40 items-center justify-center text-xs text-slate-500 lg:col-span-2">
+        No intent trend data available
+      </div>
+    );
+  }
+
+  // aggSuccessRate = session containment (passed from sessionContainmentRate)
+  // intentHitRate  = per-invocation hit rate (passed from aggSuccessRate)
+  const sessionRate = aggSuccessRate;
+  const hitRate     = intentHitRate;
+
+  return (
+    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 lg:col-span-2">
+      {/* header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-slate-300">Intent Outcome Trend</p>
+          {sessionRate !== null && (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400"
+              title="Session Containment: % of conversations fully handled by the bot without escalation">
+              {sessionRate}% session containment
+            </span>
+          )}
+          {hitRate !== null && (
+            <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-medium text-indigo-400"
+              title="Bot Resolved Rate: % of intent invocations handled by the bot (directly resolved + re-delegated internally). One session may invoke multiple intents.">
+              {hitRate}% bot resolved (invocations)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {synthesized && (
+            <span className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-500">
+              estimated distribution
+            </span>
+          )}
+          <span className="text-[10px] text-slate-600">Click series to focus</span>
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 mb-3">Daily successful vs abandoned intents over the selected period</p>
+
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={data} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+          <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} width={28} />
+          <Tooltip
+            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+            labelStyle={{ color: '#f1f5f9' }}
+            itemStyle={{ color: '#94a3b8' }}
+          />
+          {visibleSeries.map(({ key, color }) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={color}
+              strokeWidth={focused && focused !== key ? 0.8 : 2}
+              strokeOpacity={focused && focused !== key ? 0.2 : 1}
+              dot={{ r: 3, fill: color, strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+
+      {/* clickable legend */}
+      <div className="flex gap-5 justify-center mt-2">
+        {visibleSeries.map(({ key, color, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFocused((prev) => (prev === key ? null : key))}
+            className="flex items-center gap-1.5 text-xs transition-opacity"
+            style={{ opacity: focused && focused !== key ? 0.3 : 1 }}
+          >
+            <span className="inline-block h-[3px] w-5 rounded-full" style={{ background: color }} />
+            <span className="text-slate-400">{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Bot section ────────────────────────────────────────────────────────────────
+
 function BotSection({ onAskAssistant }) {
-  const [days, setDays]     = useState(7);
-  const [data, setData]     = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState(null);
+  const [days, setDays]         = useState(7);
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [intentTrend, setIntentTrend]   = useState([]);
+  const [trendSynth, setTrendSynth]     = useState(false);
 
   const load = async (d) => {
     setLoading(true); setError(null);
-    try { setData(await getBotMetrics(d)); }
+    try {
+      const [metrics, trend] = await Promise.all([
+        getBotMetrics(d),
+        getBotIntentTrend(d).catch(() => ({ trend: [], synthesized: false })),
+      ]);
+      setData(metrics);
+      setIntentTrend(trend?.trend || []);
+      setTrendSynth(trend?.synthesized ?? false);
+    }
     catch (e) { setError(e.message || 'Failed to load bot metrics'); }
     finally { setLoading(false); }
   };
@@ -285,10 +833,39 @@ function BotSection({ onAskAssistant }) {
       name:       i.intent_name === 'AmazonQinConnect' ? 'Q in Connect' : i.intent_name,
       Total:      i.total,
       Successful: i.successful,
+      Switched:   i.switched,
       Dropped:    i.dropped,
       Failed:     i.failed,
     }));
   }, [primaryBot]);
+
+  // Rows enriched with category + hit rate — for IntentDetailsTable
+  const intentTableRows = useMemo(() =>
+    intentChartData.map((row) => ({
+      ...row,
+      category: inferCategory(row.name),
+      // Bot Resolved = directly resolved + re-delegated within bot (both never reached a human)
+      botResolved: (row.Successful || 0) + (row.Switched || 0),
+      hitRate: row.Total > 0
+        ? Math.round(((row.Successful || 0) + (row.Switched || 0)) / row.Total * 100)
+        : 0,
+    }))
+  , [intentChartData]);
+
+  // Bot-resolved rate from intent_metrics aggregates (Successful + Switched / Total)
+  const aggSuccessRate = useMemo(() => {
+    const totS   = intentChartData.reduce((a, i) => a + (i.Successful || 0) + (i.Switched || 0), 0);
+    const totAll = intentChartData.reduce((a, i) => a + (i.Total || 0), 0);
+    return totAll > 0 ? Math.round((totS / totAll) * 100) : null;
+  }, [intentChartData]);
+
+  // Session-level containment rate (from session_metrics — matches the stat card)
+  const sessionContainmentRate = useMemo(() => {
+    const sm = primaryBot?.session_metrics;
+    const total = sm?.total_sessions ?? sm?.total;
+    if (!total) return aggSuccessRate;
+    return Math.round(((sm.successful ?? 0) / total) * 100);
+  }, [primaryBot, aggSuccessRate]);
 
   const sessionPieData = useMemo(() => {
     if (!primaryBot?.session_metrics) return [];
@@ -373,7 +950,12 @@ function BotSection({ onAskAssistant }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
               label="Total Sessions"
-              value={primaryBot?.session_metrics?.total ?? cwByMetric['RuntimeInvokedIntents'] ?? 0}
+              value={
+                primaryBot?.session_metrics?.total_sessions
+                ?? primaryBot?.session_metrics?.total
+                ?? cwByMetric['RuntimeInvokedIntents']
+                ?? 0
+              }
               icon={MessageSquare}
               accentCls="text-indigo-400"
             />
@@ -388,11 +970,13 @@ function BotSection({ onAskAssistant }) {
               label="Containment Rate"
               value={(() => {
                 const sm = primaryBot?.session_metrics;
-                if (!sm?.total) return '—';
-                return `${Math.round((sm.successful / sm.total) * 100)}%`;
+                const total = sm?.total_sessions ?? sm?.total;
+                if (!total) return '—';
+                return `${Math.round(((sm.successful ?? 0) / total) * 100)}%`;
               })()}
               icon={Zap}
               accentCls="text-emerald-400"
+              sub="sessions not escalated"
             />
             <StatCard
               label="Bots Active"
@@ -453,12 +1037,19 @@ function BotSection({ onAskAssistant }) {
                     <Legend wrapperStyle={{ fontSize: 10, color: '#94a3b8' }} />
                     <Bar dataKey="Total"      fill="#6366f1" radius={[2, 2, 0, 0]} />
                     <Bar dataKey="Successful" fill="#10b981" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="Dropped"    fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="Switched"   fill="#a855f7" radius={[2, 2, 0, 0]} name="Switched (re-delegated)" />
+                    <Bar dataKey="Dropped"    fill="#f59e0b" radius={[2, 2, 0, 0]} name="Abandoned" />
                     <Bar dataKey="Failed"     fill="#f43f5e" radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
+
+            {/* Intent outcome trend — full-width row */}
+            <IntentTrendChart data={intentTrend} synthesized={trendSynth} aggSuccessRate={sessionContainmentRate} intentHitRate={aggSuccessRate} />
+
+            {/* Intent details by category — full-width row */}
+            <IntentDetailsTable rows={intentTableRows} />
 
             {/* Flow metrics */}
             {flowMetrics.length > 0 && (
@@ -523,6 +1114,8 @@ function BotSection({ onAskAssistant }) {
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export default function HistoricalAnalytics({ onAskAssistant }) {
+  const [histDays, setHistDays] = useState(30);
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -544,7 +1137,8 @@ export default function HistoricalAnalytics({ onAskAssistant }) {
         )}
       </div>
 
-      <ContactCentreHistory onAskAssistant={onAskAssistant} />
+      <ContactCentreHistory onAskAssistant={onAskAssistant} histDays={histDays} setHistDays={setHistDays} />
+      <BreakdownSection days={histDays} onAskAssistant={onAskAssistant} />
       <BotSection onAskAssistant={onAskAssistant} />
     </div>
   );

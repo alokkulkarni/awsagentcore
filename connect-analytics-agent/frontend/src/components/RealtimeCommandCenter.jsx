@@ -35,6 +35,7 @@ import {
   PhoneOutgoing,
   RefreshCw,
   ShieldAlert,
+  LogOut,
   Sparkles,
   Terminal,
   User,
@@ -54,6 +55,7 @@ import {
   getContactSentiment,
   queryAgent,
   summarizeTranscript,
+  forceLogoutAgent,
 } from '../services/api';
 import SupervisorBargePanel from './SupervisorBargePanel';
 import LiveQueueMetricsChart from './LiveQueueMetricsChart';
@@ -756,14 +758,112 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
 
 // ── Agent roster panel ─────────────────────────────────────────────────────────
 
-function AgentRoster({ agentRows, loading }) {
+const BLOCKED_STATUSES = new Set(['On Call', 'After Contact Work']);
+
+function ForceLogoutBtn({ agent, onSuccess }) {
+  const [state, setState] = useState('idle'); // idle | confirm | loading | done | blocked | error
+  const [msg, setMsg] = useState('');
+
+  const isBlocked = BLOCKED_STATUSES.has(agent.status) || agent.hasActiveContact;
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (isBlocked) {
+      setState('blocked');
+      setMsg(
+        agent.status === 'After Contact Work'
+          ? 'In ACW — contact not yet closed'
+          : `Active contact: ${agent.contactId || 'in progress'}`,
+      );
+      return;
+    }
+    setState('confirm');
+  };
+
+  const handleConfirm = async (e) => {
+    e.stopPropagation();
+    setState('loading');
+    try {
+      const result = await forceLogoutAgent(agent.agentId, 'Supervisor force-logout');
+      if (result.blocked) {
+        setState('blocked');
+        setMsg(result.reason || 'Blocked: active contact');
+      } else {
+        setState('done');
+        setMsg('Forced offline');
+        onSuccess(agent.agentId);
+      }
+    } catch (err) {
+      setState('error');
+      setMsg(err?.response?.data?.detail || 'Request failed');
+    }
+  };
+
+  const dismiss = (e) => { e.stopPropagation(); setState('idle'); setMsg(''); };
+
+  if (state === 'done') return (
+    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+      <CheckCircle2 size={10} /> {msg}
+      <button type="button" onClick={dismiss} className="text-slate-500 hover:text-slate-300">✕</button>
+    </span>
+  );
+
+  if (state === 'blocked' || state === 'error') return (
+    <span className="flex items-center gap-1 text-[10px] text-rose-400 max-w-[120px]" title={msg}>
+      <ShieldAlert size={10} className="shrink-0" />
+      <span className="truncate">{msg}</span>
+      <button type="button" onClick={dismiss} className="shrink-0 text-slate-500 hover:text-slate-300">✕</button>
+    </span>
+  );
+
+  if (state === 'confirm') return (
+    <span className="flex items-center gap-1 text-[10px]" onClick={(e) => e.stopPropagation()}>
+      <span className="text-amber-300">Sure?</span>
+      <button type="button" onClick={handleConfirm} className="rounded bg-rose-600/80 px-1.5 py-0.5 text-white hover:bg-rose-600">Yes</button>
+      <button type="button" onClick={dismiss} className="rounded bg-slate-700 px-1.5 py-0.5 text-slate-200 hover:bg-slate-600">No</button>
+    </span>
+  );
+
+  if (state === 'loading') return (
+    <span className="flex items-center gap-1 text-[10px] text-slate-400">
+      <RefreshCw size={10} className="animate-spin" /> Forcing…
+    </span>
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title={isBlocked ? 'Cannot force logout — agent has active contact' : 'Force agent to Offline'}
+      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors
+        ${isBlocked
+          ? 'cursor-not-allowed text-slate-600 border border-slate-800'
+          : 'border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500'
+        }`}
+    >
+      <LogOut size={10} />
+      {isBlocked ? 'Blocked' : 'Force out'}
+    </button>
+  );
+}
+
+function AgentRoster({ agentRows, loading, onForceLogout }) {
   const statOrder = { Available: 0, 'On Call': 1, 'After Contact Work': 2, 'Non-Productive': 3, Offline: 4, Error: 5 };
-  const sorted = [...(agentRows || [])].sort((a, b) =>
+  const [rows, setRows] = useState([]);
+
+  useEffect(() => { setRows(agentRows || []); }, [agentRows]);
+
+  const sorted = [...rows].sort((a, b) =>
     (statOrder[a.status] ?? 9) - (statOrder[b.status] ?? 9) || (a.name || '').localeCompare(b.name || ''),
   );
   const avail  = sorted.filter((r) => r.status === 'Available').length;
   const onCall = sorted.filter((r) => r.status === 'On Call').length;
   const acw    = sorted.filter((r) => r.status === 'After Contact Work').length;
+
+  const handleSuccess = (agentId) => {
+    setRows((prev) => prev.map((r) => r.agentId === agentId ? { ...r, status: 'Offline', hasActiveContact: false, contactId: '' } : r));
+    if (onForceLogout) onForceLogout(agentId);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -781,12 +881,17 @@ function AgentRoster({ agentRows, loading }) {
           <p className="text-[11px] text-slate-500 py-3">No agent data available.</p>
         )}
         {sorted.map((agent) => (
-          <div key={agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-800/50 text-[11px]">
-            <div>
-              <p className="text-slate-200 font-medium">{agent.name || '—'}</p>
-              {agent.currentQueue && <p className="text-slate-500">{agent.currentQueue}</p>}
+          <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-800/50 text-[11px]">
+            <div className="min-w-0 flex-1 mr-2">
+              <p className="text-slate-200 font-medium truncate">{agent.name || '—'}</p>
+              {agent.currentQueue && <p className="text-slate-500 truncate">{agent.currentQueue}</p>}
             </div>
-            <AgentStateBadge status={agent.status} />
+            <div className="flex items-center gap-2 shrink-0">
+              <AgentStateBadge status={agent.status} />
+              {agent.status !== 'Offline' && (
+                <ForceLogoutBtn agent={agent} onSuccess={handleSuccess} />
+              )}
+            </div>
           </div>
         ))}
       </div>

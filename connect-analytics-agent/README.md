@@ -6,7 +6,7 @@ Amazon Connect Analytics Agent is a full-stack reference project that combines A
 
 This project includes:
 
-- 8 AWS Lambda analytics tools for Amazon Connect
+- 9 AWS Lambda analytics tools for Amazon Connect
 - An AWS Strands agent that calls those tools through AgentCore Gateway (with direct Lambda fallback)
 - A React 18 + Vite frontend for chat, dashboards, and transcript exploration
 - Docker-based local development with realistic mock responses

@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Sun,
+  TrendingDown,
   X,
 } from 'lucide-react';
 import ContactSearch from './components/ContactSearch';
@@ -15,6 +16,7 @@ import TranscriptViewer from './components/TranscriptViewer';
 import StartupScan from './components/StartupScan';
 import RealtimeCommandCenter from './components/RealtimeCommandCenter';
 import HistoricalAnalytics from './components/HistoricalAnalytics';
+import FlowFunnelPage from './components/FlowFunnelPage';
 import FloatingAssistant from './components/FloatingAssistant';
 import useAgentChat from './hooks/useAgentChat';
 import useProactiveAlerts from './hooks/useProactiveAlerts';
@@ -25,6 +27,7 @@ const SCREENS = [
   { id: 'realtime',   label: 'Real-Time',  sublabel: 'Command Centre', icon: Radio },
   { id: 'historical', label: 'Historical', sublabel: 'Analytics',      icon: BarChart2 },
   { id: 'contacts',   label: 'Contact',    sublabel: 'Search',         icon: ListFilter },
+  { id: 'funnel',     label: 'Flow Funnel', sublabel: 'Drop-off Analysis', icon: TrendingDown },
 ];
 
 export default function App() {
@@ -259,6 +262,11 @@ export default function App() {
                 onAskQuery={handleAskAssistant}
                 onSelectContact={handleSelectContact}
               />
+            </div>
+
+            {/* ── Flow Funnel Analysis ───────────────────────────────────────── */}
+            <div className={screen === 'funnel' ? '' : 'hidden'}>
+              <FlowFunnelPage />
             </div>
 
           </main>

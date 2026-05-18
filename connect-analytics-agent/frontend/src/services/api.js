@@ -54,6 +54,11 @@ export const getHistoricalMetrics = async (days = 30) => {
   return response.data;
 };
 
+export const getHistoricalBreakdown = async (days = 30, groupBy = 'QUEUE') => {
+  const response = await api.get('/historical-breakdown', { params: { days, group_by: groupBy } });
+  return response.data;
+};
+
 export const getAgentStates = async () => {
   const response = await api.get('/agent-states');
   return response.data;
@@ -99,6 +104,26 @@ export const stopMonitorContact = async (contactId) => {
 
 export const getBotMetrics = async (days = 7) => {
   const response = await api.get('/bot-metrics', { params: { days } });
+  return response.data;
+};
+
+export const getBotIntentTrend = async (days = 7) => {
+  const response = await api.get('/bot-intent-trend', { params: { days } });
+  return response.data;
+};
+
+export const getContactFlowEvents = async (contactId) => {
+  const response = await api.get('/contact-flow-events', { params: { contact_id: contactId } });
+  return response.data;
+};
+
+export const getContactFunnel = async (flowName = '', days = 30) => {
+  const response = await api.get('/contact-funnel', { params: { flow_name: flowName, days } });
+  return response.data;
+};
+
+export const getContactFlows = async () => {
+  const response = await api.get('/contact-flows');
   return response.data;
 };
 
@@ -173,6 +198,11 @@ export const upsertSession = async (session) => {
 
 export const deleteSession = async (sessionId) => {
   const response = await api.delete(`/sessions/${sessionId}`);
+  return response.data;
+};
+
+export const forceLogoutAgent = async (agentId, reason = '') => {
+  const response = await api.post(`/agents/${encodeURIComponent(agentId)}/force-logout`, { reason });
   return response.data;
 };
 

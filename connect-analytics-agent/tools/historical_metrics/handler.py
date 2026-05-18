@@ -539,13 +539,16 @@ def lambda_handler(event, _context):
 
         if interval_period != "TOTAL":
             bucket_totals: Dict[str, Dict[str, Any]] = {}
-            agent_timelines: Dict[str, Dict[str, Any]] = {}
+            # Generic per-dimension timeline tracking (works for QUEUE, AGENT, ROUTING_PROFILE, etc.)
+            dimension_timelines: Dict[str, Dict[str, Any]] = {}
 
             for result in metric_results:
                 metric_interval = result.get("MetricInterval", {})
                 bucket_key = str(metric_interval.get("StartTime", ""))
+                dimension_value = result.get("Dimensions", {}).get(group_by)
                 metric_values, _, _ = _build_metric_maps(requested_metrics, result.get("Collections", []))
 
+                # Accumulate into daily aggregate bucket (all dimensions summed)
                 if bucket_key not in bucket_totals:
                     bucket_totals[bucket_key] = {
                         "interval_start": metric_interval.get("StartTime"),
@@ -554,24 +557,24 @@ def lambda_handler(event, _context):
                     }
                 _accumulate_metrics(bucket_totals[bucket_key]["metrics"], metric_values)
 
-                if group_by == "AGENT":
-                    dimension_value = result.get("Dimensions", {}).get(group_by)
-                    if dimension_value not in agent_timelines:
-                        agent_timelines[dimension_value] = {
+                # Track per-dimension timeline (queue or agent per day)
+                if dimension_value:
+                    if dimension_value not in dimension_timelines:
+                        dimension_timelines[dimension_value] = {
                             "group_by": group_by,
                             "dimension_value": dimension_value,
                             "display_name": resolve_display_name(dimension_value),
                             "timeline_map": {},
                             "totals": _empty_metric_totals(requested_metrics),
                         }
-                    if bucket_key not in agent_timelines[dimension_value]["timeline_map"]:
-                        agent_timelines[dimension_value]["timeline_map"][bucket_key] = {
+                    if bucket_key not in dimension_timelines[dimension_value]["timeline_map"]:
+                        dimension_timelines[dimension_value]["timeline_map"][bucket_key] = {
                             "interval_start": metric_interval.get("StartTime"),
                             "interval_end": metric_interval.get("EndTime"),
                             "metrics": _empty_metric_totals(requested_metrics),
                         }
-                    _accumulate_metrics(agent_timelines[dimension_value]["timeline_map"][bucket_key]["metrics"], metric_values)
-                    _accumulate_metrics(agent_timelines[dimension_value]["totals"], metric_values)
+                    _accumulate_metrics(dimension_timelines[dimension_value]["timeline_map"][bucket_key]["metrics"], metric_values)
+                    _accumulate_metrics(dimension_timelines[dimension_value]["totals"], metric_values)
 
             for bucket in bucket_totals.values():
                 formatted_metrics = {
@@ -593,46 +596,47 @@ def lambda_handler(event, _context):
                 rows.append(bucket)
             rows.sort(key=lambda row: str(row.get("interval_start") or ""))
 
-            if group_by == "AGENT":
-                for agent_row in agent_timelines.values():
-                    timeline_rows: List[Dict[str, Any]] = []
-                    for bucket in agent_row.pop("timeline_map").values():
-                        bucket["formatted_metrics"] = {
-                            metric: _format_metric_value(metric, value)
-                            for metric, value in bucket["metrics"].items()
-                            if value is not None
-                        }
-                        bucket["time_breakdown"] = {
-                            metric: {
-                                "label": METRIC_LABELS.get(metric, metric),
-                                "seconds": value,
-                                "formatted": format_duration(value),
-                            }
-                            for metric, value in bucket["metrics"].items()
-                            if metric in TIME_METRICS and value is not None
-                        }
-                        timeline_rows.append(bucket)
-                    timeline_rows.sort(key=lambda row: str(row.get("interval_start") or ""))
-                    totals = agent_row["totals"]
-                    agent_row["timeline"] = timeline_rows
-                    agent_row["formatted_totals"] = {
+            # Serialize per-dimension timelines for all group_by values
+            for dim_row in dimension_timelines.values():
+                timeline_rows: List[Dict[str, Any]] = []
+                for bucket in dim_row.pop("timeline_map").values():
+                    bucket["formatted_metrics"] = {
                         metric: _format_metric_value(metric, value)
-                        for metric, value in totals.items()
+                        for metric, value in bucket["metrics"].items()
                         if value is not None
                     }
-                    agent_row["time_breakdown"] = {
+                    bucket["time_breakdown"] = {
                         metric: {
                             "label": METRIC_LABELS.get(metric, metric),
                             "seconds": value,
                             "formatted": format_duration(value),
                         }
-                        for metric, value in totals.items()
+                        for metric, value in bucket["metrics"].items()
                         if metric in TIME_METRICS and value is not None
                     }
-                    agent_row["occupancy"] = totals.get("AGENT_OCCUPANCY")
-                    agent_row["occupancy_formatted"] = _format_metric_value("AGENT_OCCUPANCY", totals.get("AGENT_OCCUPANCY"))
-                    dimension_results.append(agent_row)
-                dimension_results.sort(key=lambda row: row.get("totals", {}).get(sort_metric) or 0, reverse=True)
+                    timeline_rows.append(bucket)
+                timeline_rows.sort(key=lambda row: str(row.get("interval_start") or ""))
+                totals = dim_row["totals"]
+                dim_row["timeline"] = timeline_rows
+                dim_row["formatted_totals"] = {
+                    metric: _format_metric_value(metric, value)
+                    for metric, value in totals.items()
+                    if value is not None
+                }
+                dim_row["time_breakdown"] = {
+                    metric: {
+                        "label": METRIC_LABELS.get(metric, metric),
+                        "seconds": value,
+                        "formatted": format_duration(value),
+                    }
+                    for metric, value in totals.items()
+                    if metric in TIME_METRICS and value is not None
+                }
+                if group_by == "AGENT":
+                    dim_row["occupancy"] = totals.get("AGENT_OCCUPANCY")
+                    dim_row["occupancy_formatted"] = _format_metric_value("AGENT_OCCUPANCY", totals.get("AGENT_OCCUPANCY"))
+                dimension_results.append(dim_row)
+            dimension_results.sort(key=lambda row: row.get("totals", {}).get(sort_metric) or 0, reverse=True)
         else:
             for result in metric_results:
                 dimension_value = result.get("Dimensions", {}).get(group_by)
@@ -672,9 +676,10 @@ def lambda_handler(event, _context):
             "warnings": warnings,
             "results": rows,
         }
-        if interval_period != "TOTAL" and group_by == "AGENT":
+        if interval_period != "TOTAL" and dimension_results:
             payload["dimension_results"] = dimension_results
-            payload["agent_timelines"] = dimension_results
+            if group_by == "AGENT":
+                payload["agent_timelines"] = dimension_results  # backward compat
         if interval_period == "TOTAL" and group_by == "AGENT":
             payload["agent_results"] = rows
 

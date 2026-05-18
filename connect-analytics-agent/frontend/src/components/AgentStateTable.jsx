@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, ArrowUpDown, RefreshCw, AlertCircle } from 'lucide-react';
-import { getAgentStates } from '../services/api';
+import { Download, ArrowUpDown, RefreshCw, AlertCircle, LogOut, ShieldAlert, CheckCircle } from 'lucide-react';
+import { getAgentStates, forceLogoutAgent } from '../services/api';
 
 const badgeStyles = {
   Available: 'bg-emerald-500/15 text-emerald-300',
@@ -10,6 +10,129 @@ const badgeStyles = {
   Offline: 'bg-slate-500/15 text-slate-300',
   Error: 'bg-rose-500/15 text-rose-300',
 };
+
+// Statuses where force-logout is blocked (active or unclosed contact)
+const BLOCKED_STATUSES = new Set(['On Call', 'After Contact Work']);
+
+function ForceLogoutCell({ row, onSuccess }) {
+  const [state, setState] = useState('idle'); // idle | confirm | loading | done | error | blocked
+  const [message, setMessage] = useState('');
+
+  const isBlocked = BLOCKED_STATUSES.has(row.status) || row.hasActiveContact;
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (isBlocked) {
+      setState('blocked');
+      setMessage(
+        row.status === 'After Contact Work'
+          ? 'Agent is in ACW — contact not yet closed.'
+          : `Agent is on an active contact (${row.contactId}). End or transfer it first.`,
+      );
+      return;
+    }
+    setState('confirm');
+  };
+
+  const handleConfirm = async (e) => {
+    e.stopPropagation();
+    setState('loading');
+    try {
+      const result = await forceLogoutAgent(row.agentId, 'Supervisor force-logout');
+      if (result.blocked) {
+        setState('blocked');
+        setMessage(result.reason || 'Blocked: agent has an active contact.');
+      } else {
+        setState('done');
+        setMessage('Forced offline');
+        onSuccess(row.agentId);
+      }
+    } catch (err) {
+      setState('error');
+      setMessage(err?.response?.data?.detail || 'Request failed');
+    }
+  };
+
+  const handleCancel = (e) => {
+    e.stopPropagation();
+    setState('idle');
+    setMessage('');
+  };
+
+  const handleDismiss = (e) => {
+    e.stopPropagation();
+    setState('idle');
+    setMessage('');
+  };
+
+  if (state === 'done') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+        <CheckCircle size={13} />
+        {message}
+        <button type="button" onClick={handleDismiss} className="ml-1 text-slate-500 hover:text-slate-300 text-[10px]">✕</button>
+      </span>
+    );
+  }
+
+  if (state === 'blocked' || state === 'error') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-rose-400 max-w-[200px]">
+        <ShieldAlert size={13} className="shrink-0" />
+        <span className="truncate" title={message}>{message}</span>
+        <button type="button" onClick={handleDismiss} className="ml-1 shrink-0 text-slate-500 hover:text-slate-300 text-[10px]">✕</button>
+      </span>
+    );
+  }
+
+  if (state === 'confirm') {
+    return (
+      <span className="inline-flex items-center gap-2 text-xs">
+        <span className="text-amber-300">Confirm?</span>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          className="rounded-lg bg-rose-600/80 px-2 py-0.5 text-white hover:bg-rose-600"
+        >
+          Yes, force
+        </button>
+        <button
+          type="button"
+          onClick={handleCancel}
+          className="rounded-lg bg-slate-700 px-2 py-0.5 text-slate-200 hover:bg-slate-600"
+        >
+          Cancel
+        </button>
+      </span>
+    );
+  }
+
+  if (state === 'loading') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+        <RefreshCw size={13} className="animate-spin" />
+        Forcing…
+      </span>
+    );
+  }
+
+  // idle
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title={isBlocked ? 'Cannot force logout — agent has active contact' : 'Force agent to Offline'}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors
+        ${isBlocked
+          ? 'cursor-not-allowed border border-slate-700 text-slate-600'
+          : 'border border-rose-700/50 text-rose-400 hover:border-rose-500 hover:bg-rose-500/10'
+        }`}
+    >
+      <LogOut size={12} />
+      {isBlocked ? 'Blocked' : 'Force logout'}
+    </button>
+  );
+}
 
 export default function AgentStateTable({ onAskQuery }) {
   const [agentRows, setAgentRows] = useState([]);
@@ -35,6 +158,17 @@ export default function AgentStateTable({ onAskQuery }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // After successful force-logout, optimistically update the row in local state
+  const handleForceLogoutSuccess = useCallback((agentId) => {
+    setAgentRows((prev) =>
+      prev.map((row) =>
+        row.agentId === agentId
+          ? { ...row, status: 'Offline', hasActiveContact: false, contactId: '' }
+          : row,
+      ),
+    );
+  }, []);
 
   const statuses = useMemo(() => ['All', ...new Set(agentRows.map((r) => r.status))], [agentRows]);
 
@@ -120,13 +254,14 @@ export default function AgentStateTable({ onAskQuery }) {
                   </button>
                 </th>
               ))}
+              <th className="px-4 py-3 text-left font-medium text-slate-400">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 bg-slate-900/70">
             {rows.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400">No agents found{statusFilter !== 'All' ? ` with status "${statusFilter}"` : ''}.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">No agents found{statusFilter !== 'All' ? ` with status "${statusFilter}"` : ''}.</td></tr>
             ) : rows.map((row) => (
-              <tr key={`${row.name}-${row.status}`} onClick={() => onAskQuery(`Summarize ${row.name}'s current workload and status.`)} className="cursor-pointer hover:bg-slate-800/70">
+              <tr key={`${row.agentId || row.name}-${row.status}`} onClick={() => onAskQuery(`Summarize ${row.name}'s current workload and status.`)} className="cursor-pointer hover:bg-slate-800/70">
                 <td className="px-4 py-4 font-medium text-white">{row.name}</td>
                 <td className="px-4 py-4">
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeStyles[row.status] || 'bg-slate-500/15 text-slate-300'}`}>{row.status}</span>
@@ -134,6 +269,11 @@ export default function AgentStateTable({ onAskQuery }) {
                 <td className="px-4 py-4 text-slate-300">{row.currentQueue}</td>
                 <td className="px-4 py-4 text-slate-300">{row.timeInStatus}</td>
                 <td className="px-4 py-4 text-slate-300">{row.contactId || '—'}</td>
+                <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                  {row.status !== 'Offline' && (
+                    <ForceLogoutCell row={row} onSuccess={handleForceLogoutSuccess} />
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -143,3 +283,4 @@ export default function AgentStateTable({ onAskQuery }) {
     </section>
   );
 }
+

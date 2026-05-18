@@ -39,12 +39,28 @@
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogs",
+      "Sid": "CloudWatchLogsWrite",
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "logs:GetLogRecord",
+        "logs:GetLogGroupFields"
       ],
       "Resource": "*"
     }

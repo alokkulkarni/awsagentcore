@@ -26,7 +26,7 @@ FRONTEND_BUCKET="${PROJECT_NAME}-frontend-${STACK_SUFFIX}"
 DISTRIBUTION_COMMENT="${PROJECT_NAME}-distribution"
 
 # Tool Lambda names
-TOOL_NAMES=("realtime-metrics" "historical-metrics" "agent-states" "search-contacts" "contact-detail" "transcript" "keyword-search" "recording-url")
+TOOL_NAMES=("realtime-metrics" "historical-metrics" "agent-states" "search-contacts" "contact-detail" "transcript" "keyword-search" "recording-url" "contact-flow-events")
 
 declare -A TOOL_DIRS=(
   ["realtime-metrics"]="realtime_metrics"
@@ -37,6 +37,7 @@ declare -A TOOL_DIRS=(
   ["transcript"]="transcript"
   ["keyword-search"]="keyword_search"
   ["recording-url"]="recording_url"
+  ["contact-flow-events"]="contact_flow_events"
 )
 
 declare -A TOOL_FUNCTIONS=(
@@ -48,6 +49,7 @@ declare -A TOOL_FUNCTIONS=(
   ["transcript"]="get_transcript"
   ["keyword-search"]="keyword_search"
   ["recording-url"]="get_recording_url"
+  ["contact-flow-events"]="contact_flow_events"
 )
 
 declare -A TOOL_SCHEMA_TO_KEY=(
@@ -59,6 +61,7 @@ declare -A TOOL_SCHEMA_TO_KEY=(
   ["get_transcript"]="transcript"
   ["keyword_search"]="keyword-search"
   ["get_recording_url"]="recording-url"
+  ["contact_flow_events"]="contact-flow-events"
 )
 
 ACCOUNT_ID=""
@@ -495,6 +498,7 @@ deploy_agent_lambda() {
     --arg transcript "$(state_get --arg key 'transcript' '.tool_lambda_names[$key] // empty')" \
     --arg keyword "$(state_get --arg key 'keyword-search' '.tool_lambda_names[$key] // empty')" \
     --arg recording "$(state_get --arg key 'recording-url' '.tool_lambda_names[$key] // empty')" \
+    --arg flow_events "$(state_get --arg key 'contact-flow-events' '.tool_lambda_names[$key] // empty')" \
     '{
       get_realtime_metrics: $realtime,
       get_historical_metrics: $historical,
@@ -503,7 +507,8 @@ deploy_agent_lambda() {
       get_contact_detail: $detail,
       get_transcript: $transcript,
       keyword_search: $keyword,
-      get_recording_url: $recording
+      get_recording_url: $recording,
+      contact_flow_events: $flow_events
     }' | jq -c '.')"
 
   jq -n \

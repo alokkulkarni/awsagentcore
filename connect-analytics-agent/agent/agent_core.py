@@ -35,6 +35,7 @@ _TOOL_DIR_MAP: Dict[str, str] = {
     "keyword_search": "keyword_search",
     "get_recording_url": "recording_url",
     "get_bot_metrics": "bot_metrics",
+    "contact_flow_events": "contact_flow_events",
 }
 
 
@@ -138,7 +139,8 @@ class ConnectAnalyticsAgent:
             "- Get detailed information about specific contacts\n"
             "- Retrieve call transcripts (requires Contact Lens to be enabled)\n"
             "- Search calls by keywords in transcripts\n"
-            "- Generate links to call recordings\n\n"
+            "- Generate links to call recordings\n"
+            "- Trace the ordered contact flow journey for a specific contact\n\n"
             "When answering questions:\n"
             "- Always present data in a clear, readable format\n"
             "- For busiest agent queries, sort by contacts handled or time on calls\n"

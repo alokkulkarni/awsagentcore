@@ -32,7 +32,7 @@ Amazon Connect Analytics Agent is a layered system that exposes Amazon Connect o
                         Gateway    │  invocation mode
                                    ▼
                   ┌─────────────────────────────────────┐
-                  │ 8 Lambda Analytics Tool Functions   │
+                  │ 9 Lambda Analytics Tool Functions   │
                   │ Shared Connect utility module       │
                   └─────────────────┬───────────────────┘
                                     │ boto3
@@ -59,7 +59,7 @@ All tools accept AgentCore-style parameter lists and normalize them through `too
 
 ## 3. AgentCore Gateway integration details
 
-The intended deployment path uses `aws bedrock-agentcore-control create-gateway` to provision an AgentCore Gateway, then registers all 8 Lambda-backed tools using `infrastructure/gateway/tool-schemas.json`.
+The intended deployment path uses `aws bedrock-agentcore-control create-gateway` to provision an AgentCore Gateway, then registers all 9 Lambda-backed tools using `infrastructure/gateway/tool-schemas.json`.
 
 Gateway integration flow:
 

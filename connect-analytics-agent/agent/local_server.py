@@ -152,13 +152,16 @@ _MOCK_CHAT: Dict[str, str] = {
 }
 
 _MOCK_AGENT_STATES = [
-    {"name": "Sarah Johnson", "status": "Available", "currentQueue": "Customer Support", "timeInStatus": "00:12:18", "contactId": ""},
-    {"name": "Marcus Lee", "status": "On Call", "currentQueue": "Technical Support", "timeInStatus": "00:08:05", "contactId": "c-10231"},
-    {"name": "Priya Patel", "status": "After Contact Work", "currentQueue": "Billing", "timeInStatus": "00:02:44", "contactId": "c-10228"},
-    {"name": "Andre Lewis", "status": "Non-Productive", "currentQueue": "VIP Support", "timeInStatus": "00:15:06", "contactId": ""},
-    {"name": "Mina Chen", "status": "Offline", "currentQueue": "—", "timeInStatus": "01:03:54", "contactId": ""},
-    {"name": "Dylan Brooks", "status": "Error", "currentQueue": "Customer Support", "timeInStatus": "00:01:09", "contactId": "c-10236"},
+    {"agentId": "mock-agent-001", "name": "Sarah Johnson", "status": "Available", "currentQueue": "Customer Support", "timeInStatus": "00:12:18", "contactId": "", "hasActiveContact": False},
+    {"agentId": "mock-agent-002", "name": "Marcus Lee", "status": "On Call", "currentQueue": "Technical Support", "timeInStatus": "00:08:05", "contactId": "c-10231", "hasActiveContact": True},
+    {"agentId": "mock-agent-003", "name": "Priya Patel", "status": "After Contact Work", "currentQueue": "Billing", "timeInStatus": "00:02:44", "contactId": "c-10228", "hasActiveContact": True},
+    {"agentId": "mock-agent-004", "name": "Andre Lewis", "status": "Non-Productive", "currentQueue": "VIP Support", "timeInStatus": "00:15:06", "contactId": "", "hasActiveContact": False},
+    {"agentId": "mock-agent-005", "name": "Mina Chen", "status": "Offline", "currentQueue": "—", "timeInStatus": "01:03:54", "contactId": "", "hasActiveContact": False},
+    {"agentId": "mock-agent-006", "name": "Dylan Brooks", "status": "Error", "currentQueue": "Customer Support", "timeInStatus": "00:01:09", "contactId": "c-10236", "hasActiveContact": False},
 ]
+
+# Track mock force-logout state so the UI reflects changes within a session
+_MOCK_FORCE_LOGOUT_APPLIED: Dict[str, bool] = {}
 
 _MOCK_CONTACTS = [
     {"contactId": "c-10236", "dateTime": "2025-05-08T09:18:00Z", "agent": "Marcus Lee", "queue": "Technical Support", "duration": 412, "status": "ENDED", "channel": "VOICE"},
@@ -509,6 +512,87 @@ _MOCK_HISTORICAL = {
     ],
 }
 
+# ── Mock per-queue and per-agent breakdown data ──────────────────────────────
+
+_MOCK_DATES = [
+    ("2026-04-08", "8 Apr"), ("2026-04-09", "9 Apr"), ("2026-04-10", "10 Apr"),
+    ("2026-04-14", "14 Apr"), ("2026-04-15", "15 Apr"), ("2026-04-16", "16 Apr"),
+    ("2026-04-17", "17 Apr"), ("2026-04-22", "22 Apr"), ("2026-04-23", "23 Apr"),
+    ("2026-04-24", "24 Apr"), ("2026-04-27", "27 Apr"), ("2026-04-28", "28 Apr"),
+    ("2026-05-01", "1 May"), ("2026-05-08", "8 May"),
+]
+
+_MOCK_QUEUES = [
+    {"name": "Technical Support", "splits": [0.35, 0.25, 0.22, 0.18],
+     "avg_ht": [240, 195, 180, 155], "avg_acw": [75, 60, 52, 45], "aband_rate": [0.14, 0.11, 0.09, 0.08]},
+    {"name": "Billing",           "splits": [0.25, 0.35, 0.22, 0.18],
+     "avg_ht": [195, 215, 185, 160], "avg_acw": [60, 70, 55, 48], "aband_rate": [0.10, 0.13, 0.08, 0.07]},
+    {"name": "General Enquiry",   "splits": [0.22, 0.22, 0.35, 0.18],
+     "avg_ht": [160, 175, 165, 145], "avg_acw": [45, 50, 48, 40], "aband_rate": [0.07, 0.08, 0.12, 0.06]},
+    {"name": "Sales",             "splits": [0.18, 0.18, 0.21, 0.46],
+     "avg_ht": [280, 295, 270, 310], "avg_acw": [90, 95, 85, 100], "aband_rate": [0.06, 0.07, 0.06, 0.05]},
+]
+
+_MOCK_AGENTS = [
+    {"name": "Sarah Johnson", "splits": [0.26, 0.20, 0.18, 0.17, 0.19],
+     "avg_ht": [195, 170, 190, 175, 185], "avg_acw": [60, 52, 58, 54, 57], "aband_rate": [0.0]*5},
+    {"name": "Mike Chen",     "splits": [0.20, 0.26, 0.18, 0.17, 0.19],
+     "avg_ht": [210, 225, 200, 215, 205], "avg_acw": [68, 72, 65, 70, 66], "aband_rate": [0.0]*5},
+    {"name": "Lisa Park",     "splits": [0.18, 0.18, 0.26, 0.17, 0.21],
+     "avg_ht": [180, 185, 175, 178, 180], "avg_acw": [55, 57, 53, 56, 54], "aband_rate": [0.0]*5},
+    {"name": "James Wilson",  "splits": [0.17, 0.17, 0.17, 0.26, 0.23],
+     "avg_ht": [240, 250, 235, 260, 245], "avg_acw": [78, 82, 76, 85, 80], "aband_rate": [0.0]*5},
+    {"name": "Emma Davis",    "splits": [0.19, 0.19, 0.21, 0.23, 0.18],
+     "avg_ht": [165, 170, 160, 168, 162], "avg_acw": [50, 53, 48, 52, 49], "aband_rate": [0.0]*5},
+]
+
+
+def _build_mock_breakdown(entities: List[Dict], total_row: Dict, days: int) -> Dict:
+    """Build daily per-entity breakdown from mock totals, scaled to the requested period."""
+    import random
+    import hashlib
+    scale = max(0.05, days / 30.0)
+    rng = random.Random(days * 7 + len(entities))
+
+    daily = []
+    totals = []
+
+    for dk, lbl in _MOCK_DATES:
+        row: Dict = {"date_key": dk, "label": lbl}
+        for idx, ent in enumerate(entities):
+            n = int(round((total_row[idx] * ent["splits"][idx % len(ent["splits"])]) * scale
+                          * (0.7 + rng.random() * 0.6)))
+            ht = ent["avg_ht"][idx % len(ent["avg_ht"])] + rng.randint(-20, 20)
+            acw = ent["avg_acw"][idx % len(ent["avg_acw"])] + rng.randint(-8, 8)
+            ab = int(round(n * ent["aband_rate"][idx % len(ent["aband_rate"])]))
+            row[ent["name"]] = {
+                "CONTACTS_HANDLED": n,
+                "CONTACTS_ABANDONED": ab,
+                "AVG_HANDLE_TIME": ht,
+                "AVG_AFTER_CONTACT_WORK_TIME": acw,
+            }
+        daily.append(row)
+
+    rng2 = random.Random(days * 13 + len(entities))
+    for idx, ent in enumerate(entities):
+        total_handled = sum(daily[d][ent["name"]]["CONTACTS_HANDLED"] for d in range(len(daily)))
+        total_aband   = sum(daily[d][ent["name"]]["CONTACTS_ABANDONED"] for d in range(len(daily)))
+        avg_ht  = ent["avg_ht"][idx % len(ent["avg_ht"])] + rng2.randint(-10, 10)
+        avg_acw = ent["avg_acw"][idx % len(ent["avg_acw"])] + rng2.randint(-5, 5)
+        totals.append({
+            "entity": ent["name"],
+            "CONTACTS_HANDLED": total_handled,
+            "CONTACTS_ABANDONED": total_aband,
+            "AVG_HANDLE_TIME": avg_ht,
+            "AVG_AFTER_CONTACT_WORK_TIME": avg_acw,
+        })
+
+    return {"daily": daily, "totals": totals, "entities": [e["name"] for e in entities]}
+
+
+_MOCK_HANDLED_TOTALS_PER_QUEUE = [12, 9, 8, 7]
+_MOCK_HANDLED_TOTALS_PER_AGENT = [11, 9, 8, 7, 7]
+
 
 @app.get("/historical-metrics")
 def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, Any]:
@@ -579,13 +663,21 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
         for dk in all_keys:
             h = handled_map.get(dk, {})
             a = acw_map.get(dk, {})
+            handled_count   = h.get("CONTACTS_HANDLED", 0)
+            avg_handle      = h.get("AVG_HANDLE_TIME", 0)
+            avg_acw         = a.get("AVG_AFTER_CONTACT_WORK_TIME", 0)
+            # Total = avg (seconds) × number of contacts handled that day, expressed in minutes (2dp)
+            total_handle_min = round((avg_handle * handled_count) / 60, 2) if handled_count else 0
+            total_acw_min    = round((avg_acw    * handled_count) / 60, 2) if handled_count else 0
             chart_data.append({
                 "date_key": dk,
                 "label": h.get("label") or a.get("label") or dk,
-                "CONTACTS_HANDLED": h.get("CONTACTS_HANDLED", 0),
-                "AVG_HANDLE_TIME": h.get("AVG_HANDLE_TIME", 0),
+                "CONTACTS_HANDLED": handled_count,
+                "AVG_HANDLE_TIME": avg_handle,
+                "TOTAL_HANDLE_TIME_MIN": total_handle_min,
                 "CONTACTS_QUEUED": a.get("CONTACTS_QUEUED", 0),
-                "AVG_AFTER_CONTACT_WORK_TIME": a.get("AVG_AFTER_CONTACT_WORK_TIME", 0),
+                "AVG_AFTER_CONTACT_WORK_TIME": avg_acw,
+                "TOTAL_ACW_TIME_MIN": total_acw_min,
             })
 
         abandoned_chart = []
@@ -608,25 +700,261 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
         raise HTTPException(status_code=502, detail="Failed to fetch historical metrics") from exc
 
 
+@app.get("/historical-breakdown")
+def historical_breakdown(
+    days: int = Query(default=30, ge=1, le=90),
+    group_by: str = Query(default="QUEUE"),
+) -> Dict[str, Any]:
+    """Return per-queue or per-agent daily breakdown for the 4 key metrics."""
+    group_by = group_by.upper()
+    if group_by not in ("QUEUE", "AGENT"):
+        raise HTTPException(status_code=400, detail="group_by must be QUEUE or AGENT")
+
+    if _is_mock():
+        entities = _MOCK_QUEUES if group_by == "QUEUE" else _MOCK_AGENTS
+        totals_row = _MOCK_HANDLED_TOTALS_PER_QUEUE if group_by == "QUEUE" else _MOCK_HANDLED_TOTALS_PER_AGENT
+        bd = _build_mock_breakdown(entities, totals_row, days)
+        return {"mock": True, "group_by": group_by, "period": f"Last {days} days", **bd}
+
+    try:
+        now = datetime.now(timezone.utc)
+        start = (now - timedelta(days=days)).isoformat()
+        end = now.isoformat()
+
+        result = _invoke_tool("get_historical_metrics", [
+            {"name": "start_time", "type": "string", "value": start},
+            {"name": "end_time",   "type": "string", "value": end},
+            {"name": "group_by",   "type": "string", "value": group_by},
+            {"name": "interval",   "type": "string", "value": "DAY"},
+            {"name": "metrics",    "type": "string",
+             "value": "CONTACTS_HANDLED,CONTACTS_ABANDONED,AVG_HANDLE_TIME,AVG_AFTER_CONTACT_WORK_TIME"},
+        ])
+
+        def _parse_dt(iso_str):
+            try:
+                return datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+            except Exception:
+                return None
+
+        def _fmt_label(iso_str):
+            dt = _parse_dt(iso_str)
+            return dt.strftime("%-d %b") if dt else str(iso_str)[:10]
+
+        def _date_key(iso_str):
+            dt = _parse_dt(iso_str)
+            return dt.strftime("%Y-%m-%d") if dt else str(iso_str)[:10]
+
+        dimension_results = result.get("dimension_results", [])
+        if not dimension_results:
+            raise HTTPException(status_code=204, detail="No breakdown data returned from Connect")
+
+        entities_list = [row.get("display_name") or row.get("dimension_value", "Unknown")
+                         for row in dimension_results]
+
+        # Build list of all date keys in order
+        all_date_keys: Dict[str, str] = {}
+        for row in dimension_results:
+            for bucket in row.get("timeline", []):
+                dk = _date_key(bucket.get("interval_start"))
+                if dk not in all_date_keys:
+                    all_date_keys[dk] = _fmt_label(bucket.get("interval_start"))
+        sorted_dates = sorted(all_date_keys.keys())
+
+        # Pivot to [{label, entity1: {metrics}, entity2: {metrics}}, ...]
+        date_entity_map: Dict[str, Dict] = {dk: {"date_key": dk, "label": all_date_keys[dk]} for dk in sorted_dates}
+
+        for row in dimension_results:
+            ent_name = row.get("display_name") or row.get("dimension_value", "Unknown")
+            for bucket in row.get("timeline", []):
+                dk = _date_key(bucket.get("interval_start"))
+                m = bucket.get("metrics", {})
+                if dk in date_entity_map:
+                    date_entity_map[dk][ent_name] = {
+                        "CONTACTS_HANDLED": int(m.get("CONTACTS_HANDLED") or 0),
+                        "CONTACTS_ABANDONED": int(m.get("CONTACTS_ABANDONED") or 0),
+                        "AVG_HANDLE_TIME": round(float(m.get("AVG_HANDLE_TIME") or 0)),
+                        "AVG_AFTER_CONTACT_WORK_TIME": round(float(m.get("AVG_AFTER_CONTACT_WORK_TIME") or 0)),
+                    }
+
+        daily = [date_entity_map[dk] for dk in sorted_dates]
+
+        totals = []
+        for row in dimension_results:
+            ent_name = row.get("display_name") or row.get("dimension_value", "Unknown")
+            t = row.get("totals", {})
+            totals.append({
+                "entity": ent_name,
+                "CONTACTS_HANDLED": int(t.get("CONTACTS_HANDLED") or 0),
+                "CONTACTS_ABANDONED": int(t.get("CONTACTS_ABANDONED") or 0),
+                "AVG_HANDLE_TIME": round(float(t.get("AVG_HANDLE_TIME") or 0)),
+                "AVG_AFTER_CONTACT_WORK_TIME": round(float(t.get("AVG_AFTER_CONTACT_WORK_TIME") or 0)),
+            })
+
+        return {
+            "mock": False,
+            "group_by": group_by,
+            "period": f"Last {days} days",
+            "entities": entities_list,
+            "daily": daily,
+            "totals": totals,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=502, detail="Failed to fetch historical breakdown") from exc
+
+
 @app.get("/agent-states")
 def agent_states() -> Dict[str, Any]:
     if _is_mock():
-        return {"mock": True, "agents": _MOCK_AGENT_STATES, "agent_count": len(_MOCK_AGENT_STATES)}
+        # Reflect any force-logout mock state
+        agents = []
+        for row in _MOCK_AGENT_STATES:
+            entry = dict(row)
+            if _MOCK_FORCE_LOGOUT_APPLIED.get(entry["agentId"]):
+                entry["status"] = "Offline"
+                entry["hasActiveContact"] = False
+                entry["contactId"] = ""
+            agents.append(entry)
+        return {"mock": True, "agents": agents, "agent_count": len(agents)}
     try:
         data = _invoke_tool("get_agent_states", [])
         agents = []
         for agent in data.get("agents", []):
             raw_status = agent.get("current_status", "")
+            has_active = bool(agent.get("contacts")) or raw_status in {"ON_CALL", "AFTER_CONTACT_WORK"}
             agents.append({
+                "agentId": agent.get("agent_id", ""),
                 "name": agent.get("display_name") or agent.get("username", "Unknown"),
                 "status": _STATUS_DISPLAY.get(raw_status, raw_status.replace("_", " ").title()),
                 "currentQueue": agent.get("current_queue_name") or agent.get("current_queue") or "—",
                 "timeInStatus": agent.get("time_in_status", "00:00:00"),
                 "contactId": agent.get("contact_id") or "",
+                "hasActiveContact": has_active,
             })
         return {"mock": False, "agents": agents, "agent_count": len(agents)}
     except Exception as exc:  # pylint: disable=broad-except
         raise HTTPException(status_code=502, detail="Failed to fetch agent states") from exc
+
+
+class ForceLogoutRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@app.post("/agents/{agent_id}/force-logout")
+def force_logout_agent(agent_id: str, body: ForceLogoutRequest = ForceLogoutRequest()) -> Dict[str, Any]:
+    """Force an agent to Offline via PutUserStatus, with active-contact guard."""
+    if not agent_id or len(agent_id) > 128:
+        raise HTTPException(status_code=400, detail="Invalid agent_id")
+
+    if _is_mock():
+        # In mock mode, block if agent has an active contact
+        target = next((a for a in _MOCK_AGENT_STATES if a["agentId"] == agent_id), None)
+        if not target:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id!r} not found")
+        if target.get("hasActiveContact"):
+            return {
+                "forced": False,
+                "blocked": True,
+                "reason": (
+                    f"Agent has an active contact ({target['contactId']}). "
+                    "End or transfer the contact before forcing logout."
+                ),
+                "active_contacts": [{"contact_id": target["contactId"], "channel": "VOICE", "state": "CONNECTED"}],
+            }
+        _MOCK_FORCE_LOGOUT_APPLIED[agent_id] = True
+        return {
+            "forced": True,
+            "blocked": False,
+            "user_id": agent_id,
+            "new_status": "Offline",
+            "message": f"Agent '{target['name']}' has been forced to Offline.",
+        }
+
+    try:
+        import boto3  # pylint: disable=import-outside-toplevel
+        from botocore.exceptions import BotoCoreError, ClientError  # pylint: disable=import-outside-toplevel
+        instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+        if not instance_id:
+            raise HTTPException(status_code=500, detail="CONNECT_INSTANCE_ID not configured")
+
+        connect = boto3.client("connect")
+
+        # ── Check for active contacts ────────────────────────────────────────
+        ud_response = connect.get_current_user_data(
+            InstanceId=instance_id,
+            Filters={"Agents": [agent_id]},
+            MaxResults=1,
+        )
+        user_data = (ud_response.get("UserDataList") or [{}])[0]
+        active_contacts = user_data.get("Contacts", [])
+        status_name = (user_data.get("Status") or {}).get("StatusName", "").lower()
+
+        if active_contacts:
+            return {
+                "forced": False,
+                "blocked": True,
+                "reason": (
+                    f"Agent has {len(active_contacts)} active contact(s). "
+                    "End or transfer all contacts before forcing logout."
+                ),
+                "active_contacts": [
+                    {
+                        "contact_id": c.get("ContactId"),
+                        "channel": c.get("Channel"),
+                        "state": c.get("AgentContactState"),
+                    }
+                    for c in active_contacts
+                ],
+            }
+
+        if "after" in status_name or "acw" in status_name:
+            return {
+                "forced": False,
+                "blocked": True,
+                "reason": (
+                    "Agent is in After Contact Work (ACW). "
+                    "The contact has not been fully closed. "
+                    "Wait for ACW to complete or ask the agent to close the contact."
+                ),
+                "active_contacts": [],
+            }
+
+        # ── Resolve Offline status ID ────────────────────────────────────────
+        offline_id: Optional[str] = None
+        paginator = connect.get_paginator("list_agent_statuses")
+        for page in paginator.paginate(InstanceId=instance_id):
+            for s in page.get("AgentStatusSummaryList", []):
+                if s.get("Name", "").lower() == "offline":
+                    offline_id = s["Id"]
+                    break
+            if offline_id:
+                break
+
+        if not offline_id:
+            raise HTTPException(status_code=500, detail="Could not find Offline status in this Connect instance")
+
+        # ── Force the agent Offline ──────────────────────────────────────────
+        connect.put_user_status(
+            InstanceId=instance_id,
+            UserId=agent_id,
+            AgentStatusId=offline_id,
+        )
+        LOGGER.info("Force-logged out agent %s (reason: %s)", agent_id, body.reason or "supervisor action")
+        return {
+            "forced": True,
+            "blocked": False,
+            "user_id": agent_id,
+            "new_status": "Offline",
+            "message": f"Agent {agent_id} has been forced to Offline successfully.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.exception("Unexpected error during force logout for agent %s", agent_id)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
 
 
 _MOCK_ACTIVE_CALLS = [
@@ -1131,6 +1459,298 @@ _MOCK_BOT_METRICS = {
     ],
 }
 
+# ── Mock contact flow event data ────────────────────────────────────────────
+_MOCK_CONTACT_ID_FOR_FLOW = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+_MOCK_FLOW_EVENTS = {
+    "contact_id": _MOCK_CONTACT_ID_FOR_FLOW,
+    "mock": True,
+    "flows_traversed": ["MainInboundFlow", "BillingSubflow"],
+    "event_count": 9,
+    "total_duration_ms": 284_000,
+    "events": [
+        {
+            "event_id": "b1-welcome",
+            "timestamp_ms": 0,
+            "elapsed_ms": 0,
+            "block_id": "b1",
+            "block_type": "PlayPrompt",
+            "block_name": "Welcome Message",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Success",
+            "duration_ms": 4_200,
+            "parameters": {"TextToSpeechMessage": "Welcome to ACME support. Your call may be recorded."},
+            "results": "Success",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b2-intent",
+            "timestamp_ms": 4_200,
+            "elapsed_ms": 4_200,
+            "block_id": "b2",
+            "block_type": "GetCustomerInput",
+            "block_name": "Capture Customer Intent",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Billing",
+            "duration_ms": 9_500,
+            "parameters": {
+                "TextToSpeechMessage": "For billing press 1. For technical support press 2. To speak with an agent press 0.",
+                "InputTimeLimitSeconds": "8",
+            },
+            "results": "Billing",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b3-hours",
+            "timestamp_ms": 13_700,
+            "elapsed_ms": 13_700,
+            "block_id": "b3",
+            "block_type": "CheckHoursOfOperation",
+            "block_name": "Check Business Hours",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "In hours",
+            "duration_ms": 80,
+            "parameters": {"HoursOfOperationId": "arn:aws:connect:eu-west-2:123456789:hours/09-17-weekdays"},
+            "results": "In hours",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b4-attr-check",
+            "timestamp_ms": 13_780,
+            "elapsed_ms": 13_780,
+            "block_id": "b4",
+            "block_type": "CheckContactAttributes",
+            "block_name": "Check Account Status",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Active",
+            "duration_ms": 60,
+            "parameters": {"Attribute": "AccountStatus", "ComparisonValue": "Active"},
+            "results": "Active",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b5-lambda",
+            "timestamp_ms": 13_840,
+            "elapsed_ms": 13_840,
+            "block_id": "b5",
+            "block_type": "InvokeExternalResource",
+            "block_name": "Get Account Balance",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Success",
+            "duration_ms": 380,
+            "parameters": {
+                "FunctionArn": "arn:aws:lambda:eu-west-2:123456789:function:connect-get-account-balance",
+                "TimeLimit": "8",
+            },
+            "results": "Success",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b6-balance",
+            "timestamp_ms": 14_220,
+            "elapsed_ms": 14_220,
+            "block_id": "b6",
+            "block_type": "PlayPrompt",
+            "block_name": "Read Account Balance",
+            "flow_name": "MainInboundFlow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Success",
+            "duration_ms": 3_800,
+            "parameters": {"TextToSpeechMessage": "$.Attributes.AccountBalance"},
+            "results": "Success",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b7-anything-else",
+            "timestamp_ms": 18_020,
+            "elapsed_ms": 18_020,
+            "block_id": "b7",
+            "block_type": "GetCustomerInput",
+            "block_name": "Anything Else?",
+            "flow_name": "BillingSubflow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Dispute",
+            "duration_ms": 11_500,
+            "parameters": {
+                "TextToSpeechMessage": "Would you like to raise a billing dispute? Press 1 for yes, 2 to end the call.",
+                "InputTimeLimitSeconds": "8",
+            },
+            "results": "Dispute",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b8-transfer",
+            "timestamp_ms": 29_520,
+            "elapsed_ms": 29_520,
+            "block_id": "b8",
+            "block_type": "TransferToQueue",
+            "block_name": "Transfer to Billing Queue",
+            "flow_name": "BillingSubflow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Success",
+            "duration_ms": 254_480,
+            "parameters": {"QueueId": "arn:aws:connect:eu-west-2:123456789:queue/billing-queue"},
+            "results": "Success",
+            "source": "flow_log",
+        },
+        {
+            "event_id": "b9-disconnect",
+            "timestamp_ms": 284_000,
+            "elapsed_ms": 284_000,
+            "block_id": "b9",
+            "block_type": "DisconnectParticipant",
+            "block_name": "End Call",
+            "flow_name": "BillingSubflow",
+            "flow_type": "CONTACT_FLOW",
+            "outcome": "Disconnected",
+            "duration_ms": 0,
+            "parameters": {},
+            "results": "Disconnected",
+            "source": "flow_log",
+        },
+    ],
+}
+
+_MOCK_FLOW_FUNNEL = {
+    "flow_name": "MainInboundFlow",
+    "mock": True,
+    "total_contacts": 150,
+    "period_days": 30,
+    "blocks": [
+        {"sequence": 1,  "block_name": "Welcome Message",         "block_type": "PlayPrompt",             "count": 150, "pct": 100.0, "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 2,  "block_name": "Capture Customer Intent", "block_type": "GetCustomerInput",       "count": 148, "pct": 98.7,  "drop_count": 2,  "drop_pct": 1.3},
+        {"sequence": 3,  "block_name": "Check Business Hours",    "block_type": "CheckHoursOfOperation",  "count": 148, "pct": 98.7,  "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 4,  "block_name": "Check Account Status",    "block_type": "CheckContactAttributes", "count": 120, "pct": 80.0,  "drop_count": 28, "drop_pct": 18.9},
+        {"sequence": 5,  "block_name": "Get Account Balance",     "block_type": "InvokeExternalResource", "count": 85,  "pct": 56.7,  "drop_count": 35, "drop_pct": 29.2},
+        {"sequence": 6,  "block_name": "Read Account Balance",    "block_type": "PlayPrompt",             "count": 83,  "pct": 55.3,  "drop_count": 2,  "drop_pct": 2.4},
+        {"sequence": 7,  "block_name": "Anything Else?",          "block_type": "GetCustomerInput",       "count": 78,  "pct": 52.0,  "drop_count": 5,  "drop_pct": 6.0},
+        {"sequence": 8,  "block_name": "Transfer to Billing Queue","block_type": "TransferToQueue",       "count": 35,  "pct": 23.3,  "drop_count": 43, "drop_pct": 55.1},
+        {"sequence": 9,  "block_name": "End Call",                "block_type": "DisconnectParticipant",  "count": 112, "pct": 74.7,  "drop_count": 0,  "drop_pct": 0.0},
+    ],
+}
+
+# Realistic conversational-bot flow template — reflects the full journey:
+#   Entry → Start Recording → Invoke LLM/Lex → Check Intent
+#     ├─ Self-service path  (bot handles): Fetch Data → Read Result → Confirm → Disconnect
+#     └─ Escalation path    (bot gives up): Check Hours → Check Staffing → Set Queue
+#                                           → Transfer to Queue → (Agent) → Disconnect
+_MOCK_FLOW_FUNNEL_BOT = {
+    "flow_name": "conversationalbot",
+    "mock": True,
+    "total_contacts": 200,
+    "period_days": 30,
+    "blocks": [
+        {"sequence": 1,  "block_name": "Start Recording",            "block_type": "SetRecordingBehavior",   "count": 200, "pct": 100.0, "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 2,  "block_name": "Set Contact Attributes",     "block_type": "SetAttributes",          "count": 200, "pct": 100.0, "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 3,  "block_name": "Invoke Conversational Bot",  "block_type": "InvokeExternalResource", "count": 200, "pct": 100.0, "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 4,  "block_name": "Check Bot Intent Result",    "block_type": "CheckAttribute",         "count": 198, "pct": 99.0,  "drop_count": 2,  "drop_pct": 1.0},
+        {"sequence": 5,  "block_name": "Invoke Lambda — Fetch Data", "block_type": "InvokeLambdaFunction",   "count": 148, "pct": 74.0,  "drop_count": 50, "drop_pct": 25.3},
+        {"sequence": 6,  "block_name": "Set Response Attributes",    "block_type": "SetAttributes",          "count": 145, "pct": 72.5,  "drop_count": 3,  "drop_pct": 2.0},
+        {"sequence": 7,  "block_name": "Read Bot Response",          "block_type": "MessageParticipant",     "count": 145, "pct": 72.5,  "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 8,  "block_name": "Anything Else? (Follow-up)", "block_type": "GetUserInput",           "count": 140, "pct": 70.0,  "drop_count": 5,  "drop_pct": 3.4},
+        # ── Escalation path (subset of contacts request agent) ─────────────────────
+        {"sequence": 9,  "block_name": "Check Business Hours",       "block_type": "CheckHoursOfOperation",  "count": 82,  "pct": 41.0,  "drop_count": 58, "drop_pct": 41.4},
+        {"sequence": 10, "block_name": "After-hours Message",        "block_type": "MessageParticipant",     "count": 12,  "pct": 6.0,   "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 11, "block_name": "Check Agent Availability",   "block_type": "CheckStaffingLevel",     "count": 70,  "pct": 35.0,  "drop_count": 12, "drop_pct": 14.6},
+        {"sequence": 12, "block_name": "Set Agent Queue",            "block_type": "SetQueue",               "count": 68,  "pct": 34.0,  "drop_count": 2,  "drop_pct": 2.9},
+        {"sequence": 13, "block_name": "Play Queue Hold Music",      "block_type": "MessageParticipant",     "count": 68,  "pct": 34.0,  "drop_count": 0,  "drop_pct": 0.0},
+        {"sequence": 14, "block_name": "Transfer to Agent Queue",    "block_type": "TransferToQueue",        "count": 65,  "pct": 32.5,  "drop_count": 3,  "drop_pct": 4.4},
+        # ── Terminal ───────────────────────────────────────────────────────────────
+        {"sequence": 15, "block_name": "End Call",                   "block_type": "DisconnectParticipant",  "count": 193, "pct": 96.5,  "drop_count": 0,  "drop_pct": 0.0},
+    ],
+}
+
+# Map flow name keywords → base template
+def _get_funnel_template(flow_name: str) -> dict:
+    fl = flow_name.lower()
+    if any(k in fl for k in ("bot", "conversational", "lex", "ai", "chat")):
+        return _MOCK_FLOW_FUNNEL_BOT
+    return _MOCK_FLOW_FUNNEL
+
+
+def _allocate_ints(total: int, weights: list, total_w: float) -> list:
+    """Distribute `total` items across slots proportionally, ensuring sum == total."""
+    if total <= 0:
+        return [0] * len(weights)
+    fractional = [total * w / total_w for w in weights]
+    floored = [int(f) for f in fractional]
+    remainder = total - sum(floored)
+    # Give the remaining units to the slots with the largest fractional parts
+    order = sorted(range(len(weights)), key=lambda i: fractional[i] - floored[i], reverse=True)
+    for j in range(int(remainder)):
+        floored[order[j]] += 1
+    return floored
+
+
+def _synthetic_daily_trend(intent_metrics: list, days: int) -> list:
+    """Distribute period-aggregate intent counts across days using weekday weighting."""
+    import math as _math
+    total_s = sum(i.get("successful", 0) for i in intent_metrics)
+    total_d = sum(i.get("dropped",    0) for i in intent_metrics)
+    total_f = sum(i.get("failed",     0) for i in intent_metrics)
+    if days == 0 or (total_s + total_d + total_f) == 0:
+        return []
+    now = datetime.now(timezone.utc)
+    weights, dates = [], []
+    for offset in range(days, 0, -1):
+        day = now - timedelta(days=offset)
+        dow = day.weekday()  # 0=Mon … 6=Sun
+        w = 1.0 if dow < 5 else 0.3
+        w *= 0.75 + 0.5 * abs(_math.sin(offset * 1.3))
+        weights.append(max(w, 0.05))
+        dates.append(day)
+    total_w = sum(weights) or 1.0
+    s_vals = _allocate_ints(total_s, weights, total_w)
+    d_vals = _allocate_ints(total_d, weights, total_w)
+    f_vals = _allocate_ints(total_f, weights, total_w)
+    return [
+        {
+            "date":       day.strftime("%Y-%m-%d"),
+            "label":      f"{day.day} {day.strftime('%b')}",
+            "Successful": s_vals[i],
+            "Dropped":    d_vals[i],
+            "Failed":     f_vals[i],
+            "Total":      s_vals[i] + d_vals[i] + f_vals[i],
+        }
+        for i, day in enumerate(dates)
+    ]
+
+
+@app.get("/bot-intent-trend")
+def bot_intent_trend_endpoint(days: int = Query(default=7, ge=1, le=90)) -> Dict[str, Any]:
+    """Return per-day intent outcome trend for the primary bot."""
+    if _is_mock():
+        intent_metrics = (_MOCK_BOT_METRICS.get("lex_analytics") or [{}])[0].get("intent_metrics", [])
+        return {"mock": True, "days": days, "synthesized": True,
+                "trend": _synthetic_daily_trend(intent_metrics, days)}
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=days)).isoformat()
+    end = now.isoformat()
+    try:
+        data = _invoke_tool("get_bot_metrics", [
+            {"name": "query_type",  "type": "string", "value": "all"},
+            {"name": "start_time",  "type": "string", "value": start},
+            {"name": "end_time",    "type": "string", "value": end},
+            {"name": "interval",    "type": "string", "value": "TOTAL"},
+            {"name": "days",        "type": "string", "value": str(days)},
+            {"name": "max_samples", "type": "string", "value": "20"},
+        ])
+        if data.get("intent_daily_trend"):
+            return {"mock": False, "days": days, "synthesized": False,
+                    "trend": data["intent_daily_trend"]}
+        # Synthesise from period aggregates
+        intent_metrics = (data.get("lex_analytics") or [{}])[0].get("intent_metrics", [])
+        return {"mock": False, "days": days, "synthesized": True,
+                "trend": _synthetic_daily_trend(intent_metrics, days)}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.error("bot-intent-trend error: %s", exc, exc_info=True)
+        return {"mock": False, "days": days, "trend": [], "error": str(exc)}
+
 
 @app.get("/bot-metrics")
 def bot_metrics_endpoint(days: int = Query(default=7, ge=1, le=90),
@@ -1155,6 +1775,185 @@ def bot_metrics_endpoint(days: int = Query(default=7, ge=1, le=90),
         return {"mock": False, "error": str(exc),
                 "bot_inventory": {"total_bots": 0, "bots": []},
                 "lex_analytics": [], "flow_metrics": [], "lex_cloudwatch_metrics": []}
+
+
+@app.get("/contact-flow-events")
+def contact_flow_events(
+    request: Request,
+    contact_id: str = Query(..., description="Amazon Connect Contact ID"),
+) -> Dict[str, Any]:
+    """Return the ordered sequence of contact flow block events for a specific contact."""
+    _assert_valid_contact_id(contact_id)
+    try:
+        data = _invoke_tool(
+            "contact_flow_events",
+            [
+                {"name": "query_type",  "type": "string", "value": "contact_events"},
+                {"name": "contact_id",  "type": "string", "value": contact_id},
+            ],
+        )
+        return {"mock": False, **data}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("Real flow events unavailable, returning mock: %s", exc)
+        # Fallback to mock only when AWS is unreachable (local dev without credentials)
+        events = _MOCK_FLOW_EVENTS.copy()
+        events["contact_id"] = contact_id
+        events["mock"] = True
+        events["fallback_reason"] = str(exc)
+        return events
+
+
+@app.get("/contact-funnel")
+def contact_funnel(
+    request: Request,
+    flow_name: str = Query(default="", description="Contact flow name to aggregate"),
+    days: int = Query(default=30, ge=1, le=90, description="Number of days to aggregate"),
+) -> Dict[str, Any]:
+    """Return aggregate funnel / block-traversal counts for a flow over the given period.
+
+    Queries CloudWatch Logs Insights for real data. Falls back to scaled mock data
+    only when AWS credentials are not available (local Docker without env vars).
+    """
+    if not flow_name.strip():
+        return {"mock": False, "total_contacts": 0, "blocks": [],
+                "warning": "No flow_name specified"}
+    try:
+        data = _invoke_tool(
+            "contact_flow_events",
+            [
+                {"name": "query_type", "type": "string", "value": "flow_funnel"},
+                {"name": "flow_name",  "type": "string", "value": flow_name},
+                {"name": "days",       "type": "string", "value": str(days)},
+            ],
+        )
+        return {"mock": False, **data}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("Real funnel unavailable, returning scaled mock: %s", exc)
+        return _scale_funnel_mock(days, flow_name, reason=str(exc))
+
+
+@app.get("/contact-flows")
+def list_contact_flows() -> Dict[str, Any]:
+    """Return all contact flows from the Connect instance with their log group status.
+
+    This is used by the frontend to populate the flow selector with real flow names.
+    Falls back to reading log groups only when the Connect API is unavailable.
+    """
+    try:
+        import boto3  # pylint: disable=import-outside-toplevel
+        instance_id = os.environ.get("CONNECT_INSTANCE_ID", "")
+        connect = boto3.client("connect", region_name=os.environ.get("AWS_REGION", "eu-west-2"))
+        logs    = boto3.client("logs",    region_name=os.environ.get("AWS_REGION", "eu-west-2"))
+
+        # 1. List all contact flows from Connect (CONTACT_FLOW type only — not modules/queues)
+        flows = []
+        paginator = connect.get_paginator("list_contact_flows")
+        for page in paginator.paginate(InstanceId=instance_id,
+                                       ContactFlowTypes=["CONTACT_FLOW"]):
+            for f in page.get("ContactFlowSummaryList", []):
+                flows.append({
+                    "id":    f["Id"],
+                    "arn":   f["Arn"],
+                    "name":  f["Name"],
+                    "type":  f.get("ContactFlowType", "CONTACT_FLOW"),
+                    "state": f.get("ContactFlowState", "ACTIVE"),
+                })
+
+        # 2. Discover CloudWatch log groups under /aws/connect/
+        log_groups = set()
+        try:
+            cw_paginator = logs.get_paginator("describe_log_groups")
+            for page in cw_paginator.paginate(logGroupNamePrefix="/aws/connect/"):
+                for lg in page.get("logGroups", []):
+                    log_groups.add(lg["logGroupName"].lower())
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+        # 3. Annotate each flow with whether logging is enabled.
+        # Matching strategy: normalise both sides; also try token overlap because
+        # the log group name (set by user) may abbreviate or join words from the
+        # flow display name (e.g. flow="conversation bot flow" → lg="conversationalbot").
+        for f in flows:
+            fn_raw  = f["name"].lower()
+            fn_norm = fn_raw.replace(" ", "").replace("-", "").replace("_", "")
+            # Significant tokens (length > 3) from the flow name
+            fn_tokens = [t for t in fn_raw.replace("-", " ").replace("_", " ").split() if len(t) > 3]
+
+            def _matches_log_group(lg: str) -> bool:
+                lg_norm = lg.replace("/aws/connect/", "").replace("-", "").replace("_", "")
+                # Exact normalised match in either direction
+                if fn_norm in lg_norm or lg_norm in fn_norm:
+                    return True
+                # Token overlap: any significant word from the flow name is a
+                # substring of the log group suffix (handles "conversation bot flow" → "conversationalbot")
+                return any(tok in lg_norm for tok in fn_tokens)
+
+            f["logging_enabled"] = any(_matches_log_group(lg) for lg in log_groups)
+
+        # Sort: logging-enabled first, then alphabetically
+        flows.sort(key=lambda x: (not x["logging_enabled"], x["name"].lower()))
+
+        return {
+            "flows": flows,
+            "total": len(flows),
+            "logging_enabled_count": sum(1 for f in flows if f["logging_enabled"]),
+        }
+
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("Could not list contact flows from Connect: %s", exc)
+        # Fall back to reading log groups only
+        try:
+            import boto3  # pylint: disable=import-outside-toplevel
+            logs = boto3.client("logs", region_name=os.environ.get("AWS_REGION", "eu-west-2"))
+            log_group_flows = []
+            paginator = logs.get_paginator("describe_log_groups")
+            for page in paginator.paginate(logGroupNamePrefix="/aws/connect/"):
+                for lg in page.get("logGroups", []):
+                    name = lg["logGroupName"].replace("/aws/connect/", "")
+                    log_group_flows.append({
+                        "id": None, "arn": None,
+                        "name": name, "type": "CONTACT_FLOW", "state": "ACTIVE",
+                        "logging_enabled": True,
+                    })
+            return {"flows": log_group_flows, "total": len(log_group_flows),
+                    "logging_enabled_count": len(log_group_flows),
+                    "source": "log_groups_only"}
+        except Exception as exc2:  # pylint: disable=broad-except
+            return {"flows": [], "total": 0, "logging_enabled_count": 0,
+                    "error": str(exc2)}
+
+
+
+def _scale_funnel_mock(days: int, flow_name: str, reason: str = "") -> Dict[str, Any]:
+    """Scale mock funnel counts proportionally to the requested period (fallback only)."""
+    import random as _random
+    _random.seed(days + hash(flow_name) % 997)
+    base_template = _get_funnel_template(flow_name)
+    base_days     = 30
+    base_total    = base_template["total_contacts"]
+    scale = (days / base_days) * (0.85 + _random.random() * 0.30)
+    new_total = max(1, round(base_total * scale))
+
+    new_blocks = []
+    for b in base_template["blocks"]:
+        new_count = max(0, min(new_total, round(b["count"] * scale * (0.9 + _random.random() * 0.20))))
+        new_blocks.append({**b, "count": new_count, "pct": round(new_count / new_total * 100, 1) if new_total else 0})
+
+    for i in range(len(new_blocks) - 1):
+        diff = new_blocks[i]["count"] - new_blocks[i + 1]["count"]
+        new_blocks[i]["drop_count"] = max(0, diff)
+        new_blocks[i]["drop_pct"] = round(diff / new_blocks[i]["count"] * 100, 1) if new_blocks[i]["count"] else 0.0
+    new_blocks[-1]["drop_count"] = 0
+    new_blocks[-1]["drop_pct"]   = 0.0
+
+    result = {
+        "flow_name": flow_name, "mock": True,
+        "total_contacts": new_total, "period_days": days,
+        "blocks": new_blocks,
+    }
+    if reason:
+        result["fallback_reason"] = reason
+    return result
 
 
 @app.get("/contacts")

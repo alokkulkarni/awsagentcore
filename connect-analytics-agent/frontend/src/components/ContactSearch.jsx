@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Search, RefreshCw, AlertCircle, Mic, MessageSquare, Video, FileText, Ban, CalendarDays } from 'lucide-react';
+import { Search, RefreshCw, AlertCircle, Mic, MessageSquare, Video, FileText, Ban, CalendarDays, Network } from 'lucide-react';
 import { searchContacts } from '../services/api';
+import ContactFlowGraph from './ContactFlowGraph';
 
 function AvailabilityBadge({ hasRecording, channel, status }) {
   const isEnded = status === 'ENDED';
@@ -52,6 +53,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [journeyContactId, setJourneyContactId] = useState(null); // currently expanded journey
   const [filters, setFilters] = useState({
     start: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString().slice(0, 16),
     end: new Date().toISOString().slice(0, 16),
@@ -208,19 +210,41 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                   <AvailabilityBadge hasRecording={contact.hasRecording} channel={contact.channel} status={contact.status} />
                 </td>
                 <td className="px-4 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => onAskQuery(`Show me details for contact ${contact.contactId}.`)} className="rounded-xl bg-slate-800 px-3 py-2 text-xs text-slate-100 hover:bg-slate-700">View Detail</button>
-                    <button type="button" onClick={() => onSelectContact(contact, filters.keyword)} className="rounded-xl bg-connect-500 px-3 py-2 text-xs text-white hover:bg-connect-700">Get Transcript</button>
-                    {contact.hasRecording && contact.channel === 'VOICE' && (
-                      <button type="button" onClick={() => onSelectContact(contact, filters.keyword)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs text-white hover:bg-emerald-600">Play Recording</button>
-                    )}
-                  </div>
-                </td>
+                   <div className="flex flex-wrap gap-2">
+                     <button type="button" onClick={() => onAskQuery(`Show me details for contact ${contact.contactId}.`)} className="rounded-xl bg-slate-800 px-3 py-2 text-xs text-slate-100 hover:bg-slate-700">View Detail</button>
+                     <button type="button" onClick={() => onSelectContact(contact, filters.keyword)} className="rounded-xl bg-connect-500 px-3 py-2 text-xs text-white hover:bg-connect-700">Get Transcript</button>
+                     {contact.hasRecording && contact.channel === 'VOICE' && (
+                       <button type="button" onClick={() => onSelectContact(contact, filters.keyword)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs text-white hover:bg-emerald-600">Play Recording</button>
+                     )}
+                     <button
+                       type="button"
+                       onClick={() => setJourneyContactId(journeyContactId === contact.contactId ? null : contact.contactId)}
+                       className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
+                         journeyContactId === contact.contactId
+                           ? 'bg-indigo-600 text-white'
+                           : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                       }`}
+                     >
+                       <Network size={11} />
+                       {journeyContactId === contact.contactId ? 'Hide Journey' : 'View Journey'}
+                     </button>
+                   </div>
+                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      )}
+
+      {/* Inline journey panel — expands below table when a contact is selected */}
+      {journeyContactId && (
+        <div className="mt-4">
+          <ContactFlowGraph
+            contactId={journeyContactId}
+            onClose={() => setJourneyContactId(null)}
+          />
+        </div>
       )}
 
       {hasSearched && contacts.length > 0 && (
