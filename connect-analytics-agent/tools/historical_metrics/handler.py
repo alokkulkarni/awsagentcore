@@ -1,14 +1,27 @@
+import json
 import logging
+import os
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_csv, parse_datetime, parse_parameters
 from shared.scan_resources import get_instance_arn, get_queue_id_map, get_queue_ids, get_routing_profile_id_map
 
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 
 ALLOWED_METRICS = {
     # Core contact metrics
@@ -313,6 +326,20 @@ VALID_GROUPS = {"AGENT", "QUEUE", "ROUTING_PROFILE", "BOT", "FLOW_TYPE"}  # FLOW
 VALID_INTERVALS = {"TOTAL", "DAY", "HOUR", "FIFTEEN_MIN", "THIRTY_MIN"}
 VALID_CHANNELS = {"VOICE", "CHAT", "TASK"}
 
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
+
 
 def _resource_arn(instance_id: str) -> str:
     return get_instance_arn(instance_id)
@@ -324,11 +351,17 @@ def _load_routing_profile_names(connect_client, instance_id: str) -> Dict[str, s
 
 
 def _user_display_name(connect_client, instance_id: str, user_id: str) -> str:
+    cache_key = f"user/{instance_id}/{user_id}"
+    cached_name = _cache_get(cache_key)
+    if cached_name is not None:
+        return cached_name
     try:
         user = connect_client.describe_user(InstanceId=instance_id, UserId=user_id).get("User", {})
         identity = user.get("IdentityInfo", {})
         full_name = " ".join(part for part in [identity.get("FirstName"), identity.get("LastName")] if part)
-        return full_name or user.get("Username", user_id)
+        display_name = full_name or user.get("Username", user_id)
+        _cache_set(cache_key, display_name)
+        return display_name
     except Exception:  # pylint: disable=broad-except
         return user_id
 
@@ -439,6 +472,7 @@ def _resolve_requested_metrics(params: Dict[str, Any]) -> Tuple[str, List[str], 
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         start_time = parse_datetime(params.get("start_time"))
@@ -470,11 +504,9 @@ def lambda_handler(event, _context):
             warnings.append("Routing profile filter truncated to the first 100 values.")
             routing_profile_filters = routing_profile_filters[:100]
 
-        connect_client = boto3.client("connect")
-
         # Use scan data for queue list — falls back to live API automatically
-        all_queues = get_queue_ids(instance_id, connect_client)
-        queue_names = get_queue_id_map(instance_id, connect_client)
+        all_queues = get_queue_ids(instance_id, _CONNECT_CLIENT)
+        queue_names = get_queue_id_map(instance_id, _CONNECT_CLIENT)
 
         queue_ids = all_queues[:100]
         if len(all_queues) > 100:
@@ -510,13 +542,13 @@ def lambda_handler(event, _context):
             if next_token:
                 request_kwargs["NextToken"] = next_token
 
-            response = connect_client.get_metric_data_v2(**request_kwargs)
+            response = _CONNECT_CLIENT.get_metric_data_v2(**request_kwargs)
             metric_results.extend(response.get("MetricResults", []))
             next_token = response.get("NextToken")
             if not next_token:
                 break
 
-        routing_profile_names = _load_routing_profile_names(connect_client, instance_id) if group_by == "ROUTING_PROFILE" else {}
+        routing_profile_names = _load_routing_profile_names(_CONNECT_CLIENT, instance_id) if group_by == "ROUTING_PROFILE" else {}
         display_name_cache: Dict[str, str] = {}
 
         def resolve_display_name(dimension_value: Optional[str]) -> Optional[str]:
@@ -524,7 +556,7 @@ def lambda_handler(event, _context):
                 return dimension_value
             if dimension_value not in display_name_cache:
                 display_name_cache[dimension_value] = _dimension_display_name(
-                    connect_client,
+                    _CONNECT_CLIENT,
                     instance_id,
                     group_by,
                     dimension_value,

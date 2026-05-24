@@ -345,7 +345,7 @@ def create_agent(
     bind_runtime(session_id, event_emitter, audit_fn)
     model = BedrockModel(
         model_id=os.getenv("BEDROCK_MODEL_ID", "eu.anthropic.claude-sonnet-4-6"),
-        region_name=os.getenv("AWS_REGION", "eu-west-1"),
+        region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "eu-west-1"),
     )
     return Agent(
         model=model,

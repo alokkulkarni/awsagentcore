@@ -51,10 +51,11 @@ import logging
 import os
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Environment / clients (module-level — reused across warm Lambda invocations)
@@ -63,13 +64,21 @@ CONNECT_INSTANCE_ID = os.environ.get("CONNECT_INSTANCE_ID", "")
 CONNECT_KEY_ID      = os.environ.get("CONNECT_KEY_ID", "")
 AWS_REGION          = os.environ.get("AWS_REGION", "eu-west-2")
 
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+
 _connect_client = None
 
 
 def _get_connect():
     global _connect_client
     if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=AWS_REGION)
+        _connect_client = boto3.client("connect", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _connect_client
 
 

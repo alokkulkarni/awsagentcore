@@ -1,14 +1,27 @@
+import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_parameters
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+_S3_CLIENT = boto3.client("s3", config=_BOTO_CONFIG)
 
 
 def _parse_s3_location(location: str):
@@ -28,6 +41,7 @@ def _parse_s3_location(location: str):
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         contact_id = params.get("contact_id")
@@ -35,10 +49,8 @@ def lambda_handler(event, _context):
             raise ValueError("contact_id is required.")
 
         expiry_seconds = min(int(params.get("expiry_seconds") or 3600), 43200)
-        connect_client = boto3.client("connect")
-        s3_client = boto3.client("s3")
 
-        contact = connect_client.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
+        contact = _CONNECT_CLIENT.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
         recordings = contact.get("Recordings", [])
         if not recordings:
             return build_response(
@@ -54,7 +66,7 @@ def lambda_handler(event, _context):
         recording = recordings[0]
         location = recording.get("Location")
         bucket, key = _parse_s3_location(location)
-        url = s3_client.generate_presigned_url(
+        url = _S3_CLIENT.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expiry_seconds,

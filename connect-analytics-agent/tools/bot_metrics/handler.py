@@ -15,11 +15,15 @@ Data sources:
   8. CloudWatch Lex     — AWS/Lex namespace (RuntimeRequestCount, latency, throttles)
 """
 
+import json
 import logging
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from shared.connect_utils import (
@@ -33,7 +37,33 @@ from shared.connect_utils import (
 from shared.scan_resources import get_account_id as scan_get_account_id, get_instance_arn, get_instance_region, get_queue_ids
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+_CW_CLIENT = boto3.client("cloudwatch", config=_BOTO_CONFIG)
+_lex_clients: Dict[str, Any] = {}
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -77,8 +107,13 @@ def _resource_arn(instance_id: str, region: str, account_id: str) -> str:
 
 
 def _get_account_id() -> str:
+    cached_account_id = _cache_get("account_id")
+    if cached_account_id is not None:
+        return cached_account_id
     account_id = scan_get_account_id()
-    return account_id if account_id else "000000000000"
+    resolved_account_id = account_id if account_id else "000000000000"
+    _cache_set("account_id", resolved_account_id)
+    return resolved_account_id
 
 
 def _parse_lex_v2_alias_arn(alias_arn: str) -> Dict[str, str]:
@@ -99,7 +134,14 @@ def _parse_lex_v2_alias_arn(alias_arn: str) -> Dict[str, str]:
 
 
 def _lex_client(region: str):
-    return boto3.client("lexv2-models", region_name=region)
+    lex_region = region or _REGION
+    if lex_region not in _lex_clients:
+        _lex_clients[lex_region] = boto3.client(
+            "lexv2-models",
+            region_name=lex_region,
+            config=_BOTO_CONFIG,
+        )
+    return _lex_clients[lex_region]
 
 
 def _describe_bot(bot_id: str, region: str) -> Dict[str, str]:
@@ -506,7 +548,6 @@ def _lex_cloudwatch_metrics(bots: List[Dict[str, Any]], start_dt: datetime,
     if not bots:
         return []
 
-    cw = boto3.client("cloudwatch", region_name=region)
     queries: List[Dict] = []
     meta: List[Dict[str, str]] = []
 
@@ -557,7 +598,7 @@ def _lex_cloudwatch_metrics(bots: List[Dict[str, Any]], start_dt: datetime,
     cw_results: List[Any] = []
     for i in range(0, len(queries), 500):
         try:
-            resp = cw.get_metric_data(
+            resp = _CW_CLIENT.get_metric_data(
                 MetricDataQueries=queries[i:i + 500],
                 StartTime=start_dt,
                 EndTime=end_dt,
@@ -589,6 +630,7 @@ def _lex_cloudwatch_metrics(bots: List[Dict[str, Any]], start_dt: datetime,
 # ── main handler ──────────────────────────────────────────────────────────────
 
 def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:  # noqa: C901
+    LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
     params = parse_parameters(event.get("parameters", []))
 
     instance_id = get_instance_id(params)
@@ -607,7 +649,7 @@ def lambda_handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:  # n
     region     = get_instance_region()
     account_id = _get_account_id()
 
-    connect_client = boto3.client("connect", region_name=region)
+    connect_client = _CONNECT_CLIENT
 
     result: Dict[str, Any] = {
         "query_type": query_type,

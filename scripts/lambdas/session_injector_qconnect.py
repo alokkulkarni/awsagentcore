@@ -116,13 +116,22 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Configuration — override via environment variables in the Lambda console
@@ -138,9 +147,9 @@ TRANSCRIPT_TABLE_NAME: str = os.environ.get("TRANSCRIPT_TABLE_NAME", "aria-trans
 # pool and credential resolution happen during the cold-start phase, not on
 # the first in-handler call.  Warm invocations reuse the same client objects.
 # ---------------------------------------------------------------------------
-_connect_client  = boto3.client("connect",  region_name=AWS_REGION)
-_qconnect_client = boto3.client("qconnect", region_name=AWS_REGION)
-_dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION)
+_connect_client = boto3.client("connect", region_name=AWS_REGION, config=_BOTO_CONFIG)
+_qconnect_client = boto3.client("qconnect", region_name=AWS_REGION, config=_BOTO_CONFIG)
+_dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION, config=_BOTO_CONFIG)
 
 # Circuit breaker: flipped to True when the DynamoDB memory table is confirmed
 # missing so subsequent invocations skip the wasteful API call immediately.

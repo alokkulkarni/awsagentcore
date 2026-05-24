@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.config import Config
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -25,7 +26,14 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "aria-audit-events")
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "90"))
 _region = os.environ.get("AWS_REGION", "eu-west-2")
-_dynamodb = boto3.resource("dynamodb", region_name=_region)
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_dynamodb = boto3.resource("dynamodb", region_name=_region, config=_BOTO_CONFIG)
 _table = _dynamodb.Table(TABLE_NAME)
 
 

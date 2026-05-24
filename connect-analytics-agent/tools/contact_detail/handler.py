@@ -1,13 +1,25 @@
+import json
 import logging
+import os
 from typing import Any, Dict, Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_parameters
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
 
 
 def _recording_summary(recording: Dict[str, Any]) -> Dict[str, Any]:
@@ -34,16 +46,16 @@ def _recording_summary(recording: Dict[str, Any]) -> Dict[str, Any]:
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         contact_id = params.get("contact_id")
         if not contact_id:
             raise ValueError("contact_id is required.")
 
-        connect_client = boto3.client("connect")
-        contact = connect_client.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
+        contact = _CONNECT_CLIENT.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
         attribute_contact_id = contact.get("InitialContactId") or contact_id
-        attributes = connect_client.get_contact_attributes(
+        attributes = _CONNECT_CLIENT.get_contact_attributes(
             InstanceId=instance_id,
             InitialContactId=attribute_contact_id,
         ).get("Attributes", {})

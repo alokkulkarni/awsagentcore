@@ -110,13 +110,22 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Configuration — override via environment variables in the Lambda console
@@ -138,21 +147,21 @@ _dynamodb_client = None
 def _get_connect() -> Any:
     global _connect_client
     if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=AWS_REGION)
+        _connect_client = boto3.client("connect", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _connect_client
 
 
 def _get_qconnect() -> Any:
     global _qconnect_client
     if _qconnect_client is None:
-        _qconnect_client = boto3.client("qconnect", region_name=AWS_REGION)
+        _qconnect_client = boto3.client("qconnect", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _qconnect_client
 
 
 def _get_dynamodb() -> Any:
     global _dynamodb_client
     if _dynamodb_client is None:
-        _dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION)
+        _dynamodb_client = boto3.client("dynamodb", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _dynamodb_client
 
 

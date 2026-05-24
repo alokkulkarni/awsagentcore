@@ -46,17 +46,26 @@ import os
 import time
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 REGION         = os.environ.get("AWS_REGION",          "eu-west-2")
 INSTANCE_ID    = os.environ.get("CONNECT_INSTANCE_ID", "")
 SESSIONS_TABLE = os.environ.get("SESSIONS_TABLE_NAME", "dtmf_active_sessions")
 
-dynamodb       = boto3.resource("dynamodb", region_name=REGION)
-connect_client = boto3.client("connect",   region_name=REGION)
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+
+dynamodb       = boto3.resource("dynamodb", region_name=REGION, config=_BOTO_CONFIG)
+connect_client = boto3.client("connect",   region_name=REGION, config=_BOTO_CONFIG)
 
 
 def handler(event: dict, context) -> dict:

@@ -1,35 +1,76 @@
+import json
 import logging
+import os
+import time
 from typing import Any, Dict, List
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_datetime, parse_parameters
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
 
 
 def _queue_lookup(connect_client, instance_id: str) -> Dict[str, str]:
+    cache_key = f"{instance_id}/queues"
+    cached_lookup = _cache_get(cache_key)
+    if cached_lookup is not None:
+        return cached_lookup
+
     lookup: Dict[str, str] = {}
     paginator = connect_client.get_paginator("list_queues")
     for page in paginator.paginate(InstanceId=instance_id, QueueTypes=["STANDARD", "AGENT"]):
         for queue in page.get("QueueSummaryList", []):
             lookup[queue["Id"]] = queue.get("Name", queue["Id"])
+
+    _cache_set(cache_key, lookup)
     return lookup
 
 
 def _agent_name(connect_client, instance_id: str, user_id: str) -> str:
+    cache_key = f"{instance_id}/{user_id}"
+    cached_name = _cache_get(cache_key)
+    if cached_name is not None:
+        return cached_name
+
     try:
         user = connect_client.describe_user(InstanceId=instance_id, UserId=user_id).get("User", {})
         identity = user.get("IdentityInfo", {})
-        return " ".join(part for part in [identity.get("FirstName"), identity.get("LastName")] if part) or user.get("Username", user_id)
+        agent_name = " ".join(part for part in [identity.get("FirstName"), identity.get("LastName")] if part) or user.get("Username", user_id)
+        _cache_set(cache_key, agent_name)
+        return agent_name
     except Exception:  # pylint: disable=broad-except
         return user_id
 
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         keyword = params.get("keyword")
@@ -59,13 +100,11 @@ def lambda_handler(event, _context):
         if params.get("queue_id"):
             transcript_criteria["QueueIds"] = [params["queue_id"]]
 
-        connect_client = boto3.client("connect")
-
         # Try transcript keyword search first (requires Contact Lens).
         # Fall back to a plain time-range search if Contact Lens is disabled/unavailable.
         contact_lens_available = True
         try:
-            response = connect_client.search_contacts(
+            response = _CONNECT_CLIENT.search_contacts(
                 InstanceId=instance_id,
                 TimeRange={"Type": "INITIATION_TIMESTAMP", "StartTime": start_time, "EndTime": end_time},
                 SearchCriteria=transcript_criteria,
@@ -85,11 +124,11 @@ def lambda_handler(event, _context):
                 }
                 if params.get("queue_id"):
                     fallback_kwargs["SearchCriteria"] = {"QueueIds": [params["queue_id"]]}
-                response = connect_client.search_contacts(**fallback_kwargs)
+                response = _CONNECT_CLIENT.search_contacts(**fallback_kwargs)
             else:
                 raise
 
-        queue_names = _queue_lookup(connect_client, instance_id)
+        queue_names = _queue_lookup(_CONNECT_CLIENT, instance_id)
         matches: List[Dict[str, Any]] = []
         for contact in response.get("Contacts", []):
             queue_id = ((contact.get("QueueInfo") or {}).get("Id"))
@@ -103,7 +142,7 @@ def lambda_handler(event, _context):
                     "timestamp": start,
                     "queue": queue_names.get(queue_id, queue_id),
                     "queue_id": queue_id,
-                    "agent": _agent_name(connect_client, instance_id, agent_id) if agent_id else None,
+                    "agent": _agent_name(_CONNECT_CLIENT, instance_id, agent_id) if agent_id else None,
                     "agent_id": agent_id,
                     "duration_seconds": duration_seconds,
                     "duration": format_duration(duration_seconds),

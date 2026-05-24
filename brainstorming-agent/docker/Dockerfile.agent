@@ -5,4 +5,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agent/ .
 RUN mkdir -p /app/data
 ENV PYTHONUNBUFFERED=1
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8200", "--reload"]
+EXPOSE 8200
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8200"]

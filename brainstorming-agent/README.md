@@ -20,26 +20,24 @@ This app gives you a strategic brainstorming copilot powered by Amazon Bedrock (
 
 ## Quick start
 
-1. Create an environment file:
+Use the Docker flow below for the fastest local startup, or follow the local development section later in this README if you want to run the frontend and backend separately.
 
-   ```bash
-   cd brainstorming-agent
-   cp .env.example .env
-   ```
+## Running with Docker
 
-2. Fill in your AWS credentials and region in `.env`.
+```bash
+cd brainstorming-agent
 
-3. Start the stack:
+# Copy and configure environment
+cp docker/.env.example docker/.env
+# Edit docker/.env to add: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
 
-   ```bash
-   cd docker
-   docker compose --env-file ../.env up --build
-   ```
+# Build and start
+docker compose -f docker/docker-compose.yml up --build
 
-4. Open:
-
-   - Frontend: `http://localhost:5175`
-   - Backend health check: `http://localhost:8200/health`
+# Access
+# Frontend: http://localhost:3000
+# Agent API: http://localhost:8000
+```
 
 ## Voice usage
 
@@ -68,6 +66,7 @@ Full-text search is powered by SQLite FTS5. The agent can save ideas, search old
 | `AWS_SECRET_ACCESS_KEY` | Yes | - | AWS secret key for Bedrock |
 | `AWS_SESSION_TOKEN` | No | empty | Optional session token for SSO or temporary creds |
 | `AWS_REGION` | No | `eu-west-1` | AWS region used by Bedrock |
+| `AWS_DEFAULT_REGION` | No | `eu-west-1` | Alternate AWS SDK region variable, useful for Docker env files |
 | `BEDROCK_MODEL_ID` | No | `eu.anthropic.claude-sonnet-4-6` | Bedrock model ID |
 | `DB_PATH` | No | `agent/data/brainstorm.db` | SQLite database path inside the backend container/app |
 

@@ -1,14 +1,26 @@
+import json
 import logging
+import os
 from typing import Any, Dict, List
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_csv, parse_parameters
 from shared.scan_resources import get_queue_id_map, get_queue_ids
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
 
 CURRENT_METRICS = [
     {"Name": "AGENTS_ONLINE", "Unit": "COUNT"},
@@ -37,17 +49,17 @@ def _metric_map(collections: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
-        connect_client = boto3.client("connect")
 
         queue_ids = parse_csv(params.get("queue_ids"))
         routing_profile_ids = parse_csv(params.get("routing_profile_ids"))
         # Use scan data for the name→id lookup (falls back to live API automatically)
-        queue_lookup = get_queue_id_map(instance_id, connect_client)
+        queue_lookup = get_queue_id_map(instance_id, _CONNECT_CLIENT)
 
         if not queue_ids and not routing_profile_ids:
-            queue_ids = get_queue_ids(instance_id, connect_client)
+            queue_ids = get_queue_ids(instance_id, _CONNECT_CLIENT)
             if not queue_ids:
                 return build_response(
                     event,
@@ -65,7 +77,7 @@ def lambda_handler(event, _context):
         if routing_profile_ids:
             filters["RoutingProfiles"] = routing_profile_ids[:100]
 
-        response = connect_client.get_current_metric_data(
+        response = _CONNECT_CLIENT.get_current_metric_data(
             InstanceId=instance_id,
             Filters=filters,
             Groupings=["QUEUE"],

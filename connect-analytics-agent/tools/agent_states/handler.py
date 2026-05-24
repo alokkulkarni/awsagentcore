@@ -1,22 +1,55 @@
+import json
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, format_duration, get_instance_id, parse_parameters
 from shared.scan_resources import get_queue_id_map
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
 
 
 def _display_name(connect_client, instance_id: str, user_id: str) -> Dict[str, str]:
-    user = connect_client.describe_user(InstanceId=instance_id, UserId=user_id).get("User", {})
+    cache_key = f"{instance_id}/{user_id}"
+    cached_value = _cache_get(cache_key)
+    if cached_value is not None:
+        return cached_value
+
+    user = _CONNECT_CLIENT.describe_user(InstanceId=instance_id, UserId=user_id).get("User", {})
     identity = user.get("IdentityInfo", {})
     display_name = " ".join(part for part in [identity.get("FirstName"), identity.get("LastName")] if part) or user.get("Username", user_id)
-    return {"username": user.get("Username", user_id), "display_name": display_name}
+    value = {"username": user.get("Username", user_id), "display_name": display_name}
+    _cache_set(cache_key, value)
+    return value
 
 
 def _derive_status(user_data: Dict[str, Any]) -> str:
@@ -53,17 +86,17 @@ def _matches_filter(derived_status: str, requested_status: Optional[str]) -> boo
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         queue_id = params.get("queue_id")
         status_filter = params.get("agent_status_filter")
 
-        connect_client = boto3.client("connect")
         filters: Dict[str, Any] = {}
         if queue_id:
             filters["Queues"] = [queue_id]
 
-        queue_name_map = get_queue_id_map(instance_id, connect_client)
+        queue_name_map = get_queue_id_map(instance_id, _CONNECT_CLIENT)
 
         # GetCurrentUserData requires at least one filter (Queue, RoutingProfile, Agent, or UserHierarchyGroup)
         if queue_id:
@@ -82,7 +115,7 @@ def lambda_handler(event, _context):
         results: List[Dict[str, Any]] = []
         kwargs: Dict[str, Any] = {"InstanceId": instance_id, "Filters": filters, "MaxResults": 100}
         while True:
-            response = connect_client.get_current_user_data(**kwargs)
+            response = _CONNECT_CLIENT.get_current_user_data(**kwargs)
             for user_data in response.get("UserDataList", []):
                 derived_status = _derive_status(user_data)
                 if not _matches_filter(derived_status, status_filter):
@@ -91,7 +124,7 @@ def lambda_handler(event, _context):
                 user_ref = user_data.get("User", {})
                 user_id = user_ref.get("Id")
                 contact = (user_data.get("Contacts") or [None])[0]
-                name_fields = _display_name(connect_client, instance_id, user_id)
+                name_fields = _display_name(_CONNECT_CLIENT, instance_id, user_id)
                 status_start = (user_data.get("Status", {}) or {}).get("StatusStartTimestamp")
                 time_in_status_seconds = None
                 if isinstance(status_start, datetime):

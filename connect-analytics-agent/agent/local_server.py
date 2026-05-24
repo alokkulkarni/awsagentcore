@@ -90,8 +90,8 @@ def _check_rate_limit(client_ip: str) -> None:
 _CONTACT_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,128}$')
 _SESSION_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,64}$')
 _VALID_CONTACT_STATUSES = frozenset({
-    "CONNECTED", "ENDED", "MISSED", "QUEUED", "ERROR",
-    "REJECTED", "TRANSFERRED", "HELD", "CONNECTING",
+    "CONNECTED", "CONNECTING", "INCOMING", "MISSED", "REJECTED", "ENDED",
+    "QUEUED", "ERROR", "TRANSFERRED", "HELD",
 })
 
 # Shared in-process tool invoker (tools/ volume-mounted at /app/tools in Docker)
@@ -163,11 +163,95 @@ _MOCK_AGENT_STATES = [
 # Track mock force-logout state so the UI reflects changes within a session
 _MOCK_FORCE_LOGOUT_APPLIED: Dict[str, bool] = {}
 
+_MOCK_QUEUES = [
+    {"id": "mock-queue-1", "name": "General Support"},
+    {"id": "mock-queue-2", "name": "ARIA Banking Agents"},
+    {"id": "mock-queue-3", "name": "Escalation Queue"},
+]
+
+_MOCK_AGENTS = [
+    {"id": "mock-agent-1", "name": "Sarah Mitchell"},
+    {"id": "mock-agent-2", "name": "James Okafor"},
+    {"id": "mock-agent-3", "name": "Priya Sharma"},
+]
+
+_MOCK_NOW = datetime.now(timezone.utc)
 _MOCK_CONTACTS = [
-    {"contactId": "c-10236", "dateTime": "2025-05-08T09:18:00Z", "agent": "Marcus Lee", "queue": "Technical Support", "duration": 412, "status": "ENDED", "channel": "VOICE"},
-    {"contactId": "c-10231", "dateTime": "2025-05-08T08:42:00Z", "agent": "Sarah Johnson", "queue": "Customer Support", "duration": 268, "status": "ENDED", "channel": "VOICE"},
-    {"contactId": "c-10228", "dateTime": "2025-05-08T08:15:00Z", "agent": "Priya Patel", "queue": "Billing", "duration": 198, "status": "MISSED", "channel": "VOICE"},
-    {"contactId": "c-10214", "dateTime": "2025-05-08T07:50:00Z", "agent": "Andre Lewis", "queue": "VIP Support", "duration": 622, "status": "CONNECTED", "channel": "CHAT"},
+    {
+        "contactId": "c-10236",
+        "dateTime": (_MOCK_NOW - timedelta(minutes=42)).isoformat().replace("+00:00", "Z"),
+        "agent": "James Okafor",
+        "agentId": "mock-agent-2",
+        "queue": "General Support",
+        "queueId": "mock-queue-1",
+        "duration": 412,
+        "status": "ENDED",
+        "channel": "VOICE",
+        "initiationMethod": "INBOUND",
+        "phoneNumber": "+447700900123",
+        "customAttributes": {"customerName": "Alex Thompson", "customerId": "CUST-001", "authStatus": "authenticated"},
+        "hasRecording": True,
+    },
+    {
+        "contactId": "c-10231",
+        "dateTime": (_MOCK_NOW - timedelta(hours=2, minutes=5)).isoformat().replace("+00:00", "Z"),
+        "agent": "Sarah Mitchell",
+        "agentId": "mock-agent-1",
+        "queue": "ARIA Banking Agents",
+        "queueId": "mock-queue-2",
+        "duration": 268,
+        "status": "ENDED",
+        "channel": "CHAT",
+        "initiationMethod": "TRANSFER",
+        "phoneNumber": "+447700900456",
+        "customAttributes": {"customerName": "Maya Singh", "customerId": "CUST-002", "authStatus": "pending"},
+        "hasRecording": False,
+    },
+    {
+        "contactId": "c-10228",
+        "dateTime": (_MOCK_NOW - timedelta(hours=3, minutes=12)).isoformat().replace("+00:00", "Z"),
+        "agent": "Priya Sharma",
+        "agentId": "mock-agent-3",
+        "queue": "Escalation Queue",
+        "queueId": "mock-queue-3",
+        "duration": 198,
+        "status": "MISSED",
+        "channel": "VOICE",
+        "initiationMethod": "CALLBACK",
+        "phoneNumber": "+447700900789",
+        "customAttributes": {"customerName": "Jordan Bell", "customerId": "CUST-003", "authStatus": "failed"},
+        "hasRecording": False,
+    },
+    {
+        "contactId": "c-10214",
+        "dateTime": (_MOCK_NOW - timedelta(hours=4, minutes=20)).isoformat().replace("+00:00", "Z"),
+        "agent": "Sarah Mitchell",
+        "agentId": "mock-agent-1",
+        "queue": "General Support",
+        "queueId": "mock-queue-1",
+        "duration": 622,
+        "status": "CONNECTED",
+        "channel": "CHAT",
+        "initiationMethod": "OUTBOUND",
+        "phoneNumber": "+447700900321",
+        "customAttributes": {"customerName": "Noah Carter", "customerId": "CUST-004", "authStatus": "authenticated"},
+        "hasRecording": False,
+    },
+    {
+        "contactId": "c-10198",
+        "dateTime": (_MOCK_NOW - timedelta(hours=6, minutes=40)).isoformat().replace("+00:00", "Z"),
+        "agent": "James Okafor",
+        "agentId": "mock-agent-2",
+        "queue": "Escalation Queue",
+        "queueId": "mock-queue-3",
+        "duration": 95,
+        "status": "REJECTED",
+        "channel": "TASK",
+        "initiationMethod": "API",
+        "phoneNumber": "+447700900654",
+        "customAttributes": {"customerName": "Ella Wong", "customerId": "CUST-005", "authStatus": "queued"},
+        "hasRecording": False,
+    },
 ]
 
 _MOCK_TRANSCRIPT_SEGMENTS = [
@@ -1956,35 +2040,217 @@ def _scale_funnel_mock(days: int, flow_name: str, reason: str = "") -> Dict[str,
     return result
 
 
+def _parse_csv_query(value: Optional[str], uppercase: bool = False) -> List[str]:
+    if not value:
+        return []
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    return [item.upper() for item in items] if uppercase else items
+
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+
+def _parse_searchable_attributes_query(value: Optional[str]) -> List[Dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        raw = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    criteria: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key", "")).strip()
+        raw_values = item.get("values")
+        if isinstance(raw_values, list):
+            values = [str(v).strip() for v in raw_values if str(v).strip()]
+        else:
+            candidate = str(item.get("value", raw_values or "")).strip()
+            values = [candidate] if candidate else []
+        if key and values:
+            criteria.append({"key": key, "values": values})
+    return criteria
+
+
+
+def _matches_mock_attributes(contact: Dict[str, Any], criteria: List[Dict[str, Any]]) -> bool:
+    if not criteria:
+        return True
+
+    searchable = {str(key).lower(): str(value or "") for key, value in (contact.get("customAttributes") or {}).items()}
+    searchable["customerendpoint"] = str(contact.get("phoneNumber") or "")
+
+    for criterion in criteria:
+        haystack = searchable.get(criterion["key"].lower(), "")
+        if not haystack:
+            return False
+        if not any(value.lower() in haystack.lower() for value in criterion["values"]):
+            return False
+    return True
+
+
+
+@app.get("/queues")
+def list_queues() -> Dict[str, Any]:
+    """Return all standard queues for populating the queue dropdown."""
+    if _is_mock():
+        return {"queues": _MOCK_QUEUES}
+    try:
+        connect = _get_connect_client()
+        instance_id = _get_instance_id()
+        queues = []
+        paginator = connect.get_paginator("list_queues")
+        for page in paginator.paginate(InstanceId=instance_id, QueueTypes=["STANDARD"]):
+            for queue in page.get("QueueSummaryList", []):
+                queues.append({"id": queue["Id"], "name": queue.get("Name", queue["Id"])})
+        queues.sort(key=lambda queue: queue["name"].lower())
+        return {"queues": queues}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Failed to list queues") from exc
+
+
+
+@app.get("/agents-list")
+def list_agents_for_search() -> Dict[str, Any]:
+    """Return all agents for the agent dropdown in Contact Search."""
+    if _is_mock():
+        return {"agents": _MOCK_AGENTS}
+    try:
+        connect = _get_connect_client()
+        instance_id = _get_instance_id()
+        agents = []
+        paginator = connect.get_paginator("list_users")
+        for page in paginator.paginate(InstanceId=instance_id):
+            for user_summary in page.get("UserSummaryList", []):
+                try:
+                    user = connect.describe_user(InstanceId=instance_id, UserId=user_summary["Id"]).get("User", {})
+                    identity = user.get("IdentityInfo", {})
+                    name = " ".join(part for part in [identity.get("FirstName"), identity.get("LastName")] if part) or user.get("Username", user_summary["Id"])
+                    agents.append({"id": user_summary["Id"], "name": name})
+                except Exception:
+                    agents.append({"id": user_summary["Id"], "name": user_summary.get("Username", user_summary["Id"])})
+        agents.sort(key=lambda agent: agent["name"].lower())
+        return {"agents": agents}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Failed to list agents") from exc
+
+
+
 @app.get("/contacts")
 def contacts(
     request: Request,
     start: Optional[str] = Query(default=None),
     end: Optional[str] = Query(default=None),
     contact_status: Optional[str] = Query(default=None),
+    contact_id: Optional[str] = Query(default=None),
+    channels: Optional[str] = Query(default=None),
+    initiation_methods: Optional[str] = Query(default=None),
+    time_range_type: Optional[str] = Query(default=None),
+    queue_ids: Optional[str] = Query(default=None),
+    agent_ids: Optional[str] = Query(default=None),
+    phone_number: Optional[str] = Query(default=None),
+    searchable_attributes: Optional[str] = Query(default=None),
+    sort_field: Optional[str] = Query(default=None),
+    sort_order: Optional[str] = Query(default=None),
     min_duration_seconds: Optional[int] = Query(default=None, ge=0, le=86400),
     max_duration_seconds: Optional[int] = Query(default=None, ge=0, le=86400),
     max_results: int = Query(default=25, ge=1, le=100),
 ) -> Dict[str, Any]:
-    # Validate contact_status against known enum
     if contact_status and contact_status.upper() not in _VALID_CONTACT_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid contact_status. Allowed: {sorted(_VALID_CONTACT_STATUSES)}")
     if contact_status:
         contact_status = contact_status.upper()
+    if contact_id:
+        _assert_valid_contact_id(contact_id)
+
     if _is_mock():
-        return {"mock": True, "contacts": _MOCK_CONTACTS, "total_count": len(_MOCK_CONTACTS)}
+        contacts_list = list(_MOCK_CONTACTS)
+        start_dt = _parse_iso_datetime(start)
+        end_dt = _parse_iso_datetime(end)
+        channel_filters = set(_parse_csv_query(channels, uppercase=True))
+        initiation_filters = set(_parse_csv_query(initiation_methods, uppercase=True))
+        queue_filters = set(_parse_csv_query(queue_ids))
+        agent_filters = set(_parse_csv_query(agent_ids))
+        attribute_filters = _parse_searchable_attributes_query(searchable_attributes)
+
+        if start_dt:
+            contacts_list = [contact for contact in contacts_list if _parse_iso_datetime(contact.get("dateTime")) and _parse_iso_datetime(contact.get("dateTime")) >= start_dt]
+        if end_dt:
+            contacts_list = [contact for contact in contacts_list if _parse_iso_datetime(contact.get("dateTime")) and _parse_iso_datetime(contact.get("dateTime")) <= end_dt]
+        if contact_status:
+            contacts_list = [contact for contact in contacts_list if (contact.get("status") or "").upper() == contact_status]
+        if contact_id:
+            contacts_list = [contact for contact in contacts_list if contact.get("contactId") == contact_id]
+        if channel_filters:
+            contacts_list = [contact for contact in contacts_list if (contact.get("channel") or "").upper() in channel_filters]
+        if initiation_filters:
+            contacts_list = [contact for contact in contacts_list if (contact.get("initiationMethod") or "").upper() in initiation_filters]
+        if queue_filters:
+            contacts_list = [contact for contact in contacts_list if contact.get("queueId") in queue_filters]
+        if agent_filters:
+            contacts_list = [contact for contact in contacts_list if contact.get("agentId") in agent_filters]
+        if phone_number:
+            phone_filter = phone_number.strip().lower()
+            contacts_list = [contact for contact in contacts_list if phone_filter in str(contact.get("phoneNumber") or "").lower()]
+        if min_duration_seconds is not None:
+            contacts_list = [contact for contact in contacts_list if int(contact.get("duration") or 0) >= min_duration_seconds]
+        if max_duration_seconds is not None:
+            contacts_list = [contact for contact in contacts_list if int(contact.get("duration") or 0) <= max_duration_seconds]
+        if attribute_filters:
+            contacts_list = [contact for contact in contacts_list if _matches_mock_attributes(contact, attribute_filters)]
+
+        reverse = (sort_order or "DESCENDING").upper() != "ASCENDING"
+        contacts_list.sort(key=lambda contact: contact.get("dateTime") or "", reverse=reverse)
+        total_count = len(contacts_list)
+        return {"mock": True, "contacts": contacts_list[:max_results], "total_count": total_count}
+
     now = datetime.now(timezone.utc)
     extra_params: List[Dict[str, Any]] = [
         {"name": "start_time", "type": "string", "value": start or (now - timedelta(hours=8)).isoformat()},
         {"name": "end_time", "type": "string", "value": end or now.isoformat()},
         {"name": "max_results", "type": "string", "value": str(max_results)},
     ]
-    if contact_status:
-        extra_params.append({"name": "contact_status", "type": "string", "value": contact_status})
+
+    forwarded_params = {
+        "contact_status": contact_status,
+        "contact_id": contact_id,
+        "channels": channels,
+        "initiation_methods": initiation_methods,
+        "time_range_type": time_range_type,
+        "queue_ids": queue_ids,
+        "agent_ids": agent_ids,
+        "phone_number": phone_number,
+        "searchable_attributes": searchable_attributes,
+        "sort_field": sort_field,
+        "sort_order": sort_order,
+    }
+    for name, value in forwarded_params.items():
+        if value not in (None, ""):
+            extra_params.append({"name": name, "type": "string", "value": str(value)})
     if min_duration_seconds is not None:
         extra_params.append({"name": "min_duration_seconds", "type": "string", "value": str(min_duration_seconds)})
     if max_duration_seconds is not None:
         extra_params.append({"name": "max_duration_seconds", "type": "string", "value": str(max_duration_seconds)})
+
     try:
         data = _invoke_tool("search_contacts", extra_params)
         contacts_list = []
@@ -1994,10 +2260,15 @@ def contacts(
                 "contactId": c.get("contact_id"),
                 "dateTime": ts.isoformat() if hasattr(ts, "isoformat") else ts,
                 "agent": c.get("agent_name", "Unassigned"),
+                "agentId": c.get("agent_id", ""),
                 "queue": c.get("queue_name") or c.get("queue_id") or "—",
+                "queueId": c.get("queue_id", ""),
                 "duration": int(c.get("duration_seconds") or 0),
                 "status": c.get("contact_status", "UNKNOWN"),
                 "channel": c.get("channel"),
+                "initiationMethod": c.get("initiation_method", ""),
+                "phoneNumber": c.get("customer_endpoint", ""),
+                "customAttributes": c.get("custom_attributes", {}),
                 "hasRecording": c.get("has_recording", False),
             })
         return {"mock": False, "contacts": contacts_list, "total_count": data.get("total_count", len(contacts_list))}

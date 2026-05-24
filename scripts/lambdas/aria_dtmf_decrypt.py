@@ -56,7 +56,16 @@ import base64
 import re
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
 
 import aws_encryption_sdk
 from aws_encryption_sdk.identifiers import CommitmentPolicy, EncryptionKeyType, WrappingAlgorithm
@@ -64,7 +73,7 @@ from aws_encryption_sdk.internal.crypto.wrapping_keys import WrappingKey
 from aws_encryption_sdk.key_providers.raw import RawMasterKey
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 PROVIDER_ID            = "AmazonConnect"
 DEFAULT_KEY_ID         = os.environ.get("CONNECT_KEY_ID",         "meridian-connect-key-id")
@@ -80,13 +89,21 @@ _UUID_RE = re.compile(
 
 _cached_private_key_pem: bytes | None = None
 _connect_client = None
+_secrets_client = None
 
 
 def _get_connect_client():
     global _connect_client
     if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=REGION)
+        _connect_client = boto3.client("connect", region_name=REGION, config=_BOTO_CONFIG)
     return _connect_client
+
+
+def _get_secrets_client():
+    global _secrets_client
+    if _secrets_client is None:
+        _secrets_client = boto3.client("secretsmanager", region_name=REGION, config=_BOTO_CONFIG)
+    return _secrets_client
 
 
 def _push_system_error(contact_id: str) -> None:
@@ -116,7 +133,7 @@ def _get_private_key_pem() -> bytes:
     if _cached_private_key_pem is not None:
         return _cached_private_key_pem
 
-    client = boto3.client("secretsmanager", region_name=REGION)
+    client = _get_secrets_client()
     try:
         response = client.get_secret_value(SecretId=PRIVATE_KEY_SECRET_ARN)
         pem = response["SecretString"]

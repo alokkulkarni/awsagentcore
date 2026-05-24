@@ -49,10 +49,19 @@ from typing import Optional
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -78,7 +87,7 @@ _connect_client = None
 def _get_connect():
     global _connect_client
     if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=AWS_REGION)
+        _connect_client = boto3.client("connect", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _connect_client
 
 

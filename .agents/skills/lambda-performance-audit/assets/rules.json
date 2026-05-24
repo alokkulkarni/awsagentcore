@@ -1,0 +1,92 @@
+[
+  {
+    "id": "CLIENT_IN_HANDLER",
+    "severity": "CRITICAL",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["boto3.client", "boto3.resource", "lambda_handler"],
+    "description": "boto3 client created inside handler function body",
+    "impact": "50-300ms latency added per warm invocation due to new SDK session",
+    "fix_summary": "Move to module level or use lazy-init pattern"
+  },
+  {
+    "id": "MISSING_BOTO_CONFIG",
+    "severity": "HIGH",
+    "auto_fixable": true,
+    "category": "configuration",
+    "keywords": ["Config", "tcp_keepalive", "boto3.client", "boto3.resource"],
+    "description": "boto3 client or resource is created without botocore Config",
+    "impact": "reduced connection reuse and weaker retry/timeout behavior on warm invocations",
+    "fix_summary": "Add a shared Config block and pass config=_BOTO_CONFIG"
+  },
+  {
+    "id": "MISSING_CONFIG_IMPORT",
+    "severity": "HIGH",
+    "auto_fixable": true,
+    "category": "imports",
+    "keywords": ["botocore.config", "Config", "import"],
+    "description": "botocore Config is not imported even though boto3 is used",
+    "impact": "prevents standard Lambda client tuning from being applied consistently",
+    "fix_summary": "Add from botocore.config import Config"
+  },
+  {
+    "id": "HARDCODED_LOG_LEVEL",
+    "severity": "MEDIUM",
+    "auto_fixable": true,
+    "category": "logging",
+    "keywords": ["setLevel", "LOG_LEVEL", "logging.INFO"],
+    "description": "logger level is hardcoded instead of controlled by environment",
+    "impact": "requires redeploy to change verbosity and can increase logging overhead",
+    "fix_summary": "Replace hardcoded logger.setLevel with os.environ.get('LOG_LEVEL', 'INFO')"
+  },
+  {
+    "id": "MISSING_INVOCATION_LOG",
+    "severity": "LOW",
+    "auto_fixable": true,
+    "category": "logging",
+    "keywords": ["lambda_handler", "json.dumps", "logger.info"],
+    "description": "handler does not emit a structured invocation log at startup",
+    "impact": "harder CloudWatch correlation and slower troubleshooting per invocation",
+    "fix_summary": "Add logger.info(json.dumps({...})) near the top of lambda_handler"
+  },
+  {
+    "id": "UNCACHED_PAGINATOR",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "caching",
+    "keywords": ["get_paginator", "TTL", "list_*"],
+    "description": "paginator is used without a surrounding TTL cache check",
+    "impact": "100-500ms of repeated list API latency may be paid on warm invocations",
+    "fix_summary": "Wrap paginator results in a module-level TTL cache"
+  },
+  {
+    "id": "API_CALL_IN_LOOP",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "batching",
+    "keywords": ["describe_", "get_", "list_", "for loop", "while loop"],
+    "description": "AWS API call appears inside a loop body",
+    "impact": "creates N+1 latency and cost patterns proportional to item count",
+    "fix_summary": "Batch requests where possible or cache per-item lookups"
+  },
+  {
+    "id": "HARDCODED_REGION",
+    "severity": "MEDIUM",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["region_name", "AWS_REGION", "boto3.client"],
+    "description": "boto3 client or resource hardcodes a region string",
+    "impact": "reduces portability and can break when the function is deployed outside that region",
+    "fix_summary": "Omit region_name or source it from AWS_REGION"
+  },
+  {
+    "id": "BROAD_EXCEPT",
+    "severity": "LOW",
+    "auto_fixable": false,
+    "category": "error-handling",
+    "keywords": ["except Exception", "ClientError", "BotoCoreError"],
+    "description": "broad exception handler appears before any boto3-specific error handling",
+    "impact": "obscures AWS-specific failures and makes troubleshooting less precise",
+    "fix_summary": "Catch ClientError and BotoCoreError before a final broad except"
+  }
+]

@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
 const EVENT_CONFIG = {
   user_message: {

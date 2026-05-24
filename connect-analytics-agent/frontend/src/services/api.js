@@ -74,6 +74,16 @@ export const searchContacts = async (params = {}) => {
   return response.data;
 };
 
+export const getQueues = async () => {
+  const response = await api.get('/queues');
+  return response.data;
+};
+
+export const getAgentsForSearch = async () => {
+  const response = await api.get('/agents-list');
+  return response.data;
+};
+
 export const getTranscript = async (contactId) => {
   const response = await api.get(`/transcript/${contactId}`);
   return response.data;

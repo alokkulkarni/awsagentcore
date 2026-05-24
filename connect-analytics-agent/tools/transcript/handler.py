@@ -1,16 +1,45 @@
 import datetime as _dt
 import json
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, get_instance_id, parse_csv, parse_parameters
 from shared.scan_resources import get_contact_lens_bucket_and_prefix
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+_CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+_S3_CLIENT = boto3.client("s3", config=_BOTO_CONFIG)
+_QC_CLIENT = boto3.client("qconnect", config=_BOTO_CONFIG)
+_CL_CLIENT = boto3.client("connect-contact-lens", config=_BOTO_CONFIG)
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
 
 ALLOWED_SEGMENT_TYPES = {"TRANSCRIPT", "ISSUES", "CATEGORIES", "SENSITIVE_DATA"}
 
@@ -144,8 +173,7 @@ def _qconnect_ai_transcript(contact_full: Dict[str, Any], contact_id: str) -> Op
         return None
 
     try:
-        qc_client = boto3.client("qconnect")
-        response = qc_client.list_messages(
+        response = _QC_CLIENT.list_messages(
             assistantId=assistant_id,
             sessionId=session_id,
             maxResults=100,
@@ -233,7 +261,13 @@ def _realtime_segments(contact_lens_client, instance_id: str, contact_id: str) -
 
 def _find_contact_lens_bucket(connect_client, instance_id: str) -> Tuple[Optional[str], str]:
     """Return (bucket, base_key_prefix) for Contact Lens S3 output — uses scan data with live fallback."""
-    return get_contact_lens_bucket_and_prefix(instance_id, connect_client)
+    cache_key = f"cl_bucket/{instance_id}"
+    cached_value = _cache_get(cache_key)
+    if cached_value is not None:
+        return cached_value
+    bucket_and_prefix = get_contact_lens_bucket_and_prefix(instance_id, connect_client)
+    _cache_set(cache_key, bucket_and_prefix)
+    return bucket_and_prefix
 
 
 def _contact_full(connect_client, instance_id: str, contact_id: str) -> Dict[str, Any]:
@@ -281,8 +315,7 @@ def _automated_interaction_transcript(connect_client, instance_id: str, contact_
             bucket, key = parts[0], parts[1]
             LOGGER.info("Found AUTOMATED_INTERACTION log at s3://%s/%s", bucket, key)
             try:
-                s3_client = boto3.client("s3")
-                obj = s3_client.get_object(Bucket=bucket, Key=key)
+                obj = _S3_CLIENT.get_object(Bucket=bucket, Key=key)
                 data = json.loads(obj["Body"].read().decode("utf-8"))
                 return _parse_automated_interaction_log(data, contact_id)
             except Exception as exc:  # pylint: disable=broad-except
@@ -450,14 +483,13 @@ def _s3_post_call_transcript(connect_client, instance_id: str, contact_id: str) 
         return None
 
     channel, initiation_time, _ = _contact_info(connect_client, instance_id, contact_id)
-    s3_client = boto3.client("s3")
-    key = _search_s3_for_analysis(s3_client, bucket, prefix, contact_id, channel, initiation_time)
+    key = _search_s3_for_analysis(_S3_CLIENT, bucket, prefix, contact_id, channel, initiation_time)
     if not key:
         LOGGER.info("Transcript/analysis JSON not found in S3 for contact %s", contact_id)
         return None
 
     try:
-        obj = s3_client.get_object(Bucket=bucket, Key=key)
+        obj = _S3_CLIENT.get_object(Bucket=bucket, Key=key)
         data = json.loads(obj["Body"].read().decode("utf-8"))
         # Distinguish native chat transcript from Contact Lens analysis by key path
         if "/ChatTranscripts/" in key or "/UnprocessedChatTranscripts/" in key:
@@ -479,6 +511,7 @@ _REALTIME_WINDOW_SECONDS   = 30 * 60  # 30 min — realtime API stays queryable 
 def lambda_handler(event, _context):
     params: Dict[str, Any] = {}
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
         contact_id = params.get("contact_id")
@@ -490,7 +523,7 @@ def lambda_handler(event, _context):
         if invalid:
             raise ValueError(f"Unsupported segment_types: {', '.join(invalid)}")
 
-        connect_client = boto3.client("connect")
+        connect_client = _CONNECT_CLIENT
 
         # Fetch contact details once — we need channel + disconnect time for decisions.
         contact_full = _contact_full(connect_client, instance_id, contact_id)
@@ -513,8 +546,7 @@ def lambda_handler(event, _context):
         cl_realtime_enabled = False
         cl_segments: List[Dict[str, Any]] = []
         try:
-            cl_client = boto3.client("connect-contact-lens")
-            rt_result = _realtime_segments(cl_client, instance_id, contact_id)
+            rt_result = _realtime_segments(_CL_CLIENT, instance_id, contact_id)
             cl_realtime_enabled = True  # API call succeeded → CL is configured
             cl_segments = rt_result.get("segments", [])
             if cl_segments:

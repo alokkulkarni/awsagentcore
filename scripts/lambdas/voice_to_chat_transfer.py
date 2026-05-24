@@ -57,9 +57,18 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from botocore.config import Config
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -84,28 +93,28 @@ _dynamodb_resource = None
 def _connect() -> Any:
     global _connect_client
     if _connect_client is None:
-        _connect_client = boto3.client("connect", region_name=AWS_REGION)
+        _connect_client = boto3.client("connect", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _connect_client
 
 
 def _contact_lens() -> Any:
     global _contact_lens_client
     if _contact_lens_client is None:
-        _contact_lens_client = boto3.client("connect-contact-lens", region_name=AWS_REGION)
+        _contact_lens_client = boto3.client("connect-contact-lens", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _contact_lens_client
 
 
 def _sms() -> Any:
     global _sms_client
     if _sms_client is None:
-        _sms_client = boto3.client("pinpoint-sms-voice-v2", region_name=AWS_REGION)
+        _sms_client = boto3.client("pinpoint-sms-voice-v2", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _sms_client
 
 
 def _dynamodb() -> Any:
     global _dynamodb_resource
     if _dynamodb_resource is None:
-        _dynamodb_resource = boto3.resource("dynamodb", region_name=AWS_REGION)
+        _dynamodb_resource = boto3.resource("dynamodb", region_name=AWS_REGION, config=_BOTO_CONFIG)
     return _dynamodb_resource
 
 

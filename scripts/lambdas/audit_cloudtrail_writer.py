@@ -11,14 +11,23 @@ Environment variables:
 import json
 import logging
 import os
+
 import boto3
+from botocore.config import Config
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 CHANNEL_ARN = os.environ["CLOUDTRAIL_CHANNEL_ARN"]
 _region = os.environ.get("AWS_REGION", "eu-west-2")
-_client = boto3.client("cloudtrail-data", region_name=_region)
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_client = boto3.client("cloudtrail-data", region_name=_region, config=_BOTO_CONFIG)
 
 
 def handler(event, context):

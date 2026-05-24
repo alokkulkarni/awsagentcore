@@ -32,10 +32,20 @@ import json
 import os
 from decimal import Decimal
 
+from botocore.config import Config
+
 # ---------------------------------------------------------------------------
 # Initialise outside handler for connection reuse across warm invocations
 # ---------------------------------------------------------------------------
-dynamodb = boto3.resource("dynamodb")
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+
+dynamodb = boto3.resource("dynamodb", config=_BOTO_CONFIG)
 TABLE_NAME = os.environ.get("ROUTING_TABLE", "aria-routing-config")
 DEFAULT_TOPIC = "general_banking"
 

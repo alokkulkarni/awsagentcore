@@ -1,16 +1,41 @@
 import json
 import logging
+import os
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from shared.connect_utils import build_error_response, build_response, parse_parameters
 
 LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+_BOTO_CONFIG = Config(
+    tcp_keepalive=True,
+    max_pool_connections=10,
+    retries={"mode": "standard", "max_attempts": 3},
+    connect_timeout=5,
+    read_timeout=15,
+)
+_CACHE_TTL = 300
+_cache: Dict[str, Any] = {}
+_LOGS_CLIENT = boto3.client("logs", config=_BOTO_CONFIG)
+
+
+def _cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["v"]
+    return None
+
+
+
+def _cache_set(key: str, value) -> None:
+    _cache[key] = {"v": value, "ts": time.time()}
 
 _LAMBDA_LOG_PREFIX  = "/aws/lambda/"
 _CONNECT_LOG_PREFIX = "/aws/connect/"
@@ -19,16 +44,20 @@ _CONNECT_LOG_PREFIX = "/aws/connect/"
 
 def _discover_log_groups(logs_client, extra_names: List[str]) -> List[str]:
     """Return all Connect flow + Lambda log groups plus any extras supplied."""
-    groups = set(extra_names)
-    for prefix in [_CONNECT_LOG_PREFIX, _LAMBDA_LOG_PREFIX]:
-        try:
-            paginator = logs_client.get_paginator("describe_log_groups")
-            for page in paginator.paginate(logGroupNamePrefix=prefix):
-                for lg in page.get("logGroups", []):
-                    groups.add(lg["logGroupName"])
-        except (ClientError, BotoCoreError) as exc:
-            LOGGER.warning("Could not list log groups with prefix %s: %s", prefix, exc)
-    return list(groups)
+    cached_groups = _cache_get("log_groups")
+    if cached_groups is None:
+        groups = set()
+        for prefix in [_CONNECT_LOG_PREFIX, _LAMBDA_LOG_PREFIX]:
+            try:
+                paginator = logs_client.get_paginator("describe_log_groups")
+                for page in paginator.paginate(logGroupNamePrefix=prefix):
+                    for lg in page.get("logGroups", []):
+                        groups.add(lg["logGroupName"])
+            except (ClientError, BotoCoreError) as exc:
+                LOGGER.warning("Could not list log groups with prefix %s: %s", prefix, exc)
+        cached_groups = list(groups)
+        _cache_set("log_groups", cached_groups)
+    return list(set(cached_groups) | set(extra_names))
 
 
 def _flow_log_groups(logs_client, flow_name: str, extra_names: List[str]) -> List[str]:
@@ -355,10 +384,10 @@ def _build_outcomes_summary(outcome_rows: List[List[Dict]]) -> Dict[str, int]:
 
 def lambda_handler(event, _context):
     try:
+        LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params      = parse_parameters(event.get("parameters", []))
         query_type  = params.get("query_type", "contact_events")
 
-        logs_client = boto3.client("logs")
         extra_groups = [g.strip() for g in params.get("log_groups", "").split(",") if g.strip()]
 
         # ── Mode 1: per-contact event timeline ──────────────────────────────
@@ -370,10 +399,10 @@ def lambda_handler(event, _context):
             end_ms   = int(time.time() * 1000)
             start_ms = end_ms - 7 * 24 * 3600 * 1000
 
-            all_groups  = _discover_log_groups(logs_client, extra_groups)
+            all_groups  = _discover_log_groups(_LOGS_CLIENT, extra_groups)
             raw_events: List[Dict] = []
             for lg in all_groups:
-                raw_events.extend(_search_log_group(logs_client, lg, contact_id, start_ms, end_ms))
+                raw_events.extend(_search_log_group(_LOGS_CLIENT, lg, contact_id, start_ms, end_ms))
 
             raw_events.sort(key=lambda x: x["ts"])
             start_ts = raw_events[0]["ts"] if raw_events else end_ms
@@ -414,7 +443,7 @@ def lambda_handler(event, _context):
             end_epoch   = int(time.time())
             start_epoch = end_epoch - days * 86400
 
-            log_groups = _flow_log_groups(logs_client, flow_name, extra_groups)
+            log_groups = _flow_log_groups(_LOGS_CLIENT, flow_name, extra_groups)
             if not log_groups:
                 return build_response(event, {
                     "flow_name": flow_name, "period_days": days,
@@ -426,9 +455,9 @@ def lambda_handler(event, _context):
             # Run all 3 queries in parallel
             import concurrent.futures  # pylint: disable=import-outside-toplevel
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-                fut_count   = pool.submit(_run_insights_query, logs_client, _CONTACT_COUNT_QUERY,  log_groups, start_epoch, end_epoch)
-                fut_blocks  = pool.submit(_run_insights_query, logs_client, _BLOCK_CONTACTS_QUERY, log_groups, start_epoch, end_epoch)
-                fut_outcome = pool.submit(_run_insights_query, logs_client, _OUTCOME_QUERY,        log_groups, start_epoch, end_epoch)
+                fut_count   = pool.submit(_run_insights_query, _LOGS_CLIENT, _CONTACT_COUNT_QUERY,  log_groups, start_epoch, end_epoch)
+                fut_blocks  = pool.submit(_run_insights_query, _LOGS_CLIENT, _BLOCK_CONTACTS_QUERY, log_groups, start_epoch, end_epoch)
+                fut_outcome = pool.submit(_run_insights_query, _LOGS_CLIENT, _OUTCOME_QUERY,        log_groups, start_epoch, end_epoch)
                 count_rows   = fut_count.result()
                 block_rows   = fut_blocks.result()
                 outcome_rows = fut_outcome.result()
