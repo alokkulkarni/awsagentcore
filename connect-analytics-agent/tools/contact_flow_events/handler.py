@@ -281,7 +281,7 @@ def _run_insights_query(logs_client, query: str, log_groups: List[str],
     try:
         logs_client.stop_query(queryId=query_id)
     except Exception:  # pylint: disable=broad-except
-        pass
+        LOGGER.debug("Suppressed stop_query exception", exc_info=True)
     return []
 
 

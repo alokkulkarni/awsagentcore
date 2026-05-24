@@ -129,7 +129,7 @@ def _parse_lex_v2_alias_arn(alias_arn: str) -> Dict[str, str]:
         result["bot_id"]   = rp[1] if len(rp) > 1 else ""
         result["alias_id"] = rp[2] if len(rp) > 2 else ""
     except Exception:  # pylint: disable=broad-except
-        pass
+        LOGGER.debug("Suppressed exception in alias path resolution", exc_info=True)
     return result
 
 
@@ -164,6 +164,7 @@ def _describe_bot_alias(bot_id: str, alias_id: str, region: str) -> str:
         resp = _lex_client(region).describe_bot_alias(botId=bot_id, botAliasId=alias_id)
         return resp.get("botAliasName", alias_id)
     except Exception:  # pylint: disable=broad-except
+        LOGGER.debug("Suppressed exception in alias path resolution", exc_info=True)
         return alias_id
 
 

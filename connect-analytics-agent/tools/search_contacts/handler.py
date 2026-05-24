@@ -136,7 +136,7 @@ def _transform_contact(contact: Dict[str, Any], connect_client, instance_id: str
             ep = detail.get("CustomerEndpoint") or {}
             customer_endpoint_value = ep.get("Address") or ep.get("address") or ""
     except Exception:  # pylint: disable=broad-except
-        pass
+        LOGGER.debug("Suppressed exception parsing customer endpoint", exc_info=True)
 
     if not has_recording:
         has_recording = bool(contact.get("Recordings"))

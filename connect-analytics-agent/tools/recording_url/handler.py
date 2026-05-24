@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re as _re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
@@ -22,6 +23,14 @@ _BOTO_CONFIG = Config(
 )
 _CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
 _S3_CLIENT = boto3.client("s3", config=_BOTO_CONFIG)
+
+
+_CONTACT_ID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+
+def _validate_contact_id(contact_id: str) -> None:
+    """Raise ValueError if contact_id is not a valid UUID."""
+    if not contact_id or not _CONTACT_ID_RE.match(str(contact_id)):
+        raise ValueError(f"Invalid contact_id format: {contact_id!r}")
 
 
 def _parse_s3_location(location: str):
@@ -47,6 +56,10 @@ def lambda_handler(event, _context):
         contact_id = params.get("contact_id")
         if not contact_id:
             raise ValueError("contact_id is required.")
+        try:
+            _validate_contact_id(contact_id)
+        except ValueError as exc:
+            return {"error": str(exc), "status": "invalid_input"}
 
         expiry_seconds = min(int(params.get("expiry_seconds") or 3600), 43200)
 

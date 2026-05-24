@@ -44,6 +44,7 @@ import os
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 import boto3
@@ -80,6 +81,13 @@ SERVICE             = "bedrock-agentcore"
 
 # Maximum number of automatic retries on transient AgentCore failures
 AGENTCORE_MAX_RETRIES = int(os.environ.get("AGENTCORE_MAX_RETRIES", "2"))
+
+# ── Security: validate AGENTCORE_ENDPOINT scheme to prevent SSRF ──────────
+_parsed_endpoint = urllib.parse.urlparse(AGENTCORE_ENDPOINT)
+if _parsed_endpoint.scheme != "https" or not _parsed_endpoint.netloc:
+    raise ValueError(
+        f"AGENTCORE_ENDPOINT must be a full HTTPS URL, got: {AGENTCORE_ENDPOINT!r}"
+    )
 
 _connect_client = None
 

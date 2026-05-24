@@ -35,83 +35,90 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+_MOCK_DATA = os.environ.get("MOCK_DATA", "false").lower() == "true"
 
 # ---------------------------------------------------------------------------
 # PCI-safe display data (returned to ARIA by get_customer_details)
 # Full card numbers are NOT present here — only last_four for display.
 # ---------------------------------------------------------------------------
-_MOCK_PROFILES: dict[str, dict] = {
-    "CUST-001": {
-        "name": "James",
-        "accounts": [
-            {"type": "current", "nickname": "Main Account",     "number_last_four": "4521"},
-            {"type": "savings", "nickname": "Holiday Savings",  "number_last_four": "7832"},
-        ],
-        "debit_cards":  [{"nickname": "Everyday Debit",      "last_four": "8901"}],
-        "credit_cards": [{"nickname": "Rewards Credit Card", "last_four": "3456"}],
-        "has_mortgage": True,
-    },
-    "CUST-002": {
-        "name": "Sarah",
-        "accounts": [
-            {"type": "current", "nickname": "Main Current",  "number_last_four": "1234"},
-        ],
-        "debit_cards":  [{"nickname": "Classic Debit",      "last_four": "2711"}],
-        "credit_cards": [{"nickname": "Platinum Credit",    "last_four": "2199"}],
-        "has_mortgage": False,
-    },
-    "CUST-003": {
-        "name": "Michael",
-        "accounts": [
-            {"type": "current", "nickname": "Current Account", "number_last_four": "8843"},
-            {"type": "savings", "nickname": "ISA",             "number_last_four": "6621"},
-        ],
-        "debit_cards":  [
-            {"nickname": "Primary Debit",  "last_four": "5543"},
-            {"nickname": "Joint Debit",    "last_four": "1102"},
-        ],
-        "credit_cards": [{"nickname": "Cashback Credit",     "last_four": "9912"}],
-        "has_mortgage": True,
-    },
-}
+if _MOCK_DATA:
+    _MOCK_PROFILES: dict[str, dict] = {
+        "CUST-001": {
+            "name": "James",
+            "accounts": [
+                {"type": "current", "nickname": "Main Account",     "number_last_four": "4521"},
+                {"type": "savings", "nickname": "Holiday Savings",  "number_last_four": "7832"},
+            ],
+            "debit_cards":  [{"nickname": "Everyday Debit",      "last_four": "8901"}],
+            "credit_cards": [{"nickname": "Rewards Credit Card", "last_four": "3456"}],
+            "has_mortgage": True,
+        },
+        "CUST-002": {
+            "name": "Sarah",
+            "accounts": [
+                {"type": "current", "nickname": "Main Current",  "number_last_four": "1234"},
+            ],
+            "debit_cards":  [{"nickname": "Classic Debit",      "last_four": "2711"}],
+            "credit_cards": [{"nickname": "Platinum Credit",    "last_four": "2199"}],
+            "has_mortgage": False,
+        },
+        "CUST-003": {
+            "name": "Michael",
+            "accounts": [
+                {"type": "current", "nickname": "Current Account", "number_last_four": "8843"},
+                {"type": "savings", "nickname": "ISA",             "number_last_four": "6621"},
+            ],
+            "debit_cards":  [
+                {"nickname": "Primary Debit",  "last_four": "5543"},
+                {"nickname": "Joint Debit",    "last_four": "1102"},
+            ],
+            "credit_cards": [{"nickname": "Cashback Credit",     "last_four": "9912"}],
+            "has_mortgage": True,
+        },
+    }
 
-# ---------------------------------------------------------------------------
-# Internal card registry — full 16-digit card numbers for ownership validation.
-# Structure:  { customer_id: [ {full_card_number, card_type, nickname}, … ] }
-#
-# full_card_number format: 16 digit string, no spaces.
-#   Digits 1–6  : BIN (must match aria-card-bins DynamoDB table)
-#   Digits 7–12 : middle digits (any valid digits)
-#   Digits 13–16: last four (must match _MOCK_PROFILES above)
-#
-# These values are NEVER returned to callers — only used internally by
-# _verify_card_ownership() for BIN+last_four matching.
-# ---------------------------------------------------------------------------
-_MOCK_CARD_REGISTRY: dict[str, list[dict]] = {
-    "CUST-001": [
-        # VISA DEBIT  — BIN 414900, last four 8901
-        {"full_card_number": "4149008923148901", "card_type": "debit",  "nickname": "Everyday Debit"},
-        # MASTERCARD CREDIT — BIN 532188, last four 3456
-        {"full_card_number": "5321884720933456", "card_type": "credit", "nickname": "Rewards Credit Card"},
-    ],
-    "CUST-002": [
-        # VISA DEBIT  — BIN 414900, last four 2711
-        {"full_card_number": "4149008941092711", "card_type": "debit",  "nickname": "Classic Debit"},
-        # MASTERCARD CREDIT — BIN 532188, last four 2199
-        {"full_card_number": "5321884756832199", "card_type": "credit", "nickname": "Platinum Credit"},
-    ],
-    "CUST-003": [
-        # VISA DEBIT (primary) — BIN 414900, last four 5543
-        {"full_card_number": "4149008912315543", "card_type": "debit",  "nickname": "Primary Debit"},
-        # VISA DEBIT (joint)   — BIN 414900, last four 1102
-        {"full_card_number": "4149008977641102", "card_type": "debit",  "nickname": "Joint Debit"},
-        # MASTERCARD CREDIT — BIN 532188, last four 9912
-        {"full_card_number": "5321884788769912", "card_type": "credit", "nickname": "Cashback Credit"},
-    ],
-}
+    # ---------------------------------------------------------------------------
+    # Internal card registry — full 16-digit card numbers for ownership validation.
+    # Structure:  { customer_id: [ {full_card_number, card_type, nickname}, … ] }
+    #
+    # full_card_number format: 16 digit string, no spaces.
+    #   Digits 1–6  : BIN (must match aria-card-bins DynamoDB table)
+    #   Digits 7–12 : middle digits (any valid digits)
+    #   Digits 13–16: last four (must match _MOCK_PROFILES above)
+    #
+    # These values are NEVER returned to callers — only used internally by
+    # _verify_card_ownership() for BIN+last_four matching.
+    # ---------------------------------------------------------------------------
+    _MOCK_CARD_REGISTRY: dict[str, list[dict]] = {
+        "CUST-001": [
+            # VISA DEBIT  — BIN 414900, last four 8901
+            {"full_card_number": "4149008923148901", "card_type": "debit",  "nickname": "Everyday Debit"},
+            # MASTERCARD CREDIT — BIN 532188, last four 3456
+            {"full_card_number": "5321884720933456", "card_type": "credit", "nickname": "Rewards Credit Card"},
+        ],
+        "CUST-002": [
+            # VISA DEBIT  — BIN 414900, last four 2711
+            {"full_card_number": "4149008941092711", "card_type": "debit",  "nickname": "Classic Debit"},
+            # MASTERCARD CREDIT — BIN 532188, last four 2199
+            {"full_card_number": "5321884756832199", "card_type": "credit", "nickname": "Platinum Credit"},
+        ],
+        "CUST-003": [
+            # VISA DEBIT (primary) — BIN 414900, last four 5543
+            {"full_card_number": "4149008912315543", "card_type": "debit",  "nickname": "Primary Debit"},
+            # VISA DEBIT (joint)   — BIN 414900, last four 1102
+            {"full_card_number": "4149008977641102", "card_type": "debit",  "nickname": "Joint Debit"},
+            # MASTERCARD CREDIT — BIN 532188, last four 9912
+            {"full_card_number": "5321884788769912", "card_type": "credit", "nickname": "Cashback Credit"},
+        ],
+    }
+else:
+    _MOCK_PROFILES = {}
+    _MOCK_CARD_REGISTRY = {}
 
 
 
@@ -126,7 +133,7 @@ def _parse_tool_call(event: dict, context) -> tuple:
     try:
         raw = (context.client_context.custom or {}).get("bedrockAgentCoreToolName", "")
     except Exception:
-        pass
+        logger.debug("context.client_context not available", exc_info=True)
     if not raw:                                      # JSON-RPC fallback
         _p = event.get("params", {})
         if isinstance(_p, str):
@@ -163,17 +170,29 @@ def _parse_tool_call(event: dict, context) -> tuple:
 
     return tool_name, params
 
+
+# Security: redact PII/sensitive fields before logging
+_REDACT_KEYS = frozenset({
+    "date_of_birth", "dob", "mobile", "mobile_last_four", "phone", "phone_number",
+    "password", "pin", "otp", "cvv", "cvc", "card_number", "full_card_number",
+    "account_number", "sort_code", "iban", "secret", "token", "auth_token",
+    "access_token", "refresh_token", "credit_card", "debit_card",
+})
+
+def _redact_event(event: dict) -> dict:
+    """Return a shallow copy of event with sensitive values replaced by ***REDACTED***."""
+    return {
+        k: "***REDACTED***" if k.lower() in _REDACT_KEYS else v
+        for k, v in event.items()
+    }
+
 def lambda_handler(event: dict, context) -> dict:
-    logger.info("customer event: %s", json.dumps(event))
+    logger.info("customer event: %s", json.dumps(_redact_event(event)))
 
     tool_name, params = _parse_tool_call(event, context)
 
     if tool_name == "get_customer_details":
-        cid = str(params.get("customer_id", "")).strip()
-        profile = _MOCK_PROFILES.get(cid)
-        if profile:
-            return {"customer_id": cid, **profile}
-        return {"error": "Customer not found"}
+        return get_customer_details(params)
 
     if tool_name == "verify_card_ownership":
         return _verify_card_ownership(params)
@@ -181,7 +200,21 @@ def lambda_handler(event: dict, context) -> dict:
     return {"error": f"Unknown tool: {tool_name}"}
 
 
+def get_customer_details(params: dict) -> dict:
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
+    cid = str(params.get("customer_id", "")).strip()
+    profile = _MOCK_PROFILES.get(cid)
+    if profile:
+        return {"customer_id": cid, **profile}
+    return {"error": "Customer not found"}
+
+
 def _verify_card_ownership(params: dict) -> dict:
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
     """
     Internal tool called by aria-dtmf-validate (Lambda-to-Lambda) to confirm
     a captured card belongs to an authenticated customer.

@@ -38,7 +38,7 @@ def _parse_tool_call(event: dict, context) -> tuple:
     try:
         raw = (context.client_context.custom or {}).get("bedrockAgentCoreToolName", "")
     except Exception:
-        pass
+        logger.debug("context.client_context not available", exc_info=True)
     if not raw:                                      # JSON-RPC fallback
         _p = event.get("params", {})
         if isinstance(_p, str):
@@ -75,8 +75,24 @@ def _parse_tool_call(event: dict, context) -> tuple:
 
     return tool_name, params
 
+
+# Security: redact PII/sensitive fields before logging
+_REDACT_KEYS = frozenset({
+    "date_of_birth", "dob", "mobile", "mobile_last_four", "phone", "phone_number",
+    "password", "pin", "otp", "cvv", "cvc", "card_number", "full_card_number",
+    "account_number", "sort_code", "iban", "secret", "token", "auth_token",
+    "access_token", "refresh_token", "credit_card", "debit_card",
+})
+
+def _redact_event(event: dict) -> dict:
+    """Return a shallow copy of event with sensitive values replaced by ***REDACTED***."""
+    return {
+        k: "***REDACTED***" if k.lower() in _REDACT_KEYS else v
+        for k, v in event.items()
+    }
+
 def lambda_handler(event: dict, context) -> dict:
-    logger.info("knowledge event: %s", json.dumps(event))
+    logger.info("knowledge event: %s", json.dumps(_redact_event(event)))
 
     tool_name, params = _parse_tool_call(event, context)
 

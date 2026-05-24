@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re as _re
 import time
 from typing import Any, Dict, List
 
@@ -22,6 +23,14 @@ _BOTO_CONFIG = Config(
 )
 _CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
 _CACHE_TTL = 300
+
+_CONTACT_ID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+
+def _validate_contact_id(contact_id: str) -> None:
+    """Raise ValueError if contact_id is not a valid UUID."""
+    if not contact_id or not _CONTACT_ID_RE.match(str(contact_id)):
+        raise ValueError(f"Invalid contact_id format: {contact_id!r}")
+
 _cache: Dict[str, Any] = {}
 
 
@@ -73,6 +82,12 @@ def lambda_handler(event, _context):
         LOGGER.info(json.dumps({"event": "lambda_invoked", "function": event.get("function", "unknown")}))
         params = parse_parameters(event.get("parameters"))
         instance_id = get_instance_id(params)
+        contact_id = params.get("contact_id")
+        if contact_id:
+            try:
+                _validate_contact_id(contact_id)
+            except ValueError as exc:
+                return {"error": str(exc), "status": "invalid_input"}
         keyword = params.get("keyword")
         if not keyword:
             raise ValueError("keyword is required.")

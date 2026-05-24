@@ -29,10 +29,14 @@ Environment variables:
 
 import boto3
 import json
+import logging
 import os
 from decimal import Decimal
 
 from botocore.config import Config
+
+logger = logging.getLogger()
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ---------------------------------------------------------------------------
 # Initialise outside handler for connection reuse across warm invocations
@@ -59,7 +63,7 @@ def handler(event, context):
     contact_id = contact_data.get("ContactId", "unknown")
 
     topic = attrs.get("topicCategory", DEFAULT_TOPIC).strip().lower()
-    print(f"[{contact_id}] Routing lookup — topicCategory: '{topic}'")
+    logger.info("[%s] Routing lookup — topicCategory: %r", contact_id, topic)
 
     table = dynamodb.Table(TABLE_NAME)
 
@@ -68,18 +72,12 @@ def handler(event, context):
 
     # ── 2. Fallback to general_banking ───────────────────────────────────
     if item is None:
-        print(
-            f"[{contact_id}] No routing config for '{topic}', "
-            f"falling back to '{DEFAULT_TOPIC}'"
-        )
+        logger.info("[%s] No routing config for %r, falling back to %r", contact_id, topic, DEFAULT_TOPIC)
         item = _get_item(table, DEFAULT_TOPIC)
 
     # ── 3. Hard error — no fallback row either ────────────────────────────
     if item is None:
-        print(
-            f"[{contact_id}] ERROR: No '{DEFAULT_TOPIC}' fallback row found. "
-            f"Contact flow will route to Error branch."
-        )
+        logger.info("[%s] ERROR: No %r fallback row found. Contact flow will route to Error branch.", contact_id, DEFAULT_TOPIC)
         # Returning a single error flag so the flow can detect and use its own fallback.
         # Still a flat string dict — no exceptions raised so Connect gets the response.
         return {"routingError": "true"}
@@ -103,11 +101,7 @@ def handler(event, context):
         "routingError":        "false",
     }
 
-    print(
-        f"[{contact_id}] Routing to queue '{response['queueName']}' "
-        f"(id={response['queueId']}, proficiency={response['proficiencySkill']} "
-        f"L{response['proficiencyLevel']})"
-    )
+    logger.info("[%s] Routing to queue %r (id=%s, proficiency=%s L%s)", contact_id, response["queueName"], response["queueId"], response["proficiencySkill"], response["proficiencyLevel"])
     return _enforce_string_map(response, contact_id)
 
 
@@ -160,10 +154,6 @@ def _enforce_string_map(response: dict, contact_id: str = "") -> dict:
             clean[key] = value
         else:
             coerced = _str(value)
-            print(
-                f"[{contact_id}] WARNING: response['{key}'] had type "
-                f"{type(value).__name__!r} — coerced to str '{coerced}'. "
-                f"Check DynamoDB schema for unexpected type."
-            )
+            logger.info("[%s] WARNING: response[%r] had type %r — coerced to str %r. Check DynamoDB schema for unexpected type.", contact_id, key, type(value).__name__, coerced)
             clean[key] = coerced
     return clean

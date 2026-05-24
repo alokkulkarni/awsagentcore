@@ -186,6 +186,14 @@ _PHONE_TO_CUSTOMER: dict[str, str] = {
 }
 
 
+def _mask_phone(phone: str) -> str:
+    """Return phone masked to last 4 digits: ***-**-1234"""
+    digits = "".join(c for c in (phone or "") if c.isdigit())
+    if len(digits) >= 4:
+        return f"***-**-{digits[-4:]}"
+    return "***"
+
+
 # ---------------------------------------------------------------------------
 # Stub customer registry
 # ---------------------------------------------------------------------------
@@ -670,9 +678,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
         if resolved:
             customer_id = resolved
             auth_status = "authenticated"   # phone-based lookup counts as light auth
-            logger.info(f"Resolved customerId={customer_id!r} from phone={caller_phone!r}")
+            logger.info("Resolved customerId=%r from phone=%s", customer_id, _mask_phone(caller_phone))
         else:
-            logger.info(f"Caller phone {caller_phone!r} has no mapped customerId — unauthenticated session")
+            logger.info("Caller phone %s has no mapped customerId — unauthenticated session", _mask_phone(caller_phone))
 
     # Use ContactId as the primary session correlator.
     # When Q Connect is configured (ASSISTANT_ID is set), also resolve the Wisdom
@@ -739,7 +747,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
             session_vars["vulnerabilityContext"] = ""
             session_vars["priorSummary"] = ""
     else:
-        logger.info(f"No customerId resolved — injecting base session variables only (phone={caller_phone!r})")
+        logger.info("No customerId resolved — injecting base session variables only (phone=%s)", _mask_phone(caller_phone))
 
     # ----------------------------------------------------------------
     # 3b. Cross-channel transfer context (voice→chat or chat→voice)

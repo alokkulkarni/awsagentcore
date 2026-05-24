@@ -190,6 +190,14 @@ def _normalise_phone(phone: str) -> str:
     return phone
 
 
+def _mask_phone(phone: str) -> str:
+    """Return phone masked to last 4 digits: ***-**-1234"""
+    digits = "".join(c for c in (phone or "") if c.isdigit())
+    if len(digits) >= 4:
+        return f"***-**-{digits[-4:]}"
+    return "***"
+
+
 # ---------------------------------------------------------------------------
 # Stub customer registry
 # ---------------------------------------------------------------------------
@@ -666,9 +674,9 @@ def handler(event: dict, context: Any) -> dict:
         if resolved:
             customer_id = resolved
             auth_status = "authenticated"
-            logger.info(f"Resolved customerId={customer_id!r} from phone={caller_phone!r} (normalised={normalised_phone!r})")
+            logger.info("Resolved customerId=%r from phone=%s (normalised=%s)", customer_id, _mask_phone(caller_phone), _mask_phone(normalised_phone))
         else:
-            logger.info(f"Caller phone {caller_phone!r} has no mapped customerId — unauthenticated session")
+            logger.info("Caller phone %s has no mapped customerId — unauthenticated session", _mask_phone(caller_phone))
 
     # ── 2 + 4(prior summary) + 4b: Fan-out independent I/O calls ─────────────
     # _resolve_wisdom_session_id  → DescribeContact API
@@ -736,7 +744,7 @@ def handler(event: dict, context: Any) -> dict:
                 "productContext": "", "vulnerabilityContext": "", "priorSummary": "",
             })
     else:
-        logger.info(f"No customerId — injecting base session variables only (phone={caller_phone!r})")
+        logger.info("No customerId — injecting base session variables only (phone=%s)", _mask_phone(caller_phone))
 
     # ── 4b. Cross-channel transfer context ────────────────────────────────────
     # cross_channel_vars already fetched concurrently in the fan-out above

@@ -2,6 +2,7 @@ import datetime as _dt
 import json
 import logging
 import os
+import re as _re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,6 +29,14 @@ _CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
 _S3_CLIENT = boto3.client("s3", config=_BOTO_CONFIG)
 _QC_CLIENT = boto3.client("qconnect", config=_BOTO_CONFIG)
 _CL_CLIENT = boto3.client("connect-contact-lens", config=_BOTO_CONFIG)
+
+
+_CONTACT_ID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+
+def _validate_contact_id(contact_id: str) -> None:
+    """Raise ValueError if contact_id is not a valid UUID."""
+    if not contact_id or not _CONTACT_ID_RE.match(str(contact_id)):
+        raise ValueError(f"Invalid contact_id format: {contact_id!r}")
 
 
 def _cache_get(key: str):
@@ -201,7 +210,7 @@ def _qconnect_ai_transcript(contact_full: Dict[str, Any], contact_id: str) -> Op
                 try:
                     offset_ms = int((ts - baseline_time).total_seconds() * 1000)
                 except Exception:  # pylint: disable=broad-except
-                    pass
+                    LOGGER.debug("Suppressed exception parsing timestamp offset", exc_info=True)
 
             segments.append({
                 "segment_type": "TRANSCRIPT",
@@ -352,7 +361,7 @@ def _parse_automated_interaction_log(data: Dict[str, Any], contact_id: str) -> D
                     baseline_time = abs_time
                 offset_ms = int((abs_time - baseline_time).total_seconds() * 1000)
             except Exception:  # pylint: disable=broad-except
-                pass
+                LOGGER.debug("Suppressed exception parsing timestamp offset", exc_info=True)
 
         segments.append({
             "segment_type": "TRANSCRIPT",
@@ -454,7 +463,7 @@ def _parse_chat_transcript_json(data: Dict[str, Any], contact_id: str) -> Dict[s
                     baseline_time = abs_time
                 offset_ms = int((abs_time - baseline_time).total_seconds() * 1000)
             except Exception:  # pylint: disable=broad-except
-                pass
+                LOGGER.debug("Suppressed exception parsing timestamp offset", exc_info=True)
 
         segments.append({
             "segment_type": "TRANSCRIPT",
@@ -517,6 +526,10 @@ def lambda_handler(event, _context):
         contact_id = params.get("contact_id")
         if not contact_id:
             raise ValueError("contact_id is required.")
+        try:
+            _validate_contact_id(contact_id)
+        except ValueError as exc:
+            return {"error": str(exc), "status": "invalid_input"}
 
         segment_types = [s.upper() for s in parse_csv(params.get("segment_types"))] or ["TRANSCRIPT"]
         invalid = [s for s in segment_types if s not in ALLOWED_SEGMENT_TYPES]

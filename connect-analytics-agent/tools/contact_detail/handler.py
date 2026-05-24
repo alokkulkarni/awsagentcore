@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re as _re
 from typing import Any, Dict, Optional
 
 import boto3
@@ -20,6 +21,14 @@ _BOTO_CONFIG = Config(
     read_timeout=15,
 )
 _CONNECT_CLIENT = boto3.client("connect", config=_BOTO_CONFIG)
+
+
+_CONTACT_ID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+
+def _validate_contact_id(contact_id: str) -> None:
+    """Raise ValueError if contact_id is not a valid UUID."""
+    if not contact_id or not _CONTACT_ID_RE.match(str(contact_id)):
+        raise ValueError(f"Invalid contact_id format: {contact_id!r}")
 
 
 def _recording_summary(recording: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,6 +61,10 @@ def lambda_handler(event, _context):
         contact_id = params.get("contact_id")
         if not contact_id:
             raise ValueError("contact_id is required.")
+        try:
+            _validate_contact_id(contact_id)
+        except ValueError as exc:
+            return {"error": str(exc), "status": "invalid_input"}
 
         contact = _CONNECT_CLIENT.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
         attribute_contact_id = contact.get("InitialContactId") or contact_id

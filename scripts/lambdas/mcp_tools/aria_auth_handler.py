@@ -23,23 +23,28 @@ import os
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+_MOCK_DATA = os.environ.get("MOCK_DATA", "false").lower() == "true"
+
 # ---------------------------------------------------------------------------
 # Stub data — replace with real Meridian Bank identity service calls
 # ---------------------------------------------------------------------------
-_MOCK_CUSTOMERS: dict[str, dict] = {
-    "CUST-001": {
-        "name": "James",
-        "dob": "09/09/1982",
-        "mobile_last_four": "9252",
-        "status": "active",
-    },
-    "CUST-002": {
-        "name": "Sarah",
-        "dob": "14/03/1990",
-        "mobile_last_four": "4471",
-        "status": "active",
-    },
-}
+if _MOCK_DATA:
+    _MOCK_CUSTOMERS: dict[str, dict] = {
+        "CUST-001": {
+            "name": "James",
+            "dob": "09/09/1982",
+            "mobile_last_four": "9252",
+            "status": "active",
+        },
+        "CUST-002": {
+            "name": "Sarah",
+            "dob": "14/03/1990",
+            "mobile_last_four": "4471",
+            "status": "active",
+        },
+    }
+else:
+    _MOCK_CUSTOMERS = {}
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +63,7 @@ def _parse_tool_call(event: dict, context) -> tuple:
     try:
         raw = (context.client_context.custom or {}).get("bedrockAgentCoreToolName", "")
     except Exception:
-        pass
+        logger.debug("context.client_context not available", exc_info=True)
     if not raw:                                      # JSON-RPC fallback
         _p = event.get("params", {})
         if isinstance(_p, str):
@@ -95,8 +100,24 @@ def _parse_tool_call(event: dict, context) -> tuple:
 
     return tool_name, params
 
+
+# Security: redact PII/sensitive fields before logging
+_REDACT_KEYS = frozenset({
+    "date_of_birth", "dob", "mobile", "mobile_last_four", "phone", "phone_number",
+    "password", "pin", "otp", "cvv", "cvc", "card_number", "full_card_number",
+    "account_number", "sort_code", "iban", "secret", "token", "auth_token",
+    "access_token", "refresh_token", "credit_card", "debit_card",
+})
+
+def _redact_event(event: dict) -> dict:
+    """Return a shallow copy of event with sensitive values replaced by ***REDACTED***."""
+    return {
+        k: "***REDACTED***" if k.lower() in _REDACT_KEYS else v
+        for k, v in event.items()
+    }
+
 def lambda_handler(event: dict, context) -> dict:
-    logger.info("auth event: %s", json.dumps(event))
+    logger.info("auth event: %s", json.dumps(_redact_event(event)))
 
     tool_name, params = _parse_tool_call(event, context)
 
@@ -127,6 +148,9 @@ def _initiate_auth(params: dict) -> dict:
 
 
 def _validate_customer(params: dict) -> dict:
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
     cid = str(params.get("customer_id", "")).strip()
     if cid in _MOCK_CUSTOMERS:
         return {"valid": True, "customer_found": True}
@@ -134,6 +158,9 @@ def _validate_customer(params: dict) -> dict:
 
 
 def _cross_validate(params: dict) -> dict:
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
     """Verifies customer ID, date of birth, and last 4 digits of mobile number."""
     cid = str(params.get("customer_id", "")).strip()
     dob = str(params.get("date_of_birth", "")).strip()

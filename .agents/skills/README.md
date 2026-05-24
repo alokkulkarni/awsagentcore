@@ -1,27 +1,35 @@
-# Agent Skills — Lambda Performance Audit
+# Agent Skills — AWS Lambda Audits
 
 [agentskills.io](https://agentskills.io) defines an open skill format: a directory with `SKILL.md` plus optional scripts, references, and assets that AI agents can load on demand.
+
+## Available skills
+
+| Skill | Purpose | Activate when | Path |
+| --- | --- | --- | --- |
+| `lambda-performance-audit` | Validates AWS Lambda handlers against runtime performance best practices. | Writing, reviewing, creating, or optimizing Lambda handlers in Python, Node.js/TypeScript, Go, or Java. | `.agents/skills/lambda-performance-audit/` |
+| `lambda-security-audit` | Validates Lambda handlers and dependency manifests for SAST issues, CVEs, secrets, PII exposure, and OWASP/CWE risks. | Writing, reviewing, creating, scanning, or security-auditing Lambda handlers or manifests such as `requirements.txt`, `package.json`, `go.mod`, `pom.xml`, or `build.gradle`. | `.agents/skills/lambda-security-audit/` |
 
 ## Compatibility
 
 | Platform | Status | Project path | Personal / global path |
 | --- | --- | --- | --- |
-| VS Code + GitHub Copilot | ✅ | `.agents/skills/lambda-performance-audit/` (also `.github/skills/` or `.claude/skills/`) | `~/.agents/skills/lambda-performance-audit/` (also `~/.copilot/skills/`) |
-| GitHub Copilot CLI | ✅ | `.agents/skills/lambda-performance-audit/` (also `.github/skills/` or `.claude/skills/`) | `~/.agents/skills/lambda-performance-audit/` (also `~/.copilot/skills/`) |
-| Kiro | ✅ | `.kiro/skills/lambda-performance-audit/` | `~/.kiro/skills/lambda-performance-audit/` |
-| Cursor | ✅ | `.agents/skills/lambda-performance-audit/` or `.cursor/skills/lambda-performance-audit/` | `~/.agents/skills/lambda-performance-audit/` or `~/.cursor/skills/lambda-performance-audit/` |
-| Gemini CLI | ✅ | `.agents/skills/lambda-performance-audit/` or `.gemini/skills/lambda-performance-audit/` | `~/.agents/skills/lambda-performance-audit/` or `~/.gemini/skills/lambda-performance-audit/` |
-| Claude Code | ✅ | `.claude/skills/lambda-performance-audit/` | `~/.claude/skills/lambda-performance-audit/` |
-| OpenHands | ✅ | `.agents/skills/lambda-performance-audit/` | `~/.agents/skills/lambda-performance-audit/` |
+| VS Code + GitHub Copilot | ✅ | `.agents/skills/<skill-name>/` (also `.github/skills/` or `.claude/skills/`) | `~/.agents/skills/<skill-name>/` (also `~/.copilot/skills/`) |
+| GitHub Copilot CLI | ✅ | `.agents/skills/<skill-name>/` (also `.github/skills/` or `.claude/skills/`) | `~/.agents/skills/<skill-name>/` (also `~/.copilot/skills/`) |
+| Kiro | ✅ | `.kiro/skills/<skill-name>/` | `~/.kiro/skills/<skill-name>/` |
+| Cursor | ✅ | `.agents/skills/<skill-name>/` or `.cursor/skills/<skill-name>/` | `~/.agents/skills/<skill-name>/` or `~/.cursor/skills/<skill-name>/` |
+| Gemini CLI | ✅ | `.agents/skills/<skill-name>/` or `.gemini/skills/<skill-name>/` | `~/.agents/skills/<skill-name>/` or `~/.gemini/skills/<skill-name>/` |
+| Claude Code | ✅ | `.claude/skills/<skill-name>/` | `~/.claude/skills/<skill-name>/` |
+| OpenHands | ✅ | `.agents/skills/<skill-name>/` | `~/.agents/skills/<skill-name>/` |
 
 ## Install
 
 ### This repository
 
-Already installed at:
+Installed skills:
 
 ```text
 .agents/skills/lambda-performance-audit/
+.agents/skills/lambda-security-audit/
 ```
 
 ### GitHub Copilot in VS Code or Copilot CLI
@@ -29,6 +37,7 @@ Already installed at:
 ```bash
 mkdir -p .agents/skills
 cp -R .agents/skills/lambda-performance-audit .agents/skills/
+cp -R .agents/skills/lambda-security-audit .agents/skills/
 ```
 
 Global alternative:
@@ -36,87 +45,21 @@ Global alternative:
 ```bash
 mkdir -p ~/.agents/skills
 cp -R .agents/skills/lambda-performance-audit ~/.agents/skills/
-```
-
-### Kiro
-
-```bash
-mkdir -p .kiro/skills
-cp -R .agents/skills/lambda-performance-audit .kiro/skills/
-```
-
-Global alternative:
-
-```bash
-mkdir -p ~/.kiro/skills
-cp -R .agents/skills/lambda-performance-audit ~/.kiro/skills/
-```
-
-### Cursor
-
-```bash
-mkdir -p .cursor/skills
-cp -R .agents/skills/lambda-performance-audit .cursor/skills/
-```
-
-Global alternative:
-
-```bash
-mkdir -p ~/.cursor/skills
-cp -R .agents/skills/lambda-performance-audit ~/.cursor/skills/
-```
-
-### Gemini CLI
-
-```bash
-mkdir -p .gemini/skills
-cp -R .agents/skills/lambda-performance-audit .gemini/skills/
-```
-
-Global alternative:
-
-```bash
-mkdir -p ~/.gemini/skills
-cp -R .agents/skills/lambda-performance-audit ~/.gemini/skills/
-```
-
-### Claude Code
-
-```bash
-mkdir -p .claude/skills
-cp -R .agents/skills/lambda-performance-audit .claude/skills/
-```
-
-Global alternative:
-
-```bash
-mkdir -p ~/.claude/skills
-cp -R .agents/skills/lambda-performance-audit ~/.claude/skills/
-```
-
-### OpenHands
-
-```bash
-mkdir -p .agents/skills
-cp -R .agents/skills/lambda-performance-audit .agents/skills/
-```
-
-Global alternative:
-
-```bash
-mkdir -p ~/.agents/skills
-cp -R .agents/skills/lambda-performance-audit ~/.agents/skills/
+cp -R .agents/skills/lambda-security-audit ~/.agents/skills/
 ```
 
 ## Quick usage
 
 1. Place the skill in a supported skills directory.
 2. Reload skills in your agent if needed.
-3. Ask the agent to review or optimize a Python Lambda handler.
-4. The skill should run:
+3. Ask the agent to review, optimize, or security-audit a Lambda handler.
+4. Available commands:
    - `python3 .agents/skills/lambda-performance-audit/scripts/audit_lambda.py <file>`
    - `python3 .agents/skills/lambda-performance-audit/scripts/fix_lambda.py <file>`
-5. Re-run the audit and `python3 -m py_compile <file>` before deployment.
+   - `python3 .agents/skills/lambda-security-audit/scripts/audit_security.py <file>`
+   - `python3 .agents/skills/lambda-security-audit/scripts/fix_security.py <file>`
+   - `python3 .agents/skills/lambda-security-audit/scripts/scan_deps.py <manifest>`
+5. Re-run the audit plus language-native validation before deployment.
 
 ## More
 

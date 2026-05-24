@@ -126,6 +126,15 @@ CONNECT_INSTANCE_ID    = os.environ.get("CONNECT_INSTANCE_ID",        "")
 SESSIONS_TABLE         = os.environ.get("SESSIONS_TABLE_NAME",        "dtmf_active_sessions")
 REGION                 = os.environ.get("AWS_REGION",                 "eu-west-2")
 
+# ── Security: validate OWNERSHIP_API_URL scheme when set ──────────────────
+if OWNERSHIP_API_URL:
+    import urllib.parse as _urlparse
+    _parsed_ownership_url = _urlparse.urlparse(OWNERSHIP_API_URL)
+    if _parsed_ownership_url.scheme != "https" or not _parsed_ownership_url.netloc:
+        raise ValueError(
+            f"CARD_OWNERSHIP_API_URL must be a full HTTPS URL, got: {OWNERSHIP_API_URL!r}"
+        )
+
 _BOTO_CONFIG = Config(
     tcp_keepalive=True,
     max_pool_connections=10,
@@ -476,11 +485,11 @@ def handler(event: dict, context) -> dict:
             _push_dtmf_status(contact_id, "system_error",
                               "Technical error — returning to agent")
         except Exception:
-            pass
+            logger.debug("Suppressed exception in DTMF validation cleanup", exc_info=True)
         try:
             _update_session(contact_id, "system_error")   # deletes ACTIVE record
         except Exception:
-            pass
+            logger.debug("Suppressed exception in DTMF validation cleanup", exc_info=True)
         raise   # re-raise → Connect Error branch fires → flow returns customer to agent
 
 

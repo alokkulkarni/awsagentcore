@@ -1,92 +1,333 @@
 [
   {
     "id": "CLIENT_IN_HANDLER",
+    "language": "python",
     "severity": "CRITICAL",
     "auto_fixable": false,
     "category": "initialization",
     "keywords": ["boto3.client", "boto3.resource", "lambda_handler"],
     "description": "boto3 client created inside handler function body",
-    "impact": "50-300ms latency added per warm invocation due to new SDK session",
+    "impact": "50–300ms latency added per warm invocation due to new SDK session",
     "fix_summary": "Move to module level or use lazy-init pattern"
   },
   {
     "id": "MISSING_BOTO_CONFIG",
+    "language": "python",
     "severity": "HIGH",
     "auto_fixable": true,
     "category": "configuration",
     "keywords": ["Config", "tcp_keepalive", "boto3.client", "boto3.resource"],
-    "description": "boto3 client or resource is created without botocore Config",
-    "impact": "reduced connection reuse and weaker retry/timeout behavior on warm invocations",
-    "fix_summary": "Add a shared Config block and pass config=_BOTO_CONFIG"
+    "description": "boto3 client or resource created without botocore Config",
+    "impact": "Reduced connection reuse and weaker retry/timeout behavior",
+    "fix_summary": "Add Config(tcp_keepalive=True, max_pool_connections=10, retries=...) to all boto3 calls"
   },
   {
     "id": "MISSING_CONFIG_IMPORT",
+    "language": "python",
     "severity": "HIGH",
     "auto_fixable": true,
     "category": "imports",
     "keywords": ["botocore.config", "Config", "import"],
     "description": "botocore Config is not imported even though boto3 is used",
-    "impact": "prevents standard Lambda client tuning from being applied consistently",
-    "fix_summary": "Add from botocore.config import Config"
+    "impact": "Prevents standard Lambda client tuning from being applied",
+    "fix_summary": "Add: from botocore.config import Config"
   },
   {
     "id": "HARDCODED_LOG_LEVEL",
+    "language": "python",
     "severity": "MEDIUM",
     "auto_fixable": true,
     "category": "logging",
     "keywords": ["setLevel", "LOG_LEVEL", "logging.INFO"],
-    "description": "logger level is hardcoded instead of controlled by environment",
-    "impact": "requires redeploy to change verbosity and can increase logging overhead",
-    "fix_summary": "Replace hardcoded logger.setLevel with os.environ.get('LOG_LEVEL', 'INFO')"
+    "description": "Logger level is hardcoded instead of controlled by environment",
+    "impact": "Requires redeploy to change verbosity; can increase logging overhead in hot paths",
+    "fix_summary": "Replace with: logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))"
   },
   {
     "id": "MISSING_INVOCATION_LOG",
+    "language": "python",
     "severity": "LOW",
     "auto_fixable": true,
     "category": "logging",
     "keywords": ["lambda_handler", "json.dumps", "logger.info"],
-    "description": "handler does not emit a structured invocation log at startup",
-    "impact": "harder CloudWatch correlation and slower troubleshooting per invocation",
-    "fix_summary": "Add logger.info(json.dumps({...})) near the top of lambda_handler"
+    "description": "Handler does not emit a structured invocation log at startup",
+    "impact": "Harder CloudWatch correlation and slower per-invocation troubleshooting",
+    "fix_summary": "Add: logger.info(json.dumps({'event': 'lambda_invoked', 'function': context.function_name}))"
   },
   {
     "id": "UNCACHED_PAGINATOR",
+    "language": "python",
     "severity": "HIGH",
     "auto_fixable": false,
     "category": "caching",
     "keywords": ["get_paginator", "TTL", "list_*"],
-    "description": "paginator is used without a surrounding TTL cache check",
-    "impact": "100-500ms of repeated list API latency may be paid on warm invocations",
-    "fix_summary": "Wrap paginator results in a module-level TTL cache"
+    "description": "Paginator used without a TTL cache check",
+    "impact": "100–500ms of repeated list API latency paid on warm invocations",
+    "fix_summary": "Wrap paginator results in a module-level TTL cache dict"
   },
   {
     "id": "API_CALL_IN_LOOP",
+    "language": "python",
     "severity": "HIGH",
     "auto_fixable": false,
     "category": "batching",
     "keywords": ["describe_", "get_", "list_", "for loop", "while loop"],
     "description": "AWS API call appears inside a loop body",
-    "impact": "creates N+1 latency and cost patterns proportional to item count",
-    "fix_summary": "Batch requests where possible or cache per-item lookups"
+    "impact": "N+1 latency and cost proportional to item count",
+    "fix_summary": "Batch requests or cache per-item lookups"
   },
   {
     "id": "HARDCODED_REGION",
+    "language": "python",
     "severity": "MEDIUM",
     "auto_fixable": false,
     "category": "configuration",
     "keywords": ["region_name", "AWS_REGION", "boto3.client"],
     "description": "boto3 client or resource hardcodes a region string",
-    "impact": "reduces portability and can break when the function is deployed outside that region",
-    "fix_summary": "Omit region_name or source it from AWS_REGION"
+    "impact": "Breaks portability across regions",
+    "fix_summary": "Omit region_name or use os.environ.get('AWS_REGION')"
   },
   {
     "id": "BROAD_EXCEPT",
+    "language": "python",
     "severity": "LOW",
     "auto_fixable": false,
     "category": "error-handling",
     "keywords": ["except Exception", "ClientError", "BotoCoreError"],
-    "description": "broad exception handler appears before any boto3-specific error handling",
-    "impact": "obscures AWS-specific failures and makes troubleshooting less precise",
-    "fix_summary": "Catch ClientError and BotoCoreError before a final broad except"
+    "description": "Broad exception handler before boto3-specific handling",
+    "impact": "Obscures AWS-specific failures",
+    "fix_summary": "Catch ClientError and BotoCoreError before broad except"
+  },
+  {
+    "id": "JS_CLIENT_IN_HANDLER",
+    "language": "nodejs",
+    "severity": "CRITICAL",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["new ConnectClient", "new S3Client", "handler", "exports.handler"],
+    "description": "AWS SDK client instantiated inside the handler function",
+    "impact": "New TLS connection and credential refresh on every warm invocation",
+    "fix_summary": "Move client instantiation to module scope (outside the handler)"
+  },
+  {
+    "id": "JS_SDK_V2_USAGE",
+    "language": "nodejs",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "sdk-version",
+    "keywords": ["aws-sdk", "require('aws-sdk')", "import AWS"],
+    "description": "AWS SDK for JavaScript v2 detected — in maintenance mode",
+    "impact": "Larger bundle, slower cold start, no active feature development",
+    "fix_summary": "Migrate to AWS SDK v3: @aws-sdk/client-* packages"
+  },
+  {
+    "id": "JS_MISSING_HTTP_KEEPALIVE",
+    "language": "nodejs",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["NodeHttpHandler", "keepAlive", "httpsAgent", "@smithy/node-http-handler"],
+    "description": "No HTTP keepAlive agent on SDK client — connections not reused",
+    "impact": "New TLS handshake per SDK call, adds 50–150ms per warm invocation",
+    "fix_summary": "Add NodeHttpHandler with Agent({ keepAlive: true }) from @smithy/node-http-handler"
+  },
+  {
+    "id": "JS_MISSING_RETRY_CONFIG",
+    "language": "nodejs",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["maxAttempts", "retry"],
+    "description": "AWS SDK client without explicit maxAttempts",
+    "impact": "Transient failures may not be retried reliably",
+    "fix_summary": "Set maxAttempts: 3 in client config"
+  },
+  {
+    "id": "JS_UNHANDLED_ASYNC",
+    "language": "nodejs",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "error-handling",
+    "keywords": ["async", "handler", "try", "catch"],
+    "description": "Async handler without try/catch — unhandled rejections silently fail",
+    "impact": "Errors are swallowed, CloudWatch shows no error, debugging is impossible",
+    "fix_summary": "Wrap handler body in try { ... } catch (err) { console.error(err); throw err; }"
+  },
+  {
+    "id": "JS_FULL_SDK_IMPORT",
+    "language": "nodejs",
+    "severity": "MEDIUM",
+    "auto_fixable": false,
+    "category": "bundle-size",
+    "keywords": ["require('aws-sdk')", "import AWS from 'aws-sdk'"],
+    "description": "Full SDK v2 import increases deployment package size",
+    "impact": "Larger bundle size, slower cold starts",
+    "fix_summary": "Use per-service SDK v3 imports: import { S3Client } from '@aws-sdk/client-s3'"
+  },
+  {
+    "id": "JS_HARDCODED_REGION",
+    "language": "nodejs",
+    "severity": "MEDIUM",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["region:", "AWS_REGION", "us-east-1"],
+    "description": "Hardcoded region string in SDK client config",
+    "impact": "Breaks portability across regions",
+    "fix_summary": "Use process.env.AWS_REGION"
+  },
+  {
+    "id": "JS_MISSING_INVOCATION_LOG",
+    "language": "nodejs",
+    "severity": "LOW",
+    "auto_fixable": false,
+    "category": "logging",
+    "keywords": ["console.log", "lambda_invoked", "functionName"],
+    "description": "No structured JSON log at handler start",
+    "impact": "Harder CloudWatch correlation",
+    "fix_summary": "Add: console.log(JSON.stringify({ event: 'lambda_invoked', function: context.functionName }))"
+  },
+  {
+    "id": "GO_CLIENT_IN_HANDLER",
+    "language": "go",
+    "severity": "CRITICAL",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["config.LoadDefaultConfig", "NewFromConfig", "handleRequest", "handler"],
+    "description": "AWS SDK client created inside handler function — not reused on warm invocations",
+    "impact": "New TLS connection and credential refresh on every warm invocation",
+    "fix_summary": "Move to package-level var + init()"
+  },
+  {
+    "id": "GO_SDK_V1_USAGE",
+    "language": "go",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "sdk-version",
+    "keywords": ["github.com/aws/aws-sdk-go", "session.New", "session.Must"],
+    "description": "AWS SDK for Go v1 detected — in maintenance mode",
+    "impact": "Missing context support, worse API, not actively developed",
+    "fix_summary": "Migrate to github.com/aws/aws-sdk-go-v2"
+  },
+  {
+    "id": "GO_MISSING_HTTP_TRANSPORT",
+    "language": "go",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["http.Transport", "http.Client", "KeepAlive", "MaxIdleConns"],
+    "description": "No custom http.Transport — uses Go default with limited connection pooling",
+    "impact": "Only 2 idle connections per host; new TLS handshake on each SDK call under load",
+    "fix_summary": "Create http.Client with custom Transport (KeepAlive:30s, MaxIdleConns:100)"
+  },
+  {
+    "id": "GO_CLIENT_NOT_IN_VAR_BLOCK",
+    "language": "go",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["var (", "init()", "*s3.Client", "*connect.Client"],
+    "description": "SDK client not declared in package-level var block",
+    "impact": "Client may not be preserved across warm invocations",
+    "fix_summary": "Declare as var and initialise in init()"
+  },
+  {
+    "id": "GO_MISSING_LOG_LEVEL",
+    "language": "go",
+    "severity": "MEDIUM",
+    "auto_fixable": false,
+    "category": "logging",
+    "keywords": ["LOG_LEVEL", "os.Getenv", "slog", "zerolog"],
+    "description": "Log level not controlled by LOG_LEVEL environment variable",
+    "impact": "Cannot change verbosity without redeployment",
+    "fix_summary": "Read os.Getenv(\"LOG_LEVEL\") and configure logger accordingly"
+  },
+  {
+    "id": "GO_MISSING_INVOCATION_LOG",
+    "language": "go",
+    "severity": "LOW",
+    "auto_fixable": false,
+    "category": "logging",
+    "keywords": ["lambda_invoked", "log.Printf", "slog.Info"],
+    "description": "No structured JSON log at handler start",
+    "impact": "Harder CloudWatch correlation",
+    "fix_summary": "Add structured log with function name and request ID"
+  },
+  {
+    "id": "JAVA_CLIENT_IN_HANDLER",
+    "language": "java",
+    "severity": "CRITICAL",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["XxxClient.builder().build()", "handleRequest", "ConnectClient", "S3Client"],
+    "description": "AWS SDK client instantiated inside handleRequest() — recreated every invocation",
+    "impact": "New connection pool and credential refresh on every invocation",
+    "fix_summary": "Declare as private static final and build once at class loading time"
+  },
+  {
+    "id": "JAVA_SDK_V1_USAGE",
+    "language": "java",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "sdk-version",
+    "keywords": ["com.amazonaws", "AmazonConnect", "AmazonS3", "AmazonDynamoDB"],
+    "description": "AWS SDK for Java v1 detected (com.amazonaws.*) — in maintenance mode",
+    "impact": "Older API, worse performance, not actively developed",
+    "fix_summary": "Migrate to software.amazon.awssdk.* (SDK v2)"
+  },
+  {
+    "id": "JAVA_MISSING_HTTP_CLIENT_CONFIG",
+    "language": "java",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["ApacheHttpClient", "UrlConnectionHttpClient", "httpClientBuilder", "maxConnections"],
+    "description": "SDK client built without explicit HTTP client configuration",
+    "impact": "Default connection pool and timeout settings may not suit Lambda workloads",
+    "fix_summary": "Add ApacheHttpClient.builder().maxConnections(50).connectionTimeout(...) to client builder"
+  },
+  {
+    "id": "JAVA_NO_STATIC_CLIENT",
+    "language": "java",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "initialization",
+    "keywords": ["private static final", "ConnectClient", "S3Client", "DynamoDbClient"],
+    "description": "No private static final SDK client field found",
+    "impact": "Client likely recreated per invocation, wasting connection setup time",
+    "fix_summary": "Add: private static final XxxClient CLIENT = XxxClient.builder()...build();"
+  },
+  {
+    "id": "JAVA_MISSING_RETRY_CONFIG",
+    "language": "java",
+    "severity": "HIGH",
+    "auto_fixable": false,
+    "category": "configuration",
+    "keywords": ["RetryPolicy", "numRetries", "retryPolicy", "maxAttempts"],
+    "description": "SDK client built without explicit retry policy",
+    "impact": "Transient failures may not be retried reliably",
+    "fix_summary": "Add .overrideConfiguration(c -> c.retryPolicy(RetryPolicy.builder().numRetries(3).build()))"
+  },
+  {
+    "id": "JAVA_SNAPSTART_NOT_CONSIDERED",
+    "language": "java",
+    "severity": "MEDIUM",
+    "auto_fixable": false,
+    "category": "cold-start",
+    "keywords": ["org.crac", "SnapStart", "CRaC", "Resource", "beforeCheckpoint"],
+    "description": "Java handler does not implement CRaC interface for SnapStart",
+    "impact": "Misses opportunity to eliminate cold start entirely on Java 21",
+    "fix_summary": "Implement org.crac.Resource and register with Core.getGlobalContext()"
+  },
+  {
+    "id": "JAVA_MISSING_INVOCATION_LOG",
+    "language": "java",
+    "severity": "LOW",
+    "auto_fixable": false,
+    "category": "logging",
+    "keywords": ["getLogger().log", "lambda_invoked", "LambdaLogger"],
+    "description": "No structured log at the start of handleRequest()",
+    "impact": "Harder CloudWatch correlation",
+    "fix_summary": "Add: context.getLogger().log(\"{\\\"event\\\":\\\"lambda_invoked\\\"}\");"
   }
 ]
+
