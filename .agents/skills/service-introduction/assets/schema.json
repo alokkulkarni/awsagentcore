@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "service-introduction",
+  "standard": "ITIL v4 / ISO 20000-1:2018",
+  "rules": [
+    {"id": "SID-001", "severity": "CRITICAL", "description": "Document Control block present (## Document Control heading)", "section": "Document Control", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-002", "severity": "HIGH", "description": "SID ID present and matches SID-[A-Z]{3}-NNN", "section": "Document Control", "check_type": "regex", "auto_fixable": false},
+    {"id": "SID-003", "severity": "HIGH", "description": "Version present and matches semver X.Y.Z", "section": "Document Control", "check_type": "regex", "auto_fixable": false},
+    {"id": "SID-004", "severity": "HIGH", "description": "Status present and one of Draft, In Review, Approved, Active, Retired", "section": "Document Control", "check_type": "enum", "auto_fixable": false},
+    {"id": "SID-005", "severity": "CRITICAL", "description": "Executive Summary section present and has content (>50 words)", "section": "Executive Summary", "check_type": "content_length", "auto_fixable": false},
+    {"id": "SID-006", "severity": "CRITICAL", "description": "Service Description section present", "section": "Service Description", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-007", "severity": "HIGH", "description": "Service Tier defined (1, 2, or 3)", "section": "Service Description", "check_type": "enum", "auto_fixable": false},
+    {"id": "SID-008", "severity": "CRITICAL", "description": "Technical Architecture section present", "section": "Technical Architecture", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-009", "severity": "CRITICAL", "description": "Service Level Objectives section present", "section": "Service Level Objectives", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-010", "severity": "HIGH", "description": "Availability SLO defined (numeric % value)", "section": "Service Level Objectives", "check_type": "regex", "auto_fixable": false},
+    {"id": "SID-011", "severity": "HIGH", "description": "RTO and RPO defined", "section": "Service Level Objectives", "check_type": "field_pair", "auto_fixable": false},
+    {"id": "SID-012", "severity": "CRITICAL", "description": "Security & Compliance section present", "section": "Security & Compliance", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-013", "severity": "HIGH", "description": "Service Dependencies section present with a table", "section": "Service Dependencies", "check_type": "table_present", "auto_fixable": false},
+    {"id": "SID-014", "severity": "HIGH", "description": "Risk Register section present with at least 4 data rows", "section": "Risk Register", "check_type": "table_row_count", "auto_fixable": false},
+    {"id": "SID-015", "severity": "HIGH", "description": "Risk Register has required columns (ID, Risk, Category, Probability, Impact, Mitigation, Owner, Status)", "section": "Risk Register", "check_type": "table_columns", "auto_fixable": false},
+    {"id": "SID-016", "severity": "HIGH", "description": "Approvals section present with table containing at least 2 rows", "section": "Approvals", "check_type": "table_row_count", "auto_fixable": false},
+    {"id": "SID-017", "severity": "MEDIUM", "description": "Service Scope section with In-Scope and Out-of-Scope", "section": "Service Scope", "check_type": "subsection_present", "auto_fixable": false},
+    {"id": "SID-018", "severity": "MEDIUM", "description": "Operational Model section present", "section": "Operational Model", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-019", "severity": "MEDIUM", "description": "Service Transition Plan section present", "section": "Service Transition Plan", "check_type": "section_present", "auto_fixable": false},
+    {"id": "SID-020", "severity": "LOW", "description": "Training & Knowledge Transfer section present", "section": "Training & Knowledge Transfer", "check_type": "section_present", "auto_fixable": false}
+  ]
+}
