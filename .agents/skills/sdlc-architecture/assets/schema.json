@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-architecture",
+  "standard": "TOGAF ADM / ISO/IEC/IEEE 42010 / C4 Model / arc42",
+  "rules": [
+    {"id": "ARC-001", "severity": "CRITICAL", "description": "HLD document exists at architecture/hld.md", "section": "HLD", "check_type": "file_present", "auto_fixable": false},
+    {"id": "ARC-002", "severity": "CRITICAL", "description": "At least one component defined in HLD", "section": "Component Breakdown", "check_type": "table_row_count", "auto_fixable": false},
+    {"id": "ARC-003", "severity": "HIGH", "description": "Component diagram (.mmd) exists", "section": "Component Diagram", "check_type": "file_present", "auto_fixable": false},
+    {"id": "ARC-004", "severity": "HIGH", "description": "At least one ADR exists in architecture/adrs/", "section": "ADRs", "check_type": "directory_contains", "auto_fixable": false},
+    {"id": "ARC-005", "severity": "HIGH", "description": "Technology stack document exists", "section": "Technology Stack", "check_type": "file_present", "auto_fixable": false},
+    {"id": "ARC-006", "severity": "MEDIUM", "description": "Each component has a defined responsibility", "section": "Component Breakdown", "check_type": "table_columns", "auto_fixable": false},
+    {"id": "ARC-007", "severity": "MEDIUM", "description": "Integration points/interfaces documented", "section": "Integration Points", "check_type": "content_present", "auto_fixable": false},
+    {"id": "ARC-008", "severity": "MEDIUM", "description": "Non-functional requirements addressed (performance, scalability, security)", "section": "Non-Functional Requirements", "check_type": "keyword_set", "auto_fixable": false},
+    {"id": "ARC-009", "severity": "LOW", "description": "Deployment model described", "section": "Deployment Architecture", "check_type": "content_present", "auto_fixable": false},
+    {"id": "ARC-010", "severity": "LOW", "description": "Architecture risk assessment present", "section": "Known Risks & Trade-offs", "check_type": "content_present", "auto_fixable": false}
+  ]
+}

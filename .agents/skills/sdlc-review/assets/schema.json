@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-review",
+  "standard": "OWASP / NIST / ISO 27001 / PCI-DSS",
+  "rules": [
+    {"id": "REV-001", "severity": "CRITICAL", "description": "Review report file exists and is non-empty", "section": "Artifacts", "check_type": "file_present", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-002", "severity": "CRITICAL", "description": "No CRITICAL severity findings without resolution", "section": "Merge Gate", "check_type": "finding_resolution", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-003", "severity": "CRITICAL", "description": "No HIGH severity security findings without resolution", "section": "Merge Gate", "check_type": "finding_resolution", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-004", "severity": "HIGH", "description": "No hardcoded secrets or credentials detected", "section": "Secret Detection", "check_type": "pattern_scan", "auto_fixable": false, "cwe_reference": "CWE-798"},
+    {"id": "REV-005", "severity": "HIGH", "description": "No known CVEs with CVSS ≥ 7.0 in dependencies", "section": "Dependency CVE", "check_type": "dependency_scan", "auto_fixable": false, "cwe_reference": "CWE-1104"},
+    {"id": "REV-006", "severity": "HIGH", "description": "Test coverage ≥ 80% (if coverage data available)", "section": "Coverage Gate", "check_type": "coverage_threshold", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-007", "severity": "MEDIUM", "description": "No MEDIUM severity findings without a ticket/note", "section": "Governance", "check_type": "exception_tracking", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-008", "severity": "MEDIUM", "description": "Code follows project style guide (linting clean)", "section": "Coding Standards", "check_type": "lint_status", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-009", "severity": "LOW", "description": "Documentation updated for changed public APIs", "section": "Documentation", "check_type": "docs_changed", "auto_fixable": false, "cwe_reference": null},
+    {"id": "REV-010", "severity": "LOW", "description": "CHANGELOG or commit message references a ticket", "section": "Traceability", "check_type": "ticket_reference", "auto_fixable": false, "cwe_reference": null}
+  ]
+}

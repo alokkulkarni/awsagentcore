@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-backlog",
+  "standard": "Scrum / SAFe / INVEST / Gherkin",
+  "rules": [
+    {
+      "id": "BKL-001",
+      "severity": "CRITICAL",
+      "description": "backlog/stories-summary.md exists",
+      "section": "Output",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-002",
+      "severity": "CRITICAL",
+      "description": "At least one epic defined",
+      "section": "Epics",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-003",
+      "severity": "HIGH",
+      "description": "At least 3 user stories defined",
+      "section": "Stories",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-004",
+      "severity": "HIGH",
+      "description": "All stories follow \"As a... I want... so that...\" format",
+      "section": "Stories",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-005",
+      "severity": "HIGH",
+      "description": "All stories have acceptance criteria",
+      "section": "Acceptance Criteria",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-006",
+      "severity": "MEDIUM",
+      "description": "Acceptance criteria in Given/When/Then format",
+      "section": "Acceptance Criteria",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-007",
+      "severity": "MEDIUM",
+      "description": "Story points or size estimates present",
+      "section": "Sizing",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-008",
+      "severity": "MEDIUM",
+      "description": "Stories linked to epics",
+      "section": "Traceability",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-009",
+      "severity": "LOW",
+      "description": "Definition of Done defined",
+      "section": "Delivery Readiness",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "BKL-010",
+      "severity": "LOW",
+      "description": "Sprint/iteration assignment present",
+      "section": "Planning",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    }
+  ]
+}

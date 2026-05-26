@@ -21,7 +21,7 @@ copy_skill() {
 }
 
 install_project() {
-    local base="${1:-.}"
+    local base="${1:-$HOME}"
     copy_skill "$base/.agents/skills/$SKILL_NAME"
 }
 
@@ -30,17 +30,17 @@ install_global() {
 }
 
 install_kiro() {
-    local base="${1:-.}"
+    local base="${1:-$HOME}"
     copy_skill "$base/.kiro/skills/$SKILL_NAME"
 }
 
 install_claude() {
-    local base="${1:-.}"
+    local base="${1:-$HOME}"
     copy_skill "$base/.claude/skills/$SKILL_NAME"
 }
 
 install_copilot() {
-    local base="${1:-.}"
+    local base="${1:-$HOME}"
     local target_dir="$base/.github"
     local target_file="$target_dir/copilot-instructions.md"
     mkdir -p "$target_dir"
@@ -132,6 +132,7 @@ while [ $# -gt 0 ]; do
             install_global
             install_kiro
             install_claude
+            install_copilot
             shift
             ;;
         *)

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-test",
+  "standard": "IEEE 829 / ISTQB / TDD / BDD",
+  "rules": [
+    {"id": "TST-001", "severity": "CRITICAL", "description": "At least one test file exists", "section": "Artifacts", "check_type": "file_present", "auto_fixable": false},
+    {"id": "TST-002", "severity": "CRITICAL", "description": "Tests can be discovered by the test runner (syntax valid)", "section": "Execution", "check_type": "discoverable", "auto_fixable": false},
+    {"id": "TST-003", "severity": "HIGH", "description": "Line coverage ≥ 80% (if coverage report available)", "section": "Coverage", "check_type": "coverage_threshold", "auto_fixable": false},
+    {"id": "TST-004", "severity": "HIGH", "description": "Branch coverage ≥ 70% (if coverage report available)", "section": "Coverage", "check_type": "coverage_threshold", "auto_fixable": false},
+    {"id": "TST-005", "severity": "HIGH", "description": "No test that always passes (empty assertions, pass-only tests)", "section": "Quality", "check_type": "assertion_quality", "auto_fixable": false},
+    {"id": "TST-006", "severity": "MEDIUM", "description": "Each public function/method has at least one test", "section": "Completeness", "check_type": "symbol_coverage", "auto_fixable": false},
+    {"id": "TST-007", "severity": "MEDIUM", "description": "Integration tests present for API endpoints", "section": "Integration", "check_type": "integration_presence", "auto_fixable": false},
+    {"id": "TST-008", "severity": "MEDIUM", "description": "Tests are independent (no shared mutable state between tests)", "section": "FIRST", "check_type": "state_isolation", "auto_fixable": false},
+    {"id": "TST-009", "severity": "LOW", "description": "Test names are descriptive (not test1, testA, etc.)", "section": "Naming", "check_type": "naming_quality", "auto_fixable": false},
+    {"id": "TST-010", "severity": "LOW", "description": "E2E tests present for critical user journeys", "section": "Journey Coverage", "check_type": "e2e_presence", "auto_fixable": false}
+  ]
+}

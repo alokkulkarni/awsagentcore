@@ -1,0 +1,39 @@
+name: Docker Build and Push
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+      push:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      registry_username:
+        required: false
+      registry_password:
+        required: false
+
+jobs:
+  docker-build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: {{ACTIONS_CHECKOUT}}
+      - name: Set up Buildx
+        uses: {{DOCKER_SETUP_BUILDX}}
+      - name: Log in to registry
+        uses: {{DOCKER_LOGIN_ACTION}}
+        with:
+          username: ${{ secrets.registry_username }}
+          password: ${{ secrets.registry_password }}
+      - name: Build and push image
+        uses: {{DOCKER_BUILD_PUSH_ACTION}}
+        with:
+          context: .
+          push: ${{ inputs.push }}
+          tags: ${{ inputs.image }}
+          sbom: true
+          provenance: mode=max

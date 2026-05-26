@@ -1,0 +1,6 @@
+Testcontainers requires access to a Docker daemon.
+
+Recommended options:
+- Mount /var/run/docker.sock into the build agent.
+- Or run Docker-in-Docker with DOCKER_HOST and TESTCONTAINERS_HOST_OVERRIDE configured.
+- Validate with `docker info` before running integration tests.

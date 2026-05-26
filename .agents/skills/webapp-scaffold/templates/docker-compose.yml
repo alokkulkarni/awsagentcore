@@ -1,0 +1,25 @@
+version: '3.9'
+services:
+  web:
+    build:
+      context: .
+      target: builder
+      dockerfile: Dockerfile.prod
+    ports:
+      - "{{PORT}}:80"
+    environment:
+      - VITE_CONNECT_SNIPPET_ID=${VITE_CONNECT_SNIPPET_ID}
+    restart: unless-stopped
+  
+  web-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "{{PORT}}:{{PORT}}"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - VITE_CONNECT_SNIPPET_ID=${VITE_CONNECT_SNIPPET_ID}
+    profiles: ["dev"]

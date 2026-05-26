@@ -1,0 +1,30 @@
+name: Setup Node Runtime
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '20'
+      package-manager:
+        required: false
+        type: string
+        default: npm
+
+jobs:
+  setup-node:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: {{ACTIONS_CHECKOUT}}
+      - name: Setup Node.js
+        uses: {{ACTIONS_SETUP_NODE}}
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+      - name: Prime package manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable || true

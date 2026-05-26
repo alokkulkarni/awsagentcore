@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GitHub Workflow Automation Config",
+  "type": "object",
+  "required": [
+    "project_name",
+    "repo_path",
+    "language"
+  ],
+  "properties": {
+    "project_name": {
+      "type": "string"
+    },
+    "repo_path": {
+      "type": "string"
+    },
+    "repo_source": {
+      "type": "string"
+    },
+    "github_actions_folder": {
+      "type": "string"
+    },
+    "language": {
+      "enum": [
+        "node",
+        "python",
+        "java",
+        "go",
+        "rust",
+        "dotnet",
+        "generic"
+      ]
+    },
+    "framework": {
+      "type": "string"
+    },
+    "package_manager": {
+      "type": "string"
+    },
+    "test_runner": {
+      "type": "string"
+    },
+    "node_version": {
+      "type": "string"
+    },
+    "python_version": {
+      "type": "string"
+    },
+    "workflows": {
+      "type": "object",
+      "properties": {
+        "ci": {
+          "type": "boolean"
+        },
+        "cd": {
+          "type": "boolean"
+        },
+        "integration_tests": {
+          "type": "boolean"
+        },
+        "image_scan": {
+          "type": "boolean"
+        },
+        "regression_tests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate regression-tests.yml"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ci": {
+      "type": "object",
+      "properties": {
+        "docker_registry": {
+          "enum": [
+            "dockerhub",
+            "ghcr",
+            "ecr",
+            "acr",
+            "custom"
+          ]
+        },
+        "image_name": {
+          "type": "string"
+        },
+        "coverage_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "fail_on_critical": {
+          "type": "boolean"
+        },
+        "fail_on_high": {
+          "type": "boolean"
+        },
+        "trigger_branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cd": {
+      "type": "object",
+      "properties": {
+        "manual_prod_approval": {
+          "type": "boolean"
+        },
+        "smoke_test_url": {
+          "type": "string"
+        },
+        "environments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "target"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "target": {
+                "enum": [
+                  "ecs",
+                  "eks",
+                  "lambda",
+                  "aca",
+                  "cloudrun",
+                  "kubernetes"
+                ]
+              },
+              "auto_deploy": {
+                "type": "boolean"
+              },
+              "approval_required": {
+                "type": "boolean"
+              },
+              "smoke_test_url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "image_scan": {
+      "type": "object",
+      "properties": {
+        "scan_on": {
+          "enum": [
+            "push",
+            "schedule",
+            "both"
+          ]
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "email_to": {
+          "type": "string"
+        },
+        "email_provider": {
+          "enum": [
+            "sendgrid",
+            "ses",
+            "smtp"
+          ]
+        },
+        "fail_on_critical": {
+          "type": "boolean"
+        },
+        "compare_n1": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reports": {
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "coverage_badge": {
+          "type": "boolean"
+        }
+      }
+    },
+    "regression": {
+      "type": "object",
+      "description": "Regression test workflow configuration",
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "description": "Base URL to run regression tests against"
+        },
+        "trigger_env": {
+          "type": "string",
+          "default": "staging",
+          "description": "Environment that auto-triggers regression tests"
+        },
+        "test_command": {
+          "type": "string",
+          "description": "Shell command to run regression tests"
+        }
+      }
+    }
+  }
+}

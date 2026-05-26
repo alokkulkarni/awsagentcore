@@ -1,0 +1,5 @@
+# GitHub Actions services guidance
+# GitHub-hosted runners already provide Docker; no DinD service is required.
+# Add Testcontainers-specific env only when using self-hosted runners.
+env:
+  TESTCONTAINERS_HOST_OVERRIDE: localhost

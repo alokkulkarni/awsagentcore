@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: {{PUSH_BRANCHES}}
+  pull_request:
+    branches: {{PR_BRANCHES}}
+
+permissions:
+  contents: read
+  security-events: write
+  packages: write
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+{{LINT_AND_TEST_STEPS}}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+{{SECURITY_SCAN_STEPS}}
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, security-scan]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+{{DOCKER_BUILD_STEPS}}
+
+  report-commit:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, security-scan, docker-build]
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+{{REPORT_COMMIT_STEPS}}

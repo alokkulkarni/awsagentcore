@@ -1,0 +1,9 @@
+# GitHub Actions patch guidance for Testcontainers
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TESTCONTAINERS_HOST_OVERRIDE: localhost

@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-codegen",
+  "standard": "SOLID / Clean Code / 12-Factor",
+  "rules": [
+    {
+      "id": "CDG-001",
+      "severity": "CRITICAL",
+      "description": "Generated files exist (at least one new file created)",
+      "section": "Output",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-002",
+      "severity": "HIGH",
+      "description": "Generated code compiles/parses (language-appropriate check)",
+      "section": "Quality Gates",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-003",
+      "severity": "HIGH",
+      "description": "No hardcoded credentials or secrets in generated code",
+      "section": "Security",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-004",
+      "severity": "HIGH",
+      "description": "Error handling present in generated code",
+      "section": "Reliability",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-005",
+      "severity": "MEDIUM",
+      "description": "Generated code follows project naming conventions",
+      "section": "Conventions",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-006",
+      "severity": "MEDIUM",
+      "description": "Tests generated alongside source files",
+      "section": "Testing",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-007",
+      "severity": "MEDIUM",
+      "description": "Generated code has at least minimal comments/docstrings",
+      "section": "Maintainability",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-008",
+      "severity": "LOW",
+      "description": "README or CHANGELOG updated",
+      "section": "Docs",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-009",
+      "severity": "LOW",
+      "description": "No TODO/FIXME left unresolved in critical paths",
+      "section": "Hygiene",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    },
+    {
+      "id": "CDG-010",
+      "severity": "LOW",
+      "description": "Dependency manifest updated if new deps added",
+      "section": "Dependencies",
+      "check_type": "content_validation",
+      "auto_fixable": false
+    }
+  ]
+}

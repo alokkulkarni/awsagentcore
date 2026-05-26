@@ -1,0 +1,25 @@
+name: Setup Python Runtime
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.11'
+
+jobs:
+  setup-python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: {{ACTIONS_CHECKOUT}}
+      - name: Setup Python
+        uses: {{ACTIONS_SETUP_PYTHON}}
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Upgrade pip
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip

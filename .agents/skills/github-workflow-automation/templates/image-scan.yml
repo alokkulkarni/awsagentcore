@@ -1,0 +1,31 @@
+name: Image Security Scan
+
+on:
+{{SCAN_TRIGGERS}}
+
+permissions:
+  contents: write
+  security-events: write
+  packages: read
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+{{TRIVY_STEPS}}
+
+  grype-scan:
+    runs-on: ubuntu-latest
+    steps:
+{{GRYPE_STEPS}}
+
+  consolidate-and-report:
+    runs-on: ubuntu-latest
+    needs: [trivy-scan, grype-scan]
+    steps:
+{{CONSOLIDATE_STEPS}}
+
+  docker-scout:
+    runs-on: ubuntu-latest
+    steps:
+{{SCOUT_STEPS}}

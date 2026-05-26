@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-analyse",
+  "standard": "BABOK v3 / ISO/IEC 29148:2018 / IEEE 830 / OWASP Dependency-Check",
+  "rules": [
+    {"id": "ANL-001", "severity": "CRITICAL", "description": "Report file exists and is non-empty", "section": "Report Integrity", "check_type": "file_present", "auto_fixable": false},
+    {"id": "ANL-002", "severity": "HIGH", "description": "Requirements section present with at least 3 items", "section": "Requirements Extracted", "check_type": "list_count", "auto_fixable": false},
+    {"id": "ANL-003", "severity": "HIGH", "description": "Dependency list present", "section": "Dependency Analysis", "check_type": "table_present", "auto_fixable": false},
+    {"id": "ANL-004", "severity": "HIGH", "description": "No unresolved HIGH/CRITICAL CVEs without mitigation note", "section": "Dependency Analysis", "check_type": "conditional_table_validation", "auto_fixable": false},
+    {"id": "ANL-005", "severity": "MEDIUM", "description": "Documentation coverage assessment present", "section": "Documentation Assessment", "check_type": "content_present", "auto_fixable": false},
+    {"id": "ANL-006", "severity": "MEDIUM", "description": "Code quality metrics present (test coverage %, linting score)", "section": "Code Quality Metrics", "check_type": "field_pair", "auto_fixable": false},
+    {"id": "ANL-007", "severity": "MEDIUM", "description": "Technology stack identified", "section": "Project Overview", "check_type": "content_present", "auto_fixable": false},
+    {"id": "ANL-008", "severity": "LOW", "description": "Architecture diagram reference or description present", "section": "Project Overview", "check_type": "content_present", "auto_fixable": false},
+    {"id": "ANL-009", "severity": "LOW", "description": "Risk summary present", "section": "Risk Summary", "check_type": "table_present", "auto_fixable": false},
+    {"id": "ANL-010", "severity": "LOW", "description": "Recommended next steps present", "section": "Recommended Next Steps", "check_type": "list_present", "auto_fixable": false}
+  ]
+}

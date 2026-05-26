@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "webapp-config.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project_name",
+    "brand_name",
+    "vertical",
+    "brand_color",
+    "accent_color",
+    "background_color",
+    "logo",
+    "logo_text",
+    "nav_items",
+    "hero_headline",
+    "hero_subtitle",
+    "primary_cta_label",
+    "secondary_cta_label",
+    "chat",
+    "deploy_target",
+    "port",
+    "include_features",
+    "feature_items",
+    "include_products",
+    "footer_text",
+    "copyright_entity"
+  ],
+  "properties": {
+    "project_name": {
+      "type": "string",
+      "description": "Package name and HTML title root.",
+      "default": "my-webapp"
+    },
+    "brand_name": {
+      "type": "string",
+      "description": "Brand or organisation name shown in UI copy.",
+      "default": "My App"
+    },
+    "vertical": {
+      "type": "string",
+      "description": "Industry template used for default content.",
+      "enum": ["banking", "insurance", "ecommerce", "corporate", "generic"],
+      "default": "generic"
+    },
+    "brand_color": {
+      "type": "string",
+      "description": "Primary brand colour in hex format.",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "default": "#0D2A66"
+    },
+    "accent_color": {
+      "type": "string",
+      "description": "Primary CTA/accent colour in hex format.",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "default": "#E63012"
+    },
+    "background_color": {
+      "type": "string",
+      "description": "Page background colour in hex format.",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "default": "#f5f6fa"
+    },
+    "logo": {
+      "type": "string",
+      "description": "Path to a logo file or the literal value 'text' for a text-only mark.",
+      "default": "text"
+    },
+    "logo_text": {
+      "type": "string",
+      "description": "Text monogram or label shown when using a text logo.",
+      "default": "M"
+    },
+    "nav_items": {
+      "type": "array",
+      "description": "Header navigation labels.",
+      "items": { "type": "string" },
+      "default": ["Home", "Solutions", "Support"]
+    },
+    "hero_headline": {
+      "type": "string",
+      "description": "Primary hero headline.",
+      "default": "Banking made simple"
+    },
+    "hero_subtitle": {
+      "type": "string",
+      "description": "Single sentence hero supporting copy.",
+      "default": "Launch a clean, trusted digital experience with secure support built in."
+    },
+    "primary_cta_label": {
+      "type": "string",
+      "description": "Primary CTA label.",
+      "default": "Get started"
+    },
+    "secondary_cta_label": {
+      "type": "string",
+      "description": "Secondary CTA label.",
+      "default": "Sign in"
+    },
+    "chat": {
+      "type": "object",
+      "description": "Optional chat / messaging widget configuration.",
+      "additionalProperties": false,
+      "required": ["enabled", "provider"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to include a chat widget.",
+          "default": false
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["none", "amazon-connect", "intercom", "zendesk", "crisp", "freshchat", "custom"],
+          "description": "Chat provider to integrate.",
+          "default": "none"
+        },
+        "provider_config": {
+          "type": "object",
+          "description": "Provider-specific configuration values (for example app IDs or widget keys). All sensitive values should be empty strings so env vars can override them.",
+          "default": {}
+        },
+        "widget_position": {
+          "type": "string",
+          "enum": ["bottom-right", "bottom-left"],
+          "default": "bottom-right"
+        },
+        "widget_color": {
+          "type": "string",
+          "description": "Widget primary colour hex. Defaults to brand_color if empty."
+        },
+        "bot_display_name": {
+          "type": "string",
+          "description": "Display name shown for bot/AI messages in the chat UI."
+        },
+        "agent_display_name": {
+          "type": "string",
+          "description": "Display name shown for human agent messages."
+        }
+      }
+    },
+    "deploy_target": {
+      "type": "string",
+      "description": "Primary deployment target profile.",
+      "enum": ["cloudfront", "docker", "both"],
+      "default": "both"
+    },
+    "port": {
+      "type": "integer",
+      "description": "Local Vite dev/preview port.",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 4001
+    },
+    "include_features": {
+      "type": "boolean",
+      "description": "Whether to render the feature cards section.",
+      "default": true
+    },
+    "feature_items": {
+      "type": "array",
+      "description": "Feature cards expressed as icon + label pairs.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["icon", "label"],
+        "properties": {
+          "icon": {
+            "type": "string",
+            "description": "Emoji or short text icon.",
+            "default": "✨"
+          },
+          "label": {
+            "type": "string",
+            "description": "Feature label.",
+            "default": "Launch-ready journeys"
+          }
+        }
+      },
+      "default": [
+        { "icon": "✨", "label": "Launch-ready journeys" },
+        { "icon": "🔒", "label": "Secure-by-default UX" }
+      ]
+    },
+    "include_products": {
+      "type": "boolean",
+      "description": "Whether to render the products/services grid.",
+      "default": false
+    },
+    "footer_text": {
+      "type": "string",
+      "description": "Footer copy shown above the copyright line.",
+      "default": "© 2026 My App. All rights reserved."
+    },
+    "copyright_entity": {
+      "type": "string",
+      "description": "Entity name used in generated footer copy.",
+      "default": "My App"
+    }
+  }
+}

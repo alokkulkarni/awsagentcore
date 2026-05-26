@@ -1,0 +1,116 @@
+{
+  "actions/checkout": {
+    "version": "v4",
+    "sha": "11bd71901bbe5b1630ceea73d27597364c9af683",
+    "updated": "2024-11"
+  },
+  "actions/setup-node": {
+    "version": "v4",
+    "sha": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "updated": "2024-11"
+  },
+  "actions/setup-python": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "actions/setup-java": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "actions/setup-go": {
+    "version": "v5",
+    "updated": "2024-11"
+  },
+  "actions/upload-artifact": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "actions/download-artifact": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "actions/cache": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "docker/login-action": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "docker/build-push-action": {
+    "version": "v5",
+    "updated": "2024-11"
+  },
+  "docker/metadata-action": {
+    "version": "v5",
+    "updated": "2024-11"
+  },
+  "docker/setup-buildx-action": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "docker/scout-action": {
+    "version": "v1",
+    "updated": "2024-11"
+  },
+  "aquasecurity/trivy-action": {
+    "version": "0.20.0",
+    "updated": "2024-11"
+  },
+  "anchore/scan-action": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "github/codeql-action/init": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "github/codeql-action/autobuild": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "github/codeql-action/analyze": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "github/codeql-action/upload-sarif": {
+    "version": "v3",
+    "updated": "2024-11"
+  },
+  "codecov/codecov-action": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "aws-actions/configure-aws-credentials": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "aws-actions/amazon-ecs-deploy-task-definition": {
+    "version": "v1",
+    "updated": "2024-11"
+  },
+  "azure/login": {
+    "version": "v2",
+    "updated": "2024-11"
+  },
+  "azure/container-apps-deploy-action": {
+    "version": "v1",
+    "updated": "2024-11"
+  },
+  "google-github-actions/auth": {
+    "version": "v2",
+    "updated": "2024-11"
+  },
+  "google-github-actions/deploy-cloudrun": {
+    "version": "v2",
+    "updated": "2024-11"
+  },
+  "actions/setup-dotnet": {
+    "version": "v4",
+    "updated": "2024-11"
+  },
+  "dtolnay/rust-toolchain": {
+    "version": "stable",
+    "updated": "2024-11"
+  }
+}

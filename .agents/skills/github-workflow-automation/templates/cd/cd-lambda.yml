@@ -1,0 +1,21 @@
+name: CD - {{ENV_NAME}}
+
+on:
+{{TRIGGERS}}
+
+permissions:
+{{PERMISSIONS}}
+
+jobs:
+  deploy-{{ENV_SLUG}}:
+    runs-on: ubuntu-latest
+    environment: {{ENV_NAME}}
+    steps:
+{{DEPLOY_STEPS}}
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: deploy-{{ENV_SLUG}}
+    if: always()
+    steps:
+{{NOTIFY_STEPS}}

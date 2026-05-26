@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "sdlc-full",
+  "standard": "agentskills.io / DORA / DevSecOps",
+  "rules": [
+    {"id": "PPL-001", "severity": "CRITICAL", "description": "Pipeline report file exists", "section": "Pipeline Report", "check_type": "file_exists", "auto_fixable": false},
+    {"id": "PPL-002", "severity": "CRITICAL", "description": "All 6 phases completed with GREEN status", "section": "Phase Summary", "check_type": "phase_table", "auto_fixable": false},
+    {"id": "PPL-003", "severity": "CRITICAL", "description": "No unresolved CRITICAL/HIGH security findings in review report", "section": "Review", "check_type": "finding_count", "auto_fixable": false},
+    {"id": "PPL-004", "severity": "HIGH", "description": "Analysis report exists with requirements", "section": "Analysis", "check_type": "artifact_exists", "auto_fixable": false},
+    {"id": "PPL-005", "severity": "HIGH", "description": "Architecture HLD exists", "section": "Architecture", "check_type": "artifact_exists", "auto_fixable": false},
+    {"id": "PPL-006", "severity": "HIGH", "description": "Backlog stories summary exists", "section": "Refinement", "check_type": "artifact_exists", "auto_fixable": false},
+    {"id": "PPL-007", "severity": "HIGH", "description": "At least one source file generated or modified", "section": "Development", "check_type": "count_threshold", "auto_fixable": false},
+    {"id": "PPL-008", "severity": "HIGH", "description": "Test coverage is at least 80%", "section": "Test", "check_type": "numeric_threshold", "auto_fixable": false},
+    {"id": "PPL-009", "severity": "MEDIUM", "description": "Review report exists and is PASSED", "section": "Review", "check_type": "artifact_status", "auto_fixable": false},
+    {"id": "PPL-010", "severity": "LOW", "description": "Pipeline duration is under two hours", "section": "Pipeline Report", "check_type": "numeric_threshold", "auto_fixable": false}
+  ]
+}

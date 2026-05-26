@@ -15,7 +15,7 @@ metadata:
   category: documentation
   tags: [sid, service-introduction, itil, iso-20000, togaf, service-transition, service-design, documentation, onboarding]
   author: agentskills
-allowed-tools: [Bash, Read, Edit, Glob, Grep, Write, mcp__github-mcp-server__get_file_contents, mcp__github-mcp-server__search_code, mcp__filesystem__read_file, mcp__filesystem__list_directory]
+allowed-tools: [Bash, Read, Edit, Glob, Grep, Write]
 ---
 
 ## Activation

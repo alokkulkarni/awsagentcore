@@ -1,0 +1,186 @@
+name: Regression Tests
+
+on:
+  workflow_run:
+    workflows: ["CD - {{STAGING_ENV_NAME}}"]
+    types: [completed]
+  schedule:
+    - cron: "0 8 * * 1"   # weekly Monday 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL to run regression tests against"
+        required: false
+        default: "{{REGRESSION_BASE_URL}}"
+      environment:
+        description: "Target environment"
+        required: false
+        default: "{{STAGING_ENV_NAME}}"
+
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  regression-tests:
+    name: Regression Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    env:
+      BASE_URL: ${{ github.event.inputs.base_url || '{{REGRESSION_BASE_URL}}' }}
+      REPORTS_FOLDER: {{REPORTS_FOLDER}}/regression
+      REPORT_DATE: ""
+
+    steps:
+      - name: Checkout repository
+        uses: {{CHECKOUT_ACTION}}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set report date
+        id: date
+        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      {{SETUP_LANGUAGE_STEP}}
+
+      - name: Cache dependencies
+        uses: {{CACHE_ACTION}}
+        with:
+          path: {{CACHE_PATH}}
+          key: ${{ runner.os }}-regression-${{ hashFiles('{{LOCKFILE}}') }}
+          restore-keys: |
+            ${{ runner.os }}-regression-
+
+      - name: Install dependencies
+        run: {{INSTALL_CMD}}
+
+      - name: Download n-1 regression report
+        id: prev_report
+        continue-on-error: true
+        run: |
+          git fetch origin main --depth=50
+          PREV_DATE=$(git log --format="%H" origin/main -- "$REPORTS_FOLDER/" \
+            | head -2 | tail -1 | xargs -I{} git show {}:"$REPORTS_FOLDER/" 2>/dev/null \
+            | grep -oP '\d{4}-\d{2}-\d{2}' | head -1 || echo "")
+          if [ -n "$PREV_DATE" ] && [ -d "$REPORTS_FOLDER/$PREV_DATE" ]; then
+            cp -r "$REPORTS_FOLDER/$PREV_DATE" /tmp/prev-regression-report
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "prev_date=$PREV_DATE" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run regression tests
+        id: regression
+        run: |
+          set +e
+          mkdir -p test-results
+          {{REGRESSION_TEST_CMD}} 2>&1 | tee test-results/regression-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          set -e
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          CI: "true"
+
+      - name: Generate regression report
+        if: always()
+        run: |
+          REPORT_DATE="${{ steps.date.outputs.date }}"
+          REPORT_DIR="${{ env.REPORTS_FOLDER }}/$REPORT_DATE"
+          mkdir -p "$REPORT_DIR"
+
+          STATUS="${{ steps.regression.outputs.exit_code == '0' && 'PASSED' || 'FAILED' }}"
+
+          cat > "$REPORT_DIR/regression-report.md" << MDEOF
+          # Regression Test Report — $REPORT_DATE
+
+          | Field | Value |
+          |-------|-------|
+          | Date | $REPORT_DATE |
+          | Environment | ${{ github.event.inputs.environment || '{{STAGING_ENV_NAME}}' }} |
+          | Base URL | ${{ env.BASE_URL }} |
+          | Status | $STATUS |
+          | Triggered by | ${{ github.event_name }} |
+          | Run ID | ${{ github.run_id }} |
+
+          ## Output
+
+          \`\`\`
+          $(cat test-results/regression-output.txt 2>/dev/null | tail -100)
+          \`\`\`
+          MDEOF
+          echo "REPORT_DIR=$REPORT_DIR" >> "$GITHUB_ENV"
+          echo "REPORT_DATE=$REPORT_DATE" >> "$GITHUB_ENV"
+
+      - name: Compare with n-1 report
+        if: always() && steps.prev_report.outputs.found == 'true'
+        id: compare
+        run: |
+          python3 - << 'PYEOF'
+          import os, sys, json
+          from pathlib import Path
+
+          current_output = Path("test-results/regression-output.txt").read_text(errors="replace") if Path("test-results/regression-output.txt").exists() else ""
+          prev_dir = Path("/tmp/prev-regression-report")
+
+          current_failures = set(line for line in current_output.splitlines() if "FAIL" in line or "FAILED" in line or "Error" in line)
+          prev_output = ""
+          for f in prev_dir.glob("*.md"):
+              prev_output += f.read_text(errors="replace")
+          prev_failures = set(line for line in prev_output.splitlines() if "FAIL" in line or "FAILED" in line or "Error" in line)
+
+          new_failures = current_failures - prev_failures
+          fixed = prev_failures - current_failures
+
+          result = {"new_failures": sorted(new_failures), "fixed": sorted(fixed), "regression": len(new_failures) > 0}
+          print(json.dumps(result, indent=2))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"regression={'true' if result['regression'] else 'false'}\n")
+              f.write(f"new_failure_count={len(new_failures)}\n")
+          PYEOF
+
+      - name: Upload regression report artifact
+        if: always()
+        uses: {{UPLOAD_ARTIFACT_ACTION}}
+        with:
+          name: regression-report-${{ env.REPORT_DATE }}
+          path: ${{ env.REPORTS_FOLDER }}/${{ env.REPORT_DATE }}/
+          retention-days: {{RETENTION_DAYS}}
+
+      - name: Commit regression report to repository
+        if: always() && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ env.REPORTS_FOLDER }}/${{ env.REPORT_DATE }}/" || true
+          git diff --staged --quiet || git commit -m "ci: regression report ${{ env.REPORT_DATE }} [skip ci]"
+          git push origin HEAD || true
+
+      - name: Publish test summary
+        if: always()
+        uses: {{UPLOAD_ARTIFACT_ACTION}}
+        with:
+          name: regression-summary-${{ env.REPORT_DATE }}
+          path: test-results/
+          retention-days: 30
+
+      - name: Fail on regressions vs n-1
+        if: steps.compare.outputs.regression == 'true'
+        run: |
+          echo "❌ Regression detected: ${{ steps.compare.outputs.new_failure_count }} new failure(s) vs previous run."
+          echo "Review .github/reports/regression/${{ env.REPORT_DATE }}/regression-report.md"
+          exit 1
+
+      - name: Fail if regression tests failed
+        if: steps.regression.outputs.exit_code != '0'
+        run: |
+          echo "❌ Regression test suite failed (exit code ${{ steps.regression.outputs.exit_code }})"
+          exit 1

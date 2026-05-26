@@ -1,0 +1,34 @@
+name: Notify via Email
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        required: true
+        type: string
+      recipient:
+        required: true
+        type: string
+      subject:
+        required: true
+        type: string
+      body:
+        required: true
+        type: string
+
+jobs:
+  notify-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: {{ACTIONS_CHECKOUT}}
+      - name: Render notification request
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat <<'MAIL' > email.txt
+          To: ${{ inputs.recipient }}
+          Subject: ${{ inputs.subject }}
+
+          ${{ inputs.body }}
+          MAIL
