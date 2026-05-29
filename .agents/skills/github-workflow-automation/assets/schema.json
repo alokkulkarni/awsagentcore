@@ -100,6 +100,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "generate_sbom": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate SBOM artifact in CI workflow"
         }
       }
     },
@@ -111,6 +116,11 @@
         },
         "smoke_test_url": {
           "type": "string"
+        },
+        "generate_cbom": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate CBOM artifact in CD workflows"
         },
         "environments": {
           "type": "array",
@@ -142,6 +152,11 @@
               },
               "smoke_test_url": {
                 "type": "string"
+              },
+              "generate_cbom": {
+                "type": "boolean",
+                "default": true,
+                "description": "Generate CBOM for this environment deployment"
               }
             }
           }

@@ -378,11 +378,11 @@ def execute_phase(project_root: Path, feature: str, phase: PhaseDefinition, dry_
 
     validator_path = discover_script(skill_root, phase.validators)
     if validator_path is None:
-        result.status = 'COMPLETED'
-        result.gate_result = 'NOT-RUN'
-        result.summary = result.summary or f'{phase.label} completed but no validator was found.'
-        result.warnings.append(f'No validator found in {phase.skill_dir}; gate not enforced locally.')
-        return result, False
+        result.status = 'RED'
+        result.gate_result = 'ERROR'
+        result.summary = f'Mandatory validator missing in {phase.skill_dir}.'
+        result.warnings.append(f'No validator found in {phase.skill_dir}; pipeline gate cannot be enforced.')
+        return result, True
 
     validator_commands = build_commands(validator_path, project_root, feature, dry_run=False, for_validator=True)
     validation, validator_command = run_first_success(validator_commands, project_root)

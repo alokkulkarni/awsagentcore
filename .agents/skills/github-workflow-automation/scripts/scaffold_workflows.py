@@ -15,34 +15,35 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_ROOT = SKILL_ROOT / "templates"
 ASSETS_ROOT = SKILL_ROOT / "assets"
 DEFAULT_ACTION_VERSIONS = {
-    "actions/checkout": {"version": "v4"},
-    "actions/setup-node": {"version": "v4"},
-    "actions/setup-python": {"version": "v3"},
-    "actions/setup-java": {"version": "v4"},
-    "actions/setup-go": {"version": "v5"},
-    "actions/setup-dotnet": {"version": "v4"},
-    "actions/upload-artifact": {"version": "v4"},
-    "actions/download-artifact": {"version": "v4"},
-    "actions/cache": {"version": "v4"},
-    "docker/login-action": {"version": "v3"},
-    "docker/build-push-action": {"version": "v5"},
-    "docker/metadata-action": {"version": "v5"},
-    "docker/setup-buildx-action": {"version": "v3"},
-    "docker/scout-action": {"version": "v1"},
-    "aquasecurity/trivy-action": {"version": "0.20.0"},
-    "anchore/scan-action": {"version": "v3"},
-    "github/codeql-action/init": {"version": "v3"},
-    "github/codeql-action/autobuild": {"version": "v3"},
-    "github/codeql-action/analyze": {"version": "v3"},
-    "github/codeql-action/upload-sarif": {"version": "v3"},
-    "codecov/codecov-action": {"version": "v4"},
-    "aws-actions/configure-aws-credentials": {"version": "v4"},
-    "aws-actions/amazon-ecs-deploy-task-definition": {"version": "v1"},
-    "azure/login": {"version": "v2"},
-    "azure/container-apps-deploy-action": {"version": "v1"},
-    "google-github-actions/auth": {"version": "v2"},
-    "google-github-actions/deploy-cloudrun": {"version": "v2"},
-    "dtolnay/rust-toolchain": {"version": "stable"},
+    "actions/checkout": {"version": "v6.0.2"},
+    "actions/setup-node": {"version": "v6.4.0"},
+    "actions/setup-python": {"version": "v6.2.0"},
+    "actions/setup-java": {"version": "v5.2.0"},
+    "actions/setup-go": {"version": "v6.4.0"},
+    "actions/setup-dotnet": {"version": "v5.3.0"},
+    "actions/upload-artifact": {"version": "v7.0.1"},
+    "actions/download-artifact": {"version": "v8.0.1"},
+    "actions/cache": {"version": "v5.0.5"},
+    "docker/login-action": {"version": "v4.2.0"},
+    "docker/build-push-action": {"version": "v7.2.0"},
+    "docker/metadata-action": {"version": "v6.1.0"},
+    "docker/setup-buildx-action": {"version": "v4.1.0"},
+    "docker/scout-action": {"version": "v1.21.0"},
+    "aquasecurity/trivy-action": {"version": "v0.36.0"},
+    "anchore/scan-action": {"version": "v7.4.0"},
+    "github/codeql-action/init": {"version": "v4.36.0"},
+    "github/codeql-action/autobuild": {"version": "v4.36.0"},
+    "github/codeql-action/analyze": {"version": "v4.36.0"},
+    "github/codeql-action/upload-sarif": {"version": "v4.36.0"},
+    "codecov/codecov-action": {"version": "v6.0.1"},
+    "aws-actions/configure-aws-credentials": {"version": "v6.1.2"},
+    "aws-actions/amazon-ecs-deploy-task-definition": {"version": "v2.6.2"},
+    "azure/login": {"version": "v3.0.0"},
+    "azure/container-apps-deploy-action": {"version": "v2"},
+    "google-github-actions/auth": {"version": "v3"},
+    "google-github-actions/deploy-cloudrun": {"version": "v3"},
+    "dtolnay/rust-toolchain": {"version": "v1"},
+    "dawidd6/action-send-mail": {"version": "v3.12.0"},
 }
 
 
@@ -210,6 +211,8 @@ def coverage_gate_step(threshold: int, allow_missing: bool) -> str:
         threshold = float(os.environ['COVERAGE_THRESHOLD'])
         allow_missing = os.environ['ALLOW_MISSING_COVERAGE'].lower() == 'true'
         candidates = [
+            Path('coverage/lcov.info'),
+            Path('lcov.info'),
             Path('coverage/coverage-summary.json'),
             Path('coverage-summary.json'),
             Path('coverage.xml'),
@@ -229,6 +232,23 @@ def coverage_gate_step(threshold: int, allow_missing: bool) -> str:
                 lines = totals.get('lines') if isinstance(totals, dict) else None
                 if isinstance(lines, dict) and isinstance(lines.get('pct'), (int, float)):
                     value = float(lines['pct'])
+                    break
+            if candidate.name.endswith('lcov.info'):
+                total = 0
+                covered = 0
+                for line in text.splitlines():
+                    if not line.startswith('DA:'):
+                        continue
+                    try:
+                        _, payload = line.split(':', 1)
+                        _, hits = payload.split(',', 1)
+                        total += 1
+                        if int(hits) > 0:
+                            covered += 1
+                    except ValueError:
+                        continue
+                if total:
+                    value = round((covered / total) * 100, 2)
                     break
             if candidate.name.endswith('.xml'):
                 match = re.search(r'line-rate="([0-9.]+)"', text)
@@ -419,6 +439,7 @@ def build_report_commit_steps(reports_folder: str, badge_enabled: bool, retentio
               uses: {use('actions/download-artifact', versions)}
               with:
                 path: artifacts
+                if-no-artifact-found: ignore
             - name: Commit dated reports back to the repository
               shell: bash
               env:
@@ -452,9 +473,12 @@ def build_report_commit_steps(reports_folder: str, badge_enabled: bool, retentio
                 set -euo pipefail
                 git config user.name "github-actions[bot]"
                 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                git add "$REPORTS_DIR" README.md || true
+                git add "$REPORTS_DIR" || true
+                if [ -f README.md ]; then
+                  git add README.md
+                fi
                 git diff --cached --quiet && exit 0
-                git commit -m "chore: update CI reports [skip ci]"
+                git commit -m "chore: update CI reports [skip actions]"
                 git push
             """
         ),
@@ -1071,6 +1095,50 @@ def build_ci_workflow(config: Dict[str, Any], versions: Dict[str, Dict[str, str]
         ),
     )
 
+    sbom_steps = dedent(
+        f"""\
+        - name: Resolve primary image reference for SBOM
+          if: ${{{{ github.event_name != 'pull_request' }}}}
+          id: image_ref
+          shell: bash
+          run: |
+            set -euo pipefail
+            PRIMARY_IMAGE="$(printf '%s\\n' "${{{{ steps.meta_image.outputs.tags }}}}" | head -n 1)"
+            if [ -z "$PRIMARY_IMAGE" ]; then
+              PRIMARY_IMAGE="{registry['registry_image']}:sha-${{{{ github.sha }}}}"
+            fi
+            echo "image_ref=$PRIMARY_IMAGE" >> "$GITHUB_OUTPUT"
+        - name: Generate SBOM (CycloneDX) from pushed image
+          if: ${{{{ github.event_name != 'pull_request' }}}}
+          uses: {use('aquasecurity/trivy-action', versions)}
+          with:
+            image-ref: ${{{{ steps.image_ref.outputs.image_ref }}}}
+            format: cyclonedx
+            output: sbom.cdx.json
+            exit-code: '0'
+        - name: Generate SBOM (CycloneDX) from source for pull requests
+          if: ${{{{ github.event_name == 'pull_request' }}}}
+          uses: {use('aquasecurity/trivy-action', versions)}
+          with:
+            scan-type: fs
+            scan-ref: .
+            format: cyclonedx
+            output: sbom.cdx.json
+            exit-code: '0'
+        - name: Ensure SBOM artifact file exists
+          if: ${{{{ always() }}}}
+          shell: bash
+          run: |
+            set -euo pipefail
+            if [ ! -f sbom.cdx.json ]; then
+              echo '{{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"metadata":{{"component":{{"name":"{registry['registry_image']}"}}}},"components":[]}}' > sbom.cdx.json
+            fi
+        """
+    ).rstrip()
+
+    sbom_status = "sbom.cdx.json"
+    build_artifact_paths = "build-report.md\n                  sbom.cdx.json"
+
     docker_build_steps = join_blocks(
         dedent(f"""\
         - name: Checkout repository
@@ -1106,6 +1174,11 @@ def build_ci_workflow(config: Dict[str, Any], versions: Dict[str, Dict[str, str]
                 labels: ${{{{ steps.meta_image.outputs.labels }}}}
                 sbom: true
                 provenance: mode=max
+            """
+        ),
+        sbom_steps,
+        dedent(
+            f"""\
             - name: Generate build report
               shell: bash
               run: |
@@ -1118,12 +1191,15 @@ def build_ci_workflow(config: Dict[str, Any], versions: Dict[str, Dict[str, str]
                 - Digest: ${{{{ steps.build.outputs.digest }}}}
                 - Tags:
                   ${{{{ steps.meta_image.outputs.tags }}}}
+                - SBOM artifact: {sbom_status}
                 REPORT
             - name: Upload build report artifact
               uses: {use('actions/upload-artifact', versions)}
               with:
                 name: build-report-${{{{ steps.meta.outputs.run_date }}}}
-                path: build-report.md
+                path: |
+                  {build_artifact_paths}
+                if-no-files-found: warn
                 retention-days: {retention_days}
             """
         ),
@@ -1159,6 +1235,7 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 set -euo pipefail
                 aws ecs describe-services --cluster "${{{{ vars.ECS_CLUSTER }}}}" --services "${{{{ vars.ECS_SERVICE }}}}" --query 'services[0].taskDefinition' --output text > previous-taskdef.txt
             - name: Deploy to ECS
+              id: deploy
               shell: bash
               env:
                 IMAGE_REF: ${{{{ steps.image.outputs.image_ref }}}}
@@ -1182,7 +1259,7 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 aws ecs update-service --cluster "${{{{ vars.ECS_CLUSTER }}}}" --service "${{{{ vars.ECS_SERVICE }}}}" --task-definition "$NEW_TASK_DEF"
                 aws ecs wait services-stable --cluster "${{{{ vars.ECS_CLUSTER }}}}" --services "${{{{ vars.ECS_SERVICE }}}}"
             - name: Roll back ECS deployment
-              if: ${{{{ failure() }}}}
+              if: ${{{{ always() && steps.deploy.outcome == 'failure' }}}}
               shell: bash
               run: |
                 set -euo pipefail
@@ -1207,13 +1284,14 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 set -euo pipefail
                 aws eks update-kubeconfig --name "${{{{ vars.EKS_CLUSTER }}}}" --region "${{{{ vars.AWS_REGION }}}}"
             - name: Deploy to EKS
+              id: deploy
               shell: bash
               run: |
                 set -euo pipefail
                 kubectl set image deployment/${{{{ vars.K8S_DEPLOYMENT }}}} ${{{{ vars.K8S_CONTAINER }}}}=${{{{ steps.image.outputs.image_ref }}}} -n "${{{{ vars.K8S_NAMESPACE }}}}"
                 kubectl rollout status deployment/${{{{ vars.K8S_DEPLOYMENT }}}} -n "${{{{ vars.K8S_NAMESPACE }}}}" --timeout=300s
             - name: Roll back EKS deployment
-              if: ${{{{ failure() }}}}
+              if: ${{{{ always() && steps.deploy.outcome == 'failure' }}}}
               shell: bash
               run: |
                 set -euo pipefail
@@ -1236,13 +1314,14 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 set -euo pipefail
                 aws lambda get-function --function-name "${{{{ vars.LAMBDA_FUNCTION_NAME }}}}" --query 'Code.ImageUri' --output text > previous-image.txt
             - name: Deploy to Lambda
+              id: deploy
               shell: bash
               run: |
                 set -euo pipefail
                 aws lambda update-function-code --function-name "${{{{ vars.LAMBDA_FUNCTION_NAME }}}}" --image-uri "${{{{ steps.image.outputs.image_ref }}}}"
                 aws lambda wait function-updated --function-name "${{{{ vars.LAMBDA_FUNCTION_NAME }}}}"
             - name: Roll back Lambda deployment
-              if: ${{{{ failure() }}}}
+              if: ${{{{ always() && steps.deploy.outcome == 'failure' }}}}
               shell: bash
               run: |
                 set -euo pipefail
@@ -1266,6 +1345,7 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 az extension add --name containerapp --upgrade
                 az containerapp revision list --name "${{{{ vars.ACA_APP_NAME }}}}" --resource-group "${{{{ vars.ACA_RESOURCE_GROUP }}}}" --query "[?properties.active].name | [0]" -o tsv > previous-revision.txt
             - name: Deploy to Azure Container Apps
+              id: deploy
               uses: {use('azure/container-apps-deploy-action', versions)}
               with:
                 acrName: ${{{{ vars.ACR_NAME }}}}
@@ -1273,7 +1353,7 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 containerAppName: ${{{{ vars.ACA_APP_NAME }}}}
                 imageToDeploy: ${{{{ steps.image.outputs.image_ref }}}}
             - name: Roll back ACA deployment
-              if: ${{{{ failure() }}}}
+              if: ${{{{ always() && steps.deploy.outcome == 'failure' }}}}
               shell: bash
               run: |
                 set -euo pipefail
@@ -1295,13 +1375,14 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
                 set -euo pipefail
                 gcloud run services describe "${{{{ vars.CLOUDRUN_SERVICE }}}}" --region "${{{{ vars.GCP_REGION }}}}" --format='value(status.latestReadyRevisionName)' > previous-revision.txt
             - name: Deploy to Cloud Run
+              id: deploy
               uses: {use('google-github-actions/deploy-cloudrun', versions)}
               with:
                 service: ${{{{ vars.CLOUDRUN_SERVICE }}}}
                 region: ${{{{ vars.GCP_REGION }}}}
                 image: ${{{{ steps.image.outputs.image_ref }}}}
             - name: Roll back Cloud Run deployment
-              if: ${{{{ failure() }}}}
+              if: ${{{{ always() && steps.deploy.outcome == 'failure' }}}}
               shell: bash
               run: |
                 set -euo pipefail
@@ -1319,13 +1400,14 @@ def cd_target_blocks(target: str, versions: Dict[str, Dict[str, str]]) -> str:
             mkdir -p ~/.kube
             echo "${{ secrets.KUBECONFIG_B64 }}" | base64 --decode > ~/.kube/config
         - name: Deploy to Kubernetes
+          id: deploy
           shell: bash
           run: |
             set -euo pipefail
             kubectl set image deployment/${{ vars.K8S_DEPLOYMENT }} ${{ vars.K8S_CONTAINER }}=${{ steps.image.outputs.image_ref }} -n "${{ vars.K8S_NAMESPACE }}"
             kubectl rollout status deployment/${{ vars.K8S_DEPLOYMENT }} -n "${{ vars.K8S_NAMESPACE }}" --timeout=300s
         - name: Roll back Kubernetes deployment
-          if: ${{ failure() }}
+          if: ${{ always() && steps.deploy.outcome == 'failure' }}
           shell: bash
           run: |
             set -euo pipefail
@@ -1365,6 +1447,21 @@ def build_cd_workflow(config: Dict[str, Any], env_config: Dict[str, Any], versio
                     required: true
             """
         ).rstrip()
+    cbom_steps = dedent(
+        f"""\
+        - name: Generate CBOM (CycloneDX) for deployment image
+          uses: {use('aquasecurity/trivy-action', versions)}
+          with:
+            image-ref: ${{{{ steps.image.outputs.image_ref }}}}
+            format: cyclonedx
+            output: cbom.cdx.json
+            exit-code: '0'
+        """
+    ).rstrip()
+
+    cbom_status = "cbom.cdx.json"
+    deployment_artifact_paths = "deployment-report/deployment-report.md\n                  cbom.cdx.json"
+
     deploy_steps = join_blocks(
         dedent(f"""\
         - name: Checkout repository
@@ -1398,6 +1495,7 @@ def build_cd_workflow(config: Dict[str, Any], env_config: Dict[str, Any], versio
                 docker pull "${{ steps.image.outputs.image_ref }}"
             """
         ),
+        cbom_steps,
         cd_target_blocks(target, versions),
         dedent(
             f"""\
@@ -1424,6 +1522,7 @@ def build_cd_workflow(config: Dict[str, Any], env_config: Dict[str, Any], versio
                 - Environment: {env_name}
                 - Target: {target}
                 - Image: ${{{{ steps.image.outputs.image_ref }}}}
+                - CBOM artifact: {cbom_status}
                 - Workflow status: ${{{{ job.status }}}}
                 - Smoke URL: {smoke_url or 'not-configured'}
                 REPORT
@@ -1432,7 +1531,9 @@ def build_cd_workflow(config: Dict[str, Any], env_config: Dict[str, Any], versio
               uses: {use('actions/upload-artifact', versions)}
               with:
                 name: deployment-report-{env_slug}-${{{{ steps.meta.outputs.run_date }}}}
-                path: deployment-report/deployment-report.md
+                path: |
+                  {deployment_artifact_paths}
+                if-no-files-found: warn
                 retention-days: {retention_days}
             - name: Commit deployment report
               if: ${{{{ always() }}}}
@@ -1445,11 +1546,14 @@ def build_cd_workflow(config: Dict[str, Any], env_config: Dict[str, Any], versio
                 TARGET_DIR="$REPORTS_DIR/{env_slug}/$REPORT_DATE"
                 mkdir -p "$TARGET_DIR"
                 cp deployment-report/deployment-report.md "$TARGET_DIR/"
+                if [ -f cbom.cdx.json ]; then
+                  cp cbom.cdx.json "$TARGET_DIR/"
+                fi
                 git config user.name "github-actions[bot]"
                 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                 git add "$REPORTS_DIR"
                 git diff --cached --quiet && exit 0
-                git commit -m "chore: update deployment report for {env_slug} [skip ci]"
+                git commit -m "chore: update deployment report for {env_slug} [skip actions]"
                 git push
             """
         ),
@@ -1586,7 +1690,7 @@ def build_integration_workflow(config: Dict[str, Any], versions: Dict[str, Dict[
                 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                 git add "$REPORTS_DIR"
                 git diff --cached --quiet && exit 0
-                git commit -m "chore: update integration report [skip ci]"
+                git commit -m "chore: update integration report [skip actions]"
                 git push
             - name: Fail if integration tests failed
               shell: bash
@@ -1697,71 +1801,56 @@ def build_image_scan_workflow(config: Dict[str, Any], versions: Dict[str, Dict[s
             """
         ),
     )
-    consolidate_script = dedent(
-        """\
-        import json
-        import os
-        from pathlib import Path
-
-        reports_dir = Path(os.environ['REPORTS_DIR'])
-        today = os.environ['RUN_DATE']
-        compare_n1 = os.environ['COMPARE_N1'].lower() == 'true'
-
-        def load_sarif_ids(path: Path):
-            payload = json.loads(path.read_text(encoding='utf-8'))
-            ids = []
-            for run in payload.get('runs', []):
-                for result in run.get('results', []):
-                    rule_id = result.get('ruleId') or 'UNKNOWN'
-                    ids.append(rule_id)
-            return sorted(set(ids))
-
-        current = sorted(set(load_sarif_ids(Path('artifacts/trivy.sarif')) + load_sarif_ids(Path('artifacts/grype.sarif'))))
-        previous = []
-        previous_file = None
-        if compare_n1 and reports_dir.exists():
-            dated_dirs = sorted([path for path in reports_dir.rglob('*') if path.is_dir() and path.name != today and len(path.name) == 10], reverse=True)
-            for dated in dated_dirs:
-                candidate = dated / 'image-scan-findings.json'
-                if candidate.exists():
-                    previous_file = candidate
-                    previous = json.loads(candidate.read_text(encoding='utf-8'))
-                    break
-        previous_set = set(previous)
-        current_set = set(current)
-        new_issues = sorted(current_set - previous_set)
-        fixed_issues = sorted(previous_set - current_set)
-        Path('image-scan-findings.json').write_text(json.dumps(current, indent=2), encoding='utf-8')
-        lines = ['# Image Scan Report', '', f'- Previous report: {previous_file if previous_file else "none"}', f'- Current findings: {len(current)}', f'- New findings: {len(new_issues)}', '', '## Findings', '']
-        lines.extend(f'- {item}' for item in current) if current else lines.append('- No CRITICAL/HIGH findings in current SARIF inputs')
-        if new_issues:
-            lines.extend(['', '## New since previous report', ''])
-            lines.extend(f'- {item}' for item in new_issues)
-        if fixed_issues:
-            lines.extend(['', '## Fixed since previous report', ''])
-            lines.extend(f'- {item}' for item in fixed_issues)
-        Path('consolidated-report.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
-            handle.write(f"regression={'true' if bool(new_issues) else 'false'}\n")
-        """
-    )
-    email_step = dedent(
-        f"""\
-        - name: Email image scan report
-          if: ${{{{ always() }}}}
-          shell: bash
-          env:
-            EMAIL_TO: {quote(image_scan.get('email_to', ''))}
-            EMAIL_PROVIDER: {quote(image_scan.get('email_provider', 'ses'))}
-          run: |
-            set -euo pipefail
-            if [ -z "$EMAIL_TO" ]; then
-              echo "No report recipient configured; skipping email."
-            else
-              echo "Prepared ${{EMAIL_PROVIDER}} notification for $EMAIL_TO" >> "$GITHUB_STEP_SUMMARY"
-            fi
-        """
-    )
+    email_to = image_scan.get('email_to', '')
+    email_provider = image_scan.get('email_provider', 'ses')
+    if email_to:
+        if email_provider == 'sendgrid':
+            server_address = "smtp.sendgrid.net"
+            server_port = "587"
+            secure_flag = "false"
+            username = "apikey"
+            password = "${{ secrets.SENDGRID_API_KEY }}"
+        elif email_provider == 'ses':
+            server_address = "${{ vars.SES_SMTP_HOST }}"
+            server_port = "465"
+            secure_flag = "true"
+            username = "${{ secrets.SES_SMTP_USERNAME }}"
+            password = "${{ secrets.SES_SMTP_PASSWORD }}"
+        else:
+            server_address = "${{ vars.SMTP_HOST }}"
+            server_port = "${{ vars.SMTP_PORT }}"
+            secure_flag = "true"
+            username = "${{ secrets.SMTP_USERNAME }}"
+            password = "${{ secrets.SMTP_PASSWORD }}"
+        email_step = dedent(
+            f"""\
+            - name: Email image scan report
+              if: ${{{{ always() }}}}
+              uses: {use('dawidd6/action-send-mail', versions)}
+              with:
+                server_address: {server_address}
+                server_port: {server_port}
+                secure: {secure_flag}
+                username: {username}
+                password: {password}
+                to: {quote(email_to)}
+                from: "github-actions@users.noreply.github.com"
+                subject: "Image scan report - ${{{{ github.repository }}}} - ${{{{ steps.meta.outputs.run_date }}}}"
+                body: "Automated image scan report attached."
+                attachments: consolidated-report.md
+            """
+        )
+    else:
+        email_step = dedent(
+            """\
+            - name: Email image scan report
+              if: ${{ always() }}
+              shell: bash
+              run: |
+                set -euo pipefail
+                echo "No report recipient configured; skipping email." >> "$GITHUB_STEP_SUMMARY"
+            """
+        )
     consolidate_steps = join_blocks(
         dedent(f"""\
         - name: Checkout repository
@@ -1786,11 +1875,23 @@ def build_image_scan_workflow(config: Dict[str, Any], versions: Dict[str, Dict[s
           shell: bash
           env:
             REPORTS_DIR: {quote(reports_folder)}
-            RUN_DATE: ${{{{ steps.meta.outputs.run_date }}}}
             COMPARE_N1: {quote('true' if image_scan.get('compare_n1', True) else 'false')}
           run: |
             set -euo pipefail
-{indent_block("python3 - <<'PY'\n" + consolidate_script + "PY", 12)}
+            EFFECTIVE_REPORTS_DIR="$REPORTS_DIR"
+            if [ "$COMPARE_N1" != "true" ]; then
+              EFFECTIVE_REPORTS_DIR=".github/reports-disabled"
+              mkdir -p "$EFFECTIVE_REPORTS_DIR"
+            fi
+            python3 .github/scripts/check_reports.py \
+              --reports-dir "$EFFECTIVE_REPORTS_DIR" \
+              --report-type image-scan \
+              --current-sarif-dir artifacts \
+              --output-json comparison.json \
+              --normalized-output image-scan-findings.json \
+              --summary-markdown consolidated-report.md \
+              --no-fail-on-regression
+            echo "regression=$(jq -r '.regression_detected' comparison.json)" >> "$GITHUB_OUTPUT"
         - name: Upload consolidated image scan artifact
           uses: {use('actions/upload-artifact', versions)}
           with:
@@ -1813,7 +1914,7 @@ def build_image_scan_workflow(config: Dict[str, Any], versions: Dict[str, Dict[s
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add "$REPORTS_DIR"
             git diff --cached --quiet && exit 0
-            git commit -m "chore: update image scan report [skip ci]"
+            git commit -m "chore: update image scan report [skip actions]"
             git push
         """),
         email_step,
@@ -1909,7 +2010,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Generate GitHub Actions workflows from a saved configuration JSON.')
     parser.add_argument('--config', required=True, help='Path to the workflow configuration JSON from collect_info.py')
     parser.add_argument('--output', help='Optional repository root override. Defaults to repo_path from config.')
-    parser.add_argument('--validate', action='store_true', help='Run validate_workflows.py after generating files.')
+    parser.add_argument(
+        '--validate',
+        action='store_true',
+        help='Deprecated: validation now always runs after generation.',
+    )
     return parser
 
 
@@ -1932,6 +2037,7 @@ def main() -> int:
         print(f"    Docker registry : {registry}")
         print(f"    Image name      : {image_name}")
         print(f"    Coverage gate   : {ci_cfg.get('coverage_threshold', 80)}%")
+        print("    SBOM generation : required")
         write_file(ci_path, build_ci_workflow(config, versions))
         written.append(ci_path)
         print(f"    ✅ Written: {ci_path}")
@@ -1948,6 +2054,7 @@ def main() -> int:
             print(f"    Target          : {target}")
             print(f"    Auto-deploy     : {auto}")
             print(f"    Approval gate   : {approval}")
+            print("    CBOM generation : required")
             write_file(target_path, build_cd_workflow(config, env_config, versions))
             written.append(target_path)
             print(f"    ✅ Written: {target_path}")
@@ -1971,12 +2078,16 @@ def main() -> int:
 
     if workflows_cfg.get('image_scan', True):
         image_scan_path = workflows_root / 'image-scan.yml'
+        helper_script_path = repo_root / '.github' / 'scripts' / 'check_reports.py'
         scan_cfg = config.get('image_scan', {})
         print(f"⚙️  Creating image scanning workflow → {image_scan_path}")
         print(f"    Schedule        : {scan_cfg.get('schedule', '0 6 * * *')}")
         print(f"    Email report to : {scan_cfg.get('email_to', '(not configured)')}")
+        write_file(helper_script_path, safe_read_text(Path(__file__).resolve().parent / 'check_reports.py'))
         write_file(image_scan_path, build_image_scan_workflow(config, versions))
+        written.append(helper_script_path)
         written.append(image_scan_path)
+        print(f"    ✅ Written: {helper_script_path}")
         print(f"    ✅ Written: {image_scan_path}")
 
     print(f"\n✅ Done — {len(written)} workflow file(s) generated:")
@@ -1984,11 +2095,9 @@ def main() -> int:
         print(f"   {p}")
 
     print(json.dumps({'generated_files': [str(path) for path in written]}, indent=2))
-    if args.validate:
-        validator = Path(__file__).resolve().parent / 'validate_workflows.py'
-        result = subprocess.run([sys.executable, str(validator), str(workflows_root)], check=False)
-        return result.returncode
-    return 0
+    validator = Path(__file__).resolve().parent / 'validate_workflows.py'
+    result = subprocess.run([sys.executable, str(validator), str(workflows_root)], check=False)
+    return result.returncode
 
 
 if __name__ == '__main__':

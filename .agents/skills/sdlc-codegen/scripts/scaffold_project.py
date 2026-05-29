@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -595,7 +596,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     (codegen_dir / "scaffold-summary.md").write_text(render_summary_md(project_root.name, framework, language, component_summaries, created, skipped, dependencies, manifest_updates), encoding="utf-8")
     (codegen_dir / "scaffold-summary.json").write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary_payload, indent=2))
-    return 0
+    validator = Path(__file__).with_name("validate_codegen.py")
+    validation = subprocess.run(
+        [sys.executable, str(validator), "--project-root", str(output_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 if __name__ == "__main__":
     sys.exit(main())

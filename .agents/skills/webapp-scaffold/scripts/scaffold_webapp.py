@@ -1961,7 +1961,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(exc.stderr.strip(), file=sys.stderr)
 
     print(f"Planned files: {len(files) + (1 if logo_asset else 0)}")
-    return 0
+    if args.dry_run:
+        return 0
+    validator = Path(__file__).with_name("validate_webapp.py")
+    validation = subprocess.run([sys.executable, str(validator), str(output_dir)], check=False, capture_output=True, text=True)
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

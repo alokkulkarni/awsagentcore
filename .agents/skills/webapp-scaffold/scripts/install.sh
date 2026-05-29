@@ -61,7 +61,7 @@ target = Path(sys.argv[1])
 fragment = Path(sys.argv[2]).read_text(encoding='utf-8')
 text = target.read_text(encoding='utf-8')
 pattern = re.compile(r'<!-- BEGIN webapp-scaffold skill -->.*?<!-- END webapp-scaffold skill -->\n?', re.DOTALL)
-updated = pattern.sub(fragment + ('\n' if not fragment.endswith('\n') else ''), text)
+updated = pattern.sub(lambda _m: fragment + ('\n' if not fragment.endswith('\n') else ''), text)
 if updated == text:
     updated = text.rstrip() + '\n\n' + fragment
 

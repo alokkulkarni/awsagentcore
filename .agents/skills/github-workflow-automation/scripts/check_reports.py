@@ -43,11 +43,15 @@ def dated_directories(reports_dir: Path) -> List[Path]:
     return sorted((path for path in candidates if path.name != today), key=lambda item: item.name, reverse=True)
 
 
-def extract_cve_records(payload: Any) -> List[Dict[str, str]]:
+def extract_issue_records(payload: Any) -> List[Dict[str, str]]:
     records: Dict[str, Dict[str, str]] = {}
 
     def add(cve_id: str, severity: str = "UNKNOWN") -> None:
-        records[cve_id.upper()] = {"id": cve_id.upper(), "severity": severity.upper() if severity else "UNKNOWN"}
+        token = cve_id.strip()
+        if not token:
+            return
+        normalized = token.upper() if CVE_PATTERN.fullmatch(token) else token
+        records[normalized] = {"id": normalized, "severity": severity.upper() if severity else "UNKNOWN"}
 
     def walk(value: Any) -> None:
         if isinstance(value, dict):
@@ -57,6 +61,8 @@ def extract_cve_records(payload: Any) -> List[Dict[str, str]]:
                 match = CVE_PATTERN.search(vuln_id)
                 if match:
                     add(match.group(0), severity)
+                else:
+                    add(vuln_id, severity)
             for item in value.values():
                 walk(item)
         elif isinstance(value, list):
@@ -71,6 +77,25 @@ def extract_cve_records(payload: Any) -> List[Dict[str, str]]:
     return sorted(records.values(), key=lambda item: item["id"])
 
 
+def parse_lcov_text(text: str) -> float | None:
+    total = 0
+    hit = 0
+    for line in text.splitlines():
+        if not line.startswith("DA:"):
+            continue
+        try:
+            _, payload = line.split(":", 1)
+            _, hits = payload.split(",", 1)
+            total += 1
+            if int(hits) > 0:
+                hit += 1
+        except ValueError:
+            continue
+    if not total:
+        return None
+    return round((hit / total) * 100, 2)
+
+
 def extract_coverage_value(payload: Any) -> float | None:
     if isinstance(payload, (int, float)):
         return float(payload)
@@ -79,6 +104,9 @@ def extract_coverage_value(payload: Any) -> float | None:
             if key in payload:
                 return extract_coverage_value(payload[key])
     if isinstance(payload, str):
+        lcov = parse_lcov_text(payload)
+        if lcov is not None:
+            return lcov
         percent_match = re.search(r"(\d+(?:\.\d+)?)\s*%", payload)
         if percent_match:
             return float(percent_match.group(1))
@@ -109,11 +137,11 @@ def parse_previous_report(report_path: Path, report_type: str) -> Any:
     if payload is not None:
         if report_type == "coverage":
             return extract_coverage_value(payload)
-        return extract_cve_records(payload)
+        return extract_issue_records(payload)
     text = safe_read_text(report_path)
     if report_type == "coverage":
         return extract_coverage_value(text)
-    return extract_cve_records(text)
+    return extract_issue_records(text)
 
 
 def normalize_current_findings(report_type: str, current_findings: Any) -> Any:
@@ -121,8 +149,65 @@ def normalize_current_findings(report_type: str, current_findings: Any) -> Any:
         value = extract_coverage_value(current_findings)
         return round(value, 2) if value is not None else None
     if isinstance(current_findings, list):
-        return extract_cve_records(current_findings)
-    return extract_cve_records(current_findings)
+        return extract_issue_records(current_findings)
+    return extract_issue_records(current_findings)
+
+
+def collect_sarif_findings(sarif_dir: Path) -> List[Dict[str, str]]:
+    records: Dict[str, Dict[str, str]] = {}
+    for sarif_file in sorted(sarif_dir.rglob("*.sarif")):
+        payload = load_json(sarif_file)
+        if payload is None:
+            continue
+        for item in extract_issue_records(payload):
+            records[item["id"]] = item
+    return sorted(records.values(), key=lambda item: item["id"])
+
+
+def render_summary_markdown(result: Dict[str, Any]) -> str:
+    report_type = result.get("report_type", "unknown")
+    previous = result.get("previous_report") or "none"
+    lines = [
+        f"# {report_type.title()} Comparison Report",
+        "",
+        f"- Previous report: {previous}",
+        "",
+    ]
+    if report_type == "coverage":
+        lines.extend(
+            [
+                f"- Previous coverage: {result.get('previous_value')}",
+                f"- Current coverage: {result.get('current_value')}",
+                f"- Regression detected: {result.get('regression_detected')}",
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
+    new_issues = result.get("new_issues") or []
+    fixed_issues = result.get("fixed_issues") or []
+    unchanged = result.get("unchanged") or []
+    lines.extend(
+        [
+            f"- New issues: {len(new_issues)}",
+            f"- Fixed issues: {len(fixed_issues)}",
+            f"- Unchanged issues: {len(unchanged)}",
+            "",
+            "## Current findings",
+            "",
+        ]
+    )
+    if unchanged or new_issues:
+        current = {}
+        for bucket in (unchanged, new_issues):
+            for item in bucket:
+                if isinstance(item, dict) and item.get("id"):
+                    current[item["id"]] = item
+        for key in sorted(current):
+            item = current[key]
+            lines.append(f"- {item.get('id')} ({item.get('severity', 'UNKNOWN')})")
+    else:
+        lines.append("- No findings detected")
+    return "\n".join(lines) + "\n"
 
 
 def check_previous_report(reports_dir: str | Path, report_type: str, current_findings: Any) -> Dict[str, Any]:
@@ -170,6 +255,8 @@ def check_previous_report(reports_dir: str | Path, report_type: str, current_fin
 
 
 def parse_current_input(args: argparse.Namespace) -> Any:
+    if args.current_sarif_dir:
+        return collect_sarif_findings(Path(args.current_sarif_dir).expanduser().resolve())
     if args.current_json:
         return json.loads(args.current_json)
     if args.current_file:
@@ -186,8 +273,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--report-type", required=True, choices=["security", "image-scan", "coverage"])
     parser.add_argument("--current-json", help="Current findings as JSON text.")
     parser.add_argument("--current-file", help="Current findings file to parse.")
+    parser.add_argument("--current-sarif-dir", help="Directory containing SARIF files for image-scan mode.")
     parser.add_argument("--coverage", type=float, help="Coverage percentage for coverage mode.")
     parser.add_argument("--output-json", help="Optional output path for the structured comparison result.")
+    parser.add_argument("--normalized-output", help="Optional output path for normalized current findings JSON.")
+    parser.add_argument("--summary-markdown", help="Optional path to write a markdown summary.")
+    parser.add_argument("--no-fail-on-regression", action="store_true", help="Always return 0 even when regression is detected.")
     return parser
 
 
@@ -199,14 +290,23 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 1
 
+    normalized_current = normalize_current_findings(args.report_type, current)
     result = check_previous_report(args.reports_dir, args.report_type, current)
     if args.output_json:
         output_path = Path(args.output_json).expanduser()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    if args.normalized_output:
+        normalized_path = Path(args.normalized_output).expanduser()
+        normalized_path.parent.mkdir(parents=True, exist_ok=True)
+        normalized_path.write_text(json.dumps(normalized_current, indent=2), encoding="utf-8")
+    if args.summary_markdown:
+        summary_path = Path(args.summary_markdown).expanduser()
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(render_summary_markdown(result), encoding="utf-8")
     print(json.dumps(result, indent=2))
 
-    if result.get("regression_detected"):
+    if result.get("regression_detected") and not args.no_fail_on_regression:
         new_items = result.get("new_issues") or []
         if args.report_type == "coverage":
             print(f"[ERROR] Coverage regression detected: {new_items[0]}", file=sys.stderr)

@@ -541,7 +541,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(report_path.as_posix())
     print(json_path.as_posix())
-    return 1 if filter_by_threshold(findings, args.severity_threshold) else 0
+    findings_failed = bool(filter_by_threshold(findings, args.severity_threshold))
+    validator = Path(__file__).with_name("validate_review.py")
+    validation = subprocess.run(
+        [sys.executable, str(validator), str(report_path), "--project-root", str(project_root)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    if validation.returncode != 0:
+        return validation.returncode
+    return 1 if findings_failed else 0
 
 
 if __name__ == "__main__":

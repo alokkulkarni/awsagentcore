@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -449,8 +450,14 @@ def main() -> int:
         print("\nConnections auto-wired from detected env/property files:")
         for source, target in connections:
             print(f"  - {source} → {target}")
-    print("\nScaffolding complete.")
-    return 0
+    print("\nScaffolding complete. Running validation...")
+    validator = Path(__file__).with_name("validate_setup.py")
+    validation = subprocess.run([sys.executable, str(validator), str(project_path)], check=False, capture_output=True, text=True)
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

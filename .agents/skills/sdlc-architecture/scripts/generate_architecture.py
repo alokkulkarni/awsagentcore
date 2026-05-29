@@ -12,6 +12,8 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
@@ -358,7 +360,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     tech_stack_doc = build_tech_stack(project_name, tech_stack)
     write_outputs(output_dir, project_name, hld, component_diagram, adr, tech_stack_doc)
     print(json.dumps({"project": project_name, "components": len(components), "output_dir": str(output_dir)}, indent=2))
-    return 0
+    validator = Path(__file__).with_name("validate_architecture.py")
+    validation = subprocess.run([sys.executable, str(validator), str(output_dir)], check=False, capture_output=True, text=True)
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

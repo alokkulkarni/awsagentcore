@@ -33,6 +33,7 @@ jobs:
       contents: read
       packages: write
     steps:
+      # Includes explicit SBOM generation/output in generated steps.
 {{DOCKER_BUILD_STEPS}}
 
   report-commit:

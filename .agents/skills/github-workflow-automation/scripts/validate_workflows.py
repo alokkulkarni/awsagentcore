@@ -37,6 +37,11 @@ CHECKOUT_RE = re.compile(r"uses:\s*actions/checkout@", re.IGNORECASE)
 RUN_BLOCK_RE = re.compile(r"(?ms)^\s+run:\s*\|\n(?P<body>(?:\s{10,}.+\n?)+)")
 SECRET_KEY_RE = re.compile(r"^(password|token|secret|api[_-]?key)$", re.IGNORECASE)
 CONTINUE_ON_ERROR_RE = re.compile(r"(?im)^\s*continue-on-error:\s*true\s*$")
+SBOM_RE = re.compile(r"(?im)^\s*-\s+name:\s*Generate SBOM|sbom\.cdx\.json")
+CBOM_RE = re.compile(r"(?im)^\s*-\s+name:\s*Generate CBOM|cbom\.cdx\.json")
+ROLLBACK_RE = re.compile(r"(?im)\broll\s*back\b|\brollback\b")
+ROLLBACK_SCOPED_RE = re.compile(r"(?im)steps\.deploy\.outcome\s*==\s*'failure'")
+BAKE_FILE_EXPR_RE = re.compile(r"steps\.meta\.outputs\.bake-file")
 
 
 def safe_read_text(path: Path) -> str:
@@ -139,6 +144,30 @@ def validate_file(path: Path) -> List[Tuple[str, str, str]]:
         findings.append(rule_result("VAL-010", "WARN", "One or more multiline run blocks do not declare set -e style safeguards."))
     else:
         findings.append(rule_result("VAL-010", "PASS", "Multiline run blocks use shell safety guards."))
+
+    if path.name == "ci.yml":
+        if SBOM_RE.search(text):
+            findings.append(rule_result("VAL-011", "PASS", "CI workflow includes SBOM generation markers."))
+        else:
+            findings.append(rule_result("VAL-011", "FAIL", "ci.yml is missing explicit SBOM generation/output steps."))
+        if BAKE_FILE_EXPR_RE.search(text):
+            findings.append(rule_result("VAL-014", "FAIL", "ci.yml uses steps.meta.outputs.bake-file; use concrete artifact paths instead."))
+        else:
+            findings.append(rule_result("VAL-014", "PASS", "ci.yml avoids undefined bake-file artifact expressions."))
+
+    if path.name.startswith("cd-") and path.suffix in {".yml", ".yaml"}:
+        if CBOM_RE.search(text):
+            findings.append(rule_result("VAL-012", "PASS", "CD workflow includes CBOM generation markers."))
+        else:
+            findings.append(rule_result("VAL-012", "FAIL", f"{path.name} is missing explicit CBOM generation/output steps."))
+        if ROLLBACK_RE.search(text):
+            findings.append(rule_result("VAL-013", "PASS", "CD workflow includes rollback logic."))
+        else:
+            findings.append(rule_result("VAL-013", "FAIL", f"{path.name} is missing rollback logic."))
+        if ROLLBACK_SCOPED_RE.search(text):
+            findings.append(rule_result("VAL-015", "PASS", "CD rollback is scoped to deploy-step failures."))
+        else:
+            findings.append(rule_result("VAL-015", "FAIL", f"{path.name} rollback is not scoped to deploy-step failures."))
 
     return findings
 

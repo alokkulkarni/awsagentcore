@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: {{ENV_NAME}}
     steps:
+      # Includes explicit CBOM generation/output in generated steps.
 {{DEPLOY_STEPS}}
 
   notify:

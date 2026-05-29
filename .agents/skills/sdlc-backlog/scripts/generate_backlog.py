@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import date
@@ -473,7 +474,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.format == "json":
         (output_dir / "stories-summary.json").write_text(render_json(project_name, hld_path, epics), encoding="utf-8")
     print(f"Generated {len(epics)} epics and {sum(len(epic.stories) for epic in epics)} stories")
-    return 0
+    validator = Path(__file__).with_name("validate_backlog.py")
+    validation = subprocess.run(
+        [sys.executable, str(validator), str(output_dir / "stories-summary.md")],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

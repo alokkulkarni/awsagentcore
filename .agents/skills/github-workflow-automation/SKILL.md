@@ -162,7 +162,7 @@ Include these jobs (in dependency order):
 1. **`lint-and-format`** — run linter for detected language (eslint / ruff / checkstyle / golangci-lint)
 2. **`unit-tests`** — run test suite, generate coverage report, enforce threshold, upload dated artifact
 3. **`security-scan`** — CodeQL analysis + dependency audit (npm audit / pip-audit / govulncheck / trivy fs), fail on CRITICAL (or HIGH if configured), compare against n-1 report
-4. **`docker-build-push`** — build Docker image (only after security-scan passes), tag with git SHA + semver, push to configured registry, generate SBOM
+4. **`docker-build-push`** — build Docker image (only after security-scan passes), tag with git SHA + semver, push to configured registry, generate SBOM (`sbom.cdx.json`)
 5. **`commit-reports`** — download all artifacts, commit dated reports to `.github/reports/YYYY-MM-DD/`, update coverage badge
 
 For Docker build step, explicitly use the image name the user confirmed in Q9. Print it in a workflow comment.
@@ -175,6 +175,7 @@ Each CD workflow:
 - Triggers: auto-deploy branches for non-prod envs; `workflow_dispatch` with `image_tag` input for all
 - Uses GitHub Environment (`environment: <env-name>`) for secrets scoping and approval gates
 - Pulls the exact image tag from registry (never rebuilds)
+- Generates CBOM (`cbom.cdx.json`) for the deployment image before rollout
 - Deploys to the chosen target (ECS / EKS / Lambda / ACA / Cloud Run / Kubernetes)
 - Runs smoke test against the health-check URL if provided
 - On failure: rolls back to previous stable deployment and exits non-zero
@@ -244,16 +245,23 @@ python3 .agents/skills/github-workflow-automation/scripts/collect_info.py
 # Generate from saved config
 python3 .agents/skills/github-workflow-automation/scripts/scaffold_workflows.py \
   --config github-workflow-config.json \
-  --output /path/to/repo \
-  --validate
+  --output /path/to/repo
 
 # Validate existing workflows
 python3 .agents/skills/github-workflow-automation/scripts/validate_workflows.py .github/workflows
 ```
+
+### Mandatory generation guardrails
+
+- Do **not** hand-write workflow YAML when this skill is available; always generate via `scripts/scaffold_workflows.py`.
+- Validation runs automatically at the end of workflow generation and must pass.
+- Treat missing SBOM/CBOM as a generation failure:
+  - `VAL-011` must pass for `ci.yml` (SBOM).
+  - `VAL-012` must pass for every `cd-*.yml` (CBOM).
 
 ---
 
 ## Rules enforcement
 
 All generated workflows and the validator enforce GHA-001 through GHA-030 in `references/rules.md`:
-pinned actions, scoped permissions, secret hygiene, coverage gating, CVE fail-fast, GitHub Environment approvals, dated report retention, rollback readiness, SBOM generation, and supply-chain security.
+pinned actions, scoped permissions, secret hygiene, coverage gating, CVE fail-fast, GitHub Environment approvals, dated report retention, rollback readiness, SBOM/CBOM generation, and supply-chain security.

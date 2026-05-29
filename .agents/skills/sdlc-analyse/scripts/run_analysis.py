@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -760,7 +761,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "requirements": len(report["requirements"]),
         "dependencies": report["dependencies"]["count"],
     }, indent=2))
-    return 0
+    validator = Path(__file__).with_name("validate_analysis.py")
+    report_file = output_dir / ("analysis-report.md" if args.format == "markdown" else "source-code-report.json")
+    validation = subprocess.run([sys.executable, str(validator), str(report_file)], check=False, capture_output=True, text=True)
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import argparse
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -335,7 +336,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_text(content, encoding="utf-8")
             print(output_file.as_posix())
-    return 0
+    if args.dry_run:
+        return 0
+    validator = Path(__file__).with_name("validate_tests.py")
+    validation = subprocess.run(
+        [sys.executable, str(validator), "--project-root", str(project_root)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if validation.stdout:
+        print(validation.stdout.rstrip())
+    if validation.stderr:
+        print(validation.stderr.rstrip(), file=sys.stderr)
+    return validation.returncode
 
 
 if __name__ == "__main__":

@@ -111,9 +111,10 @@ def collect(args: argparse.Namespace) -> Dict[str, Any]:
             "fail_on_critical": prompt_bool("Fail CI on CRITICAL CVEs? [y/n] (y)", True),
             "fail_on_high": prompt_bool("Fail CI on HIGH CVEs? [y/n] (y)", True),
             "trigger_branches": split_csv(prompt("Branch pattern to trigger CI? [main,develop,feature/**,fix/**]", "main,develop,feature/**,fix/**")),
+            "generate_sbom": True,
         }
 
-    cd_config: Dict[str, Any] = {"environments": []}
+    cd_config: Dict[str, Any] = {"environments": [], "generate_cbom": True}
     if create_cd:
         environment_count = prompt_int("How many environments? [1-5] (3)", 3, 1, 5)
         for index in range(environment_count):
@@ -137,6 +138,7 @@ def collect(args: argparse.Namespace) -> Dict[str, Any]:
                     "auto_deploy": auto_deploy,
                     "approval_required": approval_required,
                     "smoke_test_url": smoke_url,
+                    "generate_cbom": True,
                 }
             )
         cd_config["manual_prod_approval"] = any(e.get("approval_required") for e in cd_config["environments"])

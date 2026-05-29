@@ -30,9 +30,9 @@ Production deployments must target protected environments with reviewers or manu
 
 Initialize, autobuild, and analyze CodeQL in the security stage for supported languages.
 
-### GHA-009: Generate SBOM for every Docker image
+### GHA-009: Generate SBOM and CBOM for promoted images
 
-OCI image builds should publish SBOM or provenance metadata.
+CI image builds must publish SBOM evidence, and CD deployments must publish CBOM evidence for the deployed image artifact.
 
 ### GHA-010: Coverage threshold enforced in CI
 
@@ -84,7 +84,7 @@ Image builds should publish SHA tags and semantic or branch-aware tags when avai
 
 ### GHA-022: Publish reports back to the repo carefully
 
-Bot commits must be scoped to generated reports and use `[skip ci]` to prevent loops.
+Bot commits must be scoped to generated reports and use `[skip actions]` (or equivalent Actions skip controls) to prevent loops.
 
 ### GHA-023: Security scan generated images, not just source
 

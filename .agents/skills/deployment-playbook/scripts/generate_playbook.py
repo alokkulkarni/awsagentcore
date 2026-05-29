@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -406,8 +407,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not args.output:
             log("ERROR", "--output is required with --generate")
             return 1
+        output_path = Path(args.output).expanduser().resolve()
         log("INFO", f"Generating playbook from project: {target}")
-        return generate_playbook(target, Path(args.output).expanduser().resolve())
+        generate_rc = generate_playbook(target, output_path)
+        if generate_rc != 0:
+            return generate_rc
+        validator = Path(__file__).with_name("validate_playbook.py")
+        validation = subprocess.run([sys.executable, str(validator), str(output_path)], check=False, capture_output=True, text=True)
+        if validation.stdout:
+            print(validation.stdout.rstrip())
+        if validation.stderr:
+            print(validation.stderr.rstrip(), file=sys.stderr)
+        return validation.returncode
     except Exception as exc:
         log("ERROR", str(exc))
         return 1

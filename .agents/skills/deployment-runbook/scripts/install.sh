@@ -39,7 +39,7 @@ target = Path(sys.argv[1]); fragment = Path(sys.argv[2]).read_text(encoding='utf
 text = target.read_text(encoding='utf-8')
 import os; skill = os.environ.get('SKILL_NAME','skill')
 pattern = re.compile(r'<!-- BEGIN ' + re.escape(skill) + r' skill -->.*?<!-- END ' + re.escape(skill) + r' skill -->\n?', re.DOTALL)
-updated = pattern.sub(fragment + '\n', text)
+updated = pattern.sub(lambda _m: fragment + '\n', text)
 target.write_text(updated, encoding='utf-8')
 PY
         rm -f "$temp_file"; echo "✓ Updated Copilot instructions: $target_file"; return

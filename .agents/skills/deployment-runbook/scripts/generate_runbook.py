@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from datetime import date
@@ -414,7 +415,17 @@ def main() -> int:
             if not args.output:
                 log("ERROR", "--output is required when using --generate")
                 return 1
-            return generate_runbook(Path(args.generate).resolve(), Path(args.output).resolve())
+            output_path = Path(args.output).resolve()
+            generate_rc = generate_runbook(Path(args.generate).resolve(), output_path)
+            if generate_rc != 0:
+                return generate_rc
+            validator = Path(__file__).with_name("validate_runbook.py")
+            validation = subprocess.run([sys.executable, str(validator), str(output_path)], check=False, capture_output=True, text=True)
+            if validation.stdout:
+                print(validation.stdout.rstrip())
+            if validation.stderr:
+                print(validation.stderr.rstrip(), file=sys.stderr)
+            return validation.returncode
     except FileNotFoundError as exc:
         log("ERROR", str(exc))
         return 1
