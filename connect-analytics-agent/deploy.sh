@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This script uses associative arrays (declare -A), which require bash 4+.
+# macOS ships bash 3.2 as /bin/bash (Apple has frozen it there since 2007 for
+# GPLv3 licensing reasons), so `env bash` resolves to the wrong interpreter on
+# most Macs unless a newer bash is first on PATH. Under bash 3.2 this script
+# fails with a cryptic "unbound variable" error instead of a useful message.
+if [[ -z "${BASH_VERSINFO:-}" || "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "ERROR: this script requires bash 4 or newer (found: ${BASH_VERSION:-unknown})." >&2
+  echo "On macOS, install a modern bash via Homebrew and re-run with it explicitly:" >&2
+  echo "    brew install bash" >&2
+  echo "    /opt/homebrew/bin/bash $0 $*" >&2
+  exit 1
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$ROOT_DIR/.build"
 STATE_FILE="$ROOT_DIR/.deploy-state.json"

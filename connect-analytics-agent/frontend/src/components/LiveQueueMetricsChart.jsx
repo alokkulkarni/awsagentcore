@@ -7,16 +7,19 @@
  * • Maintains a rolling 30-point time-series (≈ 2.5 min of history)
  * • Three metric tabs: In Queue | Available Agents | On Call
  * • Click a queue in the legend to focus it — all others fade to 15 % opacity
- * • Agent performance summary strip below the chart
+ * • Agent utilisation-by-queue panel below the chart — deliberately NOT fed by
+ *   the 5s live-snapshot poll above (that's far too noisy for a "utilisation"
+ *   figure); it fetches its own real, time-averaged AGENT_OCCUPANCY from
+ *   /api/agent-occupancy on a cadence matching the chosen averaging window.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { Activity, Users, PhoneCall, TrendingUp } from 'lucide-react';
-import { getRealtimeQueueMetrics } from '../services/api';
+import { getRealtimeQueueMetrics, getAgentOccupancy, getAgentOccupancyDayToDate } from '../services/api';
 
 // ── Colour palette (cycles if > 12 queues) ────────────────────────────────────
 const PALETTE = [
@@ -26,10 +29,10 @@ const PALETTE = [
 ];
 
 const METRICS = [
-  { key: 'contacts_in_queue',  label: 'In Queue',        icon: PhoneCall,   colour: 'text-amber-400',   unit: '' },
-  { key: 'agents_available',   label: 'Available Agents', icon: Users,       colour: 'text-emerald-400', unit: '' },
-  { key: 'agents_on_call',     label: 'On Call',         icon: Activity,    colour: 'text-sky-400',     unit: '' },
-  { key: 'oldest_contact_age', label: 'Oldest Wait',     icon: TrendingUp,  colour: 'text-rose-400',    unit: 's' },
+  { key: 'contacts_in_queue',  label: 'In Queue',        icon: PhoneCall,   colour: 'text-amber-600 dark:text-amber-400',   unit: '' },
+  { key: 'agents_available',   label: 'Available Agents', icon: Users,       colour: 'text-emerald-600 dark:text-emerald-400', unit: '' },
+  { key: 'agents_on_call',     label: 'On Call',         icon: Activity,    colour: 'text-sky-600 dark:text-sky-400',     unit: '' },
+  { key: 'oldest_contact_age', label: 'Oldest Wait',     icon: TrendingUp,  colour: 'text-rose-600 dark:text-rose-400',    unit: 's' },
 ];
 
 const MAX_POINTS = 30;
@@ -39,15 +42,15 @@ const POLL_MS    = 5000;
 function ChartTooltip({ active, payload, label, metricUnit }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-2 shadow-xl text-[11px] min-w-[140px]">
-      <p className="text-slate-400 mb-1.5 font-medium">{label}</p>
+    <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 px-3 py-2 shadow-xl text-[11px] min-w-[140px]">
+      <p className="text-slate-500 dark:text-slate-400 mb-1.5 font-medium">{label}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
-            <span className="text-slate-300 truncate max-w-[120px]">{p.name}</span>
+            <span className="text-slate-700 dark:text-slate-300 truncate max-w-[120px]">{p.name}</span>
           </span>
-          <span className="font-semibold text-white tabular-nums">
+          <span className="font-semibold text-slate-900 dark:text-white tabular-nums">
             {p.value}{metricUnit}
           </span>
         </div>
@@ -68,8 +71,8 @@ function ChartLegend({ queues, colourMap, focusedQueue, onFocus }) {
             onClick={() => onFocus(focusedQueue === q.id ? null : q.id)}
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-all
               ${isFocused
-                ? 'border-slate-600 bg-slate-800 text-slate-200'
-                : 'border-slate-800 bg-slate-900 text-slate-600 opacity-40'
+                ? 'border-slate-300 dark:border-slate-600 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 opacity-40'
               } hover:opacity-100`}
           >
             <span
@@ -83,7 +86,7 @@ function ChartLegend({ queues, colourMap, focusedQueue, onFocus }) {
       {focusedQueue && (
         <button
           onClick={() => onFocus(null)}
-          className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-300 transition"
+          className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-slate-700 px-2 py-0.5 text-[10px] text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition"
         >
           ✕ Clear focus
         </button>
@@ -138,7 +141,9 @@ export default function LiveQueueMetricsChart() {
       setColourMap(newColours);
       setQueues(merged);
 
-      // Build new data point
+      // Build new data point — the chart line only needs whichever metric tab
+      // is currently active. (Agent utilisation by queue is intentionally NOT
+      // derived from this snapshot poll — see AgentUtilisationByQueue below.)
       const point = { time: timeLabel };
       data.queues.forEach((q) => {
         point[q.id] = q[METRICS[activeMetric]?.key ?? 'contacts_in_queue'] ?? 0;
@@ -175,15 +180,15 @@ export default function LiveQueueMetricsChart() {
   const latest = series[series.length - 1] || {};
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 mt-3">
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 mt-3">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3 shrink-0">
         <div className="flex items-center gap-2">
-          <Activity size={14} className="text-connect-400" />
-          <span className="text-[12px] font-semibold text-slate-200">Live Queue Metrics</span>
+          <Activity size={14} className="text-connect-700 dark:text-connect-400" />
+          <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-200">Live Queue Metrics</span>
           {lastUpdate && (
-            <span className="text-[10px] text-slate-500">updated {lastUpdate}</span>
+            <span className="text-[10px] text-slate-600 dark:text-slate-500">updated {lastUpdate}</span>
           )}
           {loading && (
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-connect-400 animate-pulse" />
@@ -198,8 +203,8 @@ export default function LiveQueueMetricsChart() {
               onClick={() => setActiveMetric(i)}
               className={`rounded-lg px-2.5 py-1 text-[10px] font-medium transition-all
                 ${activeMetric === i
-                  ? 'bg-connect-600 text-white shadow'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                  ? 'bg-connect-500 text-white shadow'
+                  : 'text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
             >
               {m.label}
@@ -219,10 +224,10 @@ export default function LiveQueueMetricsChart() {
                 onClick={() => setFocusedQueue(focusedQueue === q.id ? null : q.id)}
                 className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] transition-all
                   ${focusedQueue === q.id
-                    ? 'border-connect-500 bg-connect-600/20 text-white'
+                    ? 'border-connect-500 bg-connect-500/20 text-slate-900 dark:text-white'
                     : focusedQueue
-                      ? 'border-slate-800 text-slate-600 opacity-40'
-                      : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-600'
+                      ? 'border-slate-200 dark:border-slate-800 text-slate-600 opacity-40'
+                      : 'border-slate-300 dark:border-slate-700 bg-slate-200/60 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-600'
                   }`}
               >
                 <span
@@ -244,16 +249,16 @@ export default function LiveQueueMetricsChart() {
 
       {/* ── Chart area ──────────────────────────────────────────────────────── */}
       {error ? (
-        <div className="flex items-center justify-center h-40 text-[11px] text-slate-500">
-          <span className="text-rose-400 mr-1">⚠</span> {error}
+        <div className="flex items-center justify-center h-40 text-[11px] text-slate-600 dark:text-slate-500">
+          <span className="text-rose-600 dark:text-rose-400 mr-1">⚠</span> {error}
         </div>
       ) : loading ? (
-        <div className="flex items-center justify-center h-40 text-[11px] text-slate-500 gap-2">
+        <div className="flex items-center justify-center h-40 text-[11px] text-slate-600 dark:text-slate-500 gap-2">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-connect-400 border-t-transparent animate-spin" />
           Loading queue metrics…
         </div>
       ) : series.length < 2 ? (
-        <div className="flex items-center justify-center h-40 text-[11px] text-slate-500">
+        <div className="flex items-center justify-center h-40 text-[11px] text-slate-600 dark:text-slate-500">
           Collecting data… chart will appear shortly
         </div>
       ) : (
@@ -311,58 +316,149 @@ export default function LiveQueueMetricsChart() {
         />
       )}
 
-      {/* ── Agent performance strip ──────────────────────────────────────────── */}
-      {queues.length > 0 && (
-        <AgentPerformanceStrip latest={latest} queues={queues} colourMap={colourMap} />
-      )}
+      {/* ── Agent utilisation by queue ────────────────────────────────────────── */}
+      <AgentUtilisationByQueue colourMap={colourMap} />
     </div>
   );
 }
 
-// ── Agent performance strip ────────────────────────────────────────────────────
-// Shows per-queue available vs on-call bar with utilisation %
-function AgentPerformanceStrip({ latest, queues, colourMap }) {
-  const [expanded, setExpanded] = useState(false);
+// ── Agent utilisation by queue ─────────────────────────────────────────────────
+// Real, time-averaged AGENT_OCCUPANCY — independently fetched from
+// /api/agent-occupancy (a caller-chosen rolling window, 5-120 min, refreshed
+// only once per window rather than every poll) plus /api/agent-occupancy/
+// day-to-date (each queue's real Hours-of-Operation-bounded average for today).
+const OCCUPANCY_WINDOW_OPTIONS = [5, 15, 30, 60, 120];
+
+function occupancyWindowLabel(minutes) {
+  return minutes < 60 ? `${minutes} min avg` : `${minutes / 60}h avg`;
+}
+
+function dayStatusLabel(status) {
+  switch (status) {
+    case 'open':            return 'so far today';
+    case 'closed_for_day':  return 'today (day closed)';
+    case 'not_yet_open':    return 'not yet open today';
+    case 'closed_today':    return 'closed today';
+    default:                return 'today';
+  }
+}
+
+function AgentUtilisationByQueue({ colourMap }) {
+  const [windowMinutes, setWindowMinutes] = useState(30);
+  const [windowData, setWindowData]       = useState(null);
+  const [dayData, setDayData]             = useState(null);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState(null);
+  const [expanded, setExpanded]           = useState(false);
+
+  const fetchWindow = useCallback(async () => {
+    try {
+      const data = await getAgentOccupancy(windowMinutes);
+      setWindowData(data);
+      setError(null);
+    } catch (err) {
+      setError(err?.response?.data?.detail || err.message || 'Failed to load utilisation');
+    } finally {
+      setLoading(false);
+    }
+  }, [windowMinutes]);
+
+  const fetchDay = useCallback(async () => {
+    try {
+      const data = await getAgentOccupancyDayToDate();
+      setDayData(data);
+    } catch {
+      // Non-critical secondary figure — keep showing the last known value.
+    }
+  }, []);
+
+  // Refresh cadence intentionally equals the chosen window — a 30-min average
+  // that changes every 5s would defeat the point of averaging.
+  useEffect(() => {
+    setLoading(true);
+    fetchWindow();
+    const t = setInterval(fetchWindow, windowMinutes * 60 * 1000);
+    return () => clearInterval(t);
+  }, [fetchWindow, windowMinutes]);
+
+  useEffect(() => {
+    fetchDay();
+    const t = setInterval(fetchDay, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [fetchDay]);
+
+  const queues = windowData?.queues || [];
+  const dayByQueue = useMemo(
+    () => Object.fromEntries((dayData?.queues || []).map((q) => [q.queue_id, q])),
+    [dayData],
+  );
   const visible = expanded ? queues : queues.slice(0, 5);
+
+  if (loading && !windowData) {
+    return (
+      <div className="mt-4 border-t border-slate-200 dark:border-slate-800 pt-3">
+        <p className="text-[10px] text-slate-600 dark:text-slate-500">Loading utilisation…</p>
+      </div>
+    );
+  }
 
   if (!queues.length) return null;
 
   return (
-    <div className="mt-4 border-t border-slate-800 pt-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+    <div className="mt-4 border-t border-slate-200 dark:border-slate-800 pt-3">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 flex items-center gap-1">
           <Users size={10} /> Agent utilisation by queue
         </span>
-        {queues.length > 5 && (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="text-[10px] text-connect-400 hover:text-connect-300"
+        <div className="flex items-center gap-2">
+          <select
+            value={windowMinutes}
+            onChange={(e) => setWindowMinutes(Number(e.target.value))}
+            title="How many trailing minutes to average utilisation over"
+            className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-300 focus:outline-none"
           >
-            {expanded ? 'Show less' : `Show all ${queues.length}`}
-          </button>
-        )}
+            {OCCUPANCY_WINDOW_OPTIONS.map((m) => (
+              <option key={m} value={m}>{occupancyWindowLabel(m)}</option>
+            ))}
+          </select>
+          {queues.length > 5 && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-[10px] text-connect-700 dark:text-connect-400 hover:text-connect-500 dark:hover:text-connect-400"
+            >
+              {expanded ? 'Show less' : `Show all ${queues.length}`}
+            </button>
+          )}
+        </div>
       </div>
+      {error && <p className="mb-1.5 text-[10px] text-rose-600 dark:text-rose-400">{error}</p>}
       <div className="space-y-1.5">
-        {visible.map((q) => {
-          const available = latest[`${q.id}_avail`] ?? 0;
-          const onCall    = latest[`${q.id}_oc`]    ?? 0;
-          const total     = available + onCall;
-          const utilPct   = total > 0 ? Math.round((onCall / total) * 100) : 0;
-          const colour    = colourMap[q.id];
+        {visible.map((q, i) => {
+          const pct = q.occupancy_pct ?? 0;
+          const dayInfo = dayByQueue[q.queue_id];
+          const colour = colourMap[q.queue_id] || PALETTE[i % PALETTE.length];
           return (
-            <div key={q.id} className="flex items-center gap-2 text-[10px]">
+            <div key={q.queue_id} className="flex items-center gap-2 text-[10px]">
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ background: colour }}
               />
-              <span className="text-slate-400 truncate w-32 shrink-0">{q.name}</span>
-              <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <span className="text-slate-500 dark:text-slate-400 truncate w-32 shrink-0">{q.queue_name}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${utilPct}%`, background: colour, opacity: 0.7 }}
+                  style={{ width: `${pct}%`, background: colour, opacity: 0.7 }}
                 />
               </div>
-              <span className="text-slate-500 w-8 text-right tabular-nums">{utilPct}%</span>
+              <span className="text-slate-600 dark:text-slate-500 w-8 text-right tabular-nums">{pct}%</span>
+              {dayInfo && (
+                <span
+                  className="text-slate-500 dark:text-slate-500 w-24 text-right tabular-nums shrink-0"
+                  title={dayStatusLabel(dayInfo.status)}
+                >
+                  {dayInfo.occupancy_pct != null ? `${dayInfo.occupancy_pct}% today` : dayStatusLabel(dayInfo.status)}
+                </span>
+              )}
             </div>
           );
         })}

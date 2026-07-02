@@ -12,7 +12,13 @@ registry of ALL active contacts, categorised by type:
   • INBOUND   — customer called/chatted/task in
   • OUTBOUND  — agent or flow placed an outbound call (OUTBOUND / EXTERNAL_OUTBOUND)
   • CALLBACK  — customer requested a callback (CALLBACK / CALLBACK_SCHEDULED)
-  • TRANSFER  — contact transferred between queues or agents
+  • TRANSFER  — contact transferred between queues or agents. Each TRANSFER
+                contact also carries a best-effort destination classification
+                (see _classify_transfer()):
+                  transferDirection   = "internal" | "external" | "pending"
+                  transferTargetType  = "queue" | "agent" | "phone" | None
+                  transferTargetLabel = resolved queue/agent name, or masked
+                                        phone number for external transfers
   • BOT/IVR   — contact being handled by IVR / conversational-AI (not yet agent)
 
 Contact state lifecycle (Amazon Connect EventBridge — eventType field):
@@ -191,6 +197,8 @@ def get_summary() -> Dict[str, int]:
             "bot_handling":        sum(1 for c in real if c.get("isBot")),
             "agent_connected":     sum(1 for c in real if c.get("escalatedToAgent")),
             "transfers":           sum(1 for c in real if c.get("contactType") == "transfer"),
+            "transfers_internal":  sum(1 for c in real if c.get("contactType") == "transfer" and c.get("transferDirection") == "internal"),
+            "transfers_external":  sum(1 for c in real if c.get("contactType") == "transfer" and c.get("transferDirection") == "external"),
             "voice":               sum(1 for c in real if c.get("channel") == "VOICE"),
             "chat":                sum(1 for c in real if c.get("channel") == "CHAT"),
             "task":                sum(1 for c in real if c.get("channel") == "TASK"),
@@ -275,6 +283,67 @@ def _contact_type(initiation_method: str, state: str) -> str:
     if initiation_method in _TRANSFER_METHODS:
         return "transfer"
     return "inbound"
+
+
+def _classify_transfer(
+    ctype: str,
+    queue_arn: str,
+    agent_arn: str,
+    queue_name: str,
+    agent_name: str,
+    customer_endpoint: Dict[str, str],
+    system_endpoint: Dict[str, str],
+    existing: Dict[str, Any],
+) -> Dict[str, Optional[str]]:
+    """
+    Best-effort classification of where a TRANSFER contact was sent.
+
+    Amazon Connect's EventBridge contact event has no explicit "transferred to"
+    field, so this infers the destination from signals already tracked elsewhere
+    in this file:
+      • queueInfo.queueArn present            → transferred into a QUEUE (internal)
+      • agentInfo.agentArn present, no queue   → direct AGENT transfer (internal)
+      • neither, but systemEndpoint is a phone
+        number distinct from the customer's   → transferred to an EXTERNAL number
+      • none of the above yet                  → still resolving (early lifecycle event)
+
+    Classification is sticky once resolved to "queue" or "agent": an internal
+    transfer never later gets reclassified as external just because a later
+    event's fields happen to be sparse, and vice versa is prevented by only
+    ever downgrading a "pending" state.
+    """
+    if ctype != "transfer":
+        return {"transferDirection": None, "transferTargetType": None, "transferTargetLabel": None}
+
+    prior_type = existing.get("transferTargetType")
+    if prior_type in ("queue", "agent"):
+        label = (queue_name if prior_type == "queue" else agent_name) or existing.get("transferTargetLabel")
+        return {"transferDirection": "internal", "transferTargetType": prior_type, "transferTargetLabel": label}
+
+    if queue_arn:
+        return {"transferDirection": "internal", "transferTargetType": "queue", "transferTargetLabel": queue_name or None}
+
+    if agent_arn:
+        return {"transferDirection": "internal", "transferTargetType": "agent", "transferTargetLabel": agent_name or None}
+
+    sys_addr = system_endpoint.get("address", "")
+    sys_type = system_endpoint.get("type", "")
+    cust_addr = customer_endpoint.get("address", "")
+    if sys_type == "TELEPHONE_NUMBER" and sys_addr and sys_addr != cust_addr:
+        return {
+            "transferDirection": "external",
+            "transferTargetType": "phone",
+            "transferTargetLabel": system_endpoint.get("display") or None,
+        }
+
+    if prior_type == "phone":
+        return {
+            "transferDirection": "external",
+            "transferTargetType": "phone",
+            "transferTargetLabel": existing.get("transferTargetLabel"),
+        }
+
+    return {"transferDirection": "pending", "transferTargetType": None, "transferTargetLabel": None}
 
 
 def _agent_name_from_arn(agent_arn: str) -> str:
@@ -533,6 +602,12 @@ def _process_message(msg: dict) -> None:
         and initiation_method not in _CALLBACK_METHODS
     )
 
+    if ctype == "transfer" and contact_id not in _contacts:
+        # First sighting of a TRANSFER contact — log the raw payload once so the
+        # internal/external heuristic in _classify_transfer() can be validated
+        # and tuned against this instance's real transfer flows if it misfires.
+        LOGGER.debug("Raw TRANSFER contact event for %s: %s", contact_id, json.dumps(detail, default=str))
+
     with _lock:
         existing = _contacts.get(contact_id, {})
 
@@ -553,6 +628,10 @@ def _process_message(msg: dict) -> None:
                     "updatedAt": datetime.now(timezone.utc).isoformat(),
                 })
             else:
+                transfer_info = _classify_transfer(
+                    ctype, queue_arn, agent_arn, queue_name or "", agent_name,
+                    customer_endpoint, system_endpoint, {},
+                )
                 _contacts[contact_id] = {
                     "contactId": contact_id,
                     "channel": channel,
@@ -570,6 +649,7 @@ def _process_message(msg: dict) -> None:
                     "_terminal": True,
                     "_terminal_epoch": datetime.now(timezone.utc).timestamp(),
                     "updatedAt": datetime.now(timezone.utc).isoformat(),
+                    **transfer_info,
                 }
             # When an internal bot session ends, clear the parent's bot flag
             # only if the parent hasn't already transitioned to QUEUED/agent.
@@ -606,6 +686,11 @@ def _process_message(msg: dict) -> None:
             or "—"
         )
 
+        transfer_info = _classify_transfer(
+            ctype, queue_arn, agent_arn, queue_name or "", agent_name,
+            customer_endpoint, system_endpoint, existing,
+        )
+
         _contacts[contact_id] = {
             **existing,
             "contactId": contact_id,
@@ -637,6 +722,7 @@ def _process_message(msg: dict) -> None:
             "source": "eventbridge",
             "_terminal": False,
             "updatedAt": datetime.now(timezone.utc).isoformat(),
+            **transfer_info,
         }
 
         # When an AI session contact (CONNECTED_TO_SYSTEM) arrives, mark the

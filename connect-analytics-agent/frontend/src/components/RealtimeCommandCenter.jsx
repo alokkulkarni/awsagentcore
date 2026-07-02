@@ -59,6 +59,7 @@ import {
 } from '../services/api';
 import SupervisorBargePanel from './SupervisorBargePanel';
 import LiveQueueMetricsChart from './LiveQueueMetricsChart';
+import TransferBadge from './TransferBadge';
 
 // ── constants ──────────────────────────────────────────────────────────────────
 const LIVE_POLL_MS      = 5_000;
@@ -117,12 +118,12 @@ function StateBadge({ state }) {
     CALLBACK_SCHEDULED:  'bg-purple-500/20 text-purple-300',
     CONNECTED_TO_SYSTEM: 'bg-cyan-500/20 text-cyan-300',
     CONNECTED_TO_AGENT:  'bg-emerald-500/20 text-emerald-300',
-    DISCONNECTED:        'bg-slate-500/15 text-slate-400',
-    ENDED:               'bg-slate-500/15 text-slate-400',
+    DISCONNECTED:        'bg-slate-500/15 text-slate-500 dark:text-slate-400',
+    ENDED:               'bg-slate-500/15 text-slate-500 dark:text-slate-400',
     MISSED:              'bg-red-500/20 text-red-400',
     ERROR:               'bg-red-500/20 text-red-400',
   };
-  const cls = colours[(state || '').toUpperCase()] || 'bg-slate-500/15 text-slate-400';
+  const cls = colours[(state || '').toUpperCase()] || 'bg-slate-500/15 text-slate-500 dark:text-slate-400';
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${cls}`}>
       {state || '—'}
@@ -136,10 +137,10 @@ function AgentStateBadge({ status }) {
     'On Call':          'bg-sky-500/15 text-sky-300',
     'After Contact Work': 'bg-orange-500/15 text-orange-300',
     'Non-Productive':   'bg-amber-500/15 text-amber-300',
-    Offline:            'bg-slate-500/15 text-slate-400',
+    Offline:            'bg-slate-500/15 text-slate-500 dark:text-slate-400',
     Error:              'bg-rose-500/15 text-rose-300',
   };
-  const cls = styles[status] || 'bg-slate-500/15 text-slate-400';
+  const cls = styles[status] || 'bg-slate-500/15 text-slate-500 dark:text-slate-400';
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold ${cls}`}>
       {status || '—'}
@@ -157,7 +158,7 @@ function SentimentBadge({ sentiment, compact = false }) {
     POSITIVE: { icon: '↑', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20', dot: 'bg-emerald-400' },
     NEGATIVE: { icon: '↓', cls: 'bg-rose-500/15    text-rose-300    border-rose-500/20',    dot: 'bg-rose-400'    },
     MIXED:    { icon: '⟷', cls: 'bg-amber-500/15   text-amber-300   border-amber-500/20',   dot: 'bg-amber-400'   },
-    NEUTRAL:  { icon: '–', cls: 'bg-slate-600/40   text-slate-400   border-slate-600/30',   dot: 'bg-slate-500'   },
+    NEUTRAL:  { icon: '–', cls: 'bg-slate-600/40   text-slate-500 dark:text-slate-400   border-slate-300 dark:border-slate-600/30',   dot: 'bg-slate-500'   },
   };
   const { icon, cls, dot } = cfg[label] || cfg.NEUTRAL;
 
@@ -188,20 +189,20 @@ function KpiCard({ label, value, icon: Icon, colour, sub, warn, critical }) {  c
     ? 'border-rose-500/40 bg-rose-500/10'
     : warn
     ? 'border-amber-500/40 bg-amber-500/10'
-    : 'border-slate-700/60 bg-slate-800/50';
+    : 'border-slate-300 dark:border-slate-700/60 bg-slate-200/50 dark:bg-slate-800/50';
   return (
     <div className={`rounded-xl border p-3 ${border}`}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{label}</span>
-        {Icon && <Icon size={13} className={colour || 'text-slate-500'} />}
+        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</span>
+        {Icon && <Icon size={13} className={colour || 'text-slate-600 dark:text-slate-500'} />}
       </div>
-      <p className={`text-2xl font-bold tabular-nums ${colour || 'text-slate-100'}`}>{value ?? '—'}</p>
-      {sub && <p className="mt-0.5 text-[10px] text-slate-500">{sub}</p>}
+      <p className={`text-2xl font-bold tabular-nums ${colour || 'text-slate-900 dark:text-slate-100'}`}>{value ?? '—'}</p>
+      {sub && <p className="mt-0.5 text-[10px] text-slate-600 dark:text-slate-500">{sub}</p>}
     </div>
   );
 }
 
-function SectionBar({ icon: Icon, title, count, colour = 'text-slate-400', expanded, onToggle }) {
+function SectionBar({ icon: Icon, title, count, colour = 'text-slate-500 dark:text-slate-400', expanded, onToggle }) {
   return (
     <button
       type="button"
@@ -211,9 +212,9 @@ function SectionBar({ icon: Icon, title, count, colour = 'text-slate-400', expan
       <Icon size={13} className={colour} />
       <span className={`text-xs font-semibold ${colour}`}>{title}</span>
       {count !== undefined && (
-        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] text-slate-300">{count}</span>
+        <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-[10px] text-slate-700 dark:text-slate-300">{count}</span>
       )}
-      <span className="ml-auto text-slate-500">
+      <span className="ml-auto text-slate-600 dark:text-slate-500">
         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </span>
     </button>
@@ -223,7 +224,7 @@ function SectionBar({ icon: Icon, title, count, colour = 'text-slate-400', expan
 function EmptyRow({ cols, text }) {
   return (
     <tr>
-      <td colSpan={cols} className="px-3 py-3 text-center text-[11px] text-slate-500">{text}</td>
+      <td colSpan={cols} className="px-3 py-3 text-center text-[11px] text-slate-600 dark:text-slate-500">{text}</td>
     </tr>
   );
 }
@@ -249,26 +250,26 @@ function AlertBanners({ alerts, onDismiss, onViewContact, onQueryAI }) {
 
 function AlertBanner({ alert, onDismiss, onViewContact, onQueryAI }) {
   const isCritical = alert.severity === 'critical';
-  const bg    = isCritical ? 'bg-rose-950/80 border-rose-500/50' : 'bg-amber-950/80 border-amber-500/40';
-  const icon  = isCritical ? <ShieldAlert size={15} className="text-rose-400 shrink-0" /> : <AlertTriangle size={15} className="text-amber-400 shrink-0" />;
+  const bg    = isCritical ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-300 dark:border-rose-500/50' : 'bg-amber-50 dark:bg-amber-950/80 border-amber-300 dark:border-amber-500/40';
+  const icon  = isCritical ? <ShieldAlert size={15} className="text-rose-600 dark:text-rose-400 shrink-0" /> : <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />;
   const pulse = isCritical ? 'animate-pulse' : '';
   return (
     <div className={`rounded-xl border px-4 py-2.5 flex items-start gap-3 ${bg} ${pulse}`}>
       <span className="mt-0.5">{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className={`text-xs font-semibold ${isCritical ? 'text-rose-200' : 'text-amber-200'}`}>{alert.title}</p>
-        <p className="mt-0.5 text-[11px] text-slate-400 leading-relaxed">{alert.message}</p>
+        <p className={`text-xs font-semibold ${isCritical ? 'text-rose-800 dark:text-rose-200' : 'text-amber-800 dark:text-amber-200'}`}>{alert.title}</p>
+        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">{alert.message}</p>
         {alert.aiQuerying && (
-          <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
             <RefreshCw size={10} className="animate-spin" /> AI analysing…
           </p>
         )}
         {alert.aiResponse && (
-          <div className="mt-2 rounded-lg bg-slate-900/60 border border-slate-700/50 px-3 py-2">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+          <div className="mt-2 rounded-lg bg-white/60 dark:bg-slate-900/60 border border-slate-300 dark:border-slate-700/50 px-3 py-2">
+            <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
               <Sparkles size={9} /> AI Recommendation
             </p>
-            <p className="text-[11px] text-slate-200 leading-relaxed">{alert.aiResponse}</p>
+            <p className="text-[11px] text-slate-800 dark:text-slate-200 leading-relaxed">{alert.aiResponse}</p>
           </div>
         )}
       </div>
@@ -277,7 +278,7 @@ function AlertBanner({ alert, onDismiss, onViewContact, onQueryAI }) {
           <button
             type="button"
             onClick={onViewContact}
-            className="text-[10px] rounded-lg bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700 transition"
+            className="text-[10px] rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-1 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
           >
             View Call
           </button>
@@ -286,7 +287,7 @@ function AlertBanner({ alert, onDismiss, onViewContact, onQueryAI }) {
           <button
             type="button"
             onClick={onQueryAI}
-            className="text-[10px] rounded-lg bg-slate-800 px-2 py-1 text-connect-400 hover:bg-slate-700 transition flex items-center gap-1"
+            className="text-[10px] rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-1 text-connect-700 dark:text-connect-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1"
           >
             <Sparkles size={9} /> Ask AI
           </button>
@@ -294,7 +295,7 @@ function AlertBanner({ alert, onDismiss, onViewContact, onQueryAI }) {
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-lg p-1 text-slate-500 hover:text-slate-300 transition"
+          className="rounded-lg p-1 text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition"
         >
           <X size={12} />
         </button>
@@ -319,17 +320,17 @@ function LiveContactRow({ contact, selected, onClick, sentiment }) {
   return (
     <tr
       onClick={isEnded ? undefined : onClick}
-      className={`border-t border-slate-800/50 text-xs transition ${
+      className={`border-t border-slate-200 dark:border-slate-800/50 text-xs transition ${
         isEnded     ? 'opacity-30 cursor-default' :
         selected    ? 'bg-connect-500/15 cursor-pointer' :
         isLong      ? 'bg-rose-500/5 hover:bg-rose-500/10 cursor-pointer' :
         isMedium    ? 'bg-amber-500/5 hover:bg-amber-500/10 cursor-pointer' :
-        'hover:bg-slate-800/40 cursor-pointer'
+        'hover:bg-slate-100 dark:hover:bg-slate-800/40 cursor-pointer'
       }`}
     >
       <td className="px-2 py-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-mono text-slate-400">…{contact.contactId?.slice(-8)}</span>
+          <span className="font-mono text-slate-500 dark:text-slate-400">…{contact.contactId?.slice(-8)}</span>
           {contact.isBot && !contact.escalatedToAgent && (
             <span className="rounded-full bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-medium text-cyan-400">BOT</span>
           )}
@@ -341,17 +342,20 @@ function LiveContactRow({ contact, selected, onClick, sentiment }) {
         </div>
       </td>
       <td className="px-2 py-1.5">
-        <span className="inline-flex items-center gap-1 text-slate-300">
+        <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
           <ChannelIcon channel={contact.channel} /> {contact.channel}
         </span>
       </td>
       <td className="px-2 py-1.5"><StateBadge state={contact.contactState} /></td>
       <td className="px-2 py-1.5">
-        {contact.escalatedToAgent
-          ? <span className="text-emerald-300">{agentLabel || '—'}</span>
-          : <span className="text-slate-300">{queueLabel}</span>}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {contact.escalatedToAgent
+            ? <span className="text-emerald-600 dark:text-emerald-300">{agentLabel || '—'}</span>
+            : <span className="text-slate-700 dark:text-slate-300">{queueLabel}</span>}
+          <TransferBadge contact={contact} />
+        </div>
       </td>
-      <td className={`px-2 py-1.5 tabular-nums font-mono ${isLong ? 'text-rose-400' : isMedium ? 'text-amber-400' : 'text-slate-400'}`}>
+      <td className={`px-2 py-1.5 tabular-nums font-mono ${isLong ? 'text-rose-600 dark:text-rose-400' : isMedium ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
         {fmtContactTime(contact)}
       </td>
     </tr>
@@ -370,10 +374,10 @@ function TranscriptPane({ segments, status, loading, isLive, clEnabled, clSegCou
   }, [segments?.length]);
 
   const ROLE_STYLE = {
-    AGENT:    { tag: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/20', text: 'text-slate-200' },
-    BOT:      { tag: 'bg-violet-500/20  text-violet-300  border-violet-500/20',  text: 'text-slate-100' },
-    CUSTOMER: { tag: 'bg-slate-700/60   text-slate-400   border-slate-600/30',   text: 'text-slate-300' },
-    SYSTEM:   { tag: 'bg-cyan-500/15    text-cyan-300    border-cyan-500/20',    text: 'text-slate-400' },
+    AGENT:    { tag: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/20', text: 'text-slate-800 dark:text-slate-200' },
+    BOT:      { tag: 'bg-violet-500/20  text-violet-300  border-violet-500/20',  text: 'text-slate-900 dark:text-slate-100' },
+    CUSTOMER: { tag: 'bg-slate-200/60 dark:bg-slate-700/60   text-slate-500 dark:text-slate-400   border-slate-300 dark:border-slate-600/30',   text: 'text-slate-700 dark:text-slate-300' },
+    SYSTEM:   { tag: 'bg-cyan-500/15    text-cyan-300    border-cyan-500/20',    text: 'text-slate-500 dark:text-slate-400' },
   };
 
   return (
@@ -381,9 +385,9 @@ function TranscriptPane({ segments, status, loading, isLive, clEnabled, clSegCou
       {/* Header row */}
       <div className="flex items-center justify-between shrink-0 mb-1.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Transcript</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500">Transcript</p>
           {isLive && clEnabled && (
-            <span className="flex items-center gap-0.5 text-[9px] text-emerald-400">
+            <span className="flex items-center gap-0.5 text-[9px] text-emerald-600 dark:text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
               LIVE
             </span>
@@ -398,18 +402,18 @@ function TranscriptPane({ segments, status, loading, isLive, clEnabled, clSegCou
 
       {/* Status notices */}
       {!loading && !segments?.length && status === 'ACTIVE_CL_STARTING' && (
-        <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80 py-1">
+        <div className="flex items-center gap-1.5 text-[10px] text-emerald-600/80 dark:text-emerald-400/80 py-1">
           <RefreshCw size={9} className="animate-spin shrink-0" />
           CL real-time initialising — retrying…
         </div>
       )}
       {!loading && !segments?.length && status === 'ACTIVE_NO_REALTIME' && (
-        <div className="text-[10px] text-amber-400/80 py-1">
+        <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 py-1">
           Real-time transcript not enabled on this flow.
         </div>
       )}
       {!loading && !segments?.length && status === 'PROCESSING' && (
-        <div className="flex items-center gap-1.5 text-[10px] text-blue-400/80 py-1">
+        <div className="flex items-center gap-1.5 text-[10px] text-blue-600/80 dark:text-blue-400/80 py-1">
           <RefreshCw size={9} className="animate-spin shrink-0" />
           Post-call analysis processing (2–5 min)…
         </div>
@@ -433,7 +437,7 @@ function TranscriptPane({ segments, status, loading, isLive, clEnabled, clSegCou
             return (
               <div
                 key={i}
-                className="flex gap-1.5 items-start py-1 border-b border-slate-800/40 last:border-0 group"
+                className="flex gap-1.5 items-start py-1 border-b border-slate-200 dark:border-slate-800/40 last:border-0 group"
               >
                 <span
                   className={`shrink-0 rounded border px-1 py-0.5 text-[8px] font-semibold font-mono uppercase leading-none mt-0.5 ${style.tag}`}
@@ -588,16 +592,16 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Panel header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-2.5 shrink-0">
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5 mb-2.5 shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-500 hover:text-slate-200 transition"
+            className="rounded-lg p-1 text-slate-600 dark:text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition"
           >
             <ArrowLeft size={14} />
           </button>
-          <span className="text-xs font-semibold text-slate-200">Contact Detail</span>
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Contact Detail</span>
           {isLive && (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -605,7 +609,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
             </span>
           )}
         </div>
-        <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-500 hover:text-rose-400 transition">
+        <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-600 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 transition">
           <X size={13} />
         </button>
       </div>
@@ -617,46 +621,52 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-0.5 pb-2">
 
           {/* Contact metadata */}
-          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-2.5">
+          <div className="rounded-xl bg-slate-200/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700/50 p-2.5">
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]">
               <div>
-                <p className="text-slate-500 mb-0.5">Contact ID</p>
-                <p className="font-mono text-slate-300">…{contact.contactId?.slice(-14)}</p>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Contact ID</p>
+                <p className="font-mono text-slate-700 dark:text-slate-300">…{contact.contactId?.slice(-14)}</p>
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">Channel</p>
-                <span className="inline-flex items-center gap-1 text-slate-200">
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Channel</p>
+                <span className="inline-flex items-center gap-1 text-slate-800 dark:text-slate-200">
                   <ChannelIcon channel={contact.channel} />
                   {contact.channel || '—'}
                 </span>
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">State</p>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">State</p>
                 <StateBadge state={contact.contactState} />
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">Duration</p>
-                <p className={`font-mono font-bold tabular-nums ${isLong ? 'text-rose-400' : 'text-slate-200'}`}>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Duration</p>
+                <p className={`font-mono font-bold tabular-nums ${isLong ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}`}>
                   {fmtDuration(elapsed)}
-                  {isLong && <span className="ml-1 text-[9px] text-rose-500">LONG</span>}
+                  {isLong && <span className="ml-1 text-[9px] text-rose-600 dark:text-rose-500">LONG</span>}
                 </p>
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">Queue</p>
-                <p className="text-slate-200">{rawQueue}</p>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Queue</p>
+                <p className="text-slate-800 dark:text-slate-200">{rawQueue}</p>
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">Agent</p>
-                <p className="text-emerald-300">{rawAgent}</p>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Agent</p>
+                <p className="text-emerald-600 dark:text-emerald-300">{rawAgent}</p>
               </div>
               <div>
-                <p className="text-slate-500 mb-0.5">Started</p>
-                <p className="text-slate-400">{fmtTime(contact.initiatedAt)}</p>
+                <p className="text-slate-600 dark:text-slate-500 mb-0.5">Started</p>
+                <p className="text-slate-500 dark:text-slate-400">{fmtTime(contact.initiatedAt)}</p>
               </div>
               {contact.customerEndpoint?.display && (
                 <div>
-                  <p className="text-slate-500 mb-0.5">Customer</p>
-                  <p className="font-mono text-slate-400">{contact.customerEndpoint.display}</p>
+                  <p className="text-slate-600 dark:text-slate-500 mb-0.5">Customer</p>
+                  <p className="font-mono text-slate-500 dark:text-slate-400">{contact.customerEndpoint.display}</p>
+                </div>
+              )}
+              {contact.contactType === 'transfer' && (
+                <div>
+                  <p className="text-slate-600 dark:text-slate-500 mb-0.5">Transfer</p>
+                  <TransferBadge contact={contact} />
                 </div>
               )}
             </div>
@@ -664,7 +674,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
 
           {/* Supervisor actions */}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Supervisor Actions</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 mb-1.5">Supervisor Actions</p>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -680,7 +690,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
                   type="button"
                   onClick={fetchSummary}
                   disabled={sumLoading}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-slate-700 disabled:opacity-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition"
                 >
                   {sumLoading ? <RefreshCw size={10} className="animate-spin" /> : <Zap size={10} />}
                   {sumLoading ? 'Summarising…' : 'AI Summary'}
@@ -690,7 +700,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
                 <button
                   type="button"
                   onClick={() => onAskAssistant(`Tell me everything about contact ${contact.contactId?.slice(-8)}: its current state, how long it has been active, and what I should do as a supervisor.`)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-slate-700 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                 >
                   <Headphones size={10} />
                   Ask AI Agent
@@ -701,7 +711,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
                   href={`https://${connectAlias}.my.connect.aws/ccp-v2/`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-slate-700 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                 >
                   <ExternalLink size={10} />
                   Open CCP
@@ -715,18 +725,18 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
             <div className={`flex gap-2 ${aiAdvice && summary ? 'flex-row' : 'flex-col'}`}>
               {aiAdvice && (
                 <div className={`rounded-xl border border-connect-500/30 bg-connect-500/10 p-2.5 ${summary ? 'flex-1 min-w-0' : ''}`}>
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-connect-400 mb-1 flex items-center gap-1">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-connect-700 dark:text-connect-400 mb-1 flex items-center gap-1">
                     <Sparkles size={9} /> Supervisor Briefing
                   </p>
-                  <div className="text-[10px] text-slate-200 leading-relaxed prose prose-invert prose-xs max-w-none">
+                  <div className="text-[10px] text-slate-800 dark:text-slate-200 leading-relaxed prose prose-xs dark:prose-invert max-w-none">
                     <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{aiAdvice}</ReactMarkdown>
                   </div>
                 </div>
               )}
               {summary && (
-                <div className={`rounded-xl border border-slate-700/50 bg-slate-800/50 p-2.5 ${aiAdvice ? 'flex-1 min-w-0' : ''}`}>
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 mb-1">AI Summary</p>
-                  <div className="text-[10px] text-slate-300 leading-relaxed prose prose-invert prose-xs max-w-none">
+                <div className={`rounded-xl border border-slate-300 dark:border-slate-700/50 bg-slate-200/50 dark:bg-slate-800/50 p-2.5 ${aiAdvice ? 'flex-1 min-w-0' : ''}`}>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 mb-1">AI Summary</p>
+                  <div className="text-[10px] text-slate-700 dark:text-slate-300 leading-relaxed prose prose-xs dark:prose-invert max-w-none">
                     <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{summary}</ReactMarkdown>
                   </div>
                 </div>
@@ -739,7 +749,7 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
         </div>
 
         {/* ── BOTTOM: Transcript — always visible, never pushed off screen ─────── */}
-        <div className="shrink-0 border-t border-slate-800 pt-2" style={{ height: '220px' }}>
+        <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 pt-2" style={{ height: '220px' }}>
           <TranscriptPane
             segments={transcript}
             status={tStatus}
@@ -802,30 +812,30 @@ function ForceLogoutBtn({ agent, onSuccess }) {
   const dismiss = (e) => { e.stopPropagation(); setState('idle'); setMsg(''); };
 
   if (state === 'done') return (
-    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+    <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
       <CheckCircle2 size={10} /> {msg}
-      <button type="button" onClick={dismiss} className="text-slate-500 hover:text-slate-300">✕</button>
+      <button type="button" onClick={dismiss} className="text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">✕</button>
     </span>
   );
 
   if (state === 'blocked' || state === 'error') return (
-    <span className="flex items-center gap-1 text-[10px] text-rose-400 max-w-[120px]" title={msg}>
+    <span className="flex items-center gap-1 text-[10px] text-rose-600 dark:text-rose-400 max-w-[120px]" title={msg}>
       <ShieldAlert size={10} className="shrink-0" />
       <span className="truncate">{msg}</span>
-      <button type="button" onClick={dismiss} className="shrink-0 text-slate-500 hover:text-slate-300">✕</button>
+      <button type="button" onClick={dismiss} className="shrink-0 text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">✕</button>
     </span>
   );
 
   if (state === 'confirm') return (
     <span className="flex items-center gap-1 text-[10px]" onClick={(e) => e.stopPropagation()}>
-      <span className="text-amber-300">Sure?</span>
+      <span className="text-amber-600 dark:text-amber-300">Sure?</span>
       <button type="button" onClick={handleConfirm} className="rounded bg-rose-600/80 px-1.5 py-0.5 text-white hover:bg-rose-600">Yes</button>
-      <button type="button" onClick={dismiss} className="rounded bg-slate-700 px-1.5 py-0.5 text-slate-200 hover:bg-slate-600">No</button>
+      <button type="button" onClick={dismiss} className="rounded bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600">No</button>
     </span>
   );
 
   if (state === 'loading') return (
-    <span className="flex items-center gap-1 text-[10px] text-slate-400">
+    <span className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
       <RefreshCw size={10} className="animate-spin" /> Forcing…
     </span>
   );
@@ -837,8 +847,8 @@ function ForceLogoutBtn({ agent, onSuccess }) {
       title={isBlocked ? 'Cannot force logout — agent has active contact' : 'Force agent to Offline'}
       className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors
         ${isBlocked
-          ? 'cursor-not-allowed text-slate-600 border border-slate-800'
-          : 'border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500'
+          ? 'cursor-not-allowed text-slate-600 border border-slate-200 dark:border-slate-800'
+          : 'border border-rose-700/50 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500'
         }`}
     >
       <LogOut size={10} />
@@ -868,8 +878,8 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-2 shrink-0">
-        <p className="text-xs font-semibold text-slate-300">Agent Roster</p>
-        {loading && <RefreshCw size={11} className="animate-spin text-slate-500" />}
+        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Agent Roster</p>
+        {loading && <RefreshCw size={11} className="animate-spin text-slate-600 dark:text-slate-500" />}
       </div>
       <div className="flex gap-2 mb-3 shrink-0">
         <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[10px] font-medium text-emerald-400">{avail} available</span>
@@ -878,13 +888,13 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
       </div>
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 && (
-          <p className="text-[11px] text-slate-500 py-3">No agent data available.</p>
+          <p className="text-[11px] text-slate-600 dark:text-slate-500 py-3">No agent data available.</p>
         )}
         {sorted.map((agent) => (
-          <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-800/50 text-[11px]">
+          <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
             <div className="min-w-0 flex-1 mr-2">
-              <p className="text-slate-200 font-medium truncate">{agent.name || '—'}</p>
-              {agent.currentQueue && <p className="text-slate-500 truncate">{agent.currentQueue}</p>}
+              <p className="text-slate-800 dark:text-slate-200 font-medium truncate">{agent.name || '—'}</p>
+              {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <AgentStateBadge status={agent.status} />
@@ -904,22 +914,22 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
 function QueueSummary({ cbByQueue }) {
   const entries = Object.entries(cbByQueue || {});
   if (!entries.length) return (
-    <p className="text-[11px] text-slate-500 py-2">No queue callback data.</p>
+    <p className="text-[11px] text-slate-600 dark:text-slate-500 py-2">No queue callback data.</p>
   );
   return (
     <div className="space-y-1">
       {entries.map(([q, counts]) => (
-        <div key={q} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-800/50">
-          <span className="text-slate-300 font-medium">{q}</span>
+        <div key={q} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-200 dark:border-slate-800/50">
+          <span className="text-slate-700 dark:text-slate-300 font-medium">{q}</span>
           <div className="flex items-center gap-2">
             {counts.waiting > 0 && (
-              <span className="text-amber-400">{counts.waiting} waiting</span>
+              <span className="text-amber-600 dark:text-amber-400">{counts.waiting} waiting</span>
             )}
             {counts.scheduled > 0 && (
-              <span className="text-purple-400">{counts.scheduled} sched.</span>
+              <span className="text-purple-600 dark:text-purple-400">{counts.scheduled} sched.</span>
             )}
             {counts.waiting === 0 && counts.scheduled === 0 && (
-              <span className="text-emerald-400 flex items-center gap-1"><CheckCircle2 size={10} />Clear</span>
+              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 size={10} />Clear</span>
             )}
           </div>
         </div>
@@ -933,13 +943,13 @@ function QueueSummary({ cbByQueue }) {
 function PollingModeBanner() {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 mb-3">
-      <Wifi size={13} className="text-amber-400 shrink-0" />
+      <Wifi size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-semibold text-amber-300">Direct-poll mode (5 s refresh)</p>
-        <p className="text-[10px] text-slate-500 mt-0.5">
+        <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">Direct-poll mode (5 s refresh)</p>
+        <p className="text-[10px] text-slate-600 dark:text-slate-500 mt-0.5">
           EventBridge not configured — showing contacts via Connect API polling.
           For full real-time tracking run{' '}
-          <code className="font-mono text-emerald-400">./deploy.sh setup-eventbridge</code>.
+          <code className="font-mono text-emerald-600 dark:text-emerald-400">./deploy.sh setup-eventbridge</code>.
         </p>
       </div>
     </div>
@@ -1121,17 +1131,17 @@ export default function RealtimeCommandCenter({
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${
-            listenerActive ? 'bg-emerald-500/15' : pollingMode ? 'bg-amber-500/15' : 'bg-slate-700'
+            listenerActive ? 'bg-emerald-500/15' : pollingMode ? 'bg-amber-500/15' : 'bg-slate-200 dark:bg-slate-700'
           }`}>
             {listenerActive
-              ? <Wifi size={15} className="text-emerald-400" />
+              ? <Wifi size={15} className="text-emerald-600 dark:text-emerald-400" />
               : pollingMode
-              ? <Wifi size={15} className="text-amber-400" />
-              : <WifiOff size={15} className="text-slate-500" />}
+              ? <Wifi size={15} className="text-amber-600 dark:text-amber-400" />
+              : <WifiOff size={15} className="text-slate-600 dark:text-slate-500" />}
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-200">Real-Time Command Centre</p>
-            <p className="text-[10px] text-slate-500">
+            <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">Real-Time Command Centre</p>
+            <p className="text-[10px] text-slate-600 dark:text-slate-500">
               {listenerActive
                 ? 'EventBridge live · 5s refresh'
                 : pollingMode
@@ -1149,17 +1159,17 @@ export default function RealtimeCommandCenter({
             </span>
           )}
           <div className="text-right">
-            <p className="text-lg font-semibold tabular-nums text-slate-100">
+            <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </p>
-            <p className="text-[10px] text-slate-500">
+            <p className="text-[10px] text-slate-600 dark:text-slate-500">
               {now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
             </p>
           </div>
           <button
             type="button"
             onClick={fetchLive}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 transition flex items-center gap-1.5"
+            className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5"
           >
             <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} /> Refresh
           </button>
@@ -1181,33 +1191,39 @@ export default function RealtimeCommandCenter({
       <>
         {/* ── KPI strip 1: Connect Metrics ─────────────────────────────────── */}
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 shrink-0">
-            <KpiCard label="Online"       value={metrics.agents_online}     icon={Users}        colour="text-slate-300" />
-            <KpiCard label="Available"    value={metrics.agents_available}  icon={CheckCircle2} colour="text-emerald-400"
+            <KpiCard label="Online"       value={metrics.agents_online}     icon={Users}        colour="text-slate-700 dark:text-slate-300" />
+            <KpiCard label="Available"    value={metrics.agents_available}  icon={CheckCircle2} colour="text-emerald-600 dark:text-emerald-400"
               warn={agentsAvail <= 2} critical={agentsAvail === 0} />
-            <KpiCard label="On Call"      value={metrics.agents_on_call}    icon={Phone}        colour="text-sky-400" />
-            <KpiCard label="ACW"          value={metrics.agents_in_acw}     icon={Clock}        colour="text-orange-400" />
-            <KpiCard label="In Queue"     value={metrics.contacts_in_queue} icon={PhoneIncoming} colour="text-amber-400"
+            <KpiCard label="On Call"      value={metrics.agents_on_call}    icon={Phone}        colour="text-sky-600 dark:text-sky-400" />
+            <KpiCard label="ACW"          value={metrics.agents_in_acw}     icon={Clock}        colour="text-orange-600 dark:text-orange-400" />
+            <KpiCard label="In Queue"     value={metrics.contacts_in_queue} icon={PhoneIncoming} colour="text-amber-600 dark:text-amber-400"
               warn={queueCount > 5} critical={queueCount > 10} />
-            <KpiCard label="Oldest Wait"  value={metrics.oldest_contact_age || '—'} icon={Activity} colour="text-slate-300" sub="hh:mm:ss" />
+            <KpiCard label="Oldest Wait"  value={metrics.oldest_contact_age || '—'} icon={Activity} colour="text-slate-700 dark:text-slate-300" sub="hh:mm:ss" />
           </div>
 
           {/* ── KPI strip 2: EventBridge Live ─────────────────────────────────── */}
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-8 shrink-0">
-            <KpiCard label="Total Active" value={summary.total}               icon={PhoneCall}     colour="text-connect-400" />
-            <KpiCard label="Inbound"      value={summary.inbound}             icon={PhoneIncoming} colour="text-blue-400" />
-            <KpiCard label="Bot / IVR"    value={summary.bot_handling}        icon={Bot}           colour="text-cyan-400" />
-            <KpiCard label="With Agent"   value={summary.agent_connected}     icon={Headphones}    colour="text-emerald-400" />
-            <KpiCard label="Transfers"    value={summary.transfers}           icon={PhoneForwarded} colour="text-violet-400" />
-            <KpiCard label="Callbacks ⌚" value={summary.callbacks_waiting}  icon={PhoneForwarded} colour="text-amber-400" />
-            <KpiCard label="Outbound"     value={summary.outbound}            icon={PhoneOutgoing} colour="text-orange-400" />
-            <KpiCard label="Voice"        value={summary.voice}               icon={Phone}         colour="text-blue-300" />
+            <KpiCard label="Total Active" value={summary.total}               icon={PhoneCall}     colour="text-connect-700 dark:text-connect-400" />
+            <KpiCard label="Inbound"      value={summary.inbound}             icon={PhoneIncoming} colour="text-blue-600 dark:text-blue-400" />
+            <KpiCard label="Bot / IVR"    value={summary.bot_handling}        icon={Bot}           colour="text-cyan-600 dark:text-cyan-400" />
+            <KpiCard label="With Agent"   value={summary.agent_connected}     icon={Headphones}    colour="text-emerald-600 dark:text-emerald-400" />
+            <KpiCard
+              label="Transfers"
+              value={summary.transfers}
+              icon={PhoneForwarded}
+              colour="text-violet-600 dark:text-violet-400"
+              sub={summary.transfers ? `${summary.transfers_internal || 0} int · ${summary.transfers_external || 0} ext` : undefined}
+            />
+            <KpiCard label="Callbacks ⌚" value={summary.callbacks_waiting}  icon={PhoneForwarded} colour="text-amber-600 dark:text-amber-400" />
+            <KpiCard label="Outbound"     value={summary.outbound}            icon={PhoneOutgoing} colour="text-orange-600 dark:text-orange-400" />
+            <KpiCard label="Voice"        value={summary.voice}               icon={Phone}         colour="text-blue-600 dark:text-blue-300" />
           </div>
 
           {/* ── Main grid: contacts table + right panel ───────────────────────── */}
           <div className="flex gap-4 flex-1 min-h-0">
 
             {/* LEFT: Live contacts table */}
-            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 space-y-3">
 
               {/* Inbound & Transfers */}
               <div>
@@ -1215,17 +1231,17 @@ export default function RealtimeCommandCenter({
                   icon={PhoneIncoming}
                   title="Inbound & Transfers"
                   count={inbound.length + transfers.length}
-                  colour="text-blue-400"
+                  colour="text-blue-600 dark:text-blue-400"
                   expanded={showInbound}
                   onToggle={() => setShowInbound((v) => !v)}
                 />
                 {showInbound && (
-                  <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800/60">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-800/50">
+                      <thead className="bg-slate-100 dark:bg-slate-800/50">
                         <tr>
                           {['Contact', 'Channel', 'State', 'Queue / Agent', 'Duration'].map((c) => (
-                            <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-400">{c}</th>
+                            <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                           ))}
                         </tr>
                       </thead>
@@ -1252,17 +1268,17 @@ export default function RealtimeCommandCenter({
                   icon={Bot}
                   title="Bot / IVR"
                   count={botContacts.length}
-                  colour="text-cyan-400"
+                  colour="text-cyan-600 dark:text-cyan-400"
                   expanded={showBot}
                   onToggle={() => setShowBot((v) => !v)}
                 />
                 {showBot && (
-                  <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800/60">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-800/50">
+                      <thead className="bg-slate-100 dark:bg-slate-800/50">
                         <tr>
                           {['Contact', 'Channel', 'State', 'Status', 'Duration'].map((c) => (
-                            <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-400">{c}</th>
+                            <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                           ))}
                         </tr>
                       </thead>
@@ -1290,17 +1306,17 @@ export default function RealtimeCommandCenter({
                     icon={PhoneOutgoing}
                     title="Outbound"
                     count={outbound.length}
-                    colour="text-orange-400"
+                    colour="text-orange-600 dark:text-orange-400"
                     expanded={showOutbound}
                     onToggle={() => setShowOutbound((v) => !v)}
                   />
                   {showOutbound && (
-                    <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800/60">
                       <table className="w-full text-left">
-                        <thead className="bg-slate-800/50">
+                        <thead className="bg-slate-100 dark:bg-slate-800/50">
                           <tr>
                             {['Contact', 'Channel', 'State', 'Agent', 'Duration'].map((c) => (
-                              <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-400">{c}</th>
+                              <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1328,17 +1344,17 @@ export default function RealtimeCommandCenter({
                     icon={PhoneForwarded}
                     title="Callbacks"
                     count={callbacks.length}
-                    colour="text-amber-400"
+                    colour="text-amber-600 dark:text-amber-400"
                     expanded={showCallbacks}
                     onToggle={() => setShowCallbacks((v) => !v)}
                   />
                   {showCallbacks && (
-                    <div className="overflow-x-auto rounded-xl border border-slate-800/60">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800/60">
                       <table className="w-full text-left">
-                        <thead className="bg-slate-800/50">
+                        <thead className="bg-slate-100 dark:bg-slate-800/50">
                           <tr>
                             {['Contact', 'Queue', 'State', 'Duration'].map((c) => (
-                              <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-400">{c}</th>
+                              <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1365,7 +1381,7 @@ export default function RealtimeCommandCenter({
             </div>
 
             {/* RIGHT: Agent roster OR Contact detail panel */}
-            <div className="w-80 shrink-0 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 overflow-hidden flex flex-col">
+            <div className="w-80 shrink-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 overflow-hidden flex flex-col">
               {selectedContact ? (
                 <ContactDetailPanel
                   contact={selectedContact}
@@ -1377,8 +1393,8 @@ export default function RealtimeCommandCenter({
                 <div className="flex flex-col h-full gap-4">
                   <AgentRoster agentRows={agentRows} loading={agentLoading} />
                   {Object.keys(cbByQueue).length > 0 && (
-                    <div className="border-t border-slate-800 pt-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Callbacks by Queue</p>
+                    <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 mb-2">Callbacks by Queue</p>
                       <QueueSummary cbByQueue={cbByQueue} />
                     </div>
                   )}

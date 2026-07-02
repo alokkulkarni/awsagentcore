@@ -81,17 +81,17 @@ export default function FloatingAssistant({
       {/* ── Expanded panel ─────────────────────────────────────────────────── */}
       {open && (
         <div
-          className={`${panelW} ${panelH} flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl transition-all duration-200 overflow-hidden`}
+          className={`${panelW} ${panelH} flex flex-col rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl transition-all duration-200 overflow-hidden`}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/80 px-4 py-3 shrink-0">
+          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 px-4 py-3 shrink-0">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-connect-500/20 text-connect-400">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-connect-500/20 text-connect-700 dark:text-connect-400">
                 <Bot size={14} />
               </div>
-              <span className="text-sm font-semibold text-slate-100">AI Assistant</span>
+              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
               {chat.isLoading && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <RefreshCw size={10} className="animate-spin" /> thinking…
                 </span>
               )}
@@ -101,7 +101,7 @@ export default function FloatingAssistant({
                 type="button"
                 title="New chat"
                 onClick={chat.clearChat}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                className="rounded-lg p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 transition"
               >
                 <Trash2 size={14} />
               </button>
@@ -109,7 +109,7 @@ export default function FloatingAssistant({
                 type="button"
                 title={expanded ? 'Shrink' : 'Expand'}
                 onClick={() => setExpanded((v) => !v)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                className="rounded-lg p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 transition"
               >
                 {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
@@ -117,7 +117,7 @@ export default function FloatingAssistant({
                 type="button"
                 title="Minimise"
                 onClick={() => setOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-rose-400 transition"
+                className="rounded-lg p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-rose-600 dark:hover:text-rose-400 transition"
               >
                 <ChevronDown size={14} />
               </button>
@@ -128,8 +128,8 @@ export default function FloatingAssistant({
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 scrollbar-thin">
             {chat.messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-                <Sparkles size={28} className="text-connect-400 opacity-60" />
-                <p className="text-sm text-slate-400">
+                <Sparkles size={28} className="text-connect-700 dark:text-connect-400 opacity-60" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   Ask me anything about your contact centre — agents, queues, metrics, or a specific call.
                 </p>
                 {[
@@ -141,7 +141,7 @@ export default function FloatingAssistant({
                     key={q}
                     type="button"
                     onClick={() => { setInput(q); inputRef.current?.focus(); }}
-                    className="text-xs text-connect-400 border border-connect-500/30 rounded-xl px-3 py-1.5 hover:bg-connect-500/10 transition"
+                    className="text-xs text-connect-700 dark:text-connect-400 border border-connect-500/30 rounded-xl px-3 py-1.5 hover:bg-connect-500/10 transition"
                   >
                     {q}
                   </button>
@@ -179,7 +179,7 @@ export default function FloatingAssistant({
 
             {chat.isLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
+                <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-bl-sm px-4 py-3">
                   <span className="flex gap-1">
                     {[0, 1, 2].map((d) => (
                       <span
@@ -197,7 +197,7 @@ export default function FloatingAssistant({
           </div>
 
           {/* Input */}
-          <div className="border-t border-slate-800 bg-slate-950/60 p-3 shrink-0">
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 p-3 shrink-0">
             <div className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
@@ -206,7 +206,7 @@ export default function FloatingAssistant({
                 onKeyDown={handleKeyDown}
                 placeholder="Ask about agents, queues, calls…"
                 rows={1}
-                className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-connect-500 max-h-32"
+                className="flex-1 resize-none rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-600 dark:placeholder-slate-500 outline-none focus:border-connect-500 max-h-32"
                 style={{ fieldSizing: 'content' }}
               />
               <button
@@ -228,7 +228,7 @@ export default function FloatingAssistant({
         onClick={() => setOpen((v) => !v)}
         className={`relative flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition-all duration-200 ${
           open
-            ? 'bg-slate-700 text-slate-100'
+            ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
             : 'bg-connect-500 text-white hover:bg-connect-700'
         }`}
         title={open ? 'Close AI Assistant' : 'Open AI Assistant'}

@@ -7,7 +7,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field, field_validator
 from agent_core import ConnectAnalyticsAgent, LocalToolInvoker
 import startup_scan
 import eventbridge_listener
+import theme_scan
+import disconnect_reasons
+import hours_of_operation
 from session_store import create_session_store
 
 load_dotenv()
@@ -110,7 +113,15 @@ _STATUS_DISPLAY: Dict[str, str] = {
 }
 
 
+# Runtime override for mock mode, settable via PUT /config/mock-mode without a
+# container restart. None = defer to the MOCK_MODE env var (the original
+# behaviour); True/False = explicit override for the life of this process.
+_mock_override: Optional[bool] = None
+
+
 def _is_mock() -> bool:
+    if _mock_override is not None:
+        return _mock_override
     return os.getenv("MOCK_MODE", "true").lower() == "true"
 
 
@@ -463,6 +474,23 @@ def health() -> Dict[str, Any]:
     }
 
 
+class MockModeRequest(BaseModel):
+    mock: bool = Field(..., description="True to force dummy data on every screen, false to use real AWS data")
+
+
+@app.put("/config/mock-mode")
+def set_mock_mode(req: MockModeRequest) -> Dict[str, Any]:
+    """
+    Runtime toggle for mock mode — no container restart needed. Only meaningful
+    against this local FastAPI server (the cloud Lambda doesn't serve this route
+    at all), so it's inherently local-only.
+    """
+    global _mock_override
+    _mock_override = req.mock
+    LOGGER.info("Mock mode runtime override set to %s", req.mock)
+    return {"mock_mode": _is_mock()}
+
+
 @app.get("/config")
 def config() -> Dict[str, Any]:
     """
@@ -567,20 +595,20 @@ def metrics() -> Dict[str, Any]:
 _MOCK_HISTORICAL = {
     "period": "Last 30 days",
     "data": [
-        {"date_key": "2026-04-08", "label": "8 Apr",  "CONTACTS_HANDLED": 4,  "AVG_HANDLE_TIME": 192, "CONTACTS_QUEUED": 6,  "AVG_AFTER_CONTACT_WORK_TIME": 45},
-        {"date_key": "2026-04-09", "label": "9 Apr",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 210, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 62},
-        {"date_key": "2026-04-10", "label": "10 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 178, "CONTACTS_QUEUED": 5,  "AVG_AFTER_CONTACT_WORK_TIME": 38},
-        {"date_key": "2026-04-14", "label": "14 Apr", "CONTACTS_HANDLED": 9,  "AVG_HANDLE_TIME": 245, "CONTACTS_QUEUED": 12, "AVG_AFTER_CONTACT_WORK_TIME": 71},
-        {"date_key": "2026-04-15", "label": "15 Apr", "CONTACTS_HANDLED": 12, "AVG_HANDLE_TIME": 198, "CONTACTS_QUEUED": 15, "AVG_AFTER_CONTACT_WORK_TIME": 55},
-        {"date_key": "2026-04-16", "label": "16 Apr", "CONTACTS_HANDLED": 8,  "AVG_HANDLE_TIME": 231, "CONTACTS_QUEUED": 11, "AVG_AFTER_CONTACT_WORK_TIME": 67},
-        {"date_key": "2026-04-17", "label": "17 Apr", "CONTACTS_HANDLED": 5,  "AVG_HANDLE_TIME": 163, "CONTACTS_QUEUED": 7,  "AVG_AFTER_CONTACT_WORK_TIME": 42},
-        {"date_key": "2026-04-22", "label": "22 Apr", "CONTACTS_HANDLED": 11, "AVG_HANDLE_TIME": 220, "CONTACTS_QUEUED": 14, "AVG_AFTER_CONTACT_WORK_TIME": 58},
-        {"date_key": "2026-04-23", "label": "23 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 108, "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 30},
-        {"date_key": "2026-04-24", "label": "24 Apr", "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 159, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 48},
-        {"date_key": "2026-04-27", "label": "27 Apr", "CONTACTS_HANDLED": 1,  "AVG_HANDLE_TIME": 287, "CONTACTS_QUEUED": 3,  "AVG_AFTER_CONTACT_WORK_TIME": 90},
-        {"date_key": "2026-04-28", "label": "28 Apr", "CONTACTS_HANDLED": 0,  "AVG_HANDLE_TIME": 0,   "CONTACTS_QUEUED": 2,  "AVG_AFTER_CONTACT_WORK_TIME": 0},
-        {"date_key": "2026-05-01", "label": "1 May",  "CONTACTS_HANDLED": 2,  "AVG_HANDLE_TIME": 87,  "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 25},
-        {"date_key": "2026-05-08", "label": "8 May",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 158, "CONTACTS_QUEUED": 8,  "AVG_AFTER_CONTACT_WORK_TIME": 44},
+        {"date_key": "2026-04-08", "label": "8 Apr",  "CONTACTS_HANDLED": 4,  "AVG_HANDLE_TIME": 192, "CONTACTS_QUEUED": 6,  "AVG_AFTER_CONTACT_WORK_TIME": 45, "AVG_TALK_TIME": 132},
+        {"date_key": "2026-04-09", "label": "9 Apr",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 210, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 62, "AVG_TALK_TIME": 130},
+        {"date_key": "2026-04-10", "label": "10 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 178, "CONTACTS_QUEUED": 5,  "AVG_AFTER_CONTACT_WORK_TIME": 38, "AVG_TALK_TIME": 126},
+        {"date_key": "2026-04-14", "label": "14 Apr", "CONTACTS_HANDLED": 9,  "AVG_HANDLE_TIME": 245, "CONTACTS_QUEUED": 12, "AVG_AFTER_CONTACT_WORK_TIME": 71, "AVG_TALK_TIME": 154},
+        {"date_key": "2026-04-15", "label": "15 Apr", "CONTACTS_HANDLED": 12, "AVG_HANDLE_TIME": 198, "CONTACTS_QUEUED": 15, "AVG_AFTER_CONTACT_WORK_TIME": 55, "AVG_TALK_TIME": 127},
+        {"date_key": "2026-04-16", "label": "16 Apr", "CONTACTS_HANDLED": 8,  "AVG_HANDLE_TIME": 231, "CONTACTS_QUEUED": 11, "AVG_AFTER_CONTACT_WORK_TIME": 67, "AVG_TALK_TIME": 146},
+        {"date_key": "2026-04-17", "label": "17 Apr", "CONTACTS_HANDLED": 5,  "AVG_HANDLE_TIME": 163, "CONTACTS_QUEUED": 7,  "AVG_AFTER_CONTACT_WORK_TIME": 42, "AVG_TALK_TIME": 108},
+        {"date_key": "2026-04-22", "label": "22 Apr", "CONTACTS_HANDLED": 11, "AVG_HANDLE_TIME": 220, "CONTACTS_QUEUED": 14, "AVG_AFTER_CONTACT_WORK_TIME": 58, "AVG_TALK_TIME": 145},
+        {"date_key": "2026-04-23", "label": "23 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 108, "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 30, "AVG_TALK_TIME": 69},
+        {"date_key": "2026-04-24", "label": "24 Apr", "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 159, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 48, "AVG_TALK_TIME": 98},
+        {"date_key": "2026-04-27", "label": "27 Apr", "CONTACTS_HANDLED": 1,  "AVG_HANDLE_TIME": 287, "CONTACTS_QUEUED": 3,  "AVG_AFTER_CONTACT_WORK_TIME": 90, "AVG_TALK_TIME": 175},
+        {"date_key": "2026-04-28", "label": "28 Apr", "CONTACTS_HANDLED": 0,  "AVG_HANDLE_TIME": 0,   "CONTACTS_QUEUED": 2,  "AVG_AFTER_CONTACT_WORK_TIME": 0,  "AVG_TALK_TIME": 0},
+        {"date_key": "2026-05-01", "label": "1 May",  "CONTACTS_HANDLED": 2,  "AVG_HANDLE_TIME": 87,  "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 25, "AVG_TALK_TIME": 55},
+        {"date_key": "2026-05-08", "label": "8 May",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 158, "CONTACTS_QUEUED": 8,  "AVG_AFTER_CONTACT_WORK_TIME": 44, "AVG_TALK_TIME": 101},
     ],
     "abandoned": [
         {"date_key": "2026-04-08", "label": "8 Apr",  "CONTACTS_ABANDONED": 1},
@@ -714,7 +742,7 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
             return dt.strftime("%Y-%m-%d") if dt else str(iso_str)[:10]
 
         # Fetch all series (3 calls)
-        handled_rows = _invoke_day("CONTACTS_HANDLED,AVG_HANDLE_TIME")
+        handled_rows = _invoke_day("CONTACTS_HANDLED,AVG_HANDLE_TIME,AVG_TALK_TIME")
         abandoned_rows = _invoke_day("CONTACTS_ABANDONED")
         acw_rows = _invoke_day("CONTACTS_QUEUED,AVG_AFTER_CONTACT_WORK_TIME")
 
@@ -728,6 +756,7 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
                 "label": _fmt_label(row.get("interval_start")),
                 "CONTACTS_HANDLED": round(m.get("CONTACTS_HANDLED") or 0),
                 "AVG_HANDLE_TIME": round(m.get("AVG_HANDLE_TIME") or 0),
+                "AVG_TALK_TIME": round(m.get("AVG_TALK_TIME") or 0),
             }
 
         acw_map: Dict[str, Dict] = {}
@@ -749,9 +778,11 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
             a = acw_map.get(dk, {})
             handled_count   = h.get("CONTACTS_HANDLED", 0)
             avg_handle      = h.get("AVG_HANDLE_TIME", 0)
+            avg_talk        = h.get("AVG_TALK_TIME", 0)
             avg_acw         = a.get("AVG_AFTER_CONTACT_WORK_TIME", 0)
             # Total = avg (seconds) × number of contacts handled that day, expressed in minutes (2dp)
             total_handle_min = round((avg_handle * handled_count) / 60, 2) if handled_count else 0
+            total_talk_min   = round((avg_talk   * handled_count) / 60, 2) if handled_count else 0
             total_acw_min    = round((avg_acw    * handled_count) / 60, 2) if handled_count else 0
             chart_data.append({
                 "date_key": dk,
@@ -759,6 +790,8 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
                 "CONTACTS_HANDLED": handled_count,
                 "AVG_HANDLE_TIME": avg_handle,
                 "TOTAL_HANDLE_TIME_MIN": total_handle_min,
+                "AVG_TALK_TIME": avg_talk,
+                "TOTAL_TALK_TIME_MIN": total_talk_min,
                 "CONTACTS_QUEUED": a.get("CONTACTS_QUEUED", 0),
                 "AVG_AFTER_CONTACT_WORK_TIME": avg_acw,
                 "TOTAL_ACW_TIME_MIN": total_acw_min,
@@ -886,6 +919,140 @@ def historical_breakdown(
         raise
     except Exception as exc:  # pylint: disable=broad-except
         raise HTTPException(status_code=502, detail="Failed to fetch historical breakdown") from exc
+
+
+# ── Transcript theme discovery ──────────────────────────────────────────────────
+
+class ThemeScanRequest(BaseModel):
+    start: str = Field(..., description="ISO 8601 start of the date range")
+    end: str = Field(..., description="ISO 8601 end of the date range")
+
+
+@app.post("/transcript-themes/scan")
+async def transcript_themes_scan(req: ThemeScanRequest) -> Dict[str, Any]:
+    """Kick off a transcript theme scan for the given date range. Only one scan
+    runs at a time — if one is already running, returns its current state instead
+    of starting a second one."""
+    if theme_scan.is_running():
+        return {"started": False, **theme_scan.get_state()}
+
+    if _is_mock():
+        theme_scan.start_mock_scan(req.start, req.end)
+        return {"started": True, **theme_scan.get_state()}
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        raise HTTPException(status_code=400, detail="CONNECT_INSTANCE_ID is not configured")
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    started = theme_scan.start_scan(req.start, req.end, instance_id, region, _invoke_tool)
+    return {"started": started, **theme_scan.get_state()}
+
+
+async def _theme_scan_sse_generator(q: asyncio.Queue) -> AsyncGenerator[str, None]:
+    theme_scan.register_queue(q)
+    try:
+        state = theme_scan.get_state()
+        if state["complete"] and not state["running"]:
+            yield f"data: {json.dumps({'type': 'already_complete', 'ts': datetime.now(timezone.utc).isoformat(), 'themes': state['themes']})}\n\n"
+            return
+        while True:
+            try:
+                msg = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield msg
+                if '"scan_complete"' in msg or '"scan_error"' in msg:
+                    break
+            except asyncio.TimeoutError:
+                yield f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
+    finally:
+        theme_scan.unregister_queue(q)
+
+
+@app.get("/transcript-themes/stream")
+async def transcript_themes_stream():
+    """SSE stream of theme-scan progress events."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    return StreamingResponse(
+        _theme_scan_sse_generator(q),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/transcript-themes/status")
+def transcript_themes_status() -> Dict[str, Any]:
+    """Snapshot of the current theme scan (for polling fallback / page reload)."""
+    return {**theme_scan.get_state(), "mock_mode": _is_mock()}
+
+
+# ── Disconnect-reason discovery ─────────────────────────────────────────────────
+
+class DisconnectReasonScanRequest(BaseModel):
+    start: str = Field(..., description="ISO 8601 start of the date range")
+    end: str = Field(..., description="ISO 8601 end of the date range")
+
+
+@app.post("/disconnect-reasons/scan")
+async def disconnect_reasons_scan(req: DisconnectReasonScanRequest) -> Dict[str, Any]:
+    """Kick off a disconnect-reason scan for the given date range. Only one scan
+    runs at a time — if one is already running, returns its current state instead
+    of starting a second one."""
+    if disconnect_reasons.is_running():
+        return {"started": False, **disconnect_reasons.get_state()}
+
+    if _is_mock():
+        disconnect_reasons.start_mock_scan(req.start, req.end)
+        return {"started": True, **disconnect_reasons.get_state()}
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        raise HTTPException(status_code=400, detail="CONNECT_INSTANCE_ID is not configured")
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    started = disconnect_reasons.start_scan(req.start, req.end, instance_id, region)
+    return {"started": started, **disconnect_reasons.get_state()}
+
+
+async def _disconnect_reasons_sse_generator(q: asyncio.Queue) -> AsyncGenerator[str, None]:
+    disconnect_reasons.register_queue(q)
+    try:
+        state = disconnect_reasons.get_state()
+        if state["complete"] and not state["running"]:
+            yield f"data: {json.dumps({'type': 'already_complete', 'ts': datetime.now(timezone.utc).isoformat(), 'result': state['result']})}\n\n"
+            return
+        while True:
+            try:
+                msg = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield msg
+                if '"scan_complete"' in msg or '"scan_error"' in msg:
+                    break
+            except asyncio.TimeoutError:
+                yield f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
+    finally:
+        disconnect_reasons.unregister_queue(q)
+
+
+@app.get("/disconnect-reasons/stream")
+async def disconnect_reasons_stream():
+    """SSE stream of disconnect-reason scan progress events."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    return StreamingResponse(
+        _disconnect_reasons_sse_generator(q),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/disconnect-reasons/status")
+def disconnect_reasons_status() -> Dict[str, Any]:
+    """Snapshot of the current disconnect-reason scan (for polling fallback / page reload)."""
+    return {**disconnect_reasons.get_state(), "mock_mode": _is_mock()}
 
 
 @app.get("/agent-states")
@@ -1189,6 +1356,146 @@ def live_bot_contacts() -> Dict[str, Any]:
     }
 
 
+def _mock_live_contacts() -> Dict[str, Any]:
+    """
+    MOCK_MODE dataset for /live-contacts. Includes one example of each
+    transfer destination the internal/external classifier can produce
+    (queue, agent, external phone) so the transfer badge/popover in the
+    frontend can be exercised locally without a live Connect instance.
+    Timestamps are computed relative to "now" on every call so the "Xs ago"
+    display stays fresh across a long-running local dev session.
+    """
+    now = datetime.now(timezone.utc)
+
+    def _ago(seconds: int) -> str:
+        return (now - timedelta(seconds=seconds)).isoformat()
+
+    inbound = [{
+        "contactId": "11111111-1111-1111-1111-111111111111",
+        "channel": "VOICE", "contactType": "inbound", "contactState": "QUEUED",
+        "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
+        "escalatedToAgent": False, "initiationMethod": "INBOUND",
+        "queueId": "q-1", "queueName": "Customer Support", "queueArn": "",
+        "agentArn": "", "agentName": "",
+        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500000", "display": "*******0000"},
+        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
+        "initiatedAt": _ago(45), "contactTerminal": False, "contactEndedAt": None,
+        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
+    }]
+
+    bot_contacts = [{
+        "contactId": "22222222-2222-2222-2222-222222222222",
+        "channel": "VOICE", "contactType": "inbound", "contactState": "CONNECTED_TO_SYSTEM",
+        "isOutbound": False, "isCallback": False, "isBot": True, "isInternalBotSession": False,
+        "escalatedToAgent": False, "initiationMethod": "INBOUND",
+        "queueId": "", "queueName": "—", "queueArn": "",
+        "agentArn": "", "agentName": "",
+        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500001", "display": "*******0001"},
+        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
+        "initiatedAt": _ago(20), "contactTerminal": False, "contactEndedAt": None,
+        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
+    }]
+
+    outbound = [{
+        "contactId": "33333333-3333-3333-3333-333333333333",
+        "channel": "VOICE", "contactType": "outbound", "contactState": "CONNECTED_TO_AGENT",
+        "isOutbound": True, "isCallback": False, "isBot": False, "isInternalBotSession": False,
+        "escalatedToAgent": True, "initiationMethod": "OUTBOUND",
+        "queueId": "", "queueName": "—", "queueArn": "",
+        "agentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-1",
+        "agentName": "Priya Patel",
+        "outboundAgentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-1",
+        "outboundAgentName": "Priya Patel",
+        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500002", "display": "*******0002"},
+        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
+        "initiatedAt": _ago(90), "contactTerminal": False, "contactEndedAt": None,
+        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
+    }]
+
+    callbacks = [{
+        "contactId": "44444444-4444-4444-4444-444444444444",
+        "channel": "VOICE", "contactType": "callback", "contactState": "QUEUED",
+        "isOutbound": False, "isCallback": True, "callbackScheduled": False,
+        "isBot": False, "isInternalBotSession": False, "escalatedToAgent": False,
+        "initiationMethod": "CALLBACK",
+        "queueId": "q-2", "queueName": "Billing", "queueArn": "",
+        "agentArn": "", "agentName": "",
+        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500003", "display": "*******0003"},
+        "systemEndpoint": {},
+        "initiatedAt": _ago(300), "contactTerminal": False, "contactEndedAt": None,
+        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
+    }]
+
+    transfers = [
+        {  # internal → queue
+            "contactId": "55555555-5555-5555-5555-555555555555",
+            "channel": "VOICE", "contactType": "transfer", "contactState": "QUEUED",
+            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
+            "escalatedToAgent": False, "initiationMethod": "TRANSFER",
+            "queueId": "q-3", "queueName": "Technical Support",
+            "queueArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/queue/q-3",
+            "agentArn": "", "agentName": "",
+            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500004", "display": "*******0004"},
+            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
+            "initiatedAt": _ago(60), "contactTerminal": False, "contactEndedAt": None,
+            "transferDirection": "internal", "transferTargetType": "queue", "transferTargetLabel": "Technical Support",
+        },
+        {  # internal → agent (direct agent-to-agent transfer)
+            "contactId": "66666666-6666-6666-6666-666666666666",
+            "channel": "VOICE", "contactType": "transfer", "contactState": "CONNECTED_TO_AGENT",
+            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
+            "escalatedToAgent": True, "initiationMethod": "TRANSFER",
+            "queueId": "", "queueName": "—", "queueArn": "",
+            "agentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-2",
+            "agentName": "Marcus Lee",
+            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500005", "display": "*******0005"},
+            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
+            "initiatedAt": _ago(15), "contactTerminal": False, "contactEndedAt": None,
+            "transferDirection": "internal", "transferTargetType": "agent", "transferTargetLabel": "Marcus Lee",
+        },
+        {  # external → phone number
+            "contactId": "77777777-7777-7777-7777-777777777777",
+            "channel": "VOICE", "contactType": "transfer", "contactState": "CONNECTED_TO_AGENT",
+            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
+            "escalatedToAgent": True, "initiationMethod": "TRANSFER",
+            "queueId": "", "queueName": "—", "queueArn": "",
+            "agentArn": "", "agentName": "",
+            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500006", "display": "*******0006"},
+            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+443301234999", "display": "*******4999"},
+            "initiatedAt": _ago(5), "contactTerminal": False, "contactEndedAt": None,
+            "transferDirection": "external", "transferTargetType": "phone", "transferTargetLabel": "*******4999",
+        },
+    ]
+
+    all_contacts = inbound + bot_contacts + outbound + callbacks + transfers
+    summary = {
+        "total": len(all_contacts),
+        "inbound": len(inbound),
+        "outbound": len(outbound),
+        "callbacks_waiting": len(callbacks),
+        "callbacks_scheduled": 0,
+        "bot_handling": len(bot_contacts),
+        "agent_connected": sum(1 for c in all_contacts if c.get("escalatedToAgent")),
+        "transfers": len(transfers),
+        "transfers_internal": sum(1 for c in transfers if c.get("transferDirection") == "internal"),
+        "transfers_external": sum(1 for c in transfers if c.get("transferDirection") == "external"),
+        "voice": sum(1 for c in all_contacts if c.get("channel") == "VOICE"),
+        "chat": 0,
+        "task": 0,
+    }
+    return {
+        "listener_active": True, "polling_mode": False, "setup_required": False, "mock": True,
+        "summary": summary,
+        "inbound": inbound,
+        "outbound": outbound,
+        "callbacks": callbacks,
+        "bot_contacts": bot_contacts,
+        "transfers": transfers,
+        "all": all_contacts,
+        "callbacks_by_queue": {"Billing": {"waiting": 1, "scheduled": 0}},
+    }
+
+
 @app.get("/live-contacts")
 def live_contacts() -> Dict[str, Any]:
     """
@@ -1197,6 +1504,9 @@ def live_contacts() -> Dict[str, Any]:
     EventBridge is not configured.  The `listener_active` flag tells the UI
     which mode is in use; `polling_mode` is True when using the fallback.
     """
+    if _is_mock():
+        return _mock_live_contacts()
+
     listener_active = eventbridge_listener.is_running()
     if listener_active:
         all_contacts = eventbridge_listener.get_all_live_contacts()
@@ -1751,8 +2061,10 @@ _MOCK_FLOW_FUNNEL_BOT = {
 
 # Map flow name keywords → base template
 def _get_funnel_template(flow_name: str) -> dict:
-    fl = flow_name.lower()
-    if any(k in fl for k in ("bot", "conversational", "lex", "ai", "chat")):
+    # Word-boundary match — a raw substring check would false-positive on
+    # e.g. "ai" inside "MainInboundFlow" and wrongly pick the bot template.
+    fl_tokens = re.findall(r"[a-z]+", flow_name.lower())
+    if any(k in fl_tokens for k in ("bot", "conversational", "lex", "ai", "chat")):
         return _MOCK_FLOW_FUNNEL_BOT
     return _MOCK_FLOW_FUNNEL
 
@@ -1868,6 +2180,11 @@ def contact_flow_events(
 ) -> Dict[str, Any]:
     """Return the ordered sequence of contact flow block events for a specific contact."""
     _assert_valid_contact_id(contact_id)
+    if _is_mock():
+        events = _MOCK_FLOW_EVENTS.copy()
+        events["contact_id"] = contact_id
+        events["mock"] = True
+        return events
     try:
         data = _invoke_tool(
             "contact_flow_events",
@@ -1901,6 +2218,8 @@ def contact_funnel(
     if not flow_name.strip():
         return {"mock": False, "total_contacts": 0, "blocks": [],
                 "warning": "No flow_name specified"}
+    if _is_mock():
+        return _scale_funnel_mock(days, flow_name)
     try:
         data = _invoke_tool(
             "contact_flow_events",
@@ -1923,6 +2242,16 @@ def list_contact_flows() -> Dict[str, Any]:
     This is used by the frontend to populate the flow selector with real flow names.
     Falls back to reading log groups only when the Connect API is unavailable.
     """
+    if _is_mock():
+        # Names deliberately match _MOCK_FLOW_FUNNEL / _MOCK_FLOW_FUNNEL_BOT so
+        # selecting either one in the funnel picker returns a rich template.
+        flows = [
+            {"id": "mock-flow-1", "arn": None, "name": "MainInboundFlow",
+             "type": "CONTACT_FLOW", "state": "ACTIVE", "logging_enabled": True},
+            {"id": "mock-flow-2", "arn": None, "name": "conversationalbot",
+             "type": "CONTACT_FLOW", "state": "ACTIVE", "logging_enabled": True},
+        ]
+        return {"mock": True, "flows": flows, "total": len(flows), "logging_enabled_count": len(flows)}
     try:
         import boto3  # pylint: disable=import-outside-toplevel
         instance_id = os.environ.get("CONNECT_INSTANCE_ID", "")
@@ -2647,6 +2976,39 @@ def delete_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
+_MOCK_LIVE_QUEUES = [
+    {"id": "mock-queue-1", "name": "Technical Support"},
+    {"id": "mock-queue-2", "name": "Billing"},
+    {"id": "mock-queue-3", "name": "General Enquiry"},
+    {"id": "mock-queue-4", "name": "Sales"},
+]
+
+
+def _mock_realtime_queue_metrics() -> Dict[str, Any]:
+    """Synthetic queue snapshot with small random jitter each call, so the
+    5s-polling live-queue chart shows visible movement instead of a flat line.
+
+    Uses its own queue list (not the module-level _MOCK_QUEUES) — that name is
+    defined twice in this file for two different shapes (a pre-existing bug:
+    the second definition silently shadows the first at import time), so
+    relying on it here would be fragile.
+    """
+    import random
+    ts = datetime.utcnow().isoformat()
+    queues = []
+    for q in _MOCK_LIVE_QUEUES:
+        queues.append({
+            "id": q["id"], "name": q["name"],
+            "contacts_in_queue": random.randint(0, 6),
+            "agents_available": random.randint(1, 5),
+            "agents_on_call": random.randint(0, 4),
+            "agents_online": random.randint(4, 8),
+            "oldest_contact_age": random.randint(0, 180),
+            "contacts_scheduled": random.randint(0, 2),
+        })
+    return {"mock": True, "timestamp": ts, "queues": queues}
+
+
 @app.get("/realtime-queue-metrics")
 def realtime_queue_metrics() -> Dict[str, Any]:
     """
@@ -2654,6 +3016,9 @@ def realtime_queue_metrics() -> Dict[str, Any]:
     contacts_in_queue, agents_available, agents_on_call, oldest_contact_age.
     Polled every 5 s by the frontend live-queue chart.
     """
+    if _is_mock():
+        return _mock_realtime_queue_metrics()
+
     instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
     if not instance_id:
         return {"timestamp": datetime.utcnow().isoformat(), "queues": []}
@@ -2725,6 +3090,175 @@ def realtime_queue_metrics() -> Dict[str, Any]:
             }
 
     return {"timestamp": ts, "queues": list(metrics_by_queue.values())}
+
+
+# ── Agent occupancy (time-averaged utilisation, NOT a live snapshot) ───────────
+# Deliberately separate from realtime_queue_metrics above: that endpoint is an
+# instantaneous snapshot polled every 5s for the live chart, which is far too
+# noisy to use as "utilisation" (a single agent finishing a call flips the
+# number by tens of percent). These two endpoints instead return a real,
+# time-averaged AGENT_OCCUPANCY from Connect's historical metrics — a rolling
+# window the caller chooses (5-120 min) and a day-to-date average bounded by
+# each queue's actual configured Hours of Operation.
+
+def _invoke_occupancy(start_iso: str, end_iso: str) -> List[Dict[str, Any]]:
+    return _invoke_tool("get_historical_metrics", [
+        {"name": "start_time", "type": "string", "value": start_iso},
+        {"name": "end_time",   "type": "string", "value": end_iso},
+        {"name": "group_by",   "type": "string", "value": "QUEUE"},
+        {"name": "interval",   "type": "string", "value": "TOTAL"},
+        {"name": "metrics",    "type": "string", "value": "AGENT_OCCUPANCY"},
+    ]).get("results", [])
+
+
+def _mock_agent_occupancy(window_minutes: int) -> Dict[str, Any]:
+    import random
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(minutes=window_minutes)
+    queues = [
+        {"queue_id": q["id"], "queue_name": q["name"], "occupancy_pct": round(random.uniform(35, 85), 1)}
+        for q in _MOCK_LIVE_QUEUES
+    ]
+    return {"mock": True, "window_minutes": window_minutes, "start": start.isoformat(), "end": now.isoformat(), "queues": queues}
+
+
+@app.get("/agent-occupancy")
+def agent_occupancy(window_minutes: int = Query(default=30, ge=5, le=120)) -> Dict[str, Any]:
+    """
+    Real, time-averaged AGENT_OCCUPANCY per queue over the trailing
+    `window_minutes` (5-120). Intended to be polled once per `window_minutes`
+    by the frontend — not every few seconds — since the whole point is a
+    stable average rather than a jittery instantaneous read.
+    """
+    if _is_mock():
+        return _mock_agent_occupancy(window_minutes)
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        return {"mock": False, "window_minutes": window_minutes, "queues": []}
+
+    try:
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(minutes=window_minutes)
+        rows = _invoke_occupancy(start.isoformat(), now.isoformat())
+        queues = []
+        for row in rows:
+            occ = row.get("metrics", {}).get("AGENT_OCCUPANCY")
+            queues.append({
+                "queue_id": row.get("dimension_value"),
+                "queue_name": row.get("display_name") or row.get("dimension_value"),
+                "occupancy_pct": round(occ, 1) if occ is not None else None,
+            })
+        return {
+            "mock": False, "window_minutes": window_minutes,
+            "start": start.isoformat(), "end": now.isoformat(),
+            "queues": queues,
+        }
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("agent_occupancy failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Failed to fetch agent occupancy") from exc
+
+
+def _mock_agent_occupancy_day_to_date() -> Dict[str, Any]:
+    import random
+    now = datetime.now(timezone.utc)
+    open_today = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    close_today = now.replace(hour=18, minute=0, second=0, microsecond=0)
+    if now < open_today:
+        status = "not_yet_open"
+    elif now < close_today:
+        status = "open"
+    else:
+        status = "closed_for_day"
+    queues = []
+    for q in _MOCK_LIVE_QUEUES:
+        queues.append({
+            "queue_id": q["id"], "queue_name": q["name"], "status": status,
+            "open": open_today.isoformat(), "close": close_today.isoformat(),
+            "occupancy_pct": round(random.uniform(40, 75), 1) if status != "not_yet_open" else None,
+        })
+    return {"mock": True, "as_of": now.isoformat(), "queues": queues}
+
+
+@app.get("/agent-occupancy/day-to-date")
+def agent_occupancy_day_to_date() -> Dict[str, Any]:
+    """
+    Per-queue average AGENT_OCCUPANCY from that queue's real Hours-of-Operation
+    open time through now (or through close, once the day has ended) — each
+    queue can have different hours, so this is resolved per queue and queues
+    sharing an identical window are batched into one historical-metrics call.
+    """
+    if _is_mock():
+        return _mock_agent_occupancy_day_to_date()
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        return {"mock": False, "queues": []}
+
+    import boto3
+    connect = boto3.client("connect", region_name=os.getenv("AWS_REGION", "eu-west-2"))
+    now = datetime.now(timezone.utc)
+
+    try:
+        queues_list: List[Dict[str, Any]] = []
+        paginator = connect.get_paginator("list_queues")
+        for page in paginator.paginate(InstanceId=instance_id, QueueTypes=["STANDARD"]):
+            queues_list.extend(page.get("QueueSummaryList", []))
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("agent_occupancy_day_to_date: list_queues failed: %s", exc)
+        return {"mock": False, "queues": [], "error": str(exc)}
+
+    queue_windows: Dict[str, Dict[str, Any]] = {}
+    for q in queues_list:
+        qid, qname = q["Id"], q["Name"]
+        window = hours_of_operation.get_today_window(connect, instance_id, qid)
+        if not window:
+            queue_windows[qid] = {"name": qname, "status": "closed_today"}
+            continue
+        open_utc, close_utc = window
+        if now < open_utc:
+            queue_windows[qid] = {"name": qname, "status": "not_yet_open", "open": open_utc.isoformat(), "close": close_utc.isoformat()}
+            continue
+        end = min(now, close_utc)
+        status = "open" if now < close_utc else "closed_for_day"
+        queue_windows[qid] = {
+            "name": qname, "status": status,
+            "open": open_utc.isoformat(), "close": close_utc.isoformat(),
+            "_range": (open_utc.isoformat(), end.isoformat()),
+        }
+
+    # Batch queues sharing an identical (start, end) window into one call each
+    groups: Dict[Tuple[str, str], List[str]] = {}
+    for qid, info in queue_windows.items():
+        rng = info.get("_range")
+        if rng:
+            groups.setdefault(rng, []).append(qid)
+
+    occupancy_by_queue: Dict[str, Optional[float]] = {}
+    for (start_iso, end_iso), qids in groups.items():
+        try:
+            rows = _invoke_occupancy(start_iso, end_iso)
+        except Exception as exc:  # pylint: disable=broad-except
+            LOGGER.warning("agent_occupancy_day_to_date: occupancy call failed for %s-%s: %s", start_iso, end_iso, exc)
+            continue
+        for row in rows:
+            qid = row.get("dimension_value")
+            if qid in qids:
+                occupancy_by_queue[qid] = row.get("metrics", {}).get("AGENT_OCCUPANCY")
+
+    queues_out = []
+    for qid, info in queue_windows.items():
+        occ = occupancy_by_queue.get(qid)
+        queues_out.append({
+            "queue_id": qid,
+            "queue_name": info["name"],
+            "status": info["status"],
+            "open": info.get("open"),
+            "close": info.get("close"),
+            "occupancy_pct": round(occ, 1) if occ is not None else None,
+        })
+
+    return {"mock": False, "as_of": now.isoformat(), "queues": queues_out}
 
 
 @app.delete("/sessions", status_code=200)

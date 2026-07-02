@@ -40,13 +40,13 @@ import { monitorContact as monitorContactApi } from '../services/api';
 
 // ── State labels & colours ─────────────────────────────────────────────────────
 const STATES = {
-  disconnected: { label: 'Not connected',    colour: 'text-slate-500', bg: 'bg-slate-800/50 border-slate-700/50' },
-  connecting:   { label: 'Connecting CCP…',  colour: 'text-amber-400',  bg: 'bg-amber-500/10 border-amber-500/30' },
-  ccp_ready:    { label: 'CCP ready',         colour: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
-  initiating:   { label: 'Initiating monitor…', colour: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/30' },
-  monitoring:   { label: 'Silent monitoring', colour: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30' },
-  barging:      { label: 'BARGE IN active',   colour: 'text-rose-400',   bg: 'bg-rose-500/10 border-rose-500/30' },
-  error:        { label: 'Error',             colour: 'text-rose-400',   bg: 'bg-rose-500/10 border-rose-500/30' },
+  disconnected: { label: 'Not connected',    colour: 'text-slate-600 dark:text-slate-500', bg: 'bg-slate-200/50 dark:bg-slate-800/50 border-slate-300/50 dark:border-slate-700/50' },
+  connecting:   { label: 'Connecting CCP…',  colour: 'text-amber-600 dark:text-amber-400',  bg: 'bg-amber-500/10 border-amber-500/30' },
+  ccp_ready:    { label: 'CCP ready',         colour: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+  initiating:   { label: 'Initiating monitor…', colour: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-500/10 border-sky-500/30' },
+  monitoring:   { label: 'Silent monitoring', colour: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30' },
+  barging:      { label: 'BARGE IN active',   colour: 'text-rose-600 dark:text-rose-400',   bg: 'bg-rose-500/10 border-rose-500/30' },
+  error:        { label: 'Error',             colour: 'text-rose-600 dark:text-rose-400',   bg: 'bg-rose-500/10 border-rose-500/30' },
 };
 
 export default function SupervisorBargePanel({ contact }) {
@@ -164,14 +164,14 @@ export default function SupervisorBargePanel({ contact }) {
     <div className="space-y-3">
       {/* Section header + toggle */}
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 flex items-center gap-1.5">
           <Radio size={10} />
           Supervisor Monitor / Barge-In
         </p>
         <button
           type="button"
           onClick={() => setPanelOpen((v) => !v)}
-          className="text-[10px] text-slate-500 hover:text-slate-300 transition"
+          className="text-[10px] text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition"
         >
           {panelOpen ? 'hide ▲' : 'show ▼'}
         </button>
@@ -186,7 +186,7 @@ export default function SupervisorBargePanel({ contact }) {
             <button
               type="button"
               onClick={() => { setPanelOpen(true); }}
-              className="ml-auto text-[10px] text-connect-400 hover:text-connect-300 transition"
+              className="ml-auto text-[10px] text-connect-700 dark:text-connect-400 hover:text-connect-500 dark:hover:text-connect-400 transition"
             >
               Open →
             </button>
@@ -201,7 +201,7 @@ export default function SupervisorBargePanel({ contact }) {
             <StatusIcon state={displayState} />
             <span className={`text-[11px] font-semibold ${colour}`}>{label}</span>
             {streams.supervisorId && (
-              <span className="ml-auto text-[9px] font-mono text-slate-500 truncate max-w-[120px]"
+              <span className="ml-auto text-[9px] font-mono text-slate-600 dark:text-slate-500 truncate max-w-[120px]"
                     title={`Supervisor ID: ${streams.supervisorId}`}>
                 …{streams.supervisorId.slice(-8)}
               </span>
@@ -210,7 +210,7 @@ export default function SupervisorBargePanel({ contact }) {
 
           {/* Error */}
           {err && (
-            <div className="flex items-start gap-2 rounded-lg bg-rose-500/10 border border-rose-500/30 px-2.5 py-2 text-[11px] text-rose-300">
+            <div className="flex items-start gap-2 rounded-lg bg-rose-500/10 border border-rose-500/30 px-2.5 py-2 text-[11px] text-rose-600 dark:text-rose-300">
               <AlertCircle size={12} className="shrink-0 mt-0.5" />
               {err}
             </div>
@@ -218,7 +218,7 @@ export default function SupervisorBargePanel({ contact }) {
 
           {/* Instructions */}
           {isBot && (
-            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-[11px] text-amber-300">
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-[11px] text-amber-600 dark:text-amber-300">
               <Radio size={12} className="shrink-0 mt-0.5" />
               <span>
                 Call is with the <strong>Bot / IVR</strong> — no human agent yet.
@@ -227,19 +227,19 @@ export default function SupervisorBargePanel({ contact }) {
             </div>
           )}
           {displayState === 'ccp_ready' && !isBot && (
-            <p className="text-[10px] text-slate-500 leading-relaxed">
-              Your CCP is connected. Click <strong className="text-slate-300">Start Monitoring</strong> to silently listen to this call.
+            <p className="text-[10px] text-slate-600 dark:text-slate-500 leading-relaxed">
+              Your CCP is connected. Click <strong className="text-slate-700 dark:text-slate-300">Start Monitoring</strong> to silently listen to this call.
               Your supervisor CCP will ring — accept it to begin.
             </p>
           )}
           {displayState === 'monitoring' && (
-            <p className="text-[10px] text-violet-300 leading-relaxed">
+            <p className="text-[10px] text-violet-600 dark:text-violet-300 leading-relaxed">
               You are <strong>silently monitoring</strong> this call. The customer and agent cannot hear you.
               Click <strong>Barge In</strong> to join the conversation.
             </p>
           )}
           {displayState === 'barging' && (
-            <p className="text-[10px] text-rose-300 font-medium leading-relaxed">
+            <p className="text-[10px] text-rose-600 dark:text-rose-300 font-medium leading-relaxed">
               You are <strong>LIVE in the call</strong>. Both customer and agent can hear you.
             </p>
           )}
@@ -292,7 +292,7 @@ export default function SupervisorBargePanel({ contact }) {
                 <button
                   type="button"
                   onClick={handleStop}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                 >
                   <PhoneOff size={11} />
                   Stop Monitoring
@@ -315,7 +315,7 @@ export default function SupervisorBargePanel({ contact }) {
               <button
                 type="button"
                 onClick={handleDisconnect}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-700 transition"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-200/50 dark:bg-slate-800/50 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
               >
                 <WifiOff size={11} />
                 Disconnect CCP
@@ -326,7 +326,7 @@ export default function SupervisorBargePanel({ contact }) {
           {/* Hidden CCP iframe — Streams mounts the CCP here */}
           <div
             ref={ccpRef}
-            className="overflow-hidden rounded-xl border border-slate-700/50 bg-slate-950"
+            className="overflow-hidden rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white dark:bg-slate-950"
             style={{
               width: '100%',
               height: streams.connected ? '380px' : '0px',
@@ -335,7 +335,7 @@ export default function SupervisorBargePanel({ contact }) {
           />
 
           {!streams.ccpAvailable && (
-            <p className="text-[10px] text-rose-400">
+            <p className="text-[10px] text-rose-600 dark:text-rose-400">
               VITE_CONNECT_ALIAS is not set. Rebuild the frontend with the correct env var.
             </p>
           )}
@@ -355,12 +355,12 @@ export default function SupervisorBargePanel({ contact }) {
 function StatusIcon({ state }) {
   switch (state) {
     case 'disconnected': return <WifiOff    size={12} className="text-slate-600" />;
-    case 'connecting':   return <Loader2    size={12} className="text-amber-400 animate-spin" />;
-    case 'ccp_ready':    return <ShieldCheck size={12} className="text-emerald-400" />;
-    case 'initiating':   return <Loader2    size={12} className="text-sky-400 animate-spin" />;
-    case 'monitoring':   return <AudioLines  size={12} className="text-violet-400" />;
-    case 'barging':      return <Mic        size={12} className="text-rose-400" />;
-    case 'error':        return <AlertCircle size={12} className="text-rose-400" />;
-    default:             return <CheckCircle2 size={12} className="text-slate-500" />;
+    case 'connecting':   return <Loader2    size={12} className="text-amber-600 dark:text-amber-400 animate-spin" />;
+    case 'ccp_ready':    return <ShieldCheck size={12} className="text-emerald-600 dark:text-emerald-400" />;
+    case 'initiating':   return <Loader2    size={12} className="text-sky-600 dark:text-sky-400 animate-spin" />;
+    case 'monitoring':   return <AudioLines  size={12} className="text-violet-600 dark:text-violet-400" />;
+    case 'barging':      return <Mic        size={12} className="text-rose-600 dark:text-rose-400" />;
+    case 'error':        return <AlertCircle size={12} className="text-rose-600 dark:text-rose-400" />;
+    default:             return <CheckCircle2 size={12} className="text-slate-600 dark:text-slate-500" />;
   }
 }

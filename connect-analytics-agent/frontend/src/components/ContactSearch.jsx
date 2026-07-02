@@ -64,11 +64,11 @@ function AvailabilityBadge({ hasRecording, channel, status }) {
     <div className="flex flex-wrap items-center gap-1.5">
       {isVoice && isEnded && (
         hasRecording ? (
-          <span title="Recording available" className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+          <span title="Recording available" className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
             <Video size={9} /> Recording
           </span>
         ) : (
-          <span title="No recording found" className="inline-flex items-center gap-1 rounded-full bg-slate-700/60 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+          <span title="No recording found" className="inline-flex items-center gap-1 rounded-full bg-slate-200/60 dark:bg-slate-700/60 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:text-slate-500">
             <Ban size={9} /> No recording
           </span>
         )
@@ -76,12 +76,12 @@ function AvailabilityBadge({ hasRecording, channel, status }) {
       {isEnded && (isVoice || isChat) && (
         <span
           title={isVoice ? 'Automated interaction log available (conversational AI transcript)' : 'Chat transcript available in S3'}
-          className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400"
+          className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
         >
           <FileText size={9} /> Transcript
         </span>
       )}
-      {!isEnded && <span className="text-xs text-slate-500">Live / in progress</span>}
+      {!isEnded && <span className="text-xs text-slate-600 dark:text-slate-500">Live / in progress</span>}
     </div>
   );
 }
@@ -90,13 +90,13 @@ function ChannelBadge({ channel }) {
   const option = CHANNEL_OPTIONS.find((item) => item.value === channel);
   const Icon = option?.icon || Layers;
   const styles = {
-    VOICE: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-    CHAT: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-    TASK: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    VOICE: 'bg-sky-500/15 text-sky-600 dark:text-sky-300 border-sky-500/30',
+    CHAT: 'bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30',
+    TASK: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30',
   };
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${styles[channel] || 'border-slate-700 bg-slate-800 text-slate-300'}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${styles[channel] || 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
       <Icon size={10} /> {option?.label || channel || '—'}
     </span>
   );
@@ -105,7 +105,7 @@ function ChannelBadge({ channel }) {
 function MethodBadge({ method }) {
   const label = METHOD_OPTIONS.find((item) => item.value === method)?.label || method || '—';
   return (
-    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-300">
+    <span className="inline-flex items-center rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-300">
       {label}
     </span>
   );
@@ -115,34 +115,34 @@ function AttributesBadge({ phoneNumber, customAttributes }) {
   const entries = Object.entries(customAttributes || {}).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '');
 
   if (!phoneNumber && entries.length === 0) {
-    return <span className="text-slate-500">—</span>;
+    return <span className="text-slate-600 dark:text-slate-500">—</span>;
   }
 
   return (
     <div className="group relative inline-flex max-w-xs flex-wrap gap-2">
       {phoneNumber && (
-        <span className="inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+        <span className="inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">
           <Phone size={10} />
           <span className="truncate">{phoneNumber}</span>
         </span>
       )}
       {entries.length > 0 && (
         <>
-          <span tabIndex={0} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-200 outline-none">
+          <span tabIndex={0} className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-800 dark:text-slate-200 outline-none">
             <Tag size={10} /> Attrs {entries.length}
           </span>
-          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[18rem] rounded-2xl border border-slate-700 bg-slate-950/95 p-3 text-xs text-slate-200 shadow-2xl group-hover:block group-focus-within:block">
-            <p className="mb-2 font-medium text-white">Custom attributes</p>
+          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[18rem] rounded-2xl border border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-950/95 p-3 text-xs text-slate-800 dark:text-slate-200 shadow-2xl group-hover:block group-focus-within:block">
+            <p className="mb-2 font-medium text-slate-900 dark:text-white">Custom attributes</p>
             <div className="space-y-1.5">
               {phoneNumber && (
-                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-1.5 text-slate-300">
-                  <span className="font-medium text-slate-400">CustomerEndpoint</span>
+                <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-slate-700 dark:text-slate-300">
+                  <span className="font-medium text-slate-500 dark:text-slate-400">CustomerEndpoint</span>
                   <span className="break-all text-right">{phoneNumber}</span>
                 </div>
               )}
               {entries.map(([key, value]) => (
-                <div key={key} className="flex items-start justify-between gap-3 border-b border-slate-800 pb-1.5 last:border-b-0 last:pb-0">
-                  <span className="font-medium text-slate-400">{key}</span>
+                <div key={key} className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-1.5 last:border-b-0 last:pb-0">
+                  <span className="font-medium text-slate-500 dark:text-slate-400">{key}</span>
                   <span className="break-all text-right">{String(value)}</span>
                 </div>
               ))}
@@ -159,7 +159,7 @@ function LoadingRows() {
     <tr key={`loading-${index}`} className="animate-pulse">
       {Array.from({ length: 11 }).map((__, cellIndex) => (
         <td key={cellIndex} className="px-4 py-4">
-          <div className="h-4 rounded bg-slate-800" />
+          <div className="h-4 rounded bg-slate-100 dark:bg-slate-800" />
         </td>
       ))}
     </tr>
@@ -407,15 +407,15 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
   }, [filters]);
 
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-panel">
+    <section className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-panel">
       <div className="flex items-center gap-3">
-        <div className="rounded-2xl bg-connect-500/15 p-3 text-connect-400"><Search size={18} /></div>
+        <div className="rounded-2xl bg-connect-500/15 p-3 text-connect-700 dark:text-connect-400"><Search size={18} /></div>
         <div>
           <h3 className="text-xl font-semibold">Contact record search</h3>
-          <p className="mt-1 text-sm text-slate-400">Search CTRs with AWS Connect-native filters, then pivot into transcript, recording, or journey workflows.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Search CTRs with AWS Connect-native filters, then pivot into transcript, recording, or journey workflows.</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <CalendarDays size={14} className="text-slate-500" />
+          <CalendarDays size={14} className="text-slate-600 dark:text-slate-500" />
           {[
             { label: 'Today', days: 0 },
             { label: 'Last 7 days', days: 7 },
@@ -426,7 +426,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
               type="button"
               disabled={loading}
               onClick={() => applyQuickRange(days)}
-              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-connect-500 hover:text-connect-300 disabled:opacity-40"
+              className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:border-connect-500 hover:text-connect-700 dark:hover:text-connect-400 disabled:opacity-40"
             >
               {label}
             </button>
@@ -434,31 +434,31 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
         </div>
       </div>
 
-      <div className="mt-5 space-y-4 rounded-3xl border border-slate-800 bg-slate-950/50 p-4">
+      <div className="mt-5 space-y-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 p-4">
         <div className="grid gap-4 lg:grid-cols-4">
           <input
             type="datetime-local"
             value={filters.start}
             onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value }))}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+            className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
           />
           <input
             type="datetime-local"
             value={filters.end}
             onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value }))}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+            className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
           />
           <select
             value={filters.timeRangeType}
             onChange={(event) => setFilters((current) => ({ ...current, timeRangeType: event.target.value }))}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+            className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
           >
             {TIME_RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
           <select
             value={filters.status}
             onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-            className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+            className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
           >
             {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
@@ -466,7 +466,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
 
         <div className="grid gap-4 lg:grid-cols-4">
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Channels</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Channels</p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -474,7 +474,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                 className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
                   filters.channels.length === 0
                     ? 'bg-connect-500 text-white'
-                    : 'border border-slate-700 bg-slate-950 text-slate-300 hover:border-connect-500'
+                    : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-connect-500'
                 }`}
               >
                 All
@@ -487,7 +487,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                   className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
                     filters.channels.includes(value)
                       ? 'bg-connect-500 text-white'
-                      : 'border border-slate-700 bg-slate-950 text-slate-300 hover:border-connect-500'
+                      : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-connect-500'
                   }`}
                 >
                   <Icon size={11} />
@@ -498,7 +498,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
           </div>
 
           <div className="space-y-2 lg:col-span-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Initiation methods</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Initiation methods</p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -506,7 +506,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                 className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
                   filters.initiationMethods.length === 0
                     ? 'bg-connect-500 text-white'
-                    : 'border border-slate-700 bg-slate-950 text-slate-300 hover:border-connect-500'
+                    : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-connect-500'
                 }`}
               >
                 All
@@ -519,7 +519,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                   className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
                     filters.initiationMethods.includes(value)
                       ? 'bg-connect-500 text-white'
-                      : 'border border-slate-700 bg-slate-950 text-slate-300 hover:border-connect-500'
+                      : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-connect-500'
                   }`}
                 >
                   {label}
@@ -542,7 +542,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
         <button
           type="button"
           onClick={() => setAdvancedOpen((current) => !current)}
-          className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-white"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
         >
           <Filter size={15} />
           Advanced Filters
@@ -550,11 +550,11 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
         </button>
 
         {advancedOpen && (
-          <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 lg:grid-cols-2 xl:grid-cols-3">
             <select
               value={filters.queueId}
               onChange={(event) => setFilters((current) => ({ ...current, queueId: event.target.value }))}
-              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+              className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
             >
               <option value="">{queuesLoading ? 'Loading…' : queuesError ? 'Could not load options' : 'All Queues'}</option>
               {queues.map((queue) => <option key={queue.id} value={queue.id}>{queue.name}</option>)}
@@ -562,29 +562,29 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
             <select
               value={filters.agentId}
               onChange={(event) => setFilters((current) => ({ ...current, agentId: event.target.value }))}
-              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+              className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
             >
               <option value="">{agentsLoading ? 'Loading…' : agentsError ? 'Could not load options' : 'All Agents'}</option>
               {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
             <div className="relative">
-              <Phone size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Phone size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-500" />
               <input
                 type="text"
                 placeholder="+447700900123"
                 value={filters.phoneNumber}
                 onChange={(event) => setFilters((current) => ({ ...current, phoneNumber: event.target.value }))}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none"
+                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 py-3 pl-11 pr-4 text-sm text-slate-900 dark:text-slate-100 outline-none"
               />
             </div>
             <div className="relative">
-              <Hash size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Hash size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-500" />
               <input
                 type="text"
                 placeholder="Exact contact ID…"
                 value={filters.contactId}
                 onChange={(event) => setFilters((current) => ({ ...current, contactId: event.target.value }))}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none"
+                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 py-3 pl-11 pr-4 text-sm text-slate-900 dark:text-slate-100 outline-none"
               />
             </div>
             <input
@@ -593,7 +593,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
               placeholder="Min duration (minutes)"
               value={filters.minMinutes}
               onChange={(event) => setFilters((current) => ({ ...current, minMinutes: event.target.value }))}
-              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+              className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
             />
             <input
               type="number"
@@ -601,33 +601,33 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
               placeholder="Max duration (minutes)"
               value={filters.maxMinutes}
               onChange={(event) => setFilters((current) => ({ ...current, maxMinutes: event.target.value }))}
-              className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+              className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
             />
 
             <div className="space-y-2 xl:col-span-1">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Sort order</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Sort order</p>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setFilters((current) => ({ ...current, sortOrder: 'DESCENDING' }))}
-                  className={`rounded-xl px-3 py-2 text-xs font-medium ${filters.sortOrder === 'DESCENDING' ? 'bg-connect-500 text-white' : 'border border-slate-700 bg-slate-950 text-slate-300'}`}
+                  className={`rounded-xl px-3 py-2 text-xs font-medium ${filters.sortOrder === 'DESCENDING' ? 'bg-connect-500 text-white' : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300'}`}
                 >
                   Newest First
                 </button>
                 <button
                   type="button"
                   onClick={() => setFilters((current) => ({ ...current, sortOrder: 'ASCENDING' }))}
-                  className={`rounded-xl px-3 py-2 text-xs font-medium ${filters.sortOrder === 'ASCENDING' ? 'bg-connect-500 text-white' : 'border border-slate-700 bg-slate-950 text-slate-300'}`}
+                  className={`rounded-xl px-3 py-2 text-xs font-medium ${filters.sortOrder === 'ASCENDING' ? 'bg-connect-500 text-white' : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300'}`}
                 >
                   Oldest First
                 </button>
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 lg:col-span-2 xl:col-span-3">
+            <div className="space-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/70 p-4 lg:col-span-2 xl:col-span-3">
               <div>
-                <p className="text-sm font-medium text-white">Custom Contact Attributes</p>
-                <p className="mt-1 text-xs text-slate-400">Search by custom attributes set on the contact (e.g. customerName, authStatus)</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">Custom Contact Attributes</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Search by custom attributes set on the contact (e.g. customerName, authStatus)</p>
               </div>
               <div className="space-y-3">
                 {filters.customAttributes.map((attribute, index) => (
@@ -640,7 +640,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                         ...current,
                         customAttributes: current.customAttributes.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item),
                       }))}
-                      className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+                      className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
                     />
                     <input
                       type="text"
@@ -650,7 +650,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                         ...current,
                         customAttributes: current.customAttributes.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item),
                       }))}
-                      className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none"
+                      className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none"
                     />
                     <button
                       type="button"
@@ -658,7 +658,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                         ...current,
                         customAttributes: current.customAttributes.filter((_, itemIndex) => itemIndex !== index),
                       }))}
-                      className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-slate-300 hover:border-rose-500 hover:text-rose-300"
+                      className="inline-flex items-center justify-center rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-slate-700 dark:text-slate-300 hover:border-rose-500 hover:text-rose-600 dark:hover:text-rose-300"
                     >
                       <X size={14} />
                     </button>
@@ -668,7 +668,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
               <button
                 type="button"
                 onClick={() => setFilters((current) => ({ ...current, customAttributes: [...current.customAttributes, { key: '', value: '' }] }))}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-medium text-slate-300 hover:border-connect-500 hover:text-connect-300"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:border-connect-500 hover:text-connect-700 dark:hover:text-connect-400"
               >
                 <Tag size={12} /> Add attribute
               </button>
@@ -684,7 +684,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
               key={chip.key}
               type="button"
               onClick={chip.onRemove}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-connect-500 hover:text-white"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:border-connect-500 hover:text-slate-900 dark:hover:text-white"
             >
               {chip.label}
               <X size={12} />
@@ -694,51 +694,51 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
       )}
 
       {error && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
           <AlertCircle size={16} />
           {error}
         </div>
       )}
 
       {!hasSearched ? (
-        <div className="mt-10 flex flex-col items-center gap-3 py-10 text-slate-400">
+        <div className="mt-10 flex flex-col items-center gap-3 py-10 text-slate-500 dark:text-slate-400">
           <Search size={32} className="opacity-30" />
-          <p className="text-sm">Set your filters and click <strong className="text-slate-200">Search Contacts</strong> to load CTRs.</p>
+          <p className="text-sm">Set your filters and click <strong className="text-slate-800 dark:text-slate-200">Search Contacts</strong> to load CTRs.</p>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-sm">
-            <thead className="bg-slate-950/80 text-slate-400">
+        <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-200 dark:border-slate-800">
+          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-sm">
+            <thead className="bg-white/80 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400">
               <tr>
                 {['Contact ID', 'Date/Time', 'Agent', 'Queue', 'Channel', 'Method', 'Duration', 'Status', 'Attrs', 'Availability', 'Actions'].map((label) => (
                   <th key={label} className="px-4 py-3 text-left font-medium">{label}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 bg-slate-900/70">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white/70 dark:bg-slate-900/70">
               {loading ? (
                 <LoadingRows />
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-slate-400">No contacts found for the selected filters.</td>
+                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">No contacts found for the selected filters.</td>
                 </tr>
               ) : paginated.map((contact) => (
-                <tr key={contact.contactId} className="hover:bg-slate-800/70">
-                  <td className="px-4 py-4 font-medium text-white">{contact.contactId}</td>
-                  <td className="px-4 py-4 text-slate-300">{contact.dateTime ? new Date(contact.dateTime).toLocaleString() : '—'}</td>
-                  <td className="px-4 py-4 text-slate-300">{contact.agent}</td>
-                  <td className="px-4 py-4 text-slate-300">{contact.queue}</td>
+                <tr key={contact.contactId} className="hover:bg-slate-100 dark:hover:bg-slate-800/70">
+                  <td className="px-4 py-4 font-medium text-slate-900 dark:text-white">{contact.contactId}</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{contact.dateTime ? new Date(contact.dateTime).toLocaleString() : '—'}</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{contact.agent}</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{contact.queue}</td>
                   <td className="px-4 py-4"><ChannelBadge channel={contact.channel} /></td>
                   <td className="px-4 py-4"><MethodBadge method={contact.initiationMethod} /></td>
-                  <td className="px-4 py-4 text-slate-300">{formatDuration(contact.duration)}</td>
-                  <td className="px-4 py-4 text-slate-300">{contact.status}</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatDuration(contact.duration)}</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{contact.status}</td>
                   <td className="px-4 py-4"><AttributesBadge phoneNumber={contact.phoneNumber} customAttributes={contact.customAttributes} /></td>
                   <td className="px-4 py-4">
                     <AvailabilityBadge hasRecording={contact.hasRecording} channel={contact.channel} status={contact.status} />
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => onAskQuery(`Show me details for contact ${contact.contactId}.`)} className="rounded-xl bg-slate-800 px-3 py-2 text-xs text-slate-100 hover:bg-slate-700">View Detail</button>
+                      <button type="button" onClick={() => onAskQuery(`Show me details for contact ${contact.contactId}.`)} className="rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700">View Detail</button>
                       <button type="button" onClick={() => onSelectContact(contact, highlightKeyword)} className="rounded-xl bg-connect-500 px-3 py-2 text-xs text-white hover:bg-connect-700">Get Transcript</button>
                       {contact.hasRecording && contact.channel === 'VOICE' && (
                         <button type="button" onClick={() => onSelectContact(contact, highlightKeyword)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs text-white hover:bg-emerald-600">Play Recording</button>
@@ -749,7 +749,7 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                         className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition ${
                           journeyContactId === contact.contactId
                             ? 'bg-indigo-600 text-white'
-                            : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                            : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/25'
                         }`}
                       >
                         <Network size={11} />
@@ -774,12 +774,12 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
       )}
 
       {hasSearched && contacts.length > 0 && !loading && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
           <p>{contacts.length} result(s)</p>
           <div className="flex items-center gap-3">
-            <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} className="rounded-xl border border-slate-700 px-3 py-2 text-slate-100 disabled:opacity-40">Previous</button>
+            <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))} className="rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-40">Previous</button>
             <span>Page {page} of {totalPages}</span>
-            <button type="button" disabled={page === totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} className="rounded-xl border border-slate-700 px-3 py-2 text-slate-100 disabled:opacity-40">Next</button>
+            <button type="button" disabled={page === totalPages} onClick={() => setPage((current) => Math.min(current + 1, totalPages))} className="rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-slate-900 dark:text-slate-100 disabled:opacity-40">Next</button>
           </div>
         </div>
       )}

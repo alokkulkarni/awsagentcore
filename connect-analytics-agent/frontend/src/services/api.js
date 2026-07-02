@@ -44,6 +44,11 @@ export const getConfig = async () => {
   return response.data;
 };
 
+export const setMockMode = async (mock) => {
+  const response = await api.put('/config/mock-mode', { mock });
+  return response.data;
+};
+
 export const getMetrics = async () => {
   const response = await api.get('/metrics');
   return response.data;
@@ -56,6 +61,26 @@ export const getHistoricalMetrics = async (days = 30) => {
 
 export const getHistoricalBreakdown = async (days = 30, groupBy = 'QUEUE') => {
   const response = await api.get('/historical-breakdown', { params: { days, group_by: groupBy } });
+  return response.data;
+};
+
+export const startTranscriptThemeScan = async ({ start, end }) => {
+  const response = await api.post('/transcript-themes/scan', { start, end });
+  return response.data;
+};
+
+export const getTranscriptThemeStatus = async () => {
+  const response = await api.get('/transcript-themes/status');
+  return response.data;
+};
+
+export const startDisconnectReasonScan = async ({ start, end }) => {
+  const response = await api.post('/disconnect-reasons/scan', { start, end });
+  return response.data;
+};
+
+export const getDisconnectReasonStatus = async () => {
+  const response = await api.get('/disconnect-reasons/status');
   return response.data;
 };
 
@@ -218,6 +243,16 @@ export const forceLogoutAgent = async (agentId, reason = '') => {
 
 export const getRealtimeQueueMetrics = async () => {
   const response = await api.get('/realtime-queue-metrics');
+  return response.data;
+};
+
+export const getAgentOccupancy = async (windowMinutes = 30) => {
+  const response = await api.get('/agent-occupancy', { params: { window_minutes: windowMinutes } });
+  return response.data;
+};
+
+export const getAgentOccupancyDayToDate = async () => {
+  const response = await api.get('/agent-occupancy/day-to-date');
   return response.data;
 };
 

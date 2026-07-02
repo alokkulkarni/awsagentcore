@@ -185,7 +185,7 @@ function FlowBlockNode({ data }) {
         <span className="text-[9px] font-semibold uppercase tracking-widest truncate" style={{ color: def.color }}>
           {def.label}
         </span>
-        <span className="ml-auto text-[9px] text-slate-500 shrink-0">{fmtElapsed(event.elapsed_ms)}</span>
+        <span className="ml-auto text-[9px] text-slate-600 dark:text-slate-500 shrink-0">{fmtElapsed(event.elapsed_ms)}</span>
         {isLatest && (
           <span
             className="ml-1 h-2 w-2 rounded-full shrink-0 animate-pulse"
@@ -196,7 +196,7 @@ function FlowBlockNode({ data }) {
 
       {/* Body */}
       <div className="px-2.5 py-2 flex flex-col gap-0.5">
-        <p className="text-[11px] font-semibold text-slate-100 truncate leading-tight">
+        <p className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 truncate leading-tight">
           {event.block_name}
         </p>
         <div className="flex items-center gap-2 mt-0.5">
@@ -209,7 +209,7 @@ function FlowBlockNode({ data }) {
             </span>
           )}
           {event.duration_ms > 0 && (
-            <span className="text-[9px] text-slate-500 ml-auto shrink-0">
+            <span className="text-[9px] text-slate-600 dark:text-slate-500 ml-auto shrink-0">
               {fmtDuration(event.duration_ms)}
             </span>
           )}
@@ -278,19 +278,19 @@ function EventDetailPanel({ event, onClose }) {
   const hasParams = Object.keys(params).length > 0;
 
   return (
-    <div className="flex flex-col h-full overflow-auto bg-slate-900 border-l border-slate-700 w-72 shrink-0">
+    <div className="flex flex-col h-full overflow-auto bg-white dark:bg-slate-900 border-l border-slate-300 dark:border-slate-700 w-72 shrink-0">
       {/* header */}
       <div
-        className="flex items-center justify-between px-4 py-3 border-b border-slate-700"
+        className="flex items-center justify-between px-4 py-3 border-b border-slate-300 dark:border-slate-700"
         style={{ borderBottom: `2px solid ${def.color}40` }}
       >
         <div className="flex items-center gap-2">
           <Icon size={14} style={{ color: def.color }} />
-          <span className="text-xs font-semibold text-slate-200">{event.block_name}</span>
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{event.block_name}</span>
         </div>
         <button
           onClick={onClose}
-          className="text-slate-500 hover:text-slate-300 p-0.5 rounded"
+          className="text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-0.5 rounded"
         >
           <X size={13} />
         </button>
@@ -307,12 +307,12 @@ function EventDetailPanel({ event, onClose }) {
 
         {hasParams && (
           <div>
-            <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wide mb-1.5">Parameters</p>
-            <div className="rounded-lg bg-slate-800 p-2 space-y-1">
+            <p className="text-slate-600 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wide mb-1.5">Parameters</p>
+            <div className="rounded-lg bg-slate-100 dark:bg-slate-800 p-2 space-y-1">
               {Object.entries(params).map(([k, v]) => (
                 <div key={k} className="flex gap-2">
-                  <span className="text-slate-500 shrink-0">{k}:</span>
-                  <span className="text-slate-300 truncate">{String(v).slice(0, 80)}</span>
+                  <span className="text-slate-600 dark:text-slate-500 shrink-0">{k}:</span>
+                  <span className="text-slate-700 dark:text-slate-300 truncate">{String(v).slice(0, 80)}</span>
                 </div>
               ))}
             </div>
@@ -326,7 +326,7 @@ function EventDetailPanel({ event, onClose }) {
 function Row({ label, value, color, mono, small }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-slate-500 shrink-0">{label}</span>
+      <span className="text-slate-600 dark:text-slate-500 shrink-0">{label}</span>
       <span
         className={`text-right truncate ${mono ? 'font-mono' : ''} ${small ? 'text-[10px]' : ''}`}
         style={{ color: color || '#cbd5e1' }}
@@ -413,13 +413,13 @@ function FunnelTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-200 mb-1">{d.block_name}</p>
-      <p className="text-slate-400">Type: <span className="text-slate-300">{d.block_type}</span></p>
-      <p className="text-slate-400">Contacts reached: <span className="text-emerald-400 font-semibold">{d.count}</span></p>
-      <p className="text-slate-400">% of total: <span className="text-cyan-400 font-semibold">{d.pct?.toFixed(1)}%</span></p>
+    <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold text-slate-800 dark:text-slate-200 mb-1">{d.block_name}</p>
+      <p className="text-slate-500 dark:text-slate-400">Type: <span className="text-slate-700 dark:text-slate-300">{d.block_type}</span></p>
+      <p className="text-slate-500 dark:text-slate-400">Contacts reached: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{d.count}</span></p>
+      <p className="text-slate-500 dark:text-slate-400">% of total: <span className="text-cyan-600 dark:text-cyan-400 font-semibold">{d.pct?.toFixed(1)}%</span></p>
       {d.drop_count > 0 && (
-        <p className="text-slate-400 mt-1">
+        <p className="text-slate-500 dark:text-slate-400 mt-1">
           Drop before next: <span className="font-semibold" style={{ color: dropColor(d.drop_pct) }}>
             {d.drop_count} ({d.drop_pct?.toFixed(1)}%)
           </span>
@@ -432,7 +432,7 @@ function FunnelTooltip({ active, payload }) {
 function FlowFunnelChart({ data }) {
   if (!data?.blocks?.length) {
     return (
-      <div className="flex h-64 items-center justify-center text-xs text-slate-500">
+      <div className="flex h-64 items-center justify-center text-xs text-slate-600 dark:text-slate-500">
         No funnel data available
       </div>
     );
@@ -445,8 +445,8 @@ function FlowFunnelChart({ data }) {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-400">
-        <span><span className="text-slate-200 font-semibold">{total}</span> total contacts over {data.period_days} days</span>
+      <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <span><span className="text-slate-800 dark:text-slate-200 font-semibold">{total}</span> total contacts over {data.period_days} days</span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-cyan-400" /> Low drop-off
         </span>
@@ -500,19 +500,19 @@ function FlowFunnelChart({ data }) {
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-slate-800">
-              <th className="text-left py-2 px-3 font-medium text-slate-500">#</th>
-              <th className="text-left py-2 px-3 font-medium text-slate-500">Block</th>
-              <th className="text-right py-2 px-3 font-medium text-slate-500">Contacts</th>
-              <th className="text-right py-2 px-3 font-medium text-slate-500">% Remaining</th>
-              <th className="text-right py-2 px-3 font-medium text-slate-500">Drop-off</th>
+            <tr className="border-b border-slate-200 dark:border-slate-800">
+              <th className="text-left py-2 px-3 font-medium text-slate-600 dark:text-slate-500">#</th>
+              <th className="text-left py-2 px-3 font-medium text-slate-600 dark:text-slate-500">Block</th>
+              <th className="text-right py-2 px-3 font-medium text-slate-600 dark:text-slate-500">Contacts</th>
+              <th className="text-right py-2 px-3 font-medium text-slate-600 dark:text-slate-500">% Remaining</th>
+              <th className="text-right py-2 px-3 font-medium text-slate-600 dark:text-slate-500">Drop-off</th>
             </tr>
           </thead>
           <tbody>
             {data.blocks.map((b, i) => {
               const def = blockDef(b.block_type);
               return (
-                <tr key={i} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                <tr key={i} className="border-b border-slate-200 dark:border-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/20">
                   <td className="py-2 px-3 text-slate-600">{b.sequence}</td>
                   <td className="py-2 px-3">
                     <div className="flex items-center gap-1.5">
@@ -520,7 +520,7 @@ function FlowFunnelChart({ data }) {
                         className="h-1.5 w-1.5 rounded-full shrink-0"
                         style={{ background: def.color }}
                       />
-                      <span className="text-slate-300">{b.block_name}</span>
+                      <span className="text-slate-700 dark:text-slate-300">{b.block_name}</span>
                       <span
                         className="ml-1 text-[9px] rounded-full px-1.5 py-0.5"
                         style={{ background: def.color + '20', color: def.color }}
@@ -529,16 +529,16 @@ function FlowFunnelChart({ data }) {
                       </span>
                     </div>
                   </td>
-                  <td className="py-2 px-3 text-right font-semibold text-slate-200 tabular-nums">{b.count}</td>
+                  <td className="py-2 px-3 text-right font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{b.count}</td>
                   <td className="py-2 px-3 text-right tabular-nums">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="w-20 bg-slate-800 rounded-full h-1.5">
+                      <div className="w-20 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5">
                         <div
                           className="h-1.5 rounded-full"
                           style={{ width: `${b.pct}%`, background: def.color }}
                         />
                       </div>
-                      <span className="text-slate-300 w-9">{b.pct?.toFixed(1)}%</span>
+                      <span className="text-slate-700 dark:text-slate-300 w-9">{b.pct?.toFixed(1)}%</span>
                     </div>
                   </td>
                   <td className="py-2 px-3 text-right tabular-nums">
@@ -567,25 +567,25 @@ function FlowSummaryHeader({ flowData }) {
   const flows = flowData.flows_traversed || [];
   const totalMs = flowData.total_duration_ms || 0;
   return (
-    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 mb-3 px-1">
+    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mb-3 px-1">
       <span>
-        <span className="text-slate-200 font-semibold">{flowData.event_count}</span> blocks
+        <span className="text-slate-800 dark:text-slate-200 font-semibold">{flowData.event_count}</span> blocks
       </span>
       <span>
-        Duration: <span className="text-slate-200 font-semibold">{fmtDuration(totalMs)}</span>
+        Duration: <span className="text-slate-800 dark:text-slate-200 font-semibold">{fmtDuration(totalMs)}</span>
       </span>
       <div className="flex flex-wrap gap-1.5">
         {flows.map((f) => (
           <span
             key={f}
-            className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-300 text-[10px] font-medium"
+            className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-600 dark:text-indigo-300 text-[10px] font-medium"
           >
             {f}
           </span>
         ))}
       </div>
       {flowData.mock && (
-        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-400 text-[10px]">
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400 text-[10px]">
           sample data
         </span>
       )}
@@ -628,31 +628,31 @@ export default function ContactFlowGraph({ contactId, live = false, onClose }) {
   const events = flowData?.events || [];
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-700/60 bg-slate-900 overflow-hidden">
+    <div className="flex flex-col rounded-2xl border border-slate-300 dark:border-slate-700/60 bg-white dark:bg-slate-900 overflow-hidden">
       {/* ── Panel header ── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/80">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-indigo-500/15 p-1.5">
-            <Network size={15} className="text-indigo-400" />
+            <Network size={15} className="text-indigo-600 dark:text-indigo-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-200">
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
               Contact Flow Journey
               {live && (
-                <span className="ml-2 inline-flex items-center gap-1 text-[9px] rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-400">
+                <span className="ml-2 inline-flex items-center gap-1 text-[9px] rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   LIVE
                 </span>
               )}
             </p>
-            <p className="text-[10px] text-slate-500 font-mono truncate max-w-xs">{contactId}</p>
+            <p className="text-[10px] text-slate-600 dark:text-slate-500 font-mono truncate max-w-xs">{contactId}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={loadFlowEvents}
-            className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-400 hover:text-slate-200 transition"
+            className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition"
             title="Refresh"
           >
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -661,7 +661,7 @@ export default function ContactFlowGraph({ contactId, live = false, onClose }) {
           {onClose && (
             <button
               onClick={onClose}
-              className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-400 hover:text-slate-200 transition"
+              className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition"
             >
               <X size={13} />
             </button>
@@ -672,14 +672,14 @@ export default function ContactFlowGraph({ contactId, live = false, onClose }) {
       {/* ── Content ── */}
       <div className="flex-1 overflow-auto p-4">
         {loading && (
-          <div className="flex h-64 items-center justify-center gap-2 text-sm text-slate-400">
-            <RefreshCw size={16} className="animate-spin text-indigo-400" />
+          <div className="flex h-64 items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+            <RefreshCw size={16} className="animate-spin text-indigo-600 dark:text-indigo-400" />
             Loading flow events…
           </div>
         )}
 
         {!loading && error && (
-          <div className="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+          <div className="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
             <AlertCircle size={16} />
             {error}
           </div>
@@ -689,7 +689,7 @@ export default function ContactFlowGraph({ contactId, live = false, onClose }) {
           <>
             <FlowSummaryHeader flowData={flowData} />
             {events.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-500">
+              <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-600 dark:text-slate-500">
                 <Activity size={32} className="opacity-30" />
                 <p className="text-sm">No flow events found for this contact.</p>
                 <p className="text-xs">Ensure flow logging is enabled in Amazon Connect.</p>

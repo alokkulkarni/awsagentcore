@@ -68,8 +68,8 @@ function MetricsChart({ raw }) {
   const hasTimeSeries = timeSeries.length > 0;
 
   return (
-    <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-800/60 p-4">
-      {data.title && <p className="mb-3 text-sm font-semibold text-slate-200">{data.title}</p>}
+    <div className="mt-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-200/60 dark:bg-slate-800/60 p-4">
+      {data.title && <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-200">{data.title}</p>}
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data.data} margin={{ top: 4, right: hasTimeSeries ? 52 : 8, left: 0, bottom: 36 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -186,16 +186,16 @@ function ThinkingIndicator() {
   const step = THINKING_STEPS[stepIdx];
 
   return (
-    <div className="inline-flex items-center gap-3 rounded-2xl border border-connect-500/30 bg-slate-900 px-4 py-3 text-sm shadow-[0_0_18px_rgba(99,102,241,0.12)] animate-pulse-border">
+    <div className="inline-flex items-center gap-3 rounded-2xl border border-connect-500/30 bg-white dark:bg-slate-900 px-4 py-3 text-sm shadow-[0_0_18px_rgba(99,102,241,0.12)] animate-pulse-border">
       {/* Animated ring around bot icon */}
       <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
         <span className="absolute inset-0 rounded-full border border-connect-500/40 animate-ping" />
-        <Bot size={16} className="relative z-10 text-connect-400" />
+        <Bot size={16} className="relative z-10 text-connect-700 dark:text-connect-400" />
       </span>
 
       {/* Cycling status text */}
       <span
-        className="min-w-[200px] text-slate-300 transition-opacity duration-300"
+        className="min-w-[200px] text-slate-700 dark:text-slate-300 transition-opacity duration-300"
         style={{ opacity: visible ? 1 : 0 }}
       >
         <span className="mr-1.5">{step.icon}</span>
@@ -229,8 +229,8 @@ function SessionItem({ session, isActive, onLoad, onDelete }) {
     <div
       className={`group relative flex cursor-pointer flex-col gap-1 rounded-2xl border px-3 py-2.5 transition ${
         isActive
-          ? 'border-connect-500/50 bg-connect-500/10 text-white'
-          : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800/60'
+          ? 'border-connect-500/50 bg-connect-500/10 text-slate-900 dark:text-white'
+          : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800/60'
       }`}
       onClick={() => onLoad(session.id)}
       onMouseEnter={() => setHovering(true)}
@@ -241,12 +241,12 @@ function SessionItem({ session, isActive, onLoad, onDelete }) {
     >
       <p className="truncate text-xs font-medium leading-snug">{session.title}</p>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-slate-500">{relTime} · {msgCount} msg{msgCount !== 1 ? 's' : ''}</span>
+        <span className="text-[10px] text-slate-600 dark:text-slate-500">{relTime} · {msgCount} msg{msgCount !== 1 ? 's' : ''}</span>
         {(hovering || isActive) && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-            className="rounded-lg p-0.5 text-slate-500 hover:bg-rose-500/15 hover:text-rose-400"
+            className="rounded-lg p-0.5 text-slate-600 dark:text-slate-500 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400"
             title="Delete session"
           >
             <Trash2 size={11} />
@@ -286,19 +286,19 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
   [chat.allSessions]);
 
   return (
-    <section className="grid gap-5 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-panel lg:grid-cols-[1fr_280px]">
+    <section className="grid gap-5 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-panel lg:grid-cols-[1fr_280px]">
 
       {/* ── Main chat area ── */}
-      <div className="flex min-h-[70vh] flex-col rounded-3xl border border-slate-800 bg-slate-950/60">
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+      <div className="flex min-h-[70vh] flex-col rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60">
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-5 py-4">
           <div>
             <h3 className="text-lg font-semibold">Analytics chat</h3>
-            <p className="truncate text-xs text-slate-500">Session {chat.sessionId}</p>
+            <p className="truncate text-xs text-slate-600 dark:text-slate-500">Session {chat.sessionId}</p>
           </div>
           <button
             type="button"
             onClick={chat.clearChat}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             <PlusCircle size={14} />
             New chat
@@ -307,19 +307,19 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
 
         <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
           {emptyState && (
-            <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-900/70 p-6 text-center">
+            <div className="rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 p-6 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-connect-500/15 text-connect-500">
                 <Sparkles size={24} />
               </div>
               <h4 className="mt-4 text-lg font-semibold">Start with a suggested query</h4>
-              <p className="mt-2 text-sm text-slate-400">Ask about queue health, agents, transcripts, or call search results.</p>
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Ask about queue health, agents, transcripts, or call search results.</p>
               <div className="mt-5 flex flex-wrap justify-center gap-3">
                 {suggestedQueries.map((query) => (
                   <button
                     key={query}
                     type="button"
                     onClick={() => setDraft(query)}
-                    className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:border-connect-500 hover:text-white"
+                    className="rounded-full border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:border-connect-500 hover:text-slate-900 dark:hover:text-white"
                   >
                     {query}
                   </button>
@@ -356,8 +356,8 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
           )}
         </div>
 
-        <div className="border-t border-slate-800 p-4">
-          <div className="rounded-3xl border border-slate-700 bg-slate-900 px-4 py-3 shadow-inner">
+        <div className="border-t border-slate-200 dark:border-slate-800 p-4">
+          <div className="rounded-3xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 shadow-inner">
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -367,15 +367,15 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
               rows={3}
               maxLength={4000}
               placeholder="Ask about queues, agents, transcripts, or recordings..."
-              className="w-full resize-none border-none bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
+              className="w-full resize-none border-none bg-transparent text-sm text-slate-900 dark:text-slate-100 outline-none placeholder:text-slate-600 dark:placeholder:text-slate-500"
             />
             <div className="mt-3 flex items-center justify-between">
-              <p className="text-xs text-slate-500">Enter to send · Shift+Enter for newline</p>
+              <p className="text-xs text-slate-600 dark:text-slate-500">Enter to send · Shift+Enter for newline</p>
               <button
                 type="button"
                 onClick={submit}
                 disabled={chat.isLoading}
-                className="inline-flex items-center gap-2 rounded-2xl bg-connect-500 px-4 py-2 text-sm font-medium text-white hover:bg-connect-700 disabled:cursor-not-allowed disabled:bg-slate-700"
+                className="inline-flex items-center gap-2 rounded-2xl bg-connect-500 px-4 py-2 text-sm font-medium text-white hover:bg-connect-700 disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-slate-700"
               >
                 <SendHorizonal size={16} />
                 Send
@@ -389,19 +389,19 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
       <aside className="flex flex-col gap-5">
 
         {/* Session history */}
-        <div className="flex flex-1 flex-col rounded-3xl border border-slate-800 bg-slate-950/60 p-4">
+        <div className="flex flex-1 flex-col rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Clock size={15} className="text-connect-400" />
+              <Clock size={15} className="text-connect-700 dark:text-connect-400" />
               Session history
             </div>
-            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">
+            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] text-slate-500 dark:text-slate-400">
               {historySessions.length}
             </span>
           </div>
 
           {historySessions.length === 0 ? (
-            <div className="mt-4 flex flex-col items-center gap-2 py-6 text-center text-xs text-slate-500">
+            <div className="mt-4 flex flex-col items-center gap-2 py-6 text-center text-xs text-slate-600 dark:text-slate-500">
               <MessageSquareText size={22} className="text-slate-700" />
               No saved sessions yet. Start chatting to create one.
             </div>
@@ -421,7 +421,7 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
         </div>
 
         {/* Suggested prompts */}
-        <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-4">
+        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 p-4">
           <h3 className="text-sm font-semibold">Suggested prompts</h3>
           <div className="mt-3 space-y-2">
             {suggestedQueries.slice(0, 4).map((query) => (
@@ -429,7 +429,7 @@ export default function ChatInterface({ chat, prefilledMessage, onPrefillConsume
                 key={query}
                 type="button"
                 onClick={() => setDraft(query)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-left text-xs text-slate-300 hover:border-connect-500"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:border-connect-500"
               >
                 {query}
               </button>

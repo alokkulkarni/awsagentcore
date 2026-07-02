@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { getLiveContacts, getLiveCallbacks, getLiveOutbound } from '../services/api';
 import ContactFlowGraph from './ContactFlowGraph';
+import TransferBadge from './TransferBadge';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,23 +175,26 @@ function ContactRow({ contact, onJourneyClick, journeyActive }) {
       </td>
       <td className="px-3 py-2"><StateBadge state={contact.contactState} /></td>
       <td className="px-3 py-2 text-xs">
-        {contact.escalatedToAgent
-          ? (
-            <span className={`flex items-center gap-1 ${agentPending ? 'text-emerald-300/60' : 'text-emerald-300'}`}>
-              <User size={10} />
-              {agentLabel}
-              {agentPending && <span className="text-[9px] text-emerald-300/40">(resolving…)</span>}
-            </span>
-          )
-          : (
-            <span className={`flex items-center gap-0.5 ${queuePending ? 'text-slate-400' : 'text-slate-300'}`}>
-              {queueLabel}
-              {queuePending && contact.queueId && (
-                <span className="text-[9px] text-slate-500">(resolving…)</span>
-              )}
-            </span>
-          )
-        }
+        <div className="flex flex-wrap items-center gap-1.5">
+          {contact.escalatedToAgent
+            ? (
+              <span className={`flex items-center gap-1 ${agentPending ? 'text-emerald-300/60' : 'text-emerald-300'}`}>
+                <User size={10} />
+                {agentLabel}
+                {agentPending && <span className="text-[9px] text-emerald-300/40">(resolving…)</span>}
+              </span>
+            )
+            : (
+              <span className={`flex items-center gap-0.5 ${queuePending ? 'text-slate-400' : 'text-slate-300'}`}>
+                {queueLabel}
+                {queuePending && contact.queueId && (
+                  <span className="text-[9px] text-slate-500">(resolving…)</span>
+                )}
+              </span>
+            )
+          }
+          <TransferBadge contact={contact} />
+        </div>
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col gap-0.5">
@@ -489,7 +493,13 @@ export default function LiveActivity({ darkMode }) {
             <KpiCard label="Callbacks Scheduled"   value={summary.callbacks_scheduled} icon={Calendar}       colour="text-purple-400" />
             <KpiCard label="Bot / IVR"             value={summary.bot_handling}        icon={Bot}            colour="text-cyan-400" />
             <KpiCard label="With Agent"            value={summary.agent_connected}     icon={Headphones}     colour="text-emerald-400" />
-            <KpiCard label="Transfers"             value={summary.transfers}           icon={PhoneMissed}    colour="text-slate-400" />
+            <KpiCard
+              label="Transfers"
+              value={summary.transfers}
+              icon={PhoneMissed}
+              colour="text-slate-400"
+              sub={summary.transfers ? `${summary.transfers_internal || 0} internal · ${summary.transfers_external || 0} external` : undefined}
+            />
           </div>
 
           {/* Channel breakdown */}

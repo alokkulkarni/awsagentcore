@@ -67,20 +67,20 @@ function ForceLogoutCell({ row, onSuccess }) {
 
   if (state === 'done') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
         <CheckCircle size={13} />
         {message}
-        <button type="button" onClick={handleDismiss} className="ml-1 text-slate-500 hover:text-slate-300 text-[10px]">✕</button>
+        <button type="button" onClick={handleDismiss} className="ml-1 text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[10px]">✕</button>
       </span>
     );
   }
 
   if (state === 'blocked' || state === 'error') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-rose-400 max-w-[200px]">
+      <span className="inline-flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 max-w-[200px]">
         <ShieldAlert size={13} className="shrink-0" />
         <span className="truncate" title={message}>{message}</span>
-        <button type="button" onClick={handleDismiss} className="ml-1 shrink-0 text-slate-500 hover:text-slate-300 text-[10px]">✕</button>
+        <button type="button" onClick={handleDismiss} className="ml-1 shrink-0 text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[10px]">✕</button>
       </span>
     );
   }
@@ -88,7 +88,7 @@ function ForceLogoutCell({ row, onSuccess }) {
   if (state === 'confirm') {
     return (
       <span className="inline-flex items-center gap-2 text-xs">
-        <span className="text-amber-300">Confirm?</span>
+        <span className="text-amber-600 dark:text-amber-300">Confirm?</span>
         <button
           type="button"
           onClick={handleConfirm}
@@ -99,7 +99,7 @@ function ForceLogoutCell({ row, onSuccess }) {
         <button
           type="button"
           onClick={handleCancel}
-          className="rounded-lg bg-slate-700 px-2 py-0.5 text-slate-200 hover:bg-slate-600"
+          className="rounded-lg bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600"
         >
           Cancel
         </button>
@@ -109,7 +109,7 @@ function ForceLogoutCell({ row, onSuccess }) {
 
   if (state === 'loading') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
         <RefreshCw size={13} className="animate-spin" />
         Forcing…
       </span>
@@ -124,8 +124,8 @@ function ForceLogoutCell({ row, onSuccess }) {
       title={isBlocked ? 'Cannot force logout — agent has active contact' : 'Force agent to Offline'}
       className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors
         ${isBlocked
-          ? 'cursor-not-allowed border border-slate-700 text-slate-600'
-          : 'border border-rose-700/50 text-rose-400 hover:border-rose-500 hover:bg-rose-500/10'
+          ? 'cursor-not-allowed border border-slate-300 dark:border-slate-700 text-slate-600'
+          : 'border border-rose-700/50 text-rose-600 dark:text-rose-400 hover:border-rose-500 hover:bg-rose-500/10'
         }`}
     >
       <LogOut size={12} />
@@ -202,21 +202,21 @@ export default function AgentStateTable({ onAskQuery }) {
   };
 
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-panel">
+    <section className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-panel">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-xl font-semibold">Current agent states</h3>
-          <p className="mt-1 text-sm text-slate-400">Sortable roster with quick supervisor drill-down actions.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Sortable roster with quick supervisor drill-down actions.</p>
         </div>
         <div className="flex gap-3">
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none">
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 outline-none">
             {statuses.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
-          <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 hover:border-connect-500">
+          <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 hover:border-connect-500">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Refresh
           </button>
-          <button type="button" onClick={exportCsv} disabled={rows.length === 0} className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 hover:border-connect-500 disabled:opacity-40">
+          <button type="button" onClick={exportCsv} disabled={rows.length === 0} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 text-sm text-slate-900 dark:text-slate-100 hover:border-connect-500 disabled:opacity-40">
             <Download size={16} />
             Export CSV
           </button>
@@ -224,21 +224,21 @@ export default function AgentStateTable({ onAskQuery }) {
       </div>
 
       {error && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
           <AlertCircle size={16} />
           {error}
         </div>
       )}
 
       {loading && agentRows.length === 0 ? (
-        <div className="mt-8 flex items-center justify-center gap-3 py-12 text-sm text-slate-400">
+        <div className="mt-8 flex items-center justify-center gap-3 py-12 text-sm text-slate-500 dark:text-slate-400">
           <RefreshCw size={18} className="animate-spin" />
           Loading agent states…
         </div>
       ) : (
-      <div className="mt-5 overflow-hidden rounded-3xl border border-slate-800">
-        <table className="min-w-full divide-y divide-slate-800 text-sm">
-          <thead className="bg-slate-950/80 text-slate-400">
+      <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200 dark:border-slate-800">
+        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-sm">
+          <thead className="bg-white/80 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400">
             <tr>
               {[
                 ['name', 'Name'],
@@ -248,27 +248,27 @@ export default function AgentStateTable({ onAskQuery }) {
                 ['contactId', 'Contact ID'],
               ].map(([key, label]) => (
                 <th key={key} className="px-4 py-3 text-left font-medium">
-                  <button type="button" onClick={() => updateSort(key)} className="inline-flex items-center gap-2 hover:text-white">
+                  <button type="button" onClick={() => updateSort(key)} className="inline-flex items-center gap-2 hover:text-slate-900 dark:hover:text-white">
                     {label}
                     <ArrowUpDown size={14} />
                   </button>
                 </th>
               ))}
-              <th className="px-4 py-3 text-left font-medium text-slate-400">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800 bg-slate-900/70">
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white/70 dark:bg-slate-900/70">
             {rows.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">No agents found{statusFilter !== 'All' ? ` with status "${statusFilter}"` : ''}.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">No agents found{statusFilter !== 'All' ? ` with status "${statusFilter}"` : ''}.</td></tr>
             ) : rows.map((row) => (
-              <tr key={`${row.agentId || row.name}-${row.status}`} onClick={() => onAskQuery(`Summarize ${row.name}'s current workload and status.`)} className="cursor-pointer hover:bg-slate-800/70">
-                <td className="px-4 py-4 font-medium text-white">{row.name}</td>
+              <tr key={`${row.agentId || row.name}-${row.status}`} onClick={() => onAskQuery(`Summarize ${row.name}'s current workload and status.`)} className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/70">
+                <td className="px-4 py-4 font-medium text-slate-900 dark:text-white">{row.name}</td>
                 <td className="px-4 py-4">
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeStyles[row.status] || 'bg-slate-500/15 text-slate-300'}`}>{row.status}</span>
                 </td>
-                <td className="px-4 py-4 text-slate-300">{row.currentQueue}</td>
-                <td className="px-4 py-4 text-slate-300">{row.timeInStatus}</td>
-                <td className="px-4 py-4 text-slate-300">{row.contactId || '—'}</td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{row.currentQueue}</td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{row.timeInStatus}</td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{row.contactId || '—'}</td>
                 <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                   {row.status !== 'Offline' && (
                     <ForceLogoutCell row={row} onSuccess={handleForceLogoutSuccess} />
