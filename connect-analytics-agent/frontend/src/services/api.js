@@ -84,6 +84,16 @@ export const getDisconnectReasonStatus = async () => {
   return response.data;
 };
 
+export const startCallbackScan = async ({ start, end }) => {
+  const response = await api.post('/callback-analytics/scan', { start, end });
+  return response.data;
+};
+
+export const getCallbackStatus = async () => {
+  const response = await api.get('/callback-analytics/status');
+  return response.data;
+};
+
 export const getAgentStates = async () => {
   const response = await api.get('/agent-states');
   return response.data;

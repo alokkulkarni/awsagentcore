@@ -28,12 +28,17 @@ async def enumerate_contacts(
     start_iso: str,
     end_iso: str,
     on_progress: Optional[Callable[[int], Awaitable[None]]] = None,
+    search_criteria: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Exhaustively page through search_contacts (direct boto3 — avoids the
     search_contacts tool's per-contact describe_contact/get_contact_attributes
     enrichment, which is unnecessary overhead for callers that only need
     contact_id/channel to drive their own per-contact fetch).
+
+    search_criteria, when given, is passed straight through as the API's
+    SearchCriteria (e.g. {"InitiationMethods": ["CALLBACK"]} to enumerate
+    only callback contacts).
 
     Calls on_progress(running_count) after each page so callers can emit
     their own SSE progress events without this module knowing about SSE.
@@ -48,6 +53,8 @@ async def enumerate_contacts(
             "TimeRange": {"Type": "INITIATION_TIMESTAMP", "StartTime": start_dt, "EndTime": end_dt},
             "MaxResults": 100,
         }
+        if search_criteria:
+            kwargs["SearchCriteria"] = search_criteria
         if next_token:
             kwargs["NextToken"] = next_token
         # search_contacts is a blocking network call — run it off the event loop

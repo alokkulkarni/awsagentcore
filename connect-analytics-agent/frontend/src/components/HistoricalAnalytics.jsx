@@ -12,13 +12,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  AlertTriangle, Bot, PhoneOff, RefreshCw, Sparkles, TrendingUp,
+  AlertTriangle, Bot, PhoneOff, PhoneCall, Percent, RefreshCw, Sparkles, TrendingUp,
   Users, MessageSquare, MessagesSquare, Zap, ChevronDown, ChevronUp,
   BarChart2, UserCheck,
 } from 'lucide-react';
 import {
   getHistoricalMetrics, getBotMetrics, getBotIntentTrend, getHistoricalBreakdown,
   startDisconnectReasonScan, getDisconnectReasonStatus,
+  startCallbackScan, getCallbackStatus,
 } from '../services/api';
 import TranscriptThemes from './TranscriptThemes';
 
@@ -303,6 +304,174 @@ function BreakdownSection({ days, onAskAssistant }) {
               yTickFmt={fmtMinutes}
               chartHeight={200}
             />
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+// ── PCA (Percentage Calls Answered) per queue ────────────────────────────────
+// PCA = CONTACTS_HANDLED ÷ (CONTACTS_HANDLED + CONTACTS_ABANDONED) × 100,
+// across all channels. Computed client-side from the same
+// /historical-breakdown payload BreakdownSection uses, so no extra
+// GetMetricDataV2 call is made.
+
+function pcaOf(handled, abandoned) {
+  const total = (handled ?? 0) + (abandoned ?? 0);
+  if (!total) return null;
+  return Math.round(((handled ?? 0) / total) * 1000) / 10;
+}
+
+function pcaColour(v) {
+  if (v == null) return '#475569';
+  return v >= 80 ? '#10b981' : v >= 60 ? '#f59e0b' : '#f43f5e';
+}
+
+function QueuePcaSection({ days, onAskAssistant }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
+
+  const load = async (d) => {
+    setLoading(true); setError(null);
+    try {
+      setData(await getHistoricalBreakdown(d, 'QUEUE'));
+    } catch (e) {
+      setData(null);
+      setError(e?.response?.data?.detail || e?.message || 'Failed to load queue metrics');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(days); }, [days]); // eslint-disable-line
+
+  const entities = data?.entities ?? [];
+
+  const totalsPca = useMemo(() => (data?.totals ?? []).map((t) => ({
+    entity: t.entity,
+    pca: pcaOf(t.CONTACTS_HANDLED, t.CONTACTS_ABANDONED),
+    handled: t.CONTACTS_HANDLED ?? 0,
+    abandoned: t.CONTACTS_ABANDONED ?? 0,
+  })), [data]);
+
+  const dailyPca = useMemo(() => (data?.daily ?? []).map((row) => {
+    const out = { label: row.label };
+    entities.forEach((ent) => {
+      const m = row[ent] ?? {};
+      out[ent] = pcaOf(m.CONTACTS_HANDLED, m.CONTACTS_ABANDONED);
+    });
+    return out;
+  }), [data, entities]);
+
+  return (
+    <SectionCard
+      title="Percentage Calls Answered (PCA) by Queue"
+      subtitle={`Handled ÷ (Handled + Abandoned) — ${data?.period ?? `Last ${days} days`}`}
+      icon={Percent}
+      iconCls="text-emerald-600 dark:text-emerald-400"
+    >
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <button
+          type="button"
+          onClick={() => load(days)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
+        {onAskAssistant && (
+          <button
+            type="button"
+            onClick={() => onAskAssistant(
+              `Analyse the percentage of calls answered (PCA = contacts handled ÷ (handled + abandoned)) per queue over the last ${days} days. Which queues are underperforming, and what should the team do about it?`
+            )}
+            className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
+          >
+            <Sparkles size={14} /> Ask AI
+          </button>
+        )}
+        {data?.mock && (
+          <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs text-amber-600 dark:text-amber-300">mock data</span>
+        )}
+      </div>
+
+      <p className="mb-3 text-[11px] text-slate-600 dark:text-slate-500 leading-snug">
+        PCA counts all channels. Queues with no handled or abandoned contacts in the period are shown without a value.
+      </p>
+
+      {loading && (
+        <div className="flex h-40 items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+          <RefreshCw size={18} className="mr-2 animate-spin" /> Loading PCA…
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-300 flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />{error}
+        </div>
+      )}
+      {!loading && !error && data && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* 1 — PCA per queue (period totals) */}
+          <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">PCA per Queue — period total</p>
+            {totalsPca.length === 0 ? (
+              <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(180, totalsPca.length * 44 + 60)}>
+                <BarChart data={totalsPca} layout="vertical" margin={{ top: 4, right: 12, left: 80, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+                  <YAxis type="category" dataKey="entity" tick={{ fill: '#94a3b8', fontSize: 10 }} width={76} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    formatter={(v, _name, { payload }) => [
+                      `${v}% (${payload.handled} handled / ${payload.abandoned} abandoned)`, 'PCA',
+                    ]}
+                  />
+                  <Bar dataKey="pca" name="PCA" radius={[0, 3, 3, 0]}>
+                    {totalsPca.map((row) => (
+                      <Cell key={row.entity} fill={pcaColour(row.pca)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* 2 — Daily PCA trend per queue */}
+          <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">Daily PCA Trend — per queue</p>
+            {dailyPca.length === 0 ? (
+              <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(220, totalsPca.length * 44 + 60)}>
+                <LineChart data={dailyPca} margin={{ top: 4, right: 8, left: 0, bottom: 28 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+                  <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={(v) => `${v}%`} width={40} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    formatter={(v) => [`${v}%`]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10, color: '#94a3b8', paddingTop: 6 }} iconSize={10} />
+                  {entities.map((ent, i) => (
+                    <Line
+                      key={ent}
+                      type="monotone"
+                      dataKey={ent}
+                      stroke={entityColor(i)}
+                      strokeWidth={2}
+                      connectNulls
+                      dot={{ r: 2.5, fill: entityColor(i), strokeWidth: 0 }}
+                      activeDot={{ r: 4 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}
@@ -702,6 +871,281 @@ function DisconnectReasonsPanel({ days, onAskAssistant }) {
           <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-500">
             {totals.abandoned ?? 0} abandoned in queue · {totals.handled_problem ?? 0} reached an agent but ended abnormally
           </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Callback analytics ────────────────────────────────────────────────────────
+// Backend: agent/callback_analytics.py — enumerates CALLBACK-initiated
+// contacts, groups dial attempts belonging to one callback request via
+// InitialContactId, and classifies each request as handled (reached an
+// agent), failed (all attempts disconnected without an agent, with the final
+// DisconnectReason as the failure reason) or pending. Retried = requests
+// with more than one dial attempt.
+
+const CALLBACK_COLOURS = {
+  requested: '#6366f1',
+  handled:   '#10b981',
+  retried:   '#a855f7',
+  failed:    '#f43f5e',
+};
+
+const CALLBACK_CARDS = [
+  { key: 'requested', label: 'Requested', sub: 'unique callback requests' },
+  { key: 'handled',   label: 'Handled',   sub: 'reached an agent' },
+  { key: 'retried',   label: 'Retried',   sub: 'subset — >1 dial attempt' },
+  { key: 'failed',    label: 'Failed',    sub: 'never reached an agent' },
+];
+
+function CallbackAnalyticsPanel({ days, onAskAssistant }) {
+  const [scan, setScan] = useState(null);
+  const [error, setError] = useState(null);
+  const esRef = useRef(null);
+
+  const closeStream = () => {
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+  };
+
+  const openStream = () => {
+    closeStream();
+    const es = new EventSource('/api/callback-analytics/stream');
+    es.onmessage = (evt) => {
+      let data;
+      try { data = JSON.parse(evt.data); } catch { return; }
+      setScan((prev) => ({ ...prev, ...data }));
+      if (data.type === 'scan_complete' || data.type === 'already_complete') {
+        closeStream();
+      } else if (data.type === 'scan_error') {
+        setError(data.message || 'Callback scan failed');
+        closeStream();
+      }
+    };
+    es.onerror = () => closeStream();
+    esRef.current = es;
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await getCallbackStatus();
+        setScan(status);
+        if (status.running) openStream();
+      } catch {
+        // No prior scan yet — fine.
+      }
+    })();
+    return () => closeStream();
+  }, []);
+
+  const runScan = async () => {
+    setError(null);
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+      const result = await startCallbackScan({ start: start.toISOString(), end: end.toISOString() });
+      setScan(result);
+      openStream();
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'Failed to start callback scan');
+    }
+  };
+
+  const running = !!scan?.running;
+  const result = scan?.result;
+  const totals = result?.totals;
+  const clamped = !!(result?.window?.clamped ?? scan?.clamped);
+
+  const totalsChartData = useMemo(() => (totals
+    ? CALLBACK_CARDS.map(({ key, label }) => ({ name: label, key, value: totals[key] ?? 0 }))
+    : []), [totals]);
+
+  const dailyChartData = useMemo(() => (result?.daily ?? []).map((d) => ({
+    ...d, label: fmtDayLabel(d.date),
+  })), [result]);
+
+  const failedTotal = totals?.failed ?? 0;
+
+  return (
+    <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+          <PhoneCall size={14} className="inline mr-1.5 text-indigo-600 dark:text-indigo-400" />
+          Callback Outcomes
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={runScan}
+            disabled={running}
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw size={12} className={running ? 'animate-spin' : ''} />
+            {running ? 'Scanning…' : `Scan Last ${Math.min(days, 55)} Days`}
+          </button>
+          {onAskAssistant && totals && (
+            <button
+              type="button"
+              onClick={() => onAskAssistant(
+                `Over the last ${Math.min(days, 55)} days there were ${totals.requested} callback requests: `
+                + `${totals.handled} handled, ${totals.failed} failed, ${totals.retried} retried. `
+                + `Top failure reasons: ${(result.failure_reasons || []).slice(0, 3).map((r) => `${r.label} ×${r.count}`).join(', ') || 'none'}. `
+                + 'What should the contact centre team do to improve callback success?'
+              )}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+            >
+              <Sparkles size={12} /> Ask AI
+            </button>
+          )}
+          {scan?.mock_mode && (
+            <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs text-amber-600 dark:text-amber-300">mock data</span>
+          )}
+        </div>
+      </div>
+
+      <p className="mb-3 text-[11px] text-slate-600 dark:text-slate-500 leading-snug">
+        A callback request is <span className="font-medium">handled</span> when a dial attempt reached an agent and{' '}
+        <span className="font-medium">failed</span> when every attempt ended without one.{' '}
+        <span className="font-medium">Retried</span> counts requests with more than one dial attempt — it is a subset
+        of the others, so don't sum the four numbers. Retry detection groups contact records that share an initial
+        contact, so "0 retried" means none were detected.
+        {clamped && (
+          <span className="text-amber-600 dark:text-amber-400"> Range clamped to the last 55 days — Amazon Connect's contact search window limit.</span>
+        )}
+      </p>
+
+      {error && (
+        <div className="mb-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-300 flex items-start gap-2">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      {running && (
+        <div className="mb-3 rounded-xl border border-indigo-700/30 bg-indigo-900/20 p-3 text-xs text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-2 mb-1">
+            <RefreshCw size={12} className="animate-spin text-indigo-600 dark:text-indigo-400" />
+            <span>{scan?.message || 'Scanning…'}</span>
+          </div>
+          <p className="text-slate-600 dark:text-slate-500">
+            {scan?.contacts_scanned ?? 0}/{scan?.contacts_found ?? '…'} callback contacts checked
+            {' · '}{scan?.callbacks_found ?? 0} callback requests so far
+          </p>
+        </div>
+      )}
+
+      {!running && !result && (
+        <p className="text-xs text-slate-600 dark:text-slate-500">
+          Click Scan to analyse callback requests, outcomes, retries and failure reasons.
+        </p>
+      )}
+
+      {result && totals && (
+        <>
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-4">
+            {CALLBACK_CARDS.map(({ key, label, sub }) => (
+              <div key={key} className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/60 dark:bg-slate-800/60 p-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: CALLBACK_COLOURS[key] }}>
+                  {label}
+                </span>
+                <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{totals[key] ?? 0}</p>
+                <p className="text-[10px] text-slate-600 dark:text-slate-500">
+                  {key === 'handled' && totals.handle_rate != null ? `${totals.handle_rate}% handle rate` : sub}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            {/* Totals bar chart */}
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Callback Totals</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={totalsChartData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    formatter={(v) => [v, 'Callbacks']}
+                  />
+                  <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+                    {totalsChartData.map((row) => (
+                      <Cell key={row.key} fill={CALLBACK_COLOURS[row.key]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Failure reasons */}
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Failure Reasons</p>
+              {(result.failure_reasons ?? []).length === 0 ? (
+                <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">
+                  No failed callbacks in this period.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {result.failure_reasons.map(({ reason, label, count }) => (
+                    <div key={reason}>
+                      <div className="flex items-center justify-between text-xs mb-0.5">
+                        <span className="text-slate-700 dark:text-slate-300">{label}</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{count}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-slate-300/60 dark:bg-slate-700 rounded-full h-1.5">
+                          <div
+                            className="h-1.5 rounded-full"
+                            style={{
+                              width: `${failedTotal ? Math.round((count / failedTotal) * 100) : 0}%`,
+                              background: CALLBACK_COLOURS.failed,
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-600 dark:text-slate-500 font-mono">{reason}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Daily trend */}
+            <div className="lg:col-span-2">
+              <p className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Callbacks per Day</p>
+              {dailyChartData.length === 0 ? (
+                <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">No data</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={dailyChartData} margin={{ top: 4, right: 8, left: -20, bottom: 28 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                      labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                      itemStyle={{ color: '#94a3b8' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8', paddingTop: 8 }} />
+                    <Bar dataKey="requested" name="Requested" fill={CALLBACK_COLOURS.requested} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="handled"   name="Handled"   fill={CALLBACK_COLOURS.handled}   radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="failed"    name="Failed"    fill={CALLBACK_COLOURS.failed}    radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {(totals.pending ?? 0) > 0 && (
+            <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-500">
+              {totals.pending} callback request{totals.pending !== 1 ? 's' : ''} still in progress — counted in
+              Requested but not yet Handled or Failed.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -1356,6 +1800,7 @@ function BotSection({ onAskAssistant }) {
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: TrendingUp },
+  { id: 'callbacks', label: 'Callbacks', icon: PhoneCall },
   { id: 'bots', label: 'Conversational AI & Bot Analytics', icon: Bot },
   { id: 'themes', label: 'Discussion Themes', icon: MessagesSquare },
 ];
@@ -1419,6 +1864,18 @@ export default function HistoricalAnalytics({ onAskAssistant }) {
       <div className={activeTab === 'overview' ? 'flex flex-col gap-5' : 'hidden'}>
         <ContactCentreHistory onAskAssistant={onAskAssistant} histDays={histDays} setHistDays={setHistDays} />
         <BreakdownSection days={histDays} onAskAssistant={onAskAssistant} />
+        <QueuePcaSection days={histDays} onAskAssistant={onAskAssistant} />
+      </div>
+
+      <div className={activeTab === 'callbacks' ? '' : 'hidden'}>
+        <SectionCard
+          title="Callback Analytics"
+          subtitle="Requested vs handled callbacks, retries, and failure reasons — from contact records"
+          icon={PhoneCall}
+          iconCls="text-indigo-600 dark:text-indigo-400"
+        >
+          <CallbackAnalyticsPanel days={histDays} onAskAssistant={onAskAssistant} />
+        </SectionCard>
       </div>
 
       <div className={activeTab === 'bots' ? '' : 'hidden'}>
