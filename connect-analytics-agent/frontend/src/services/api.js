@@ -54,13 +54,21 @@ export const getMetrics = async () => {
   return response.data;
 };
 
-export const getHistoricalMetrics = async (days = 30) => {
-  const response = await api.get('/historical-metrics', { params: { days } });
+// period = number of days, {days: N}, or {start, end} (inclusive YYYY-MM-DD)
+const periodParams = (period) => {
+  if (period && period.start && period.end) {
+    return { start_date: period.start, end_date: period.end };
+  }
+  return { days: period?.days ?? (typeof period === 'number' ? period : 30) };
+};
+
+export const getHistoricalMetrics = async (period = 30) => {
+  const response = await api.get('/historical-metrics', { params: periodParams(period) });
   return response.data;
 };
 
-export const getHistoricalBreakdown = async (days = 30, groupBy = 'QUEUE') => {
-  const response = await api.get('/historical-breakdown', { params: { days, group_by: groupBy } });
+export const getHistoricalBreakdown = async (period = 30, groupBy = 'QUEUE') => {
+  const response = await api.get('/historical-breakdown', { params: { ...periodParams(period), group_by: groupBy } });
   return response.data;
 };
 
@@ -91,6 +99,16 @@ export const startCallbackScan = async ({ start, end }) => {
 
 export const getCallbackStatus = async () => {
   const response = await api.get('/callback-analytics/status');
+  return response.data;
+};
+
+export const getAbandonmentBuckets = async (period = 30) => {
+  const response = await api.get('/abandonment-buckets', { params: periodParams(period) });
+  return response.data;
+};
+
+export const getCallbackToday = async () => {
+  const response = await api.get('/callback-metrics/today');
   return response.data;
 };
 

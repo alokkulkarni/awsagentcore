@@ -59,6 +59,7 @@ import {
 } from '../services/api';
 import SupervisorBargePanel from './SupervisorBargePanel';
 import LiveQueueMetricsChart from './LiveQueueMetricsChart';
+import { AbandonedTodayPanel, CallbacksTodayPanel } from './TodayStatsPanels';
 import TransferBadge from './TransferBadge';
 
 // ── constants ──────────────────────────────────────────────────────────────────
@@ -1277,7 +1278,7 @@ export default function RealtimeCommandCenter({
                     <table className="w-full text-left">
                       <thead className="bg-slate-100 dark:bg-slate-800/50">
                         <tr>
-                          {['Contact', 'Channel', 'State', 'Status', 'Duration'].map((c) => (
+                          {['Contact', 'Channel', 'State', 'Queue / Agent', 'Duration'].map((c) => (
                             <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                           ))}
                         </tr>
@@ -1353,7 +1354,8 @@ export default function RealtimeCommandCenter({
                       <table className="w-full text-left">
                         <thead className="bg-slate-100 dark:bg-slate-800/50">
                           <tr>
-                            {['Contact', 'Queue', 'State', 'Duration'].map((c) => (
+                            {/* LiveContactRow renders 5 cells — keep headers aligned with it */}
+                            {['Contact', 'Channel', 'State', 'Queue / Agent', 'Duration'].map((c) => (
                               <th key={c} className="px-2 py-1.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">{c}</th>
                             ))}
                           </tr>
@@ -1377,6 +1379,12 @@ export default function RealtimeCommandCenter({
 
               {/* ── Live Queue Metrics Chart ─────────────────────────────────── */}
               <LiveQueueMetricsChart />
+
+              {/* ── Today-so-far stats (abandonment timing + callbacks) ──────── */}
+              <div className="grid gap-4 xl:grid-cols-2">
+                <AbandonedTodayPanel />
+                <CallbacksTodayPanel />
+              </div>
 
             </div>
 
