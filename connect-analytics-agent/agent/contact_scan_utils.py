@@ -8,7 +8,7 @@ duplicating it.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 
@@ -20,6 +20,70 @@ def parse_dt(value: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+# search_contacts rejects INITIATION_TIMESTAMP ranges over 1345 hours (~56
+# days) — callers scanning contact records clamp their window to this.
+SEARCH_CONTACTS_MAX_DAYS = 55
+
+
+def clamp_search_window(start_iso: str, end_iso: str, max_days: int = SEARCH_CONTACTS_MAX_DAYS) -> Dict[str, Any]:
+    """Clamp a scan window's start so the range never exceeds search_contacts' cap."""
+    start_dt = parse_dt(start_iso)
+    end_dt = parse_dt(end_iso)
+    max_start = end_dt - timedelta(days=max_days)
+    if start_dt < max_start:
+        return {"start": max_start.isoformat(), "end": end_dt.isoformat(),
+                "requested_start": start_dt.isoformat(), "clamped": True}
+    return {"start": start_dt.isoformat(), "end": end_dt.isoformat(),
+            "requested_start": start_dt.isoformat(), "clamped": False}
+
+
+async def enumerate_contact_summaries(
+    connect,
+    instance_id: str,
+    start_iso: str,
+    end_iso: str,
+    on_progress: Optional[Callable[[int], Awaitable[None]]] = None,
+    search_criteria: Optional[Dict[str, Any]] = None,
+    max_pages: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Page through search_contacts returning the RAW contact summaries — these
+    include InitiationTimestamp, DisconnectTimestamp, QueueInfo.EnqueueTimestamp
+    and AgentInfo.ConnectedToAgentTimestamp, which is enough for wait-time and
+    outcome computations without a per-contact describe_contact.
+
+    max_pages bounds the scan on very busy instances (100 contacts per page);
+    callers should surface a truncation note when the cap is hit.
+    """
+    summaries: List[Dict[str, Any]] = []
+    next_token = None
+    pages = 0
+    start_dt = parse_dt(start_iso)
+    end_dt = parse_dt(end_iso)
+    while True:
+        kwargs: Dict[str, Any] = {
+            "InstanceId": instance_id,
+            "TimeRange": {"Type": "INITIATION_TIMESTAMP", "StartTime": start_dt, "EndTime": end_dt},
+            "MaxResults": 100,
+        }
+        if search_criteria:
+            kwargs["SearchCriteria"] = search_criteria
+        if next_token:
+            kwargs["NextToken"] = next_token
+        # Blocking network call — run off the event loop so concurrent
+        # requests (other screens' polling, SSE streams) aren't stalled.
+        resp = await asyncio.to_thread(connect.search_contacts, **kwargs)
+        summaries.extend(resp.get("Contacts", []))
+        next_token = resp.get("NextToken")
+        pages += 1
+        if on_progress:
+            await on_progress(len(summaries))
+        if not next_token or (max_pages and pages >= max_pages):
+            break
+        await asyncio.sleep(0)
+    return summaries
 
 
 async def enumerate_contacts(

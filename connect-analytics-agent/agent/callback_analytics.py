@@ -1,20 +1,28 @@
 """
 Callback analytics for Amazon Connect Analytics Agent.
 
-Given a date range, enumerates every CALLBACK-initiated contact (the outbound
-leg Connect dials when a customer requests a callback instead of waiting in
+Given a date range, enumerates every CALLBACK-initiated contact (the leg
+Connect creates when a customer requests a callback instead of waiting in
 queue), describes each one, and groups the attempts that belong to the same
-callback request via InitialContactId. From those groups it derives:
+callback request via InitialContactId. In a callback the AGENT leg comes
+first (an agent accepts the queued callback, then Connect dials the
+customer), so each request classifies into:
 
-  requested — unique callback requests (groups)
-  handled   — groups where at least one attempt connected to an agent
-              (AgentInfo.ConnectedToAgentTimestamp present)
-  retried   — groups with more than one dial attempt (a subset of the above
-              two — do not sum it with them)
-  failed    — groups where every attempt disconnected without ever reaching
-              an agent, broken down by the final attempt's DisconnectReason
-  pending   — groups whose latest attempt is still in flight (neither handled
-              nor failed yet)
+  requested        — unique callback requests (groups)
+  succeeded        — an agent connected AND the customer conversation
+                     completed normally (no telecom-failure reason)
+  customer_failed  — an agent connected but every connected attempt ended
+                     with a telecom-failure reason (customer never answered,
+                     busy, invalid number, …) — "succeeded at agent, failed
+                     at customer"
+  abandoned        — no attempt ever reached an agent; the callback expired
+                     or was cancelled while waiting in the callback queue
+  retried          — groups with more than one dial attempt (a subset of the
+                     above — do not sum it with them). How many retries occur
+                     is governed by the retry configuration on the flow's
+                     callback block; this module reports what actually
+                     happened, plus an attempts histogram.
+  pending          — groups whose latest attempt is still in flight
 
 Amazon Connect's search_contacts API caps the INITIATION_TIMESTAMP range at
 1345 hours (~56 days), so scans are clamped to the last 55 days and the
@@ -34,20 +42,29 @@ import json
 import logging
 import time
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import boto3
 
-from contact_scan_utils import enumerate_contacts, parse_dt
+from contact_scan_utils import clamp_search_window, enumerate_contacts
 
 LOGGER = logging.getLogger(__name__)
 
-# search_contacts rejects INITIATION_TIMESTAMP ranges over 1345 hours (~56
-# days) — clamp to a round 55 days so the request always succeeds.
-_MAX_WINDOW_DAYS = 55
-
 _CALLBACK_CRITERIA = {"InitiationMethods": ["CALLBACK"]}
+
+# DisconnectReasons that mean the customer leg failed (agent side was fine).
+_TELECOM_FAIL_REASONS = {
+    "TELECOM_UNANSWERED",
+    "TELECOM_BUSY",
+    "TELECOM_NUMBER_INVALID",
+    "TELECOM_POTENTIAL_BLOCKING",
+    "TELECOM_TIMEOUT",
+    "TELECOM_PROBLEM",
+    "OUTBOUND_ATTEMPT_FAILED",
+    "OUTBOUND_DESTINATION_ENDPOINT_ERROR",
+    "OUTBOUND_RESOURCE_ERROR",
+}
 
 # Friendly labels for DisconnectReason values seen on failed callback attempts.
 _REASON_LABELS = {
@@ -86,64 +103,93 @@ def _date_key(ts: Any) -> Optional[str]:
     return str(ts)[:10]
 
 
+def classify_group(attempts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Classify one callback request (its list of attempt details) into
+    succeeded / customer_failed / abandoned / pending, with the reason of the
+    decisive attempt. Shared with contact_stats' live "today" snapshot."""
+    connected = [a for a in attempts if (a.get("AgentInfo") or {}).get("ConnectedToAgentTimestamp")]
+    all_disconnected = all(a.get("DisconnectTimestamp") for a in attempts)
+
+    def _last(cands: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return max(cands, key=lambda a: a.get("InitiationTimestamp") or datetime.min.replace(tzinfo=timezone.utc))
+
+    if connected:
+        ok = [a for a in connected
+              if (a.get("DisconnectReason") or "").upper() not in _TELECOM_FAIL_REASONS
+              and a.get("DisconnectTimestamp")]
+        active = [a for a in connected if not a.get("DisconnectTimestamp")]
+        if ok:
+            outcome = "succeeded"
+            reason = (_last(ok).get("DisconnectReason") or "UNKNOWN").upper()
+        elif active:
+            outcome = "pending"   # agent on the line right now
+            reason = None
+        else:
+            outcome = "customer_failed"
+            reason = (_last(connected).get("DisconnectReason") or "UNKNOWN").upper()
+    elif all_disconnected:
+        outcome = "abandoned"     # expired/cancelled in the callback queue
+        reason = (_last(attempts).get("DisconnectReason") or "UNKNOWN").upper()
+    else:
+        outcome = "pending"       # still waiting in the callback queue
+        reason = None
+
+    init_keys = [k for k in (_date_key(a.get("InitiationTimestamp")) for a in attempts) if k]
+    return {
+        "outcome": outcome,
+        "reason": reason,
+        "attempts": len(attempts),
+        "date_key": min(init_keys) if init_keys else "unknown",
+        "agent_connected": bool(connected),
+    }
+
+
+_OUTCOME_KEYS = ("succeeded", "customer_failed", "abandoned", "pending")
+
+
 def _build_result(groups: Dict[str, List[Dict[str, Any]]], window: Dict[str, Any]) -> Dict[str, Any]:
     """Reduce {group_key: [attempt detail, ...]} into the totals / daily /
-    failure-reason structure the UI charts."""
-    totals = {"requested": 0, "handled": 0, "retried": 0, "failed": 0, "pending": 0, "attempts": 0}
+    failure-reason / attempts-histogram structure the UI charts."""
+    totals = {"requested": 0, "succeeded": 0, "customer_failed": 0, "abandoned": 0,
+              "pending": 0, "retried": 0, "attempts": 0}
     daily: Dict[str, Dict[str, int]] = {}
-    failure_counter: Counter = Counter()
+    failure_counters: Dict[str, Counter] = {"customer_failed": Counter(), "abandoned": Counter()}
+    attempts_histogram: Counter = Counter()
 
     for attempts in groups.values():
+        cls = classify_group(attempts)
         totals["requested"] += 1
-        totals["attempts"] += len(attempts)
-        if len(attempts) > 1:
+        totals["attempts"] += cls["attempts"]
+        attempts_histogram["3+" if cls["attempts"] >= 3 else str(cls["attempts"])] += 1
+        if cls["attempts"] > 1:
             totals["retried"] += 1
 
-        handled = any((a.get("AgentInfo") or {}).get("ConnectedToAgentTimestamp") for a in attempts)
-        all_disconnected = all(a.get("DisconnectTimestamp") for a in attempts)
-
-        # The group's day is when the callback was first attempted.
-        init_keys = [k for k in (_date_key(a.get("InitiationTimestamp")) for a in attempts) if k]
-        day_key = min(init_keys) if init_keys else "unknown"
-        day = daily.setdefault(day_key, {"requested": 0, "handled": 0, "failed": 0})
+        totals[cls["outcome"]] += 1
+        day = daily.setdefault(cls["date_key"], {"requested": 0, "succeeded": 0, "customer_failed": 0, "abandoned": 0})
         day["requested"] += 1
+        if cls["outcome"] in day:
+            day[cls["outcome"]] += 1
+        if cls["outcome"] in failure_counters and cls["reason"]:
+            failure_counters[cls["outcome"]][cls["reason"]] += 1
 
-        if handled:
-            totals["handled"] += 1
-            day["handled"] += 1
-        elif all_disconnected:
-            totals["failed"] += 1
-            day["failed"] += 1
-            # Attribute the failure to the final attempt's disconnect reason.
-            last = max(
-                attempts,
-                key=lambda a: a.get("InitiationTimestamp") or datetime.min.replace(tzinfo=timezone.utc),
-            )
-            failure_counter[(last.get("DisconnectReason") or "UNKNOWN").upper()] += 1
-        else:
-            totals["pending"] += 1
-
-    resolved = totals["handled"] + totals["failed"]
-    totals["handle_rate"] = round(totals["handled"] / resolved * 100, 1) if resolved else None
+    resolved = totals["succeeded"] + totals["customer_failed"] + totals["abandoned"]
+    totals["success_rate"] = round(totals["succeeded"] / resolved * 100, 1) if resolved else None
 
     daily_list = [{"date": d, **daily[d]} for d in sorted(daily.keys())]
     failure_reasons = [
-        {"reason": reason, "label": reason_label(reason), "count": count}
-        for reason, count in failure_counter.most_common()
+        {"reason": reason, "label": reason_label(reason), "count": count, "bucket": bucket}
+        for bucket, counter in failure_counters.items()
+        for reason, count in counter.most_common()
     ]
-    return {"totals": totals, "daily": daily_list, "failure_reasons": failure_reasons, "window": window}
-
-
-def _clamp_window(start_iso: str, end_iso: str) -> Dict[str, Any]:
-    """Clamp the scan start so the range never exceeds search_contacts' cap."""
-    start_dt = parse_dt(start_iso)
-    end_dt = parse_dt(end_iso)
-    max_start = end_dt - timedelta(days=_MAX_WINDOW_DAYS)
-    if start_dt < max_start:
-        return {"start": max_start.isoformat(), "end": end_dt.isoformat(),
-                "requested_start": start_dt.isoformat(), "clamped": True}
-    return {"start": start_dt.isoformat(), "end": end_dt.isoformat(),
-            "requested_start": start_dt.isoformat(), "clamped": False}
+    failure_reasons.sort(key=lambda r: -r["count"])
+    return {
+        "totals": totals,
+        "daily": daily_list,
+        "failure_reasons": failure_reasons,
+        "attempts_histogram": [{"attempts": k, "requests": attempts_histogram[k]}
+                               for k in ("1", "2", "3+") if attempts_histogram[k]],
+        "window": window,
+    }
 
 
 # ── Shared scan state ─────────────────────────────────────────────────────────
@@ -211,7 +257,7 @@ async def _emit(event_type: str, **kwargs: Any) -> None:
 
 async def run_scan(start_iso: str, end_iso: str, instance_id: str, region: str) -> None:
     started = time.time()
-    window = _clamp_window(start_iso, end_iso)
+    window = clamp_search_window(start_iso, end_iso)
     _state.update({
         "running": True, "complete": False, "error": None,
         "start": window["start"], "end": window["end"], "clamped": window["clamped"],
@@ -289,7 +335,8 @@ async def run_scan(start_iso: str, end_iso: str, instance_id: str, region: str) 
         contacts_scanned=_state["contacts_scanned"],
         callbacks_found=_state["callbacks_found"],
         message=f"Scan complete — {totals['requested']} callback requests: "
-                f"{totals['handled']} handled, {totals['failed']} failed, {totals['retried']} retried.",
+                f"{totals['succeeded']} succeeded, {totals['customer_failed']} failed at customer, "
+                f"{totals['abandoned']} abandoned, {totals['retried']} retried.",
     )
 
 
@@ -306,24 +353,30 @@ def start_scan(start_iso: str, end_iso: str, instance_id: str, region: str) -> b
 
 _MOCK_RESULT = {
     "totals": {
-        "requested": 58, "handled": 41, "retried": 9, "failed": 17,
-        "pending": 0, "attempts": 71, "handle_rate": 70.7,
+        "requested": 58, "succeeded": 33, "customer_failed": 8, "abandoned": 15,
+        "pending": 2, "retried": 9, "attempts": 71, "success_rate": 58.9,
     },
     "daily": [
-        {"date": "2026-06-25", "requested": 7,  "handled": 5, "failed": 2},
-        {"date": "2026-06-26", "requested": 9,  "handled": 6, "failed": 3},
-        {"date": "2026-06-27", "requested": 8,  "handled": 6, "failed": 2},
-        {"date": "2026-06-28", "requested": 6,  "handled": 4, "failed": 2},
-        {"date": "2026-06-29", "requested": 10, "handled": 7, "failed": 3},
-        {"date": "2026-06-30", "requested": 9,  "handled": 7, "failed": 2},
-        {"date": "2026-07-01", "requested": 9,  "handled": 6, "failed": 3},
+        {"date": "2026-06-25", "requested": 7,  "succeeded": 4, "customer_failed": 1, "abandoned": 2},
+        {"date": "2026-06-26", "requested": 9,  "succeeded": 5, "customer_failed": 1, "abandoned": 3},
+        {"date": "2026-06-27", "requested": 8,  "succeeded": 5, "customer_failed": 1, "abandoned": 2},
+        {"date": "2026-06-28", "requested": 6,  "succeeded": 4, "customer_failed": 0, "abandoned": 2},
+        {"date": "2026-06-29", "requested": 10, "succeeded": 6, "customer_failed": 2, "abandoned": 2},
+        {"date": "2026-06-30", "requested": 9,  "succeeded": 5, "customer_failed": 2, "abandoned": 2},
+        {"date": "2026-07-01", "requested": 9,  "succeeded": 4, "customer_failed": 1, "abandoned": 2},
     ],
     "failure_reasons": [
-        {"reason": "TELECOM_UNANSWERED",    "label": "Customer didn't answer",   "count": 8},
-        {"reason": "TELECOM_BUSY",          "label": "Customer line busy",       "count": 3},
-        {"reason": "CUSTOMER_DISCONNECT",   "label": "Customer hung up",         "count": 3},
-        {"reason": "EXPIRED",               "label": "Callback expired",         "count": 2},
-        {"reason": "TELECOM_NUMBER_INVALID","label": "Invalid callback number",  "count": 1},
+        {"reason": "EXPIRED",                "label": "Callback expired",        "count": 9, "bucket": "abandoned"},
+        {"reason": "TELECOM_UNANSWERED",     "label": "Customer didn't answer",  "count": 5, "bucket": "customer_failed"},
+        {"reason": "CONTACT_FLOW_DISCONNECT","label": "Flow ended the callback", "count": 4, "bucket": "abandoned"},
+        {"reason": "TELECOM_BUSY",           "label": "Customer line busy",      "count": 2, "bucket": "customer_failed"},
+        {"reason": "CUSTOMER_DISCONNECT",    "label": "Customer hung up",        "count": 2, "bucket": "abandoned"},
+        {"reason": "TELECOM_NUMBER_INVALID", "label": "Invalid callback number", "count": 1, "bucket": "customer_failed"},
+    ],
+    "attempts_histogram": [
+        {"attempts": "1",  "requests": 49},
+        {"attempts": "2",  "requests": 5},
+        {"attempts": "3+", "requests": 4},
     ],
     "window": {"clamped": False},
 }
@@ -331,7 +384,7 @@ _MOCK_RESULT = {
 
 async def run_mock_scan(start_iso: str, end_iso: str) -> None:
     started = time.time()
-    window = _clamp_window(start_iso, end_iso)
+    window = clamp_search_window(start_iso, end_iso)
     total_contacts = 71
     _state.update({
         "running": True, "complete": False, "error": None,
@@ -380,7 +433,8 @@ async def run_mock_scan(start_iso: str, end_iso: str) -> None:
         contacts_scanned=total_contacts,
         callbacks_found=total_requests,
         message=f"Scan complete — {totals['requested']} callback requests: "
-                f"{totals['handled']} handled, {totals['failed']} failed, {totals['retried']} retried. (mock)",
+                f"{totals['succeeded']} succeeded, {totals['customer_failed']} failed at customer, "
+                f"{totals['abandoned']} abandoned, {totals['retried']} retried. (mock)",
     )
 
 

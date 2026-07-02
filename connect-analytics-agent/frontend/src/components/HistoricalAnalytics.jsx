@@ -12,14 +12,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  AlertTriangle, Bot, PhoneOff, PhoneCall, Percent, RefreshCw, Sparkles, TrendingUp,
+  AlertTriangle, Bot, Clock, PhoneOff, PhoneCall, Percent, RefreshCw, Sparkles, TrendingUp,
   Users, MessageSquare, MessagesSquare, Zap, ChevronDown, ChevronUp,
   BarChart2, UserCheck,
 } from 'lucide-react';
 import {
   getHistoricalMetrics, getBotMetrics, getBotIntentTrend, getHistoricalBreakdown,
   startDisconnectReasonScan, getDisconnectReasonStatus,
-  startCallbackScan, getCallbackStatus,
+  startCallbackScan, getCallbackStatus, getAbandonmentBuckets,
 } from '../services/api';
 import TranscriptThemes from './TranscriptThemes';
 
@@ -68,6 +68,133 @@ const ENTITY_PALETTE = [
 ];
 
 function entityColor(idx) { return ENTITY_PALETTE[idx % ENTITY_PALETTE.length]; }
+
+// ── Shared reporting period ─────────────────────────────────────────────────
+// period = { days: N } (preset "last N days") or { start, end } (custom
+// inclusive YYYY-MM-DD range). One period object drives every section on the
+// overview tab plus the scan panels, so changing it refreshes all of them
+// for the same window.
+
+const PERIOD_PRESETS = [7, 14, 30, 60, 90];
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function periodKey(p) { return p.days ? `days:${p.days}` : `${p.start}|${p.end}`; }
+
+function fmtPeriodDate(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+function periodLabel(p) {
+  return p.days ? `Last ${p.days} days` : `${fmtPeriodDate(p.start)} – ${fmtPeriodDate(p.end)}`;
+}
+
+// Sentence-friendly form for Ask AI prompts
+function periodPhrase(p) {
+  return p.days ? `the last ${p.days} days` : `the period ${fmtPeriodDate(p.start)} to ${fmtPeriodDate(p.end)}`;
+}
+
+// ISO start/end for the scan endpoints (inclusive end date → end of that day,
+// clamped to now for open-ended ranges)
+function periodRange(p) {
+  const now = new Date();
+  if (p.days) {
+    return { start: new Date(now.getTime() - p.days * MS_PER_DAY).toISOString(), end: now.toISOString() };
+  }
+  const end = new Date(`${p.end}T23:59:59.999Z`);
+  return {
+    start: new Date(`${p.start}T00:00:00Z`).toISOString(),
+    end: (end > now ? now : end).toISOString(),
+  };
+}
+
+// Amazon Connect retains historical metrics for ~3 months; 88 days is safe
+// for every month-length combination (backend enforces the same bound).
+const METRIC_RETENTION_DAYS = 88;
+
+function PeriodSelector({ period, setPeriod }) {
+  const isCustom = !period.days;
+  const [showCustom, setShowCustom] = useState(isCustom);
+  const [draftStart, setDraftStart] = useState(period.start ?? '');
+  const [draftEnd, setDraftEnd] = useState(period.end ?? '');
+  const [draftError, setDraftError] = useState(null);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const minStart = new Date(Date.now() - METRIC_RETENTION_DAYS * MS_PER_DAY).toISOString().slice(0, 10);
+
+  const onSelect = (v) => {
+    if (v === 'custom') {
+      setShowCustom(true);
+      if (!draftStart || !draftEnd) {
+        setDraftStart(new Date(Date.now() - 29 * MS_PER_DAY).toISOString().slice(0, 10));
+        setDraftEnd(today);
+      }
+    } else {
+      setShowCustom(false);
+      setDraftError(null);
+      setPeriod({ days: Number(v) });
+    }
+  };
+
+  const applyCustom = () => {
+    if (!draftStart || !draftEnd) { setDraftError('Pick both dates'); return; }
+    if (draftStart > draftEnd) { setDraftError('Start must be on or before end'); return; }
+    if (draftStart < minStart) { setDraftError(`Start can be at most ${METRIC_RETENTION_DAYS} days ago — Connect only retains ~3 months of metrics`); return; }
+    const span = Math.round((new Date(`${draftEnd}T00:00:00Z`) - new Date(`${draftStart}T00:00:00Z`)) / MS_PER_DAY) + 1;
+    if (span > 90) { setDraftError('Range cannot exceed 90 days'); return; }
+    setDraftError(null);
+    setPeriod({ start: draftStart, end: draftEnd });
+  };
+
+  const fieldCls = 'rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-connect-500';
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <select
+        value={showCustom || isCustom ? 'custom' : String(period.days)}
+        onChange={(e) => onSelect(e.target.value)}
+        className={fieldCls}
+      >
+        {PERIOD_PRESETS.map((d) => (
+          <option key={d} value={d}>Last {d} days</option>
+        ))}
+        <option value="custom">Custom range…</option>
+      </select>
+      {showCustom && (
+        <>
+          <input
+            type="date"
+            value={draftStart}
+            min={minStart}
+            max={draftEnd || today}
+            onChange={(e) => setDraftStart(e.target.value)}
+            className={fieldCls}
+            aria-label="Start date"
+          />
+          <span className="text-xs text-slate-500 dark:text-slate-400">to</span>
+          <input
+            type="date"
+            value={draftEnd}
+            min={draftStart || undefined}
+            max={today}
+            onChange={(e) => setDraftEnd(e.target.value)}
+            className={fieldCls}
+            aria-label="End date"
+          />
+          <button
+            type="button"
+            onClick={applyCustom}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
+          >
+            Apply
+          </button>
+          {draftError && <span className="text-xs text-rose-500 dark:text-rose-400">{draftError}</span>}
+        </>
+      )}
+    </div>
+  );
+}
 
 // ── Stacked bar chart for daily entity breakdowns ────────────────────────────
 
@@ -168,16 +295,16 @@ function HandledVsAbandonedChart({ title, totals, chartHeight = 240 }) {
 
 // ── Performance Breakdown section ───────────────────────────────────────────
 
-function BreakdownSection({ days, onAskAssistant }) {
+function BreakdownSection({ period, onAskAssistant }) {
   const [groupBy, setGroupBy]   = useState('QUEUE');
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
 
-  const load = async (d, gb) => {
+  const load = async (p, gb) => {
     setLoading(true); setError(null);
     try {
-      const res = await getHistoricalBreakdown(d, gb);
+      const res = await getHistoricalBreakdown(p, gb);
       setData(res);
     } catch (e) {
       setData(null);
@@ -185,7 +312,7 @@ function BreakdownSection({ days, onAskAssistant }) {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(days, groupBy); }, [days, groupBy]); // eslint-disable-line
+  useEffect(() => { load(period, groupBy); }, [periodKey(period), groupBy]); // eslint-disable-line
 
   const entities = data?.entities ?? [];
 
@@ -205,7 +332,7 @@ function BreakdownSection({ days, onAskAssistant }) {
   return (
     <SectionCard
       title="Performance Breakdown"
-      subtitle={`${groupBy === 'QUEUE' ? 'By queue' : 'By agent'} — ${data?.period ?? `Last ${days} days`}`}
+      subtitle={`${groupBy === 'QUEUE' ? 'By queue' : 'By agent'} — ${data?.period ?? periodLabel(period)}`}
       icon={groupBy === 'QUEUE' ? BarChart2 : UserCheck}
       iconCls={groupBy === 'QUEUE' ? 'text-cyan-600 dark:text-cyan-400' : 'text-violet-600 dark:text-violet-400'}
     >
@@ -229,7 +356,7 @@ function BreakdownSection({ days, onAskAssistant }) {
         </div>
         <button
           type="button"
-          onClick={() => load(days, groupBy)}
+          onClick={() => load(period, groupBy)}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -238,7 +365,7 @@ function BreakdownSection({ days, onAskAssistant }) {
           <button
             type="button"
             onClick={() => onAskAssistant(
-              `Analyse contact centre performance breakdown by ${askLabel} over the last ${days} days. Which ${askLabel}s are busiest, which have the highest handle or ACW time, and which have the most abandoned contacts?`
+              `Analyse contact centre performance breakdown by ${askLabel} over ${periodPhrase(period)}. Which ${askLabel}s are busiest, which have the highest handle or ACW time, and which have the most abandoned contacts?`
             )}
             className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
           >
@@ -328,22 +455,22 @@ function pcaColour(v) {
   return v >= 80 ? '#10b981' : v >= 60 ? '#f59e0b' : '#f43f5e';
 }
 
-function QueuePcaSection({ days, onAskAssistant }) {
+function QueuePcaSection({ period, onAskAssistant }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
 
-  const load = async (d) => {
+  const load = async (p) => {
     setLoading(true); setError(null);
     try {
-      setData(await getHistoricalBreakdown(d, 'QUEUE'));
+      setData(await getHistoricalBreakdown(p, 'QUEUE'));
     } catch (e) {
       setData(null);
       setError(e?.response?.data?.detail || e?.message || 'Failed to load queue metrics');
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(days); }, [days]); // eslint-disable-line
+  useEffect(() => { load(period); }, [periodKey(period)]); // eslint-disable-line
 
   const entities = data?.entities ?? [];
 
@@ -366,14 +493,14 @@ function QueuePcaSection({ days, onAskAssistant }) {
   return (
     <SectionCard
       title="Percentage Calls Answered (PCA) by Queue"
-      subtitle={`Handled ÷ (Handled + Abandoned) — ${data?.period ?? `Last ${days} days`}`}
+      subtitle={`Handled ÷ (Handled + Abandoned) — ${data?.period ?? periodLabel(period)}`}
       icon={Percent}
       iconCls="text-emerald-600 dark:text-emerald-400"
     >
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button
           type="button"
-          onClick={() => load(days)}
+          onClick={() => load(period)}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -382,7 +509,7 @@ function QueuePcaSection({ days, onAskAssistant }) {
           <button
             type="button"
             onClick={() => onAskAssistant(
-              `Analyse the percentage of calls answered (PCA = contacts handled ÷ (handled + abandoned)) per queue over the last ${days} days. Which queues are underperforming, and what should the team do about it?`
+              `Analyse the percentage of calls answered (PCA = contacts handled ÷ (handled + abandoned)) per queue over ${periodPhrase(period)}. Which queues are underperforming, and what should the team do about it?`
             )}
             className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
           >
@@ -470,6 +597,166 @@ function QueuePcaSection({ days, onAskAssistant }) {
                     />
                   ))}
                 </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+// ── Abandonment timing (calls abandoned within Ns of queueing) ──────────────
+// Backend: /abandonment-buckets (agent/contact_stats.py) — computed from
+// contact records (DisconnectTimestamp − EnqueueTimestamp for contacts that
+// never reached an agent), because this instance's GetMetricDataV2 has no
+// CONTACTS_ABANDONED_IN_X threshold metric.
+
+const ABANDON_BUCKET_COLOURS = {
+  lt10: '#fbbf24', lt20: '#f59e0b', lt30: '#f97316', lt40: '#ea580c',
+  lt60: '#dc2626', lt120: '#b91c1c', over120: '#7f1d1d',
+};
+
+function AbandonmentTimingSection({ period, onAskAssistant }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
+
+  const load = async (p) => {
+    setLoading(true); setError(null);
+    try {
+      setData(await getAbandonmentBuckets(p));
+    } catch (e) {
+      setData(null);
+      setError(e?.response?.data?.detail || e?.message || 'Failed to load abandonment stats');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(period); }, [periodKey(period)]); // eslint-disable-line
+
+  const buckets = data?.buckets ?? [];
+  const bucketLabels = useMemo(() => Object.fromEntries(buckets.map((b) => [b.key, b.label])), [buckets]);
+  const dailyData = useMemo(() => (data?.daily ?? []).map((d) => ({ ...d, label: fmtDayLabel(d.date) })), [data]);
+  const clamped = !!data?.window?.clamped;
+
+  return (
+    <SectionCard
+      title="Abandonment Timing"
+      subtitle={`Calls abandoned in queue, by wait before giving up — ${data?.period ?? periodLabel(period)}`}
+      icon={Clock}
+      iconCls="text-amber-600 dark:text-amber-400"
+    >
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => load(period)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
+        {onAskAssistant && data && (
+          <button
+            type="button"
+            onClick={() => onAskAssistant(
+              `Over ${periodPhrase(period)}, ${data.total_abandoned} calls were abandoned in queue: `
+              + buckets.map((b) => `${b.count} within ${b.label.replace('≤ ', '')}`).join(', ')
+              + '. What does this say about our queue answer speed, and what should we change?'
+            )}
+            className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
+          >
+            <Sparkles size={14} /> Ask AI
+          </button>
+        )}
+        {data?.mock && (
+          <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs text-amber-600 dark:text-amber-300">mock data</span>
+        )}
+      </div>
+
+      <p className="mb-3 text-[11px] text-slate-600 dark:text-slate-500 leading-snug">
+        Wait = time from entering the queue to hanging up, for contacts that never reached an agent.
+        {clamped && (
+          <span className="text-amber-600 dark:text-amber-400"> Range clamped to the last 55 days — Amazon Connect's contact search window limit.</span>
+        )}
+        {data?.truncated && (
+          <span className="text-amber-600 dark:text-amber-400"> Contact volume exceeded the scan cap — counts are a lower bound.</span>
+        )}
+      </p>
+
+      {loading && (
+        <div className="flex h-40 items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+          <RefreshCw size={18} className="mr-2 animate-spin" /> Loading abandonment stats…
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-300 flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />{error}
+        </div>
+      )}
+      {!loading && !error && data && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* Totals per wait bucket */}
+          <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">
+              Abandoned by Wait Time — {data.total_abandoned} total
+            </p>
+            {data.total_abandoned === 0 ? (
+              <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">
+                No abandoned calls in this period.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={buckets} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    formatter={(v) => [v, 'Abandoned']}
+                  />
+                  <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                    {buckets.map((b) => (
+                      <Cell key={b.key} fill={ABANDON_BUCKET_COLOURS[b.key]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Daily stacked by wait bucket */}
+          <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">Abandoned per Day — by wait time</p>
+            {dailyData.length === 0 || data.total_abandoned === 0 ? (
+              <div className="flex h-40 items-center justify-center text-xs text-slate-600 dark:text-slate-500">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={dailyData} margin={{ top: 4, right: 8, left: -20, bottom: 28 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9', fontWeight: 600 }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    formatter={(v, name) => [v, bucketLabels[name] ?? name]}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 10, color: '#94a3b8', paddingTop: 6 }}
+                    iconSize={10}
+                    formatter={(v) => bucketLabels[v] ?? v}
+                  />
+                  {buckets.map((b, i) => (
+                    <Bar
+                      key={b.key}
+                      dataKey={b.key}
+                      stackId="wait"
+                      fill={ABANDON_BUCKET_COLOURS[b.key]}
+                      radius={i === buckets.length - 1 ? [3, 3, 0, 0] : 0}
+                    />
+                  ))}
+                </BarChart>
               </ResponsiveContainer>
             )}
           </div>
@@ -712,7 +999,7 @@ function DisconnectReasonsChart({ daily }) {
   );
 }
 
-function DisconnectReasonsPanel({ days, onAskAssistant }) {
+function DisconnectReasonsPanel({ period, onAskAssistant }) {
   const [scan, setScan] = useState(null);
   const [error, setError] = useState(null);
   const [expandedBucket, setExpandedBucket] = useState(null);
@@ -757,9 +1044,7 @@ function DisconnectReasonsPanel({ days, onAskAssistant }) {
     setError(null);
     setExpandedBucket(null);
     try {
-      const end = new Date();
-      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-      const result = await startDisconnectReasonScan({ start: start.toISOString(), end: end.toISOString() });
+      const result = await startDisconnectReasonScan(periodRange(period));
       setScan(result);
       openStream();
     } catch (e) {
@@ -786,13 +1071,13 @@ function DisconnectReasonsPanel({ days, onAskAssistant }) {
             className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw size={12} className={running ? 'animate-spin' : ''} />
-            {running ? 'Scanning…' : `Scan Last ${days} Days`}
+            {running ? 'Scanning…' : (period.days ? `Scan Last ${period.days} Days` : 'Scan Selected Range')}
           </button>
           {onAskAssistant && totals && (
             <button
               type="button"
               onClick={() => onAskAssistant(
-                `Over the last ${days} days, contacts didn't complete for these reasons: `
+                `Over ${periodPhrase(period)}, contacts didn't complete for these reasons: `
                 + `${totals.customer} customer, ${totals.agent} agent, ${totals.technical} technical, ${totals.other} other. `
                 + 'What should the contact centre team investigate first?'
               )}
@@ -880,26 +1165,35 @@ function DisconnectReasonsPanel({ days, onAskAssistant }) {
 // ── Callback analytics ────────────────────────────────────────────────────────
 // Backend: agent/callback_analytics.py — enumerates CALLBACK-initiated
 // contacts, groups dial attempts belonging to one callback request via
-// InitialContactId, and classifies each request as handled (reached an
-// agent), failed (all attempts disconnected without an agent, with the final
-// DisconnectReason as the failure reason) or pending. Retried = requests
-// with more than one dial attempt.
+// InitialContactId, and classifies each request. In a callback the agent leg
+// comes first, so: succeeded = agent + customer both connected; customer
+// failed = agent connected but the customer leg ended with a telecom-failure
+// reason; abandoned = expired/cancelled in the callback queue before any
+// agent. Retried = requests with more than one dial attempt (the flow's
+// callback-block retry configuration sets the ceiling).
 
 const CALLBACK_COLOURS = {
-  requested: '#6366f1',
-  handled:   '#10b981',
-  retried:   '#a855f7',
-  failed:    '#f43f5e',
+  requested:       '#6366f1',
+  succeeded:       '#10b981',
+  abandoned:       '#f59e0b',
+  customer_failed: '#f43f5e',
+  retried:         '#a855f7',
 };
 
 const CALLBACK_CARDS = [
-  { key: 'requested', label: 'Requested', sub: 'unique callback requests' },
-  { key: 'handled',   label: 'Handled',   sub: 'reached an agent' },
-  { key: 'retried',   label: 'Retried',   sub: 'subset — >1 dial attempt' },
-  { key: 'failed',    label: 'Failed',    sub: 'never reached an agent' },
+  { key: 'requested',       label: 'Requested',        sub: 'unique callback requests' },
+  { key: 'succeeded',       label: 'Succeeded',        sub: 'agent + customer connected' },
+  { key: 'abandoned',       label: 'Abandoned',        sub: 'expired in callback queue' },
+  { key: 'customer_failed', label: 'Customer Failed',  sub: 'agent ok, customer leg failed' },
+  { key: 'retried',         label: 'Retried',          sub: 'subset — >1 dial attempt' },
 ];
 
-function CallbackAnalyticsPanel({ days, onAskAssistant }) {
+const CALLBACK_BUCKET_TAGS = {
+  abandoned:       { label: 'abandoned',       cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+  customer_failed: { label: 'customer failed', cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
+};
+
+function CallbackAnalyticsPanel({ period, onAskAssistant }) {
   const [scan, setScan] = useState(null);
   const [error, setError] = useState(null);
   const esRef = useRef(null);
@@ -942,9 +1236,7 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
   const runScan = async () => {
     setError(null);
     try {
-      const end = new Date();
-      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-      const result = await startCallbackScan({ start: start.toISOString(), end: end.toISOString() });
+      const result = await startCallbackScan(periodRange(period));
       setScan(result);
       openStream();
     } catch (e) {
@@ -965,7 +1257,7 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
     ...d, label: fmtDayLabel(d.date),
   })), [result]);
 
-  const failedTotal = totals?.failed ?? 0;
+  const failedTotal = (totals?.abandoned ?? 0) + (totals?.customer_failed ?? 0);
 
   return (
     <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
@@ -982,14 +1274,15 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
             className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw size={12} className={running ? 'animate-spin' : ''} />
-            {running ? 'Scanning…' : `Scan Last ${Math.min(days, 55)} Days`}
+            {running ? 'Scanning…' : (period.days ? `Scan Last ${Math.min(period.days, 55)} Days` : 'Scan Selected Range')}
           </button>
           {onAskAssistant && totals && (
             <button
               type="button"
               onClick={() => onAskAssistant(
-                `Over the last ${Math.min(days, 55)} days there were ${totals.requested} callback requests: `
-                + `${totals.handled} handled, ${totals.failed} failed, ${totals.retried} retried. `
+                `Over ${periodPhrase(period)} there were ${totals.requested} callback requests: `
+                + `${totals.succeeded} succeeded, ${totals.customer_failed} reached an agent but failed at the customer leg, `
+                + `${totals.abandoned} abandoned in the callback queue, ${totals.retried} needed retries. `
                 + `Top failure reasons: ${(result.failure_reasons || []).slice(0, 3).map((r) => `${r.label} ×${r.count}`).join(', ') || 'none'}. `
                 + 'What should the contact centre team do to improve callback success?'
               )}
@@ -1005,11 +1298,15 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
       </div>
 
       <p className="mb-3 text-[11px] text-slate-600 dark:text-slate-500 leading-snug">
-        A callback request is <span className="font-medium">handled</span> when a dial attempt reached an agent and{' '}
-        <span className="font-medium">failed</span> when every attempt ended without one.{' '}
-        <span className="font-medium">Retried</span> counts requests with more than one dial attempt — it is a subset
-        of the others, so don't sum the four numbers. Retry detection groups contact records that share an initial
-        contact, so "0 retried" means none were detected.
+        In a callback the agent leg connects first, then Connect dials the customer.{' '}
+        <span className="font-medium">Succeeded</span> = both legs connected.{' '}
+        <span className="font-medium">Customer failed</span> = an agent accepted but the customer leg failed
+        (no answer, busy, invalid number…).{' '}
+        <span className="font-medium">Abandoned</span> = the request expired or was cancelled in the callback queue
+        before reaching any agent.{' '}
+        <span className="font-medium">Retried</span> counts requests with more than one dial attempt — a subset of
+        the others, so don't sum the five numbers. How many retries happen is set by the retry configuration on the
+        flow's callback block; "0 retried" means none were detected in the records.
         {clamped && (
           <span className="text-amber-600 dark:text-amber-400"> Range clamped to the last 55 days — Amazon Connect's contact search window limit.</span>
         )}
@@ -1043,7 +1340,7 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
       {result && totals && (
         <>
           {/* Stat cards */}
-          <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-3 lg:grid-cols-5">
             {CALLBACK_CARDS.map(({ key, label, sub }) => (
               <div key={key} className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/60 dark:bg-slate-800/60 p-2.5">
                 <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: CALLBACK_COLOURS[key] }}>
@@ -1051,7 +1348,7 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
                 </span>
                 <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{totals[key] ?? 0}</p>
                 <p className="text-[10px] text-slate-600 dark:text-slate-500">
-                  {key === 'handled' && totals.handle_rate != null ? `${totals.handle_rate}% handle rate` : sub}
+                  {key === 'succeeded' && totals.success_rate != null ? `${totals.success_rate}% success rate` : sub}
                 </p>
               </div>
             ))}
@@ -1090,10 +1387,17 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {result.failure_reasons.map(({ reason, label, count }) => (
-                    <div key={reason}>
-                      <div className="flex items-center justify-between text-xs mb-0.5">
-                        <span className="text-slate-700 dark:text-slate-300">{label}</span>
+                  {result.failure_reasons.map(({ reason, label, count, bucket }) => (
+                    <div key={`${bucket}-${reason}`}>
+                      <div className="flex items-center justify-between text-xs mb-0.5 gap-2">
+                        <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                          {label}
+                          {CALLBACK_BUCKET_TAGS[bucket] && (
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${CALLBACK_BUCKET_TAGS[bucket].cls}`}>
+                              {CALLBACK_BUCKET_TAGS[bucket].label}
+                            </span>
+                          )}
+                        </span>
                         <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{count}</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1102,7 +1406,7 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
                             className="h-1.5 rounded-full"
                             style={{
                               width: `${failedTotal ? Math.round((count / failedTotal) * 100) : 0}%`,
-                              background: CALLBACK_COLOURS.failed,
+                              background: CALLBACK_COLOURS[bucket] ?? CALLBACK_COLOURS.customer_failed,
                             }}
                           />
                         </div>
@@ -1131,19 +1435,39 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
                       itemStyle={{ color: '#94a3b8' }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8', paddingTop: 8 }} />
-                    <Bar dataKey="requested" name="Requested" fill={CALLBACK_COLOURS.requested} radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="handled"   name="Handled"   fill={CALLBACK_COLOURS.handled}   radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="failed"    name="Failed"    fill={CALLBACK_COLOURS.failed}    radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="requested"       name="Requested"       fill={CALLBACK_COLOURS.requested}       radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="succeeded"       name="Succeeded"       fill={CALLBACK_COLOURS.succeeded}       radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="abandoned"       name="Abandoned"       fill={CALLBACK_COLOURS.abandoned}       radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="customer_failed" name="Customer Failed" fill={CALLBACK_COLOURS.customer_failed} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
           </div>
 
+          {(result.attempts_histogram ?? []).length > 0 && (
+            <div className="mt-4 flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500">
+                Dial attempts per request
+              </span>
+              {result.attempts_histogram.map(({ attempts, requests }) => (
+                <span
+                  key={attempts}
+                  className="rounded-full bg-slate-200/80 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700/60 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300"
+                >
+                  {attempts} attempt{attempts === '1' ? '' : 's'} <span className="font-semibold text-slate-900 dark:text-slate-100">×{requests}</span>
+                </span>
+              ))}
+              <span className="text-[10px] text-slate-600 dark:text-slate-500">
+                max attempts is set by the flow's callback retry configuration
+              </span>
+            </div>
+          )}
+
           {(totals.pending ?? 0) > 0 && (
             <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-500">
               {totals.pending} callback request{totals.pending !== 1 ? 's' : ''} still in progress — counted in
-              Requested but not yet Handled or Failed.
+              Requested but not yet resolved.
             </p>
           )}
         </>
@@ -1154,16 +1478,16 @@ function CallbackAnalyticsPanel({ days, onAskAssistant }) {
 
 // ── Contact-centre historical section ──────────────────────────────────────────
 
-function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
+function ContactCentreHistory({ onAskAssistant, period, setPeriod }) {
   const [historical, setHistorical] = useState(null);
   const [loading, setLoading]       = useState(false);
   const [loadError, setLoadError]   = useState(null);
 
-  const load = async (days) => {
+  const load = async (p) => {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await getHistoricalMetrics(days);
+      const data = await getHistoricalMetrics(p);
       setHistorical(data);
     } catch (err) {
       setHistorical(null);
@@ -1173,7 +1497,7 @@ function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
     }
   };
 
-  useEffect(() => { load(histDays); }, [histDays]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(period); }, [periodKey(period)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Normalise avg times to minutes so they share the same Y-axis scale
   const timeData = useMemo(() => (historical?.data ?? []).map((r) => ({
@@ -1200,23 +1524,15 @@ function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
   return (
     <SectionCard
       title="Contact Centre Performance"
-      subtitle={historical?.period ?? `Last ${histDays} days`}
+      subtitle={historical?.period ?? periodLabel(period)}
       icon={TrendingUp}
       iconCls="text-connect-700 dark:text-connect-400"
     >
-      <div className="flex items-center gap-3 mb-4">
-        <select
-          value={histDays}
-          onChange={(e) => setHistDays(Number(e.target.value))}
-          className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-connect-500"
-        >
-          {[7, 14, 30, 60, 90].map((d) => (
-            <option key={d} value={d}>Last {d} days</option>
-          ))}
-        </select>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <PeriodSelector period={period} setPeriod={setPeriod} />
         <button
           type="button"
-          onClick={() => load(histDays)}
+          onClick={() => load(period)}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -1224,7 +1540,7 @@ function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
         {onAskAssistant && (
           <button
             type="button"
-            onClick={() => onAskAssistant(`Analyse contact centre performance over the last ${histDays} days. Highlight trends, peaks, and any areas of concern.`)}
+            onClick={() => onAskAssistant(`Analyse contact centre performance over ${periodPhrase(period)}. Highlight trends, peaks, and any areas of concern.`)}
             className="inline-flex items-center gap-2 rounded-xl bg-connect-500 px-3 py-2 text-sm font-medium text-white hover:bg-connect-700 transition"
           >
             <Sparkles size={14} /> Ask AI
@@ -1263,7 +1579,7 @@ function ContactCentreHistory({ onAskAssistant, histDays, setHistDays }) {
           <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4 lg:col-span-2">
             <HistoricChart title="Contacts Handled vs Abandoned" data={mergedHandledAbandoned} bars={['CONTACTS_HANDLED', 'CONTACTS_ABANDONED']} />
           </div>
-          <DisconnectReasonsPanel days={histDays} onAskAssistant={onAskAssistant} />
+          <DisconnectReasonsPanel period={period} onAskAssistant={onAskAssistant} />
           <div className="rounded-xl border border-slate-300 dark:border-slate-700/60 bg-slate-200/40 dark:bg-slate-800/40 p-4">
             <HistoricChart title="Contacts in Queue per Day" data={historical?.data ?? []} bars={['CONTACTS_QUEUED']} />
           </div>
@@ -1833,7 +2149,9 @@ function TabBar({ activeTab, setActiveTab }) {
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export default function HistoricalAnalytics({ onAskAssistant }) {
-  const [histDays, setHistDays] = useState(30);
+  // Shared reporting period — { days: N } or { start, end } — drives the
+  // overview sections and the callback scans alike.
+  const [period, setPeriod] = useState({ days: 30 });
   const [activeTab, setActiveTab] = useState('overview');
 
   return (
@@ -1862,9 +2180,10 @@ export default function HistoricalAnalytics({ onAskAssistant }) {
       {/* Each tab stays mounted (just hidden) when inactive, so in-progress scans
           (Discussion Themes' SSE connection) and loaded data aren't lost on switch. */}
       <div className={activeTab === 'overview' ? 'flex flex-col gap-5' : 'hidden'}>
-        <ContactCentreHistory onAskAssistant={onAskAssistant} histDays={histDays} setHistDays={setHistDays} />
-        <BreakdownSection days={histDays} onAskAssistant={onAskAssistant} />
-        <QueuePcaSection days={histDays} onAskAssistant={onAskAssistant} />
+        <ContactCentreHistory onAskAssistant={onAskAssistant} period={period} setPeriod={setPeriod} />
+        <AbandonmentTimingSection period={period} onAskAssistant={onAskAssistant} />
+        <BreakdownSection period={period} onAskAssistant={onAskAssistant} />
+        <QueuePcaSection period={period} onAskAssistant={onAskAssistant} />
       </div>
 
       <div className={activeTab === 'callbacks' ? '' : 'hidden'}>
@@ -1874,7 +2193,7 @@ export default function HistoricalAnalytics({ onAskAssistant }) {
           icon={PhoneCall}
           iconCls="text-indigo-600 dark:text-indigo-400"
         >
-          <CallbackAnalyticsPanel days={histDays} onAskAssistant={onAskAssistant} />
+          <CallbackAnalyticsPanel period={period} onAskAssistant={onAskAssistant} />
         </SectionCard>
       </div>
 

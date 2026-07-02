@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import time
 import uuid
@@ -21,6 +22,8 @@ import eventbridge_listener
 import theme_scan
 import disconnect_reasons
 import callback_analytics
+import contact_scan_utils
+import contact_stats
 import hours_of_operation
 from session_store import create_session_store
 
@@ -593,47 +596,150 @@ def metrics() -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Failed to fetch real-time metrics") from exc
 
 
-_MOCK_HISTORICAL = {
-    "period": "Last 30 days",
-    "data": [
-        {"date_key": "2026-04-08", "label": "8 Apr",  "CONTACTS_HANDLED": 4,  "AVG_HANDLE_TIME": 192, "CONTACTS_QUEUED": 6,  "AVG_AFTER_CONTACT_WORK_TIME": 45, "AVG_TALK_TIME": 132},
-        {"date_key": "2026-04-09", "label": "9 Apr",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 210, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 62, "AVG_TALK_TIME": 130},
-        {"date_key": "2026-04-10", "label": "10 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 178, "CONTACTS_QUEUED": 5,  "AVG_AFTER_CONTACT_WORK_TIME": 38, "AVG_TALK_TIME": 126},
-        {"date_key": "2026-04-14", "label": "14 Apr", "CONTACTS_HANDLED": 9,  "AVG_HANDLE_TIME": 245, "CONTACTS_QUEUED": 12, "AVG_AFTER_CONTACT_WORK_TIME": 71, "AVG_TALK_TIME": 154},
-        {"date_key": "2026-04-15", "label": "15 Apr", "CONTACTS_HANDLED": 12, "AVG_HANDLE_TIME": 198, "CONTACTS_QUEUED": 15, "AVG_AFTER_CONTACT_WORK_TIME": 55, "AVG_TALK_TIME": 127},
-        {"date_key": "2026-04-16", "label": "16 Apr", "CONTACTS_HANDLED": 8,  "AVG_HANDLE_TIME": 231, "CONTACTS_QUEUED": 11, "AVG_AFTER_CONTACT_WORK_TIME": 67, "AVG_TALK_TIME": 146},
-        {"date_key": "2026-04-17", "label": "17 Apr", "CONTACTS_HANDLED": 5,  "AVG_HANDLE_TIME": 163, "CONTACTS_QUEUED": 7,  "AVG_AFTER_CONTACT_WORK_TIME": 42, "AVG_TALK_TIME": 108},
-        {"date_key": "2026-04-22", "label": "22 Apr", "CONTACTS_HANDLED": 11, "AVG_HANDLE_TIME": 220, "CONTACTS_QUEUED": 14, "AVG_AFTER_CONTACT_WORK_TIME": 58, "AVG_TALK_TIME": 145},
-        {"date_key": "2026-04-23", "label": "23 Apr", "CONTACTS_HANDLED": 3,  "AVG_HANDLE_TIME": 108, "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 30, "AVG_TALK_TIME": 69},
-        {"date_key": "2026-04-24", "label": "24 Apr", "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 159, "CONTACTS_QUEUED": 9,  "AVG_AFTER_CONTACT_WORK_TIME": 48, "AVG_TALK_TIME": 98},
-        {"date_key": "2026-04-27", "label": "27 Apr", "CONTACTS_HANDLED": 1,  "AVG_HANDLE_TIME": 287, "CONTACTS_QUEUED": 3,  "AVG_AFTER_CONTACT_WORK_TIME": 90, "AVG_TALK_TIME": 175},
-        {"date_key": "2026-04-28", "label": "28 Apr", "CONTACTS_HANDLED": 0,  "AVG_HANDLE_TIME": 0,   "CONTACTS_QUEUED": 2,  "AVG_AFTER_CONTACT_WORK_TIME": 0,  "AVG_TALK_TIME": 0},
-        {"date_key": "2026-05-01", "label": "1 May",  "CONTACTS_HANDLED": 2,  "AVG_HANDLE_TIME": 87,  "CONTACTS_QUEUED": 4,  "AVG_AFTER_CONTACT_WORK_TIME": 25, "AVG_TALK_TIME": 55},
-        {"date_key": "2026-05-08", "label": "8 May",  "CONTACTS_HANDLED": 7,  "AVG_HANDLE_TIME": 158, "CONTACTS_QUEUED": 8,  "AVG_AFTER_CONTACT_WORK_TIME": 44, "AVG_TALK_TIME": 101},
-    ],
-    "abandoned": [
-        {"date_key": "2026-04-08", "label": "8 Apr",  "CONTACTS_ABANDONED": 1},
-        {"date_key": "2026-04-09", "label": "9 Apr",  "CONTACTS_ABANDONED": 2},
-        {"date_key": "2026-04-14", "label": "14 Apr", "CONTACTS_ABANDONED": 3},
-        {"date_key": "2026-04-15", "label": "15 Apr", "CONTACTS_ABANDONED": 1},
-        {"date_key": "2026-04-16", "label": "16 Apr", "CONTACTS_ABANDONED": 2},
-        {"date_key": "2026-04-22", "label": "22 Apr", "CONTACTS_ABANDONED": 4},
-        {"date_key": "2026-04-23", "label": "23 Apr", "CONTACTS_ABANDONED": 0},
-        {"date_key": "2026-04-24", "label": "24 Apr", "CONTACTS_ABANDONED": 1},
-        {"date_key": "2026-05-01", "label": "1 May",  "CONTACTS_ABANDONED": 0},
-        {"date_key": "2026-05-08", "label": "8 May",  "CONTACTS_ABANDONED": 1},
-    ],
-}
+# ── Reporting window resolution (shared by historical endpoints) ─────────────
+
+# GetMetricDataV2 retains data for "the previous 3 months" and rejects older
+# StartTimes with the same generic InvalidParameterException it uses for
+# too-long windows. 88 days is safe for every month-length combination, so
+# custom start dates older than that are rejected with a clear message
+# instead of surfacing as a silently empty chart.
+_METRIC_RETENTION_DAYS = 88
+
+
+def _resolve_history_window(
+    days: int, start_date: Optional[str], end_date: Optional[str],
+) -> Tuple[datetime, datetime, str]:
+    """Resolve a preset (`days` back from now) or custom (`start_date`/`end_date`,
+    inclusive YYYY-MM-DD) selection into (start_dt, end_dt, period_label)."""
+    now = datetime.now(timezone.utc)
+    if start_date or end_date:
+        if not (start_date and end_date):
+            raise HTTPException(status_code=400, detail="start_date and end_date must be provided together")
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_incl = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="start_date and end_date must be YYYY-MM-DD") from exc
+        # Inclusive end date → end of that day, clamped to now for open/future ranges.
+        end_dt = min(end_incl + timedelta(days=1), now)
+        if start_dt >= end_dt:
+            raise HTTPException(status_code=400, detail="start_date must be on or before end_date and not in the future")
+        if (end_dt - start_dt) > timedelta(days=90):
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 90 days")
+        if start_dt < now - timedelta(days=_METRIC_RETENTION_DAYS):
+            raise HTTPException(
+                status_code=400,
+                detail=f"start_date can be at most {_METRIC_RETENTION_DAYS} days ago — "
+                       "Amazon Connect retains historical metrics for about 3 months",
+            )
+        label = f"{start_dt.strftime('%-d %b %Y')} – {end_incl.strftime('%-d %b %Y')}"
+        return start_dt, end_dt, label
+    return now - timedelta(days=days), now, f"Last {days} days"
+
+
+# GetMetricDataV2 rejects DAY-interval requests spanning more than ~35 days
+# ("The time range specified exceeds the specified limit"), so longer windows
+# are split into chunks and the per-day buckets merged.
+_METRIC_WINDOW_CHUNK_DAYS = 35
+
+
+def _window_chunks(start_dt: datetime, end_dt: datetime) -> List[Tuple[datetime, datetime]]:
+    chunks: List[Tuple[datetime, datetime]] = []
+    cur = start_dt
+    while cur < end_dt:
+        nxt = min(cur + timedelta(days=_METRIC_WINDOW_CHUNK_DAYS), end_dt)
+        chunks.append((cur, nxt))
+        cur = nxt
+    return chunks
+
+
+# ── Mock historical data generation ──────────────────────────────────────────
+# Generated for whatever window is requested (this is what makes the period
+# selector visibly work in mock mode). Values are seeded per calendar day, so
+# the same date always reports the same numbers and overlapping windows agree.
+
+def _iter_window_days(start_dt: datetime, end_dt: datetime):
+    day = start_dt.date()
+    last = (end_dt - timedelta(seconds=1)).date()
+    while day <= last:
+        yield day
+        day += timedelta(days=1)
+
+
+def _mock_day_stats(day) -> Dict[str, int]:
+    """Deterministic per-day mock volumes — one source of truth so the
+    historical, abandonment and breakdown mocks all agree on a given date."""
+    rng = random.Random(day.toordinal())
+    weekend = day.weekday() >= 5
+    handled = max(0, round(rng.randint(3, 12) * (0.35 if weekend else 1.0)) + rng.randint(-1, 1))
+    avg_ht = rng.randint(95, 290) if handled else 0
+    avg_talk = round(avg_ht * rng.uniform(0.55, 0.72)) if handled else 0
+    avg_acw = round(avg_ht * rng.uniform(0.20, 0.32)) if handled else 0
+    aband = max(0, round(handled * rng.uniform(0.05, 0.20)) + (1 if rng.random() < 0.2 else 0))
+    queued_extra = rng.randint(0, 2)
+    return {"handled": handled, "avg_ht": avg_ht, "avg_talk": avg_talk,
+            "avg_acw": avg_acw, "aband": aband, "queued_extra": queued_extra}
+
+
+def _gen_mock_historical(start_dt: datetime, end_dt: datetime, period_label: str) -> Dict[str, Any]:
+    data, abandoned = [], []
+    for day in _iter_window_days(start_dt, end_dt):
+        s = _mock_day_stats(day)
+        handled, avg_ht, avg_talk, avg_acw = s["handled"], s["avg_ht"], s["avg_talk"], s["avg_acw"]
+        dk, lbl = day.strftime("%Y-%m-%d"), day.strftime("%-d %b")
+        data.append({
+            "date_key": dk,
+            "label": lbl,
+            "CONTACTS_HANDLED": handled,
+            "AVG_HANDLE_TIME": avg_ht,
+            "TOTAL_HANDLE_TIME_MIN": round(avg_ht * handled / 60, 2) if handled else 0,
+            "AVG_TALK_TIME": avg_talk,
+            "TOTAL_TALK_TIME_MIN": round(avg_talk * handled / 60, 2) if handled else 0,
+            "CONTACTS_QUEUED": handled + s["aband"] + s["queued_extra"],
+            "AVG_AFTER_CONTACT_WORK_TIME": avg_acw,
+            "TOTAL_ACW_TIME_MIN": round(avg_acw * handled / 60, 2) if handled else 0,
+        })
+        abandoned.append({"date_key": dk, "label": lbl, "CONTACTS_ABANDONED": s["aband"]})
+    return {"period": period_label, "data": data, "abandoned": abandoned}
+
+
+# Short waits dominate real abandonment curves — weights per wait bucket.
+_ABANDON_BUCKET_WEIGHTS = [0.28, 0.20, 0.15, 0.10, 0.12, 0.09, 0.06]
+
+
+def _gen_mock_abandonment(start_dt: datetime, end_dt: datetime) -> Dict[str, Any]:
+    """Window-aware mock for /abandonment-buckets — per-day abandon counts
+    match _gen_mock_historical exactly (same _mock_day_stats seed)."""
+    totals = {k: 0 for k in contact_stats.BUCKET_KEYS}
+    daily = []
+    scanned = 0
+    for day in _iter_window_days(start_dt, end_dt):
+        s = _mock_day_stats(day)
+        scanned += s["handled"] + s["aband"]
+        rng = random.Random(day.toordinal() * 7 + 1)
+        row = {k: 0 for k in contact_stats.BUCKET_KEYS}
+        for _ in range(s["aband"]):
+            r = rng.random()
+            acc = 0.0
+            chosen = contact_stats.BUCKET_KEYS[-1]
+            for key, w in zip(contact_stats.BUCKET_KEYS, _ABANDON_BUCKET_WEIGHTS):
+                acc += w
+                if r <= acc:
+                    chosen = key
+                    break
+            row[chosen] += 1
+            totals[chosen] += 1
+        daily.append({"date": day.strftime("%Y-%m-%d"), **row})
+    return {
+        "buckets": [{**b, "count": totals[b["key"]]} for b in contact_stats.ABANDON_BUCKETS],
+        "daily": daily,
+        "total_abandoned": sum(totals.values()),
+        "contacts_scanned": scanned,
+        "truncated": False,
+    }
+
 
 # ── Mock per-queue and per-agent breakdown data ──────────────────────────────
-
-_MOCK_DATES = [
-    ("2026-04-08", "8 Apr"), ("2026-04-09", "9 Apr"), ("2026-04-10", "10 Apr"),
-    ("2026-04-14", "14 Apr"), ("2026-04-15", "15 Apr"), ("2026-04-16", "16 Apr"),
-    ("2026-04-17", "17 Apr"), ("2026-04-22", "22 Apr"), ("2026-04-23", "23 Apr"),
-    ("2026-04-24", "24 Apr"), ("2026-04-27", "27 Apr"), ("2026-04-28", "28 Apr"),
-    ("2026-05-01", "1 May"), ("2026-05-08", "8 May"),
-]
 
 _MOCK_QUEUES = [
     {"name": "Technical Support", "splits": [0.35, 0.25, 0.22, 0.18],
@@ -660,24 +766,24 @@ _MOCK_AGENTS = [
 ]
 
 
-def _build_mock_breakdown(entities: List[Dict], total_row: Dict, days: int) -> Dict:
-    """Build daily per-entity breakdown from mock totals, scaled to the requested period."""
-    import random
-    import hashlib
-    scale = max(0.05, days / 30.0)
-    rng = random.Random(days * 7 + len(entities))
+def _gen_mock_breakdown(entities: List[Dict], start_dt: datetime, end_dt: datetime) -> Dict:
+    """Build daily per-entity breakdown across the requested window. Seeded per
+    calendar day (like _gen_mock_historical) so windows agree where they overlap."""
+    daily: List[Dict] = []
+    totals: List[Dict] = []
 
-    daily = []
-    totals = []
-
-    for dk, lbl in _MOCK_DATES:
-        row: Dict = {"date_key": dk, "label": lbl}
+    for day in _iter_window_days(start_dt, end_dt):
+        rng = random.Random(day.toordinal() * 31 + len(entities))
+        weekend = day.weekday() >= 5
+        row: Dict = {"date_key": day.strftime("%Y-%m-%d"), "label": day.strftime("%-d %b")}
         for idx, ent in enumerate(entities):
-            n = int(round((total_row[idx] * ent["splits"][idx % len(ent["splits"])]) * scale
-                          * (0.7 + rng.random() * 0.6)))
+            split = ent["splits"][idx % len(ent["splits"])]
+            base = rng.randint(8, 18) * (0.35 if weekend else 1.0)
+            n = max(0, round(base * split * (0.7 + rng.random() * 0.6)))
             ht = ent["avg_ht"][idx % len(ent["avg_ht"])] + rng.randint(-20, 20)
             acw = ent["avg_acw"][idx % len(ent["avg_acw"])] + rng.randint(-8, 8)
-            ab = int(round(n * ent["aband_rate"][idx % len(ent["aband_rate"])]))
+            rate = ent["aband_rate"][idx % len(ent["aband_rate"])]
+            ab = round(n * rate) + (1 if rate > 0 and n > 0 and rng.random() < 0.25 else 0)
             row[ent["name"]] = {
                 "CONTACTS_HANDLED": n,
                 "CONTACTS_ABANDONED": ab,
@@ -686,45 +792,45 @@ def _build_mock_breakdown(entities: List[Dict], total_row: Dict, days: int) -> D
             }
         daily.append(row)
 
-    rng2 = random.Random(days * 13 + len(entities))
     for idx, ent in enumerate(entities):
-        total_handled = sum(daily[d][ent["name"]]["CONTACTS_HANDLED"] for d in range(len(daily)))
-        total_aband   = sum(daily[d][ent["name"]]["CONTACTS_ABANDONED"] for d in range(len(daily)))
-        avg_ht  = ent["avg_ht"][idx % len(ent["avg_ht"])] + rng2.randint(-10, 10)
-        avg_acw = ent["avg_acw"][idx % len(ent["avg_acw"])] + rng2.randint(-5, 5)
+        rng2 = random.Random(idx * 97 + len(daily))
+        total_handled = sum(d[ent["name"]]["CONTACTS_HANDLED"] for d in daily)
+        total_aband   = sum(d[ent["name"]]["CONTACTS_ABANDONED"] for d in daily)
         totals.append({
             "entity": ent["name"],
             "CONTACTS_HANDLED": total_handled,
             "CONTACTS_ABANDONED": total_aband,
-            "AVG_HANDLE_TIME": avg_ht,
-            "AVG_AFTER_CONTACT_WORK_TIME": avg_acw,
+            "AVG_HANDLE_TIME": ent["avg_ht"][idx % len(ent["avg_ht"])] + rng2.randint(-10, 10),
+            "AVG_AFTER_CONTACT_WORK_TIME": ent["avg_acw"][idx % len(ent["avg_acw"])] + rng2.randint(-5, 5),
         })
 
     return {"daily": daily, "totals": totals, "entities": [e["name"] for e in entities]}
 
 
-_MOCK_HANDLED_TOTALS_PER_QUEUE = [12, 9, 8, 7]
-_MOCK_HANDLED_TOTALS_PER_AGENT = [11, 9, 8, 7, 7]
-
-
 @app.get("/historical-metrics")
-def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, Any]:
+def historical_metrics(
+    days: int = Query(default=30, ge=1, le=90),
+    start_date: Optional[str] = Query(default=None, description="Custom range start, YYYY-MM-DD (inclusive)"),
+    end_date: Optional[str] = Query(default=None, description="Custom range end, YYYY-MM-DD (inclusive)"),
+) -> Dict[str, Any]:
+    start_dt, end_dt, period_label = _resolve_history_window(days, start_date, end_date)
     if _is_mock():
-        return {"mock": True, "period": _MOCK_HISTORICAL["period"],
-                "data": _MOCK_HISTORICAL["data"], "abandoned": _MOCK_HISTORICAL["abandoned"]}
+        return {"mock": True, **_gen_mock_historical(start_dt, end_dt, period_label)}
     try:
-        now = datetime.now(timezone.utc)
-        start = (now - timedelta(days=days)).isoformat()
-        end = now.isoformat()
-
         def _invoke_day(metrics_str: str) -> List[Dict[str, Any]]:
-            return _invoke_tool("get_historical_metrics", [
-                {"name": "start_time", "type": "string", "value": start},
-                {"name": "end_time",   "type": "string", "value": end},
-                {"name": "group_by",   "type": "string", "value": "QUEUE"},
-                {"name": "interval",   "type": "string", "value": "DAY"},
-                {"name": "metrics",    "type": "string", "value": metrics_str},
-            ]).get("results", [])
+            # One call per ≤35-day chunk — GetMetricDataV2 rejects longer
+            # DAY-interval windows. Daily buckets don't overlap across chunks,
+            # so concatenation is safe.
+            results: List[Dict[str, Any]] = []
+            for c_start, c_end in _window_chunks(start_dt, end_dt):
+                results.extend(_invoke_tool("get_historical_metrics", [
+                    {"name": "start_time", "type": "string", "value": c_start.isoformat()},
+                    {"name": "end_time",   "type": "string", "value": c_end.isoformat()},
+                    {"name": "group_by",   "type": "string", "value": "QUEUE"},
+                    {"name": "interval",   "type": "string", "value": "DAY"},
+                    {"name": "metrics",    "type": "string", "value": metrics_str},
+                ]).get("results", []))
+            return results
 
         def _parse_dt(iso_str):
             try:
@@ -810,7 +916,7 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
 
         return {
             "mock": False,
-            "period": f"Last {days} days",
+            "period": period_label,
             "data": chart_data,
             "abandoned": abandoned_chart,
         }
@@ -822,31 +928,62 @@ def historical_metrics(days: int = Query(default=30, ge=1, le=90)) -> Dict[str, 
 def historical_breakdown(
     days: int = Query(default=30, ge=1, le=90),
     group_by: str = Query(default="QUEUE"),
+    start_date: Optional[str] = Query(default=None, description="Custom range start, YYYY-MM-DD (inclusive)"),
+    end_date: Optional[str] = Query(default=None, description="Custom range end, YYYY-MM-DD (inclusive)"),
 ) -> Dict[str, Any]:
     """Return per-queue or per-agent daily breakdown for the 4 key metrics."""
     group_by = group_by.upper()
     if group_by not in ("QUEUE", "AGENT"):
         raise HTTPException(status_code=400, detail="group_by must be QUEUE or AGENT")
 
+    start_dt, end_dt, period_label = _resolve_history_window(days, start_date, end_date)
+
     if _is_mock():
         entities = _MOCK_QUEUES if group_by == "QUEUE" else _MOCK_AGENTS
-        totals_row = _MOCK_HANDLED_TOTALS_PER_QUEUE if group_by == "QUEUE" else _MOCK_HANDLED_TOTALS_PER_AGENT
-        bd = _build_mock_breakdown(entities, totals_row, days)
-        return {"mock": True, "group_by": group_by, "period": f"Last {days} days", **bd}
+        bd = _gen_mock_breakdown(entities, start_dt, end_dt)
+        return {"mock": True, "group_by": group_by, "period": period_label, **bd}
 
     try:
-        now = datetime.now(timezone.utc)
-        start = (now - timedelta(days=days)).isoformat()
-        end = now.isoformat()
+        # One call per ≤35-day chunk (GetMetricDataV2 window limit), then merge
+        # per-entity: timelines concatenate (daily buckets never overlap across
+        # chunks); totals sum, with averages weighted by contacts handled.
+        merged: Dict[str, Dict[str, Any]] = {}
+        for c_start, c_end in _window_chunks(start_dt, end_dt):
+            result = _invoke_tool("get_historical_metrics", [
+                {"name": "start_time", "type": "string", "value": c_start.isoformat()},
+                {"name": "end_time",   "type": "string", "value": c_end.isoformat()},
+                {"name": "group_by",   "type": "string", "value": group_by},
+                {"name": "interval",   "type": "string", "value": "DAY"},
+                {"name": "metrics",    "type": "string",
+                 "value": "CONTACTS_HANDLED,CONTACTS_ABANDONED,AVG_HANDLE_TIME,AVG_AFTER_CONTACT_WORK_TIME"},
+            ])
+            for row in result.get("dimension_results", []):
+                ent_name = row.get("display_name") or row.get("dimension_value", "Unknown")
+                m = merged.setdefault(ent_name, {
+                    "display_name": ent_name, "timeline": [],
+                    "_handled": 0, "_abandoned": 0, "_ht_weighted": 0.0, "_acw_weighted": 0.0,
+                })
+                m["timeline"].extend(row.get("timeline", []))
+                t = row.get("totals", {})
+                handled = int(t.get("CONTACTS_HANDLED") or 0)
+                m["_handled"] += handled
+                m["_abandoned"] += int(t.get("CONTACTS_ABANDONED") or 0)
+                m["_ht_weighted"] += float(t.get("AVG_HANDLE_TIME") or 0) * handled
+                m["_acw_weighted"] += float(t.get("AVG_AFTER_CONTACT_WORK_TIME") or 0) * handled
 
-        result = _invoke_tool("get_historical_metrics", [
-            {"name": "start_time", "type": "string", "value": start},
-            {"name": "end_time",   "type": "string", "value": end},
-            {"name": "group_by",   "type": "string", "value": group_by},
-            {"name": "interval",   "type": "string", "value": "DAY"},
-            {"name": "metrics",    "type": "string",
-             "value": "CONTACTS_HANDLED,CONTACTS_ABANDONED,AVG_HANDLE_TIME,AVG_AFTER_CONTACT_WORK_TIME"},
-        ])
+        dimension_results = [
+            {
+                "display_name": m["display_name"],
+                "timeline": m["timeline"],
+                "totals": {
+                    "CONTACTS_HANDLED": m["_handled"],
+                    "CONTACTS_ABANDONED": m["_abandoned"],
+                    "AVG_HANDLE_TIME": (m["_ht_weighted"] / m["_handled"]) if m["_handled"] else 0,
+                    "AVG_AFTER_CONTACT_WORK_TIME": (m["_acw_weighted"] / m["_handled"]) if m["_handled"] else 0,
+                },
+            }
+            for m in merged.values()
+        ]
 
         def _parse_dt(iso_str):
             try:
@@ -862,7 +999,6 @@ def historical_breakdown(
             dt = _parse_dt(iso_str)
             return dt.strftime("%Y-%m-%d") if dt else str(iso_str)[:10]
 
-        dimension_results = result.get("dimension_results", [])
         if not dimension_results:
             raise HTTPException(status_code=204, detail="No breakdown data returned from Connect")
 
@@ -911,7 +1047,7 @@ def historical_breakdown(
         return {
             "mock": False,
             "group_by": group_by,
-            "period": f"Last {days} days",
+            "period": period_label,
             "entities": entities_list,
             "daily": daily,
             "totals": totals,
@@ -1121,6 +1257,72 @@ async def callback_analytics_stream():
 def callback_analytics_status() -> Dict[str, Any]:
     """Snapshot of the current callback-analytics scan (for polling fallback / page reload)."""
     return {**callback_analytics.get_state(), "mock_mode": _is_mock()}
+
+
+# ── Abandonment wait-time buckets & callback snapshot (contact-record stats) ────
+
+@app.get("/abandonment-buckets")
+async def abandonment_buckets_endpoint(
+    days: int = Query(default=30, ge=1, le=90),
+    start_date: Optional[str] = Query(default=None, description="Custom range start, YYYY-MM-DD (inclusive)"),
+    end_date: Optional[str] = Query(default=None, description="Custom range end, YYYY-MM-DD (inclusive)"),
+) -> Dict[str, Any]:
+    """Calls abandoned in queue, bucketed by wait time (≤10s…>2m), from
+    contact records. The realtime page calls this with start_date=end_date=
+    today for a "today so far" view. Window clamps to 55 days
+    (search_contacts limit) — the response says when it did."""
+    start_dt, end_dt, period_label = _resolve_history_window(days, start_date, end_date)
+
+    if _is_mock():
+        window = contact_scan_utils.clamp_search_window(start_dt.isoformat(), end_dt.isoformat())
+        gen = _gen_mock_abandonment(
+            contact_scan_utils.parse_dt(window["start"]), contact_scan_utils.parse_dt(window["end"]),
+        )
+        return {"mock": True, "period": period_label, **gen, "window": window}
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        raise HTTPException(status_code=400, detail="CONNECT_INSTANCE_ID is not configured")
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    try:
+        result = await contact_stats.abandonment_buckets(
+            instance_id, region, start_dt.isoformat(), end_dt.isoformat(),
+        )
+        return {"mock": False, "period": period_label, **result}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.exception("Abandonment-bucket stats failed")
+        raise HTTPException(status_code=502, detail="Failed to compute abandonment buckets") from exc
+
+
+_MOCK_CALLBACK_TODAY = {
+    "requested": 9, "waiting": 2, "connected": 1,
+    "succeeded": 4, "customer_failed": 1, "abandoned": 1,
+    "retried": 2, "attempts": 12, "truncated": False,
+}
+
+
+@app.get("/callback-metrics/today")
+async def callback_metrics_today() -> Dict[str, Any]:
+    """Live snapshot of today's callbacks: waiting in queue now, connected to
+    an agent now, plus today's finished outcomes (succeeded / failed at the
+    customer leg / abandoned) and retry counts."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if _is_mock():
+        return {"mock": True, "as_of": now.isoformat(), **_MOCK_CALLBACK_TODAY}
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        raise HTTPException(status_code=400, detail="CONNECT_INSTANCE_ID is not configured")
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    try:
+        result = await contact_stats.callback_snapshot(
+            instance_id, region, start.isoformat(), now.isoformat(),
+        )
+        return {"mock": False, "as_of": now.isoformat(), **result}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.exception("Callback snapshot failed")
+        raise HTTPException(status_code=502, detail="Failed to compute callback snapshot") from exc
 
 
 @app.get("/agent-states")
