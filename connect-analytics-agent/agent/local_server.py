@@ -20,6 +20,7 @@ import startup_scan
 import eventbridge_listener
 import theme_scan
 import disconnect_reasons
+import callback_analytics
 import hours_of_operation
 from session_store import create_session_store
 
@@ -1053,6 +1054,73 @@ async def disconnect_reasons_stream():
 def disconnect_reasons_status() -> Dict[str, Any]:
     """Snapshot of the current disconnect-reason scan (for polling fallback / page reload)."""
     return {**disconnect_reasons.get_state(), "mock_mode": _is_mock()}
+
+
+# ── Callback analytics ──────────────────────────────────────────────────────────
+
+class CallbackScanRequest(BaseModel):
+    start: str = Field(..., description="ISO 8601 start of the date range")
+    end: str = Field(..., description="ISO 8601 end of the date range")
+
+
+@app.post("/callback-analytics/scan")
+async def callback_analytics_scan(req: CallbackScanRequest) -> Dict[str, Any]:
+    """Kick off a callback-analytics scan for the given date range. Only one scan
+    runs at a time — if one is already running, returns its current state instead
+    of starting a second one."""
+    if callback_analytics.is_running():
+        return {"started": False, **callback_analytics.get_state()}
+
+    if _is_mock():
+        callback_analytics.start_mock_scan(req.start, req.end)
+        return {"started": True, **callback_analytics.get_state()}
+
+    instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        raise HTTPException(status_code=400, detail="CONNECT_INSTANCE_ID is not configured")
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    started = callback_analytics.start_scan(req.start, req.end, instance_id, region)
+    return {"started": started, **callback_analytics.get_state()}
+
+
+async def _callback_analytics_sse_generator(q: asyncio.Queue) -> AsyncGenerator[str, None]:
+    callback_analytics.register_queue(q)
+    try:
+        state = callback_analytics.get_state()
+        if state["complete"] and not state["running"]:
+            yield f"data: {json.dumps({'type': 'already_complete', 'ts': datetime.now(timezone.utc).isoformat(), 'result': state['result']})}\n\n"
+            return
+        while True:
+            try:
+                msg = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield msg
+                if '"scan_complete"' in msg or '"scan_error"' in msg:
+                    break
+            except asyncio.TimeoutError:
+                yield f": heartbeat {datetime.now(timezone.utc).isoformat()}\n\n"
+    finally:
+        callback_analytics.unregister_queue(q)
+
+
+@app.get("/callback-analytics/stream")
+async def callback_analytics_stream():
+    """SSE stream of callback-analytics scan progress events."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    return StreamingResponse(
+        _callback_analytics_sse_generator(q),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/callback-analytics/status")
+def callback_analytics_status() -> Dict[str, Any]:
+    """Snapshot of the current callback-analytics scan (for polling fallback / page reload)."""
+    return {**callback_analytics.get_state(), "mock_mode": _is_mock()}
 
 
 @app.get("/agent-states")
