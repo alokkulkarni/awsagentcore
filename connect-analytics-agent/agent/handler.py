@@ -1,21 +1,25 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Dict
 
 from agent_core import ConnectAnalyticsAgent
 
-# Restrict CORS to the configured frontend origin; fall back to deny-all in production
+# Restrict CORS to the configured frontend origin; when unset, omit the header
+# entirely (an explicit "null" value is spoofable by sandboxed iframes).
 _ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "")
 CORS_HEADERS = {
-    "Access-Control-Allow-Origin": _ALLOWED_ORIGIN if _ALLOWED_ORIGIN else "null",
+    **({"Access-Control-Allow-Origin": _ALLOWED_ORIGIN} if _ALLOWED_ORIGIN else {}),
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "OPTIONS,GET,POST",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
 }
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def _response(status_code: int, body: Dict | str, content_type: str = "application/json") -> Dict:
@@ -93,9 +97,13 @@ def lambda_handler(event, _context):
             body = base64.b64decode(body).decode("utf-8")
         payload = json.loads(body)
         message = payload.get("message")
-        session_id = payload.get("session_id") or str(uuid.uuid4())
-        if not message:
+        session_id = str(payload.get("session_id") or "")
+        if not _SESSION_ID_RE.match(session_id):
+            session_id = str(uuid.uuid4())
+        if not message or not isinstance(message, str):
             return _response(400, {"error": "message is required", "session_id": session_id})
+        if len(message) > 4000:
+            return _response(400, {"error": "message exceeds maximum length of 4000 characters", "session_id": session_id})
 
         response_text = agent.query(message, session_id=session_id)
         stream_flag = str((event.get("queryStringParameters") or {}).get("stream", "false")).lower() == "true"

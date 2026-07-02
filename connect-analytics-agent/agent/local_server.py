@@ -326,7 +326,7 @@ async def _startup_check():
                         LOGGER.info("EventBridge queue URL loaded from state file: %s", sp)
                         break
             except (FileNotFoundError, json.JSONDecodeError):
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
 
     if not _is_mock() and bot_queue_url:
         eventbridge_listener.start(queue_url=bot_queue_url, region=region)
@@ -1609,7 +1609,7 @@ def _get_live_contacts_direct() -> list:
                                 id_info = u_resp.get("User", {}).get("IdentityInfo", {})
                                 agent_name = f"{id_info.get('FirstName','')} {id_info.get('LastName','')}".strip()
                             except Exception:
-                                pass
+                                LOGGER.debug('Suppressed exception', exc_info=True)
                             queue_name = queue_ref.get("Name", "") or queue_ref.get("Id", "")
                             channel = c.get("Channel", "VOICE")
                             state   = (c.get("AgentContactState") or "CONNECTED_TO_AGENT").upper()
@@ -2280,7 +2280,7 @@ def list_contact_flows() -> Dict[str, Any]:
                 for lg in page.get("logGroups", []):
                     log_groups.add(lg["logGroupName"].lower())
         except Exception:  # pylint: disable=broad-except
-            pass
+            LOGGER.debug('Suppressed exception', exc_info=True)
 
         # 3. Annotate each flow with whether logging is enabled.
         # Matching strategy: normalise both sides; also try token overlap because

@@ -241,7 +241,7 @@ def _snapshot_active() -> List[Dict[str, Any]]:
                 if now - epoch > _STALE_CONTACT_SECONDS:
                     continue
             except Exception:  # pylint: disable=broad-except
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
             public = {k: v for k, v in c.items() if not k.startswith("_")}
             public["contactTerminal"] = False
             public["contactEndedAt"] = None

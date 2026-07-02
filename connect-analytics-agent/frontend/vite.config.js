@@ -8,9 +8,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      host: '0.0.0.0',
+      // Listens on localhost by default; the Docker container overrides with
+      // `--host 0.0.0.0` on the CLI (compose maps the port to 127.0.0.1 on the host).
+      host: 'localhost',
       port: 5274,
-      allowedHosts: true,
+      // Explicit allow-list keeps Vite's Host-header (DNS-rebinding) protection on
+      allowedHosts: ['localhost', '127.0.0.1'],
       proxy: {
         '/api': {
           target: proxyTarget,

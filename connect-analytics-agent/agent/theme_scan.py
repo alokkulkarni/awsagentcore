@@ -68,7 +68,7 @@ def unregister_queue(q: asyncio.Queue) -> None:
     try:
         _sse_queues.remove(q)
     except ValueError:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
 
 def is_running() -> bool:

@@ -152,7 +152,7 @@ def lambda_handler(event, _context):
         )
 
     except (ClientError, BotoCoreError) as exc:
-        LOGGER.exception("AWS error during force logout for user_id=%s", event)
+        LOGGER.exception("AWS error during force logout")
         return build_error_response(event, f"AWS error during force logout: {exc}", status_code=502)
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.exception("Unexpected error during force logout")

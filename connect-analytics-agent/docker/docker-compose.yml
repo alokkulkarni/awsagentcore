@@ -7,7 +7,7 @@ services:
     volumes:
       - ../agent:/app
       - ../tools:/app/tools          # tools are imported directly in-process (no Lambda needed)
-      - ${HOME}/.aws:/root/.aws:ro   # mount local AWS credentials/config read-only
+      - ${HOME}/.aws:/home/appuser/.aws:ro   # mount local AWS credentials/config read-only
       - agent_data:/app/data         # persistent scan results (shared between agent instances)
       - ../.deploy-state.json:/app/deploy-state.json:ro   # read queue URL set by setup-eventbridge
     environment:
@@ -24,7 +24,8 @@ services:
       AGENTCORE_GATEWAY_ENDPOINT: ${AGENTCORE_GATEWAY_ENDPOINT:-}
       DATA_DIR: /app/data
     ports:
-      - "8100:8100"
+      # Loopback only — the agent API is unauthenticated and must not be LAN-reachable
+      - "127.0.0.1:8100:8100"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
       interval: 20s
@@ -48,7 +49,7 @@ services:
       # VITE_CONNECT_ALIAS is read by useConnectStreams to build the CCP iframe URL.
       VITE_CONNECT_ALIAS: ${CONNECT_ALIAS:-}
     ports:
-      - "5274:5274"
+      - "127.0.0.1:5274:5274"
     depends_on:
       - agent
 

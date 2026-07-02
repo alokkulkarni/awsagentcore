@@ -250,7 +250,7 @@ class DynamoDBSessionStore(SessionStore):
             try:
                 self._s3.delete_object(Bucket=self._bucket, Key=item["messagesS3Key"])
             except Exception:  # pylint: disable=broad-except
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
         self._table.delete_item(Key={"id": session_id})
 
     def delete_all(self) -> None:

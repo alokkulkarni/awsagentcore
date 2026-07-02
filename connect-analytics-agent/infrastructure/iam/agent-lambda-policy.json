@@ -24,13 +24,17 @@
       "Action": [
         "lambda:InvokeFunction"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:lambda:*:*:function:connect-analytics-*"
     },
     {
       "Sid": "CloudWatchLogs",
       "Effect": "Allow",
       "Action": [
-        "logs:*"
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
       ],
       "Resource": "*"
     }

@@ -1,0 +1,22 @@
+# Deployment state — contains real AWS account/instance identifiers
+.deploy-state.json
+*deploy-state.json
+
+# Environment files (only .env.example is committed)
+.env
+.env.*
+!.env.example
+frontend/.env.production
+frontend/.env.local
+
+# Build artifacts
+.build/
+frontend/dist/
+frontend/node_modules/
+node_modules/
+__pycache__/
+*.pyc
+
+# Local data
+agent/data/
+*.db

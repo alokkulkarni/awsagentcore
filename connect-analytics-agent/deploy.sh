@@ -27,6 +27,10 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 CONNECT_INSTANCE_ID="${CONNECT_INSTANCE_ID:-}"
 BEDROCK_MODEL_ID="${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5}"
 STACK_SUFFIX="${STACK_SUFFIX:-$(date +%Y%m%d)}"
+# API authentication mode: "cognito" (default) attaches a Cognito user-pool
+# authorizer to /api/query and /api/metrics. Set API_AUTH=none to deploy an
+# unauthenticated demo API (NOT recommended: exposes Connect data and Bedrock spend).
+API_AUTH="${API_AUTH:-cognito}"
 
 # Derived names
 LAMBDA_ROLE_NAME="${PROJECT_NAME}-lambda-tools-role"
@@ -565,9 +569,32 @@ configure_api_method() {
   local resource_id="$2"
   local http_method="$3"
   local lambda_arn="$4"
+  local authorizer_id="${5:-}"
 
-  aws apigateway put-method --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" --authorization-type NONE >/dev/null 2>&1 || true
+  if [[ -n "$authorizer_id" ]]; then
+    aws apigateway put-method --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" --authorization-type COGNITO_USER_POOLS --authorizer-id "$authorizer_id" >/dev/null 2>&1 || true
+    # put-method is a no-op on redeploys over an existing method; patch to enforce auth
+    aws apigateway update-method --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" \
+      --patch-operations "op=replace,path=/authorizationType,value=COGNITO_USER_POOLS" "op=replace,path=/authorizerId,value=$authorizer_id" >/dev/null 2>&1 || true
+  else
+    aws apigateway put-method --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" --authorization-type NONE >/dev/null 2>&1 || true
+    aws apigateway update-method --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" \
+      --patch-operations "op=replace,path=/authorizationType,value=NONE" >/dev/null 2>&1 || true
+  fi
   aws apigateway put-integration --rest-api-id "$rest_api_id" --resource-id "$resource_id" --http-method "$http_method" --type AWS_PROXY --integration-http-method POST --uri "arn:aws:apigateway:${AWS_REGION}:lambda:path/2015-03-31/functions/${lambda_arn}/invocations" >/dev/null
+}
+
+ensure_cognito_authorizer() {
+  local rest_api_id="$1"
+  local user_pool_id="$2"
+  local authorizer_name="${PROJECT_NAME}-cognito-${STACK_SUFFIX}"
+  local pool_arn="arn:aws:cognito-idp:${AWS_REGION}:${ACCOUNT_ID}:userpool/${user_pool_id}"
+  local authorizer_id
+  authorizer_id="$(aws apigateway get-authorizers --rest-api-id "$rest_api_id" --query "items[?name=='$authorizer_name'].id | [0]" --output text 2>/dev/null)"
+  if [[ -z "$authorizer_id" || "$authorizer_id" == "None" ]]; then
+    authorizer_id="$(aws apigateway create-authorizer --rest-api-id "$rest_api_id" --name "$authorizer_name" --type COGNITO_USER_POOLS --provider-arns "$pool_arn" --identity-source 'method.request.header.Authorization' --query 'id' --output text)"
+  fi
+  echo "$authorizer_id"
 }
 
 configure_options_method() {
@@ -597,9 +624,24 @@ deploy_api_gateway() {
   health_id="$(ensure_api_resource "$rest_api_id" "$api_id" "health" "/api/health")"
   metrics_id="$(ensure_api_resource "$rest_api_id" "$api_id" "metrics" "/api/metrics")"
 
-  configure_api_method "$rest_api_id" "$query_id" POST "$lambda_arn"
+  local authorizer_id=""
+  if [[ "$API_AUTH" == "cognito" ]]; then
+    local user_pool_id
+    user_pool_id="$(state_get '.cognito_user_pool_id')"
+    if [[ -n "$user_pool_id" ]]; then
+      authorizer_id="$(ensure_cognito_authorizer "$rest_api_id" "$user_pool_id")"
+      log "Cognito authorizer $authorizer_id attached to /api/query and /api/metrics"
+    else
+      warn "API_AUTH=cognito but no Cognito user pool in state; deploying WITHOUT auth."
+    fi
+  else
+    warn "API_AUTH=$API_AUTH — API Gateway methods are PUBLIC (no authentication)."
+  fi
+
+  # /api/health stays open for monitoring; query and metrics require auth when available
+  configure_api_method "$rest_api_id" "$query_id" POST "$lambda_arn" "$authorizer_id"
   configure_api_method "$rest_api_id" "$health_id" GET "$lambda_arn"
-  configure_api_method "$rest_api_id" "$metrics_id" GET "$lambda_arn"
+  configure_api_method "$rest_api_id" "$metrics_id" GET "$lambda_arn" "$authorizer_id"
   configure_options_method "$rest_api_id" "$query_id"
   configure_options_method "$rest_api_id" "$health_id"
   configure_options_method "$rest_api_id" "$metrics_id"
@@ -622,12 +664,15 @@ deploy_cognito() {
 
   user_pool_id="$(aws cognito-idp list-user-pools --max-results 60 --query "UserPools[?Name=='$pool_name'].Id | [0]" --output text)"
   if [[ -z "$user_pool_id" || "$user_pool_id" == "None" ]]; then
-    user_pool_id="$(aws cognito-idp create-user-pool --pool-name "$pool_name" --auto-verified-attributes email --username-attributes email --query 'UserPool.Id' --output text)"
+    user_pool_id="$(aws cognito-idp create-user-pool --pool-name "$pool_name" --auto-verified-attributes email --username-attributes email \
+      --policies 'PasswordPolicy={MinimumLength=12,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=true}' \
+      --query 'UserPool.Id' --output text)"
   fi
 
   client_id="$(aws cognito-idp list-user-pool-clients --user-pool-id "$user_pool_id" --max-results 60 --query "UserPoolClients[?ClientName=='$client_name'].ClientId | [0]" --output text)"
   if [[ -z "$client_id" || "$client_id" == "None" ]]; then
-    client_id="$(aws cognito-idp create-user-pool-client --user-pool-id "$user_pool_id" --client-name "$client_name" --generate-secret false --explicit-auth-flows ALLOW_USER_PASSWORD_AUTH ALLOW_REFRESH_TOKEN_AUTH ALLOW_USER_SRP_AUTH --query 'UserPoolClient.ClientId' --output text)"
+    # SRP only — ALLOW_USER_PASSWORD_AUTH sends raw credentials and is easier to credential-stuff
+    client_id="$(aws cognito-idp create-user-pool-client --user-pool-id "$user_pool_id" --client-name "$client_name" --generate-secret false --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH ALLOW_USER_SRP_AUTH --query 'UserPoolClient.ClientId' --output text)"
   fi
 
   state_set_string "cognito_user_pool_id" "$user_pool_id"
@@ -646,20 +691,41 @@ create_bucket_if_needed() {
   fi
 }
 
-configure_website_bucket() {
+configure_frontend_bucket() {
+  # Private bucket: CloudFront reaches it via Origin Access Control, so Block
+  # Public Access stays fully enabled and no public bucket policy is needed.
   local bucket_name="$1"
-  aws s3 website "s3://$bucket_name" --index-document index.html --error-document index.html >/dev/null
-  aws s3api put-public-access-block --bucket "$bucket_name" --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false >/dev/null
+  aws s3api put-public-access-block --bucket "$bucket_name" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true >/dev/null
+}
+
+ensure_origin_access_control() {
+  local oac_name="${PROJECT_NAME}-oac-${STACK_SUFFIX}"
+  local oac_id
+  oac_id="$(aws cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='$oac_name'].Id | [0]" --output text 2>/dev/null)"
+  if [[ -z "$oac_id" || "$oac_id" == "None" ]]; then
+    oac_id="$(aws cloudfront create-origin-access-control --origin-access-control-config "Name=$oac_name,OriginAccessControlOriginType=s3,SigningBehavior=always,SigningProtocol=sigv4" --query 'OriginAccessControl.Id' --output text)"
+  fi
+  echo "$oac_id"
+}
+
+attach_oac_bucket_policy() {
+  local bucket_name="$1"
+  local distribution_id="$2"
   cat > "$BUILD_DIR/frontend-bucket-policy.json" <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "PublicReadForWebsite",
+      "Sid": "AllowCloudFrontServicePrincipal",
       "Effect": "Allow",
-      "Principal": "*",
+      "Principal": {"Service": "cloudfront.amazonaws.com"},
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::$bucket_name/*"
+      "Resource": "arn:aws:s3:::$bucket_name/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${distribution_id}"
+        }
+      }
     }
   ]
 }
@@ -680,8 +746,10 @@ EOF
 build_cloudfront_config() {
   local bucket_name="$1"
   local api_root="$2"
+  local oac_id="$3"
   local bucket_domain api_domain api_origin_path
-  bucket_domain="${bucket_name}.s3-website-${AWS_REGION}.amazonaws.com"
+  # S3 REST endpoint (not the public website endpoint): HTTPS to origin + OAC
+  bucket_domain="${bucket_name}.s3.${AWS_REGION}.amazonaws.com"
   api_domain="$(sed -E 's#https?://([^/]+)/?.*#\1#' <<< "$api_root")"
   api_origin_path="$(sed -E 's#https?://[^/]+(.*)#\1#' <<< "$api_root")"
 
@@ -691,6 +759,7 @@ build_cloudfront_config() {
     --arg bucket_domain "$bucket_domain" \
     --arg api_domain "$api_domain" \
     --arg api_origin_path "$api_origin_path" \
+    --arg oac_id "$oac_id" \
     '{
       CallerReference: $caller_reference,
       Comment: $comment,
@@ -702,12 +771,8 @@ build_cloudfront_config() {
           {
             Id: "s3-origin",
             DomainName: $bucket_domain,
-            CustomOriginConfig: {
-              HTTPPort: 80,
-              HTTPSPort: 443,
-              OriginProtocolPolicy: "http-only",
-              OriginSslProtocols: {Quantity: 1, Items: ["TLSv1.2"]}
-            }
+            OriginAccessControlId: $oac_id,
+            S3OriginConfig: {OriginAccessIdentity: ""}
           },
           {
             Id: "api-origin",
@@ -788,13 +853,12 @@ deploy_frontend() {
   log "Building and deploying frontend"
   ensure_state_file
   create_bucket_if_needed "$FRONTEND_BUCKET"
-  configure_website_bucket "$FRONTEND_BUCKET"
   write_frontend_env
 
   (cd "$ROOT_DIR/frontend" && npm install && npm run build)
   aws s3 sync "$ROOT_DIR/frontend/dist" "s3://$FRONTEND_BUCKET" --delete >/dev/null
 
-  local distribution_id distribution_domain api_root create_output
+  local distribution_id distribution_domain api_root create_output oac_id
   distribution_id="$(state_get '.cloudfront_distribution_id')"
   api_root="$(state_get '.api_gateway_invoke_url_root')"
 
@@ -802,14 +866,18 @@ deploy_frontend() {
     aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths '/*' >/dev/null || true
     wait_for_distribution "$distribution_id"
     state_set_string "cloudfront_url" "https://$(aws cloudfront get-distribution --id "$distribution_id" --query 'Distribution.DomainName' --output text)"
+    warn "Existing distribution reused. If it predates the OAC change, run teardown + deploy to move to a private bucket with Origin Access Control."
     return 0
   fi
 
-  build_cloudfront_config "$FRONTEND_BUCKET" "$api_root"
+  configure_frontend_bucket "$FRONTEND_BUCKET"
+  oac_id="$(ensure_origin_access_control)"
+  build_cloudfront_config "$FRONTEND_BUCKET" "$api_root" "$oac_id"
   create_output="$(aws cloudfront create-distribution --distribution-config "file://$BUILD_DIR/cloudfront-distribution.json")"
   distribution_id="$(jq -r '.Distribution.Id' <<< "$create_output")"
   distribution_domain="$(jq -r '.Distribution.DomainName' <<< "$create_output")"
 
+  attach_oac_bucket_policy "$FRONTEND_BUCKET" "$distribution_id"
   wait_for_distribution "$distribution_id"
   state_set_string "frontend_bucket" "$FRONTEND_BUCKET"
   state_set_string "cloudfront_distribution_id" "$distribution_id"
@@ -953,8 +1021,8 @@ deploy() {
   deploy_lambda_tools
   deploy_agentcore_gateway
   deploy_agent_lambda
-  deploy_api_gateway
   deploy_cognito
+  deploy_api_gateway
   deploy_frontend
   print_summary
   cleanup_build_dir

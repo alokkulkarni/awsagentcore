@@ -105,7 +105,7 @@ def _search_log_group(
                     data = json.loads(ev["message"])
                     events.append({"ts": ev["timestamp"], "data": data, "log_group": log_group})
                 except (json.JSONDecodeError, KeyError):
-                    pass
+                    LOGGER.debug('Suppressed exception', exc_info=True)
     except (ClientError, BotoCoreError) as exc:
         LOGGER.debug("Could not search %s: %s", log_group, exc)
     return events

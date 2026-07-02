@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +31,8 @@ VALID_INITIATION_METHODS = {
 }
 VALID_TIME_RANGE_TYPES = {"INITIATION_TIMESTAMP", "CONNECTED_TO_AGENT_TIMESTAMP", "DISCONNECT_TIMESTAMP"}
 VALID_SORT_ORDERS = {"ASCENDING", "DESCENDING"}
+
+_CONTACT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 _CACHE_TTL = 300
 _cache: Dict[str, Any] = {}
@@ -237,7 +240,10 @@ def lambda_handler(event, _context):
             queue_names = {}
 
         if params.get("contact_id"):
-            detail = _CONNECT_CLIENT.describe_contact(InstanceId=instance_id, ContactId=params["contact_id"]).get("Contact", {})
+            contact_id = str(params["contact_id"]).strip()
+            if not _CONTACT_ID_RE.match(contact_id):
+                return build_error_response(event, f"Invalid contact_id format: {contact_id!r}", status_code=400)
+            detail = _CONNECT_CLIENT.describe_contact(InstanceId=instance_id, ContactId=contact_id).get("Contact", {})
             contact = _transform_contact(detail, _CONNECT_CLIENT, instance_id, queue_names)
             filtered_contacts = _apply_post_filters([contact], requested_status, min_duration, max_duration)
             return build_response(
@@ -287,7 +293,7 @@ def lambda_handler(event, _context):
                     if key and values:
                         searchable_criteria.append({"Key": key, "Values": values})
             except Exception:  # pylint: disable=broad-except
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
         if searchable_criteria:
             search_criteria["SearchableContactAttributes"] = {
                 "Criteria": searchable_criteria,

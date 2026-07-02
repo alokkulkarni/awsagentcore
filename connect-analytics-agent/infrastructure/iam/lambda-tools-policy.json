@@ -31,12 +31,12 @@
       "Resource": "*"
     },
     {
-      "Sid": "RecordingsBucketAccessRestrictInProduction",
+      "Sid": "ConnectRecordingsBucketAccess",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:s3:::amazon-connect-*/*"
     },
     {
       "Sid": "CloudWatchLogsWrite",

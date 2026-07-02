@@ -70,7 +70,7 @@ def unregister_queue(q: asyncio.Queue) -> None:
     try:
         _sse_queues.remove(q)
     except ValueError:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
 
 def needs_scan() -> bool:
@@ -103,7 +103,7 @@ def _try_become_leader() -> bool:
             try:
                 LOCK_FILE.unlink(missing_ok=True)
             except Exception:
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
     try:
         fd = os.open(str(LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         with os.fdopen(fd, "w") as f:
@@ -122,7 +122,7 @@ def _release_leader() -> None:
     try:
         LOCK_FILE.unlink(missing_ok=True)
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
 
 # ── SSE helpers ───────────────────────────────────────────────────────────────
@@ -716,7 +716,7 @@ async def _phase_bots(connect, lex_region: str, instance_id: str, result: Dict) 
                 desc = lex2.describe_bot(botId=bot_id)
                 bot_name = desc.get("botName", bot_id)
             except Exception:
-                pass
+                LOGGER.debug('Suppressed exception', exc_info=True)
             v2_bots.append({
                 "bot_id": bot_id, "bot_name": bot_name,
                 "alias_id": alias_id, "alias_arn": alias_arn,
@@ -738,7 +738,7 @@ async def _phase_bots(connect, lex_region: str, instance_id: str, result: Dict) 
                         name=b.get("Name", ""), found_delta=("lex_v1_bots", 1),
                         log_line=f"  Lex V1 Bot: {b.get('Name', '')}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     # Amazon Q in Connect
     q_assistants: List[Dict] = []
@@ -757,7 +757,7 @@ async def _phase_bots(connect, lex_region: str, instance_id: str, result: Dict) 
                         name=a.get("name", ""), found_delta=("q_assistants", 1),
                         log_line=f"  Q in Connect: {a.get('name', '')}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     # Lambda associations from Connect
     await _emit("progress_update", message="Listing Lambda associations…")
@@ -771,7 +771,7 @@ async def _phase_bots(connect, lex_region: str, instance_id: str, result: Dict) 
                         name=name, found_delta=("lambda_associations", 1),
                         log_line=f"  Lambda (Connect): {name}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     result["bots"] = {"lex_v2": v2_bots, "lex_v1": v1_bots, "q_assistants": q_assistants}
     result["lambda"]["connect_associations"] = lambda_fns
@@ -1045,7 +1045,7 @@ async def _phase_data_storage(region: str, result: Dict) -> None:
                             found_delta=("firehose_streams", 1),
                             log_line=f"  Firehose: {name}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     # Merge Kinesis from storage configs
     for stype, arn in kinesis_from_cfg.items():
@@ -1106,7 +1106,7 @@ async def _phase_analytics(region: str, result: Dict) -> None:
                                         found_delta=("athena_databases", 1),
                                         log_line=f"    DB: {db_name}")
                 except Exception:
-                    pass
+                    LOGGER.debug('Suppressed exception', exc_info=True)
                 await asyncio.sleep(0.05)
     except Exception as e:
         LOGGER.warning("Athena scan failed: %s", e)
@@ -1160,7 +1160,7 @@ async def _phase_analytics(region: str, result: Dict) -> None:
                 if any(kw in name.lower() for kw in ("connect", "lex", "contact")):
                     log_groups.append({"name": name, "size_bytes": lg.get("storedBytes", 0)})
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     result["cloudwatch"] = {"log_groups": log_groups}
 
@@ -1207,7 +1207,7 @@ async def _phase_ai_ml(region: str, result: Dict) -> None:
                         name=name, found_delta=("knowledge_bases", 1),
                         log_line=f"  Bedrock KB: {name}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     # Amazon Q in Connect Knowledge Bases
     qconn_kbs: List[Dict] = []
@@ -1221,7 +1221,7 @@ async def _phase_ai_ml(region: str, result: Dict) -> None:
                         name=name, found_delta=("qconn_knowledge_bases", 1),
                         log_line=f"  Q in Connect KB: {name}")
     except Exception:
-        pass
+        LOGGER.debug('Suppressed exception', exc_info=True)
 
     result["bedrock"] = {"available_models": models, "knowledge_bases": kb_list}
     result["q_in_connect"] = {
