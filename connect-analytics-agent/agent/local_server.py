@@ -162,18 +162,248 @@ class QueryRequest(BaseModel):
 
 
 _MOCK_CHAT: Dict[str, str] = {
-    "how many agents are busy": "There are currently 8 agents busy across all queues. Queue 'Customer Support' has 5 agents on calls, and 'Technical Support' has 3 agents on calls.",
+    "how many agents are busy": "There are currently around 80 agents busy across all 8 queues. 'Billing' has the most agents on contacts (14), followed by 'Technical Support' (10) — around 30 agents are Available and 13 contacts are waiting in queue.",
     "who is my busiest agent": "Your busiest agent today is Sarah Johnson with 24 contacts handled. She has an average handle time of 4:32 and is currently available.",
 }
 
-_MOCK_AGENT_STATES = [
-    {"agentId": "mock-agent-001", "name": "Sarah Johnson", "status": "Available", "currentQueue": "Customer Support", "timeInStatus": "00:12:18", "contactId": "", "hasActiveContact": False},
-    {"agentId": "mock-agent-002", "name": "Marcus Lee", "status": "On Call", "currentQueue": "Technical Support", "timeInStatus": "00:08:05", "contactId": "c-10231", "hasActiveContact": True},
-    {"agentId": "mock-agent-003", "name": "Priya Patel", "status": "After Contact Work", "currentQueue": "Billing", "timeInStatus": "00:02:44", "contactId": "c-10228", "hasActiveContact": True},
-    {"agentId": "mock-agent-004", "name": "Andre Lewis", "status": "Non-Productive", "currentQueue": "VIP Support", "timeInStatus": "00:15:06", "contactId": "", "hasActiveContact": False},
-    {"agentId": "mock-agent-005", "name": "Mina Chen", "status": "Offline", "currentQueue": "—", "timeInStatus": "01:03:54", "contactId": "", "hasActiveContact": False},
-    {"agentId": "mock-agent-006", "name": "Dylan Brooks", "status": "Error", "currentQueue": "Customer Support", "timeInStatus": "00:01:09", "contactId": "c-10236", "hasActiveContact": False},
+# ── Mock realtime fleet ────────────────────────────────────────────────────────
+# Production-scale simulation for MOCK_MODE: ~130 contact slots (~100-115 live
+# at any instant) served by a 140-agent roster, so the realtime UI can be
+# exercised with the volumes a real contact centre produces. Each slot runs an
+# endless idle-gap → contact cycle derived purely from the wall clock, which
+# keeps successive polls coherent: durations tick up naturally, contacts end
+# and are replaced organically, and every realtime endpoint reads the same
+# snapshot. Slot i is always served by agent i, so no agent is double-booked.
+
+_MOCK_RT_QUEUES = [
+    {"id": "mock-queue-1", "name": "Technical Support"},
+    {"id": "mock-queue-2", "name": "Billing"},
+    {"id": "mock-queue-3", "name": "General Enquiry"},
+    {"id": "mock-queue-4", "name": "Sales"},
+    {"id": "mock-queue-5", "name": "Customer Support"},
+    {"id": "mock-queue-6", "name": "VIP Support"},
+    {"id": "mock-queue-7", "name": "Fraud & Security"},
+    {"id": "mock-queue-8", "name": "Mortgages"},
 ]
+
+_MOCK_FIRST_NAMES = [
+    "Sarah", "Marcus", "Priya", "Andre", "Mina", "Dylan", "Amelia", "Noah", "Fatima", "Leo",
+    "Grace", "Kwame", "Isla", "Mateo", "Hannah", "Ravi", "Chloe", "Tomasz", "Yasmin", "Ethan",
+    "Nadia", "Oliver", "Zara", "Callum", "Ingrid", "Jamal", "Rosa", "Felix", "Aisha", "Hugo",
+    "Elena", "Declan", "Sofia", "Arjun", "Freya", "Kofi", "Lucia", "Brendan", "Maya", "Stefan",
+]
+_MOCK_LAST_NAMES = [
+    "Johnson", "Lee", "Patel", "Lewis", "Chen", "Brooks", "Okafor", "Sharma", "Mitchell", "Novak",
+    "Garcia", "Ahmed", "Kowalski", "Ndiaye", "Murphy", "Silva", "Tanaka", "O'Brien", "Haddad", "Larsen",
+    "Mensah", "Rossi", "Dubois", "Petrov", "Campbell", "Nguyen", "Osei", "Fitzgerald", "Iqbal", "Moreau",
+    "Svensson", "Adeyemi", "Kaur", "Byrne", "Costa",
+]
+
+
+def _build_mock_fleet(count: int = 140) -> List[Dict[str, str]]:
+    rng = random.Random(20260703)
+    agents: List[Dict[str, str]] = []
+    seen = set()
+    while len(agents) < count:
+        name = f"{rng.choice(_MOCK_FIRST_NAMES)} {rng.choice(_MOCK_LAST_NAMES)}"
+        if name in seen:
+            continue
+        seen.add(name)
+        agents.append({
+            "agentId": f"mock-agent-{len(agents) + 1:03d}",
+            "name": name,
+            "arn": f"arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/mock-agent-{len(agents) + 1:03d}",
+        })
+    return agents
+
+
+_MOCK_FLEET = _build_mock_fleet()
+_MOCK_CONTACT_SLOTS = 130
+_MOCK_FLEET_STATE_CACHE: Dict[str, Any] = {}
+
+
+def _fmt_hms(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+
+def _mock_fleet_state(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """One coherent snapshot of every live mock contact, cached per second so
+    the several endpoints polled together all agree."""
+    now = now or datetime.now(timezone.utc)
+    epoch = int(now.timestamp())
+    cached = _MOCK_FLEET_STATE_CACHE.get("state")
+    if cached and cached[0] == epoch:
+        return cached[1]
+
+    contacts: List[Dict[str, Any]] = []
+    agent_contact: Dict[int, Dict[str, Any]] = {}
+
+    for slot in range(_MOCK_CONTACT_SLOTS):
+        srng = random.Random(slot * 9973 + 17)
+        cycle = srng.randint(240, 1800)              # lifetime of each contact in this slot
+        gap = srng.randint(30, max(40, cycle // 3))  # idle time between contacts
+        period = cycle + gap
+        offset = srng.randint(0, 1_000_000)
+        phase = (epoch + offset) % period
+        if phase < gap:
+            continue  # slot idle right now → live count breathes around ~110
+        age = phase - gap
+        generation = (epoch + offset) // period
+        crng = random.Random((slot << 20) ^ generation)
+
+        roll = crng.random()
+        if roll < 0.58:
+            kind = "inbound"
+        elif roll < 0.72:
+            kind = "bot"
+        elif roll < 0.81:
+            kind = "callback"
+        elif roll < 0.92:
+            kind = "outbound"
+        else:
+            kind = "transfer"
+
+        if kind == "inbound":
+            channel = "VOICE" if crng.random() < 0.70 else ("CHAT" if crng.random() < 0.83 else "TASK")
+        elif kind == "bot":
+            channel = "VOICE" if crng.random() < 0.60 else "CHAT"
+        elif kind == "transfer":
+            channel = "VOICE" if crng.random() < 0.85 else "CHAT"
+        else:
+            channel = "VOICE"
+
+        queue = crng.choice(_MOCK_RT_QUEUES)
+        wait = crng.randint(8, 200)                  # seconds until an agent answers
+        agent = _MOCK_FLEET[slot]
+        contact_id = (
+            f"{slot:08x}-{generation & 0xffff:04x}-4{slot % 16:03x}"
+            f"-9{generation % 16:03x}-{(slot * 1_000_003 + generation) % 16**12:012x}"
+        )
+        number = f"+4477{(slot * 7919 + generation * 104729) % 10**7:07d}"
+        voice_customer = {"type": "TELEPHONE_NUMBER", "address": number, "display": f"*******{number[-4:]}"}
+        voice_system = {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"}
+
+        contact: Dict[str, Any] = {
+            "contactId": contact_id,
+            "channel": channel,
+            "contactType": "inbound" if kind == "bot" else kind,
+            "isOutbound": kind == "outbound",
+            "isCallback": kind == "callback",
+            "isBot": kind == "bot",
+            "isInternalBotSession": False,
+            "initiationMethod": {"inbound": "INBOUND", "bot": "INBOUND", "callback": "CALLBACK",
+                                 "outbound": "OUTBOUND", "transfer": "TRANSFER"}[kind],
+            "customerEndpoint": voice_customer if channel == "VOICE" else {},
+            "systemEndpoint": voice_system if channel == "VOICE" and kind != "callback" else {},
+            "initiatedAt": datetime.fromtimestamp(epoch - age, tz=timezone.utc).isoformat(),
+            "contactTerminal": False,
+            "contactEndedAt": None,
+            "transferDirection": None,
+            "transferTargetType": None,
+            "transferTargetLabel": None,
+            "queueArn": "",
+            "agentArn": "",
+            "agentName": "",
+        }
+
+        if kind == "bot":
+            contact.update({"contactState": "CONNECTED_TO_SYSTEM", "escalatedToAgent": False,
+                            "queueId": "", "queueName": "—"})
+        elif kind == "outbound":
+            contact.update({"contactState": "CONNECTED_TO_AGENT", "escalatedToAgent": True,
+                            "queueId": "", "queueName": "—",
+                            "agentArn": agent["arn"], "agentName": agent["name"],
+                            "outboundAgentArn": agent["arn"], "outboundAgentName": agent["name"]})
+            agent_contact[slot] = contact
+        else:
+            connected = age >= wait
+            contact.update({
+                "contactState": "CONNECTED_TO_AGENT" if connected else "QUEUED",
+                "escalatedToAgent": connected,
+                "queueId": queue["id"], "queueName": queue["name"],
+                "queueArn": f"arn:aws:connect:eu-west-2:000000000000:instance/mock/queue/{queue['id']}",
+            })
+            if connected:
+                contact["agentArn"] = agent["arn"]
+                contact["agentName"] = agent["name"]
+                agent_contact[slot] = contact
+            if kind == "callback":
+                contact["callbackScheduled"] = bool(not connected and crng.random() < 0.25)
+            if kind == "transfer":
+                direction = "internal" if crng.random() < 0.70 else "external"
+                if direction == "external":
+                    contact.update({"transferDirection": "external", "transferTargetType": "phone",
+                                    "transferTargetLabel": "*******4999"})
+                elif crng.random() < 0.6:
+                    contact.update({"transferDirection": "internal", "transferTargetType": "queue",
+                                    "transferTargetLabel": queue["name"]})
+                else:
+                    contact.update({"transferDirection": "internal", "transferTargetType": "agent",
+                                    "transferTargetLabel": agent["name"]})
+
+        contact["_slot"] = slot
+        contact["_kind"] = kind
+        contact["_age"] = age
+        contact["_wait"] = wait
+        contacts.append(contact)
+
+    state = {"now": now, "contacts": contacts, "agent_contact": agent_contact}
+    _MOCK_FLEET_STATE_CACHE["state"] = (epoch, state)
+    return state
+
+
+def _public_contact(contact: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip the simulator-internal keys before returning a contact to the UI."""
+    return {k: v for k, v in contact.items() if not k.startswith("_")}
+
+
+def _mock_agent_states_now() -> List[Dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    state = _mock_fleet_state(now)
+    agent_contact = state["agent_contact"]
+    # Idle-agent statuses reshuffle every 5 minutes so the wallboard drifts
+    epoch5 = int(now.timestamp()) // 300
+    agents: List[Dict[str, Any]] = []
+    for i, member in enumerate(_MOCK_FLEET):
+        contact = agent_contact.get(i)
+        if contact is not None:
+            agents.append({
+                "agentId": member["agentId"], "name": member["name"],
+                "status": "On Call",
+                "currentQueue": contact["queueName"] if contact["queueName"] != "—" else "Outbound",
+                "timeInStatus": _fmt_hms(contact["_age"] - contact["_wait"] if not contact["isOutbound"] else contact["_age"]),
+                "contactId": contact["contactId"],
+                "hasActiveContact": True,
+            })
+            continue
+        rng = random.Random((i << 8) ^ epoch5)
+        roll = rng.random()
+        if roll < 0.40:
+            status = "Available"
+        elif roll < 0.52:
+            status = "After Contact Work"
+        elif roll < 0.63:
+            status = "Non-Productive"
+        elif roll < 0.97:
+            status = "Offline"
+        else:
+            status = "Error"
+        agents.append({
+            "agentId": member["agentId"], "name": member["name"],
+            "status": status,
+            "currentQueue": rng.choice(_MOCK_RT_QUEUES)["name"] if status not in ("Offline",) else "—",
+            "timeInStatus": _fmt_hms(rng.randint(20, 5400)),
+            "contactId": "",
+            "hasActiveContact": False,
+        })
+    for entry in agents:
+        if _MOCK_FORCE_LOGOUT_APPLIED.get(entry["agentId"]) and not entry["hasActiveContact"]:
+            entry["status"] = "Offline"
+            entry["currentQueue"] = "—"
+            entry["contactId"] = ""
+    return agents
+
 
 # Track mock force-logout state so the UI reflects changes within a session
 _MOCK_FORCE_LOGOUT_APPLIED: Dict[str, bool] = {}
@@ -572,10 +802,22 @@ def config() -> Dict[str, Any]:
 @app.get("/metrics")
 def metrics() -> Dict[str, Any]:
     if _is_mock():
+        agents = _mock_agent_states_now()
+        by_status = defaultdict(int)
+        for a in agents:
+            by_status[a["status"]] += 1
+        queued = [c for c in _mock_fleet_state()["contacts"] if c["contactState"] == "QUEUED"]
         return {
             "mock": True,
             "last_updated": datetime.now(timezone.utc).isoformat(),
-            "metrics": {"agents_online": 19, "agents_available": 7, "agents_on_call": 8, "agents_in_acw": 3, "contacts_in_queue": 5, "oldest_contact_age": "00:03:42"},
+            "metrics": {
+                "agents_online": len(agents) - by_status["Offline"],
+                "agents_available": by_status["Available"],
+                "agents_on_call": by_status["On Call"],
+                "agents_in_acw": by_status["After Contact Work"],
+                "contacts_in_queue": len(queued),
+                "oldest_contact_age": _fmt_hms(max((c["_age"] for c in queued), default=0)),
+            },
         }
     try:
         data = _invoke_tool("get_realtime_metrics", [])
@@ -1294,11 +1536,29 @@ async def abandonment_buckets_endpoint(
         raise HTTPException(status_code=502, detail="Failed to compute abandonment buckets") from exc
 
 
-_MOCK_CALLBACK_TODAY = {
-    "requested": 9, "waiting": 2, "connected": 1,
-    "succeeded": 4, "customer_failed": 1, "abandoned": 1,
-    "retried": 2, "attempts": 12, "truncated": False,
-}
+def _mock_callback_today_now() -> Dict[str, Any]:
+    """Today's callback snapshot at fleet scale: waiting/connected read live
+    from the simulation; finished outcomes grow steadily through the day."""
+    now = datetime.now(timezone.utc)
+    state = _mock_fleet_state(now)
+    live = [c for c in state["contacts"] if c["_kind"] == "callback"]
+    waiting = sum(1 for c in live if c["contactState"] == "QUEUED")
+    connected = len(live) - waiting
+    # Finished outcomes accumulate across a 12h working day starting 07:00
+    day_fraction = min(1.0, max(0.0, (now.hour - 7 + now.minute / 60) / 12))
+    rng = random.Random(now.toordinal() * 13 + 5)
+    finished = int(rng.randint(95, 120) * day_fraction)
+    succeeded = int(finished * 0.72)
+    customer_failed = int(finished * 0.09)
+    abandoned = finished - succeeded - customer_failed
+    retried = int(finished * 0.18)
+    return {
+        "requested": finished + waiting + connected,
+        "waiting": waiting, "connected": connected,
+        "succeeded": succeeded, "customer_failed": customer_failed, "abandoned": abandoned,
+        "retried": retried, "attempts": finished + retried + waiting + connected,
+        "truncated": False,
+    }
 
 
 @app.get("/callback-metrics/today")
@@ -1309,7 +1569,7 @@ async def callback_metrics_today() -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if _is_mock():
-        return {"mock": True, "as_of": now.isoformat(), **_MOCK_CALLBACK_TODAY}
+        return {"mock": True, "as_of": now.isoformat(), **_mock_callback_today_now()}
 
     instance_id = os.getenv("CONNECT_INSTANCE_ID", "")
     if not instance_id:
@@ -1328,15 +1588,7 @@ async def callback_metrics_today() -> Dict[str, Any]:
 @app.get("/agent-states")
 def agent_states() -> Dict[str, Any]:
     if _is_mock():
-        # Reflect any force-logout mock state
-        agents = []
-        for row in _MOCK_AGENT_STATES:
-            entry = dict(row)
-            if _MOCK_FORCE_LOGOUT_APPLIED.get(entry["agentId"]):
-                entry["status"] = "Offline"
-                entry["hasActiveContact"] = False
-                entry["contactId"] = ""
-            agents.append(entry)
+        agents = _mock_agent_states_now()
         return {"mock": True, "agents": agents, "agent_count": len(agents)}
     try:
         data = _invoke_tool("get_agent_states", [])
@@ -1370,7 +1622,7 @@ def force_logout_agent(agent_id: str, body: ForceLogoutRequest = ForceLogoutRequ
 
     if _is_mock():
         # In mock mode, block if agent has an active contact
-        target = next((a for a in _MOCK_AGENT_STATES if a["agentId"] == agent_id), None)
+        target = next((a for a in _mock_agent_states_now() if a["agentId"] == agent_id), None)
         if not target:
             raise HTTPException(status_code=404, detail=f"Agent {agent_id!r} not found")
         if target.get("hasActiveContact"):
@@ -1478,20 +1730,32 @@ def force_logout_agent(agent_id: str, body: ForceLogoutRequest = ForceLogoutRequ
 
 
 
-_MOCK_ACTIVE_CALLS = [
-    {"contactId": "c-10236", "agent": "Marcus Lee",  "queue": "Technical Support", "channel": "VOICE", "duration": 142, "status": "CONNECTED"},
-    {"contactId": "c-10238", "agent": "Sarah Johnson", "queue": "Customer Support", "channel": "VOICE", "duration": 67, "status": "CONNECTED"},
-    {"contactId": "c-10240", "agent": "Andre Lewis",  "queue": "VIP Support",       "channel": "CHAT",  "duration": 310, "status": "CONNECTED"},
-    {"contactId": "c-10241", "agent": "Priya Patel",  "queue": "Billing",           "channel": "VOICE", "duration": 28, "status": "CONNECTED"},
-    {"contactId": "c-10242", "agent": "Dylan Brooks", "queue": "Customer Support",  "channel": "VOICE", "duration": 195, "status": "CONNECTED"},
-    {"contactId": "c-10243", "agent": "Mina Chen",    "queue": "Technical Support", "channel": "CHAT",  "duration": 87, "status": "CONNECTED"},
-]
+def _mock_active_calls_now() -> List[Dict[str, Any]]:
+    state = _mock_fleet_state()
+    calls = []
+    for slot, contact in sorted(state["agent_contact"].items()):
+        agent = _MOCK_FLEET[slot]
+        duration = contact["_age"] if contact["isOutbound"] else contact["_age"] - contact["_wait"]
+        calls.append({
+            "contactId": contact["contactId"],
+            "agent": agent["name"],
+            "queue": contact["queueName"] if contact["queueName"] != "—" else "Outbound",
+            "channel": contact["channel"],
+            "duration": max(0, duration),
+            "status": "CONNECTED",
+            "escalatedFromBot": False,
+            "previousContactId": None,
+            "enqueuedAt": None,
+            "connectedToAgentAt": None,
+        })
+    return calls
 
 
 @app.get("/active-calls")
 def active_calls() -> Dict[str, Any]:
     if _is_mock():
-        return {"mock": True, "calls": _MOCK_ACTIVE_CALLS, "total": len(_MOCK_ACTIVE_CALLS)}
+        calls = _mock_active_calls_now()
+        return {"mock": True, "calls": calls, "total": len(calls)}
     try:
         import boto3  # pylint: disable=import-outside-toplevel
         data = _invoke_tool("get_agent_states", [])
@@ -1628,130 +1892,45 @@ def live_bot_contacts() -> Dict[str, Any]:
 
 def _mock_live_contacts() -> Dict[str, Any]:
     """
-    MOCK_MODE dataset for /live-contacts. Includes one example of each
-    transfer destination the internal/external classifier can produce
-    (queue, agent, external phone) so the transfer badge/popover in the
-    frontend can be exercised locally without a live Connect instance.
-    Timestamps are computed relative to "now" on every call so the "Xs ago"
-    display stays fresh across a long-running local dev session.
+    MOCK_MODE dataset for /live-contacts, generated from the shared fleet
+    simulation (~100+ concurrent contacts). Covers every contact type the
+    UI can render — inbound, bot/IVR, outbound, callbacks (waiting and
+    scheduled), and internal/external transfers to queue/agent/phone — at
+    the volumes a production contact centre produces, with contacts ageing
+    and churning naturally between polls.
     """
-    now = datetime.now(timezone.utc)
+    state = _mock_fleet_state()
+    contacts = state["contacts"]
 
-    def _ago(seconds: int) -> str:
-        return (now - timedelta(seconds=seconds)).isoformat()
-
-    inbound = [{
-        "contactId": "11111111-1111-1111-1111-111111111111",
-        "channel": "VOICE", "contactType": "inbound", "contactState": "QUEUED",
-        "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
-        "escalatedToAgent": False, "initiationMethod": "INBOUND",
-        "queueId": "q-1", "queueName": "Customer Support", "queueArn": "",
-        "agentArn": "", "agentName": "",
-        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500000", "display": "*******0000"},
-        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
-        "initiatedAt": _ago(45), "contactTerminal": False, "contactEndedAt": None,
-        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
-    }]
-
-    bot_contacts = [{
-        "contactId": "22222222-2222-2222-2222-222222222222",
-        "channel": "VOICE", "contactType": "inbound", "contactState": "CONNECTED_TO_SYSTEM",
-        "isOutbound": False, "isCallback": False, "isBot": True, "isInternalBotSession": False,
-        "escalatedToAgent": False, "initiationMethod": "INBOUND",
-        "queueId": "", "queueName": "—", "queueArn": "",
-        "agentArn": "", "agentName": "",
-        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500001", "display": "*******0001"},
-        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
-        "initiatedAt": _ago(20), "contactTerminal": False, "contactEndedAt": None,
-        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
-    }]
-
-    outbound = [{
-        "contactId": "33333333-3333-3333-3333-333333333333",
-        "channel": "VOICE", "contactType": "outbound", "contactState": "CONNECTED_TO_AGENT",
-        "isOutbound": True, "isCallback": False, "isBot": False, "isInternalBotSession": False,
-        "escalatedToAgent": True, "initiationMethod": "OUTBOUND",
-        "queueId": "", "queueName": "—", "queueArn": "",
-        "agentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-1",
-        "agentName": "Priya Patel",
-        "outboundAgentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-1",
-        "outboundAgentName": "Priya Patel",
-        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500002", "display": "*******0002"},
-        "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
-        "initiatedAt": _ago(90), "contactTerminal": False, "contactEndedAt": None,
-        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
-    }]
-
-    callbacks = [{
-        "contactId": "44444444-4444-4444-4444-444444444444",
-        "channel": "VOICE", "contactType": "callback", "contactState": "QUEUED",
-        "isOutbound": False, "isCallback": True, "callbackScheduled": False,
-        "isBot": False, "isInternalBotSession": False, "escalatedToAgent": False,
-        "initiationMethod": "CALLBACK",
-        "queueId": "q-2", "queueName": "Billing", "queueArn": "",
-        "agentArn": "", "agentName": "",
-        "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500003", "display": "*******0003"},
-        "systemEndpoint": {},
-        "initiatedAt": _ago(300), "contactTerminal": False, "contactEndedAt": None,
-        "transferDirection": None, "transferTargetType": None, "transferTargetLabel": None,
-    }]
-
-    transfers = [
-        {  # internal → queue
-            "contactId": "55555555-5555-5555-5555-555555555555",
-            "channel": "VOICE", "contactType": "transfer", "contactState": "QUEUED",
-            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
-            "escalatedToAgent": False, "initiationMethod": "TRANSFER",
-            "queueId": "q-3", "queueName": "Technical Support",
-            "queueArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/queue/q-3",
-            "agentArn": "", "agentName": "",
-            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500004", "display": "*******0004"},
-            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
-            "initiatedAt": _ago(60), "contactTerminal": False, "contactEndedAt": None,
-            "transferDirection": "internal", "transferTargetType": "queue", "transferTargetLabel": "Technical Support",
-        },
-        {  # internal → agent (direct agent-to-agent transfer)
-            "contactId": "66666666-6666-6666-6666-666666666666",
-            "channel": "VOICE", "contactType": "transfer", "contactState": "CONNECTED_TO_AGENT",
-            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
-            "escalatedToAgent": True, "initiationMethod": "TRANSFER",
-            "queueId": "", "queueName": "—", "queueArn": "",
-            "agentArn": "arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/a-2",
-            "agentName": "Marcus Lee",
-            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500005", "display": "*******0005"},
-            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441512345000", "display": "*******5000"},
-            "initiatedAt": _ago(15), "contactTerminal": False, "contactEndedAt": None,
-            "transferDirection": "internal", "transferTargetType": "agent", "transferTargetLabel": "Marcus Lee",
-        },
-        {  # external → phone number
-            "contactId": "77777777-7777-7777-7777-777777777777",
-            "channel": "VOICE", "contactType": "transfer", "contactState": "CONNECTED_TO_AGENT",
-            "isOutbound": False, "isCallback": False, "isBot": False, "isInternalBotSession": False,
-            "escalatedToAgent": True, "initiationMethod": "TRANSFER",
-            "queueId": "", "queueName": "—", "queueArn": "",
-            "agentArn": "", "agentName": "",
-            "customerEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+441234500006", "display": "*******0006"},
-            "systemEndpoint": {"type": "TELEPHONE_NUMBER", "address": "+443301234999", "display": "*******4999"},
-            "initiatedAt": _ago(5), "contactTerminal": False, "contactEndedAt": None,
-            "transferDirection": "external", "transferTargetType": "phone", "transferTargetLabel": "*******4999",
-        },
-    ]
+    inbound = [_public_contact(c) for c in contacts if c["_kind"] == "inbound"]
+    bot_contacts = [_public_contact(c) for c in contacts if c["_kind"] == "bot"]
+    outbound = [_public_contact(c) for c in contacts if c["_kind"] == "outbound"]
+    callbacks = [_public_contact(c) for c in contacts if c["_kind"] == "callback"]
+    transfers = [_public_contact(c) for c in contacts if c["_kind"] == "transfer"]
 
     all_contacts = inbound + bot_contacts + outbound + callbacks + transfers
+    callbacks_waiting = [c for c in callbacks if not c.get("callbackScheduled")]
+    callbacks_scheduled = [c for c in callbacks if c.get("callbackScheduled")]
+
+    callbacks_by_queue: Dict[str, Dict[str, int]] = {}
+    for c in callbacks:
+        entry = callbacks_by_queue.setdefault(c["queueName"], {"waiting": 0, "scheduled": 0})
+        entry["scheduled" if c.get("callbackScheduled") else "waiting"] += 1
+
     summary = {
         "total": len(all_contacts),
         "inbound": len(inbound),
         "outbound": len(outbound),
-        "callbacks_waiting": len(callbacks),
-        "callbacks_scheduled": 0,
+        "callbacks_waiting": len(callbacks_waiting),
+        "callbacks_scheduled": len(callbacks_scheduled),
         "bot_handling": len(bot_contacts),
         "agent_connected": sum(1 for c in all_contacts if c.get("escalatedToAgent")),
         "transfers": len(transfers),
         "transfers_internal": sum(1 for c in transfers if c.get("transferDirection") == "internal"),
         "transfers_external": sum(1 for c in transfers if c.get("transferDirection") == "external"),
         "voice": sum(1 for c in all_contacts if c.get("channel") == "VOICE"),
-        "chat": 0,
-        "task": 0,
+        "chat": sum(1 for c in all_contacts if c.get("channel") == "CHAT"),
+        "task": sum(1 for c in all_contacts if c.get("channel") == "TASK"),
     }
     return {
         "listener_active": True, "polling_mode": False, "setup_required": False, "mock": True,
@@ -1762,7 +1941,7 @@ def _mock_live_contacts() -> Dict[str, Any]:
         "bot_contacts": bot_contacts,
         "transfers": transfers,
         "all": all_contacts,
-        "callbacks_by_queue": {"Billing": {"waiting": 1, "scheduled": 0}},
+        "callbacks_by_queue": callbacks_by_queue,
     }
 
 
@@ -3246,37 +3425,45 @@ def delete_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
-_MOCK_LIVE_QUEUES = [
-    {"id": "mock-queue-1", "name": "Technical Support"},
-    {"id": "mock-queue-2", "name": "Billing"},
-    {"id": "mock-queue-3", "name": "General Enquiry"},
-    {"id": "mock-queue-4", "name": "Sales"},
-]
+# The realtime queue list is the fleet simulation's queue list — keeping the
+# old name so the occupancy mocks below stay untouched.
+_MOCK_LIVE_QUEUES = _MOCK_RT_QUEUES
 
 
 def _mock_realtime_queue_metrics() -> Dict[str, Any]:
-    """Synthetic queue snapshot with small random jitter each call, so the
-    5s-polling live-queue chart shows visible movement instead of a flat line.
+    """Per-queue snapshot aggregated from the shared fleet simulation, so the
+    5s-polling live-queue chart moves in step with the contact/agent tables."""
+    now = datetime.now(timezone.utc)
+    state = _mock_fleet_state(now)
+    agents = _mock_agent_states_now()
+    ts = now.replace(tzinfo=None).isoformat()
 
-    Uses its own queue list (not the module-level _MOCK_QUEUES) — that name is
-    defined twice in this file for two different shapes (a pre-existing bug:
-    the second definition silently shadows the first at import time), so
-    relying on it here would be fragile.
-    """
-    import random
-    ts = datetime.utcnow().isoformat()
-    queues = []
-    for q in _MOCK_LIVE_QUEUES:
-        queues.append({
-            "id": q["id"], "name": q["name"],
-            "contacts_in_queue": random.randint(0, 6),
-            "agents_available": random.randint(1, 5),
-            "agents_on_call": random.randint(0, 4),
-            "agents_online": random.randint(4, 8),
-            "oldest_contact_age": random.randint(0, 180),
-            "contacts_scheduled": random.randint(0, 2),
-        })
-    return {"mock": True, "timestamp": ts, "queues": queues}
+    by_queue: Dict[str, Dict[str, Any]] = {
+        q["name"]: {"id": q["id"], "name": q["name"], "contacts_in_queue": 0,
+                    "agents_available": 0, "agents_on_call": 0, "agents_online": 0,
+                    "oldest_contact_age": 0, "contacts_scheduled": 0}
+        for q in _MOCK_RT_QUEUES
+    }
+    for c in state["contacts"]:
+        row = by_queue.get(c["queueName"])
+        if row is None:
+            continue
+        if c["contactState"] == "QUEUED":
+            if c.get("callbackScheduled"):
+                row["contacts_scheduled"] += 1
+            else:
+                row["contacts_in_queue"] += 1
+                row["oldest_contact_age"] = max(row["oldest_contact_age"], c["_age"])
+    for a in agents:
+        row = by_queue.get(a["currentQueue"])
+        if row is None:
+            continue
+        row["agents_online"] += 1
+        if a["status"] == "On Call":
+            row["agents_on_call"] += 1
+        elif a["status"] == "Available":
+            row["agents_available"] += 1
+    return {"mock": True, "timestamp": ts, "queues": list(by_queue.values())}
 
 
 @app.get("/realtime-queue-metrics")
@@ -3372,13 +3559,48 @@ def realtime_queue_metrics() -> Dict[str, Any]:
 # each queue's actual configured Hours of Operation.
 
 def _invoke_occupancy(start_iso: str, end_iso: str) -> List[Dict[str, Any]]:
+    # AGENT_OCCUPANCY only accepts ROUTING_PROFILE / AGENT filters and groupings
+    # (GetMetricDataV2 returns "Invalid filter" for QUEUE) — fetch per routing
+    # profile and map back onto queues via _routing_profile_queue_map below.
     return _invoke_tool("get_historical_metrics", [
         {"name": "start_time", "type": "string", "value": start_iso},
         {"name": "end_time",   "type": "string", "value": end_iso},
-        {"name": "group_by",   "type": "string", "value": "QUEUE"},
+        {"name": "group_by",   "type": "string", "value": "ROUTING_PROFILE"},
         {"name": "interval",   "type": "string", "value": "TOTAL"},
         {"name": "metrics",    "type": "string", "value": "AGENT_OCCUPANCY"},
     ]).get("results", [])
+
+
+_RP_QUEUE_MAP_CACHE: Dict[str, Tuple[float, Dict[str, Dict[str, Any]]]] = {}
+
+
+def _routing_profile_queue_map(connect, instance_id: str) -> Dict[str, Dict[str, Any]]:
+    """{queue_id: {"name": queue_name, "profiles": {rp_id, ...}}} — cached 5 min."""
+    cached = _RP_QUEUE_MAP_CACHE.get(instance_id)
+    if cached and time.time() - cached[0] < 300:
+        return cached[1]
+    mapping: Dict[str, Dict[str, Any]] = {}
+    for page in connect.get_paginator("list_routing_profiles").paginate(InstanceId=instance_id):
+        for rp in page.get("RoutingProfileSummaryList", []):
+            rp_id = rp.get("Id")
+            if not rp_id:
+                continue
+            for qpage in connect.get_paginator("list_routing_profile_queues").paginate(
+                InstanceId=instance_id, RoutingProfileId=rp_id
+            ):
+                for q in qpage.get("RoutingProfileQueueConfigSummaryList", []):
+                    qid = q.get("QueueId")
+                    if not qid:
+                        continue
+                    entry = mapping.setdefault(qid, {"name": q.get("QueueName") or qid, "profiles": set()})
+                    entry["profiles"].add(rp_id)
+    _RP_QUEUE_MAP_CACHE[instance_id] = (time.time(), mapping)
+    return mapping
+
+
+def _mean_profile_occupancy(profile_ids, occ_by_profile: Dict[str, Optional[float]]) -> Optional[float]:
+    values = [occ_by_profile[rp] for rp in profile_ids if occ_by_profile.get(rp) is not None]
+    return sum(values) / len(values) if values else None
 
 
 def _mock_agent_occupancy(window_minutes: int) -> Dict[str, Any]:
@@ -3410,13 +3632,21 @@ def agent_occupancy(window_minutes: int = Query(default=30, ge=5, le=120)) -> Di
     try:
         now = datetime.now(timezone.utc)
         start = now - timedelta(minutes=window_minutes)
-        rows = _invoke_occupancy(start.isoformat(), now.isoformat())
+        occ_by_profile = {
+            row.get("dimension_value"): row.get("metrics", {}).get("AGENT_OCCUPANCY")
+            for row in _invoke_occupancy(start.isoformat(), now.isoformat())
+        }
+        import boto3
+        connect = boto3.client("connect", region_name=os.getenv("AWS_REGION", "eu-west-2"))
+        # Per-queue value = mean occupancy of the routing profiles serving that
+        # queue (the agent pool), since AWS has no per-queue occupancy at all.
         queues = []
-        for row in rows:
-            occ = row.get("metrics", {}).get("AGENT_OCCUPANCY")
+        rp_queue_map = _routing_profile_queue_map(connect, instance_id)
+        for qid, info in sorted(rp_queue_map.items(), key=lambda kv: kv[1]["name"]):
+            occ = _mean_profile_occupancy(info["profiles"], occ_by_profile)
             queues.append({
-                "queue_id": row.get("dimension_value"),
-                "queue_name": row.get("display_name") or row.get("dimension_value"),
+                "queue_id": qid,
+                "queue_name": info["name"],
                 "occupancy_pct": round(occ, 1) if occ is not None else None,
             })
         return {
@@ -3504,6 +3734,7 @@ def agent_occupancy_day_to_date() -> Dict[str, Any]:
         if rng:
             groups.setdefault(rng, []).append(qid)
 
+    rp_queue_map = _routing_profile_queue_map(connect, instance_id)
     occupancy_by_queue: Dict[str, Optional[float]] = {}
     for (start_iso, end_iso), qids in groups.items():
         try:
@@ -3511,10 +3742,15 @@ def agent_occupancy_day_to_date() -> Dict[str, Any]:
         except Exception as exc:  # pylint: disable=broad-except
             LOGGER.warning("agent_occupancy_day_to_date: occupancy call failed for %s-%s: %s", start_iso, end_iso, exc)
             continue
-        for row in rows:
-            qid = row.get("dimension_value")
-            if qid in qids:
-                occupancy_by_queue[qid] = row.get("metrics", {}).get("AGENT_OCCUPANCY")
+        occ_by_profile = {
+            row.get("dimension_value"): row.get("metrics", {}).get("AGENT_OCCUPANCY")
+            for row in rows
+        }
+        for qid in qids:
+            profiles = rp_queue_map.get(qid, {}).get("profiles", ())
+            occ = _mean_profile_occupancy(profiles, occ_by_profile)
+            if occ is not None:
+                occupancy_by_queue[qid] = occ
 
     queues_out = []
     for qid, info in queue_windows.items():
