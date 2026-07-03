@@ -272,7 +272,9 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
   const timeline = buildTimeline(messages);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+    // z-[60]: must layer above the z-50 FloatingAssistant launcher, which
+    // otherwise floats over the composer's send button
+    <div className="fixed inset-0 z-[60] flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" />
       <div
         className="relative h-full w-[860px] max-w-[96vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col"
@@ -477,8 +479,11 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-4 py-3 bg-slate-50/50 dark:bg-slate-950/20">
+                    {/* Bottom-anchored like every chat client: sparse threads sit
+                        just above the composer instead of floating in whitespace */}
+                    <div className="min-h-full flex flex-col justify-end">
                     {timeline.length === 0 && (
-                      <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+                      <div className="flex flex-col items-center gap-3 text-center pb-6">
                         <Avatar name={activeChat.topic} group={activeChat.group} size="h-12 w-12 text-[15px]" />
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                           Say hello to {activeChat.topic} — this is the start of your conversation.
@@ -526,6 +531,7 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
                       );
                     })}
                     <div ref={bottomRef} />
+                    </div>
                   </div>
 
                   <div className="border-t border-slate-200 dark:border-slate-800 px-4 py-3 shrink-0">

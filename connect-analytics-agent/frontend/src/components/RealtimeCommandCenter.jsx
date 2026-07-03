@@ -1613,7 +1613,7 @@ export default function RealtimeCommandCenter({
           overlay: visible instantly wherever the page is scrolled, instead of
           swapping content into the right rail below the fold. */}
       {selectedContact && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedContact(null)}>
+        <div className="fixed inset-0 z-[60] flex justify-end" onClick={() => setSelectedContact(null)}>
           <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" />
           <div
             className="relative h-full w-[420px] max-w-[92vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl p-4 flex flex-col"
