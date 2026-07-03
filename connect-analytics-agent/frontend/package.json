@@ -9,6 +9,7 @@
     "postinstall": "mkdir -p public && cp node_modules/amazon-connect-streams/release/connect-streams.js public/connect-streams.js"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.16.0",
     "@dagrejs/dagre": "^3.0.0",
     "@tailwindcss/typography": "^0.5.19",
     "@xyflow/react": "^12.10.2",
