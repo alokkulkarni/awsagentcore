@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- MSAL popup redirect target. Deliberately minimal: the opener window polls
+     this popup's URL for the auth response hash and closes it — loading the
+     full dashboard SPA here breaks that handshake. Registered in Entra as an
+     SPA redirect URI: http://localhost:5274/auth-redirect.html (+ CloudFront). -->
+<html lang="en">
+  <head><meta charset="utf-8"><title>Signing in…</title></head>
+  <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #475569;">
+    Completing Microsoft 365 sign-in…
+  </body>
+</html>

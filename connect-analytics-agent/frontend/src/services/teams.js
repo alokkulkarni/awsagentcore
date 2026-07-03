@@ -191,7 +191,10 @@ class GraphTeamsProvider {
       auth: {
         clientId: this._clientId,
         authority: `https://login.microsoftonline.com/${this._tenantId}`,
-        redirectUri: window.location.origin,
+        // Dedicated blank page: if the popup returns to the SPA itself, the
+        // whole dashboard boots inside the popup and the handshake never
+        // completes. Must be registered as an SPA redirect URI in Entra.
+        redirectUri: `${window.location.origin}/auth-redirect.html`,
       },
       cache: { cacheLocation: 'sessionStorage' },
     });
