@@ -17,7 +17,9 @@ import { getConfig, getTeamsConfig } from './api';
 
 const CLIENT_ID = import.meta.env.VITE_TEAMS_CLIENT_ID || '';
 const TENANT_ID = import.meta.env.VITE_TEAMS_TENANT_ID || '';
-const GRAPH_SCOPES = ['User.Read', 'Chat.ReadWrite', 'Presence.Read.All'];
+// User.ReadBasic.All powers the people search (start-a-new-chat); it is
+// user-consentable and requested incrementally on first use.
+const GRAPH_SCOPES = ['User.Read', 'User.ReadBasic.All', 'Chat.ReadWrite', 'Presence.Read.All'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
 // Teams-style presence, keyed the way Graph reports availability
@@ -127,6 +129,20 @@ class MockTeamsProvider {
   async unreadCount() {
     this._maybeSimulateInbound();
     return this.chats.reduce((n, c) => n + c.unread, 0);
+  }
+
+  /** Directory search for starting a new chat. */
+  async searchPeople(query) {
+    const q = query.toLowerCase();
+    const names = ['Sarah Johnson', 'Marcus Lee', 'Priya Sharma', 'Andre Campbell',
+                   'Chloe Moreau', 'Kwame Murphy', 'Expert One', 'Expert Two'];
+    return names
+      .filter((n) => n.toLowerCase().includes(q))
+      .map((n) => ({
+        id: n,
+        displayName: n,
+        email: `${n.toLowerCase().replace(/[^a-z]+/g, '.')}@contoso-demo.com`,
+      }));
   }
 
   /** Find or create the 1:1 chat with a person — used by the roster chat button. */
@@ -326,6 +342,20 @@ class GraphTeamsProvider {
 
   async unreadCount() {
     return this._lastChats.reduce((n, c) => n + (c.unread || 0), 0);
+  }
+
+  /** Directory search (User.ReadBasic.All) for starting a new chat. */
+  async searchPeople(query) {
+    const q = encodeURIComponent(query.replace(/'/g, "''"));
+    const data = await this._graph(
+      `/users?$filter=startswith(displayName,'${q}') or startswith(userPrincipalName,'${q}')`
+      + '&$select=id,displayName,userPrincipalName&$top=10',
+    );
+    return (data.value || []).map((u) => ({
+      id: u.id,
+      displayName: u.displayName || u.userPrincipalName,
+      email: u.userPrincipalName,
+    }));
   }
 
   /** Find (or create via Graph) the 1:1 chat with an agent's M365 account. */

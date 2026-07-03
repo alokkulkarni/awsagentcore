@@ -34,6 +34,7 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [chatSearch, setChatSearch] = useState('');
+  const [people, setPeople] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
@@ -120,6 +121,30 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
   useEffect(() => {
     if (chatTarget) openTarget(chatTarget);
   }, [chatTarget, openTarget]);
+
+  // Directory search (debounced): typing a name also finds people in the
+  // organisation so a brand-new chat can be started — not just filtering
+  // existing threads.
+  useEffect(() => {
+    const q = chatSearch.trim();
+    if (!open || q.length < 2) { setPeople([]); return undefined; }
+    const t = setTimeout(async () => {
+      try {
+        const provider = await getTeamsProvider();
+        const s = await provider.getState();
+        if (s.status === 'ready' && provider.searchPeople) {
+          setPeople(await provider.searchPeople(q));
+        }
+      } catch { setPeople([]); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [chatSearch, open]);
+
+  const startChatWithPerson = (person) => {
+    setChatSearch('');
+    setPeople([]);
+    openTarget({ name: person.displayName, email: person.email });
+  };
 
   const send = async () => {
     const text = draft.trim();
@@ -271,8 +296,33 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
               <div className="flex-1 overflow-y-auto">
                 {visibleChats.length === 0 && (
                   <p className="px-3 py-5 text-xs text-slate-500 dark:text-slate-400">
-                    {q ? `No chats match “${chatSearch.trim()}”.` : 'No recent chats.'}
+                    {q
+                      ? `No existing chats match “${chatSearch.trim()}”${people.length ? ' — pick a person below to start one.' : '.'}`
+                      : 'No recent chats yet — search a name above to start one.'}
                   </p>
+                )}
+                {people.length > 0 && (
+                  <div className="border-b border-slate-100 dark:border-slate-800/60">
+                    <p className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      People — start a new chat
+                    </p>
+                    {people.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => startChatWithPerson(p)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-indigo-500/10 transition"
+                      >
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] font-semibold text-emerald-600 dark:text-emerald-300 shrink-0">
+                          {(p.displayName || '?').slice(0, 1)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium text-slate-800 dark:text-slate-200 truncate">{p.displayName}</span>
+                          <span className="block text-[10px] text-slate-500 dark:text-slate-400 truncate">{p.email}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
                 {visibleChats.map((c) => (
                   <button
