@@ -60,7 +60,7 @@ class SessionStore(ABC):
 class SqliteSessionStore(SessionStore):
     """Thread-safe SQLite store. Uses a per-thread connection."""
 
-    def __init__(self, db_path: str = "/data/sessions.db"):
+    def __init__(self, db_path: str = "/app/data/sessions.db"):
         self._db_path = db_path
         self._local = threading.local()
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -276,6 +276,10 @@ def create_session_store() -> SessionStore:
                 if backend == "dynamodb":
                     _store = DynamoDBSessionStore()
                 else:
-                    db_path = os.environ.get("SESSION_DB_PATH", "/data/sessions.db")
+                    # Default lives under DATA_DIR (the writable volume) — the
+                    # container runs as a non-root user that cannot mkdir /data.
+                    db_path = os.environ.get("SESSION_DB_PATH") or os.path.join(
+                        os.environ.get("DATA_DIR", "/app/data"), "sessions.db"
+                    )
                     _store = SqliteSessionStore(db_path=db_path)
     return _store

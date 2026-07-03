@@ -34,6 +34,7 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   RefreshCw,
+  Search,
   ShieldAlert,
   LogOut,
   Sparkles,
@@ -114,15 +115,15 @@ function ChannelIcon({ channel }) {
 
 function StateBadge({ state }) {
   const colours = {
-    INITIATED:           'bg-blue-500/20 text-blue-300',
-    QUEUED:              'bg-amber-500/20 text-amber-300',
-    CALLBACK_SCHEDULED:  'bg-purple-500/20 text-purple-300',
-    CONNECTED_TO_SYSTEM: 'bg-cyan-500/20 text-cyan-300',
-    CONNECTED_TO_AGENT:  'bg-emerald-500/20 text-emerald-300',
+    INITIATED:           'bg-blue-500/20 text-blue-700 dark:text-blue-300',
+    QUEUED:              'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+    CALLBACK_SCHEDULED:  'bg-purple-500/20 text-purple-700 dark:text-purple-300',
+    CONNECTED_TO_SYSTEM: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300',
+    CONNECTED_TO_AGENT:  'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
     DISCONNECTED:        'bg-slate-500/15 text-slate-500 dark:text-slate-400',
     ENDED:               'bg-slate-500/15 text-slate-500 dark:text-slate-400',
-    MISSED:              'bg-red-500/20 text-red-400',
-    ERROR:               'bg-red-500/20 text-red-400',
+    MISSED:              'bg-red-500/20 text-red-700 dark:text-red-400',
+    ERROR:               'bg-red-500/20 text-red-700 dark:text-red-400',
   };
   const cls = colours[(state || '').toUpperCase()] || 'bg-slate-500/15 text-slate-500 dark:text-slate-400';
   return (
@@ -134,12 +135,12 @@ function StateBadge({ state }) {
 
 function AgentStateBadge({ status }) {
   const styles = {
-    Available:          'bg-emerald-500/15 text-emerald-300',
-    'On Call':          'bg-sky-500/15 text-sky-300',
-    'After Contact Work': 'bg-orange-500/15 text-orange-300',
-    'Non-Productive':   'bg-amber-500/15 text-amber-300',
+    Available:          'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+    'On Call':          'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+    'After Contact Work': 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+    'Non-Productive':   'bg-amber-500/15 text-amber-700 dark:text-amber-300',
     Offline:            'bg-slate-500/15 text-slate-500 dark:text-slate-400',
-    Error:              'bg-rose-500/15 text-rose-300',
+    Error:              'bg-rose-500/15 text-rose-700 dark:text-rose-300',
   };
   const cls = styles[status] || 'bg-slate-500/15 text-slate-500 dark:text-slate-400';
   return (
@@ -233,18 +234,59 @@ function EmptyRow({ cols, text }) {
 // ── Alert banner strip ─────────────────────────────────────────────────────────
 
 function AlertBanners({ alerts, onDismiss, onViewContact, onQueryAI }) {
+  const [open, setOpen] = useState(false);
   if (!alerts.length) return null;
+
+  const critical = alerts.filter((a) => a.severity === 'critical').length;
+  const warnings = alerts.length - critical;
+  const dotColour = critical > 0 ? 'bg-rose-500' : 'bg-amber-500';
+
   return (
-    <div className="flex flex-col gap-2 mb-4">
-      {alerts.map((alert) => (
-        <AlertBanner
-          key={alert.id}
-          alert={alert}
-          onDismiss={() => onDismiss(alert.id)}
-          onViewContact={alert.contactId ? () => onViewContact(alert.contactId, alert.contactMeta) : null}
-          onQueryAI={() => onQueryAI(alert.id)}
-        />
-      ))}
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left transition ${
+          critical > 0
+            ? 'border-rose-300 bg-rose-50 hover:bg-rose-100 dark:border-rose-500/50 dark:bg-rose-950/60 dark:hover:bg-rose-950'
+            : 'border-amber-300 bg-amber-50 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-950/60 dark:hover:bg-amber-950'
+        }`}
+      >
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${dotColour}`} />
+          <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotColour}`} />
+        </span>
+        {critical > 0
+          ? <ShieldAlert size={15} className="shrink-0 text-rose-600 dark:text-rose-400" />
+          : <AlertTriangle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />}
+        <span className={`flex-1 min-w-0 truncate text-xs font-semibold ${critical > 0 ? 'text-rose-800 dark:text-rose-200' : 'text-amber-800 dark:text-amber-200'}`}>
+          {alerts.length} active alert{alerts.length !== 1 ? 's' : ''}
+          <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
+            {critical > 0 && `${critical} critical`}
+            {critical > 0 && warnings > 0 && ' · '}
+            {warnings > 0 && `${warnings} warning${warnings !== 1 ? 's' : ''}`}
+          </span>
+        </span>
+        <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">{open ? 'Hide' : 'Review'}</span>
+        {open
+          ? <ChevronUp size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
+          : <ChevronDown size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />}
+      </button>
+
+      {open && (
+        <div className="mt-2 flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-1">
+          {alerts.map((alert) => (
+            <AlertBanner
+              key={alert.id}
+              alert={alert}
+              onDismiss={() => onDismiss(alert.id)}
+              onViewContact={alert.contactId ? () => onViewContact(alert.contactId, alert.contactMeta) : null}
+              onQueryAI={() => onQueryAI(alert.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -553,7 +595,14 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
     }
   };
 
+  // "Suggest Intervention" also opens the monitor/barge panel and brings it
+  // into view — the advice and the action belong together.
+  const [interventionSignal, setInterventionSignal] = useState(0);
+  const bargeRef = useRef(null);
+
   const suggestIntervention = async () => {
+    setInterventionSignal((n) => n + 1);
+    requestAnimationFrame(() => bargeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
     setAiLoading(true);
     const rawQueue = contact.queueName && !isRawId(contact.queueName) ? contact.queueName : 'unknown queue';
     const rawAgent = contact.agentName && !isRawId(contact.agentName) ? contact.agentName : 'an agent';
@@ -604,8 +653,8 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
           </button>
           <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Contact Detail</span>
           {isLive && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 animate-pulse" />
               LIVE
             </span>
           )}
@@ -746,7 +795,9 @@ function ContactDetailPanel({ contact, onClose, onAskAssistant, connectAlias }) 
           )}
 
           {/* Supervisor monitor / barge-in panel */}
-          <SupervisorBargePanel contact={contact} />
+          <div ref={bargeRef}>
+            <SupervisorBargePanel contact={contact} openSignal={interventionSignal} />
+          </div>
         </div>
 
         {/* ── BOTTOM: Transcript — always visible, never pushed off screen ─────── */}
@@ -861,6 +912,8 @@ function ForceLogoutBtn({ agent, onSuccess }) {
 function AgentRoster({ agentRows, loading, onForceLogout }) {
   const statOrder = { Available: 0, 'On Call': 1, 'After Contact Work': 2, 'Non-Productive': 3, Offline: 4, Error: 5 };
   const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   useEffect(() => { setRows(agentRows || []); }, [agentRows]);
 
@@ -870,41 +923,102 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
   const avail  = sorted.filter((r) => r.status === 'Available').length;
   const onCall = sorted.filter((r) => r.status === 'On Call').length;
   const acw    = sorted.filter((r) => r.status === 'After Contact Work').length;
+  const errored = sorted.filter((r) => r.status === 'Error').length;
+
+  const query = search.trim().toLowerCase();
+  const filtered = query ? sorted.filter((r) => (r.name || '').toLowerCase().includes(query)) : sorted;
+  // Collapsed: a preview of the first few agents; expanded: everything + search
+  const visible = open ? filtered : sorted.slice(0, 5);
 
   const handleSuccess = (agentId) => {
     setRows((prev) => prev.map((r) => r.agentId === agentId ? { ...r, status: 'Offline', hasActiveContact: false, contactId: '' } : r));
     if (onForceLogout) onForceLogout(agentId);
   };
 
+  const renderAgentRow = (agent) => (
+    <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
+      <div className="min-w-0 flex-1 mr-2">
+        <p className="text-slate-800 dark:text-slate-200 font-medium truncate">{agent.name || '—'}</p>
+        {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <AgentStateBadge status={agent.status} />
+        {agent.status !== 'Offline' && (
+          <ForceLogoutBtn agent={agent} onSuccess={handleSuccess} />
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-2 shrink-0">
-        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Agent Roster</p>
-        {loading && <RefreshCw size={11} className="animate-spin text-slate-600 dark:text-slate-500" />}
-      </div>
-      <div className="flex gap-2 mb-3 shrink-0">
+      {/* Title + quick numbers stay visible; the full list lives in a drawer */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center justify-between mb-2 shrink-0 w-full text-left group"
+      >
+        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+          Agent Roster
+          <span className="ml-2 rounded-full bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:text-slate-400">{sorted.length}</span>
+        </p>
+        <span className="flex items-center gap-1.5">
+          {loading && <RefreshCw size={11} className="animate-spin text-slate-600 dark:text-slate-500" />}
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 opacity-0 group-hover:opacity-100 transition">{open ? 'Hide' : 'Show all'}</span>
+          {open
+            ? <ChevronUp size={13} className="text-slate-500 dark:text-slate-400" />
+            : <ChevronDown size={13} className="text-slate-500 dark:text-slate-400" />}
+        </span>
+      </button>
+      <div className="flex flex-wrap gap-2 mb-3 shrink-0">
         <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[10px] font-medium text-emerald-400">{avail} available</span>
         <span className="rounded-lg bg-sky-500/15 px-2 py-1 text-[10px] font-medium text-sky-400">{onCall} on call</span>
         <span className="rounded-lg bg-orange-500/15 px-2 py-1 text-[10px] font-medium text-orange-400">{acw} ACW</span>
+        <span className={`rounded-lg px-2 py-1 text-[10px] font-medium ${errored > 0
+          ? 'bg-rose-500/15 text-rose-500 dark:text-rose-400'
+          : 'bg-slate-500/10 text-slate-500'}`}>
+          {errored} error
+        </span>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      {open && (
+        <div className="relative mb-2 shrink-0">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search agent by name…"
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-7 pr-7 py-1.5 text-[11px] text-slate-800 dark:text-slate-200 placeholder:text-slate-500 dark:placeholder:text-slate-500 focus:outline-none focus:border-connect-500"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className={`flex-1 overflow-y-auto ${open ? 'max-h-[420px]' : ''}`}>
         {sorted.length === 0 && (
           <p className="text-[11px] text-slate-600 dark:text-slate-500 py-3">No agent data available.</p>
         )}
-        {sorted.map((agent) => (
-          <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
-            <div className="min-w-0 flex-1 mr-2">
-              <p className="text-slate-800 dark:text-slate-200 font-medium truncate">{agent.name || '—'}</p>
-              {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <AgentStateBadge status={agent.status} />
-              {agent.status !== 'Offline' && (
-                <ForceLogoutBtn agent={agent} onSuccess={handleSuccess} />
-              )}
-            </div>
-          </div>
-        ))}
+        {open && sorted.length > 0 && visible.length === 0 && (
+          <p className="text-[11px] text-slate-600 dark:text-slate-500 py-3">No agents match “{search.trim()}”.</p>
+        )}
+        {visible.map(renderAgentRow)}
+        {!open && sorted.length > 5 && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="w-full py-1.5 text-[10px] text-connect-700 dark:text-connect-400 hover:text-connect-500 text-left"
+          >
+            + {sorted.length - 5} more agents…
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1008,7 +1122,15 @@ export default function RealtimeCommandCenter({
         ...(liveData?.outbound      || []),
         ...(liveData?.callbacks     || []),
       ];
-      const active = allContacts.filter((c) => !c.contactTerminal && c.contactId);
+      // Contact Lens sentiment only exists once an agent is connected, and each
+      // check costs a DescribeContact + S3 probe — cap the fan-out so 100+
+      // concurrent contacts can't throttle AWS (TooManyRequestsException).
+      const eligible = allContacts.filter((c) => !c.contactTerminal && c.contactId && c.escalatedToAgent);
+      const selId = selectedContactRef.current?.contactId;
+      const active = [
+        ...eligible.filter((c) => c.contactId === selId),
+        ...eligible.filter((c) => c.contactId !== selId),
+      ].slice(0, 30);
       if (!active.length) return;
       const results = await Promise.all(
         active.map((c) => getContactSentiment(c.contactId).catch(() => null))
@@ -1028,11 +1150,13 @@ export default function RealtimeCommandCenter({
   }, [liveData]);
 
   // Sections expand/collapse
-  const [showCallbacks, setShowCallbacks] = useState(true);
-  const [showOutbound, setShowOutbound]   = useState(true);
-  const [showInbound, setShowInbound]     = useState(true);
-  const [showBot, setShowBot]             = useState(true);
-  const [showTransfers, setShowTransfers] = useState(true);
+  // Contact sections start collapsed — at production volume the lists are
+  // long, so the user opens only what they need.
+  const [showCallbacks, setShowCallbacks] = useState(false);
+  const [showOutbound, setShowOutbound]   = useState(false);
+  const [showInbound, setShowInbound]     = useState(false);
+  const [showBot, setShowBot]             = useState(false);
+  const [showTransfers, setShowTransfers] = useState(false);
 
   const liveTimerRef    = useRef(null);
   const metricsTimerRef = useRef(null);
@@ -1116,13 +1240,10 @@ export default function RealtimeCommandCenter({
   }, []);
 
   const handleAlertViewContact = useCallback((contactId, meta) => {
-    if (meta) {
-      setSelectedContact(meta);
-    } else {
-      const found = [...inbound, ...botContacts, ...transfers, ...outbound, ...callbacks]
-        .find((c) => c.contactId === contactId);
-      if (found) setSelectedContact(found);
-    }
+    // Prefer the live copy of the contact; the alert's snapshot can be stale
+    const found = [...inbound, ...botContacts, ...transfers, ...outbound, ...callbacks]
+      .find((c) => c.contactId === contactId);
+    if (found || meta) setSelectedContact(found || meta);
   }, [inbound, botContacts, transfers, outbound, callbacks]);
 
   return (
@@ -1384,33 +1505,47 @@ export default function RealtimeCommandCenter({
               <div className="grid gap-4 xl:grid-cols-2">
                 <AbandonedTodayPanel />
                 <CallbacksTodayPanel />
+                {Object.keys(cbByQueue).length > 0 && (
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 mb-2 flex items-center gap-1.5">
+                      <PhoneCall size={10} /> Callbacks by Queue
+                    </p>
+                    <div className="max-h-64 overflow-y-auto pr-1">
+                      <QueueSummary cbByQueue={cbByQueue} />
+                    </div>
+                  </div>
+                )}
               </div>
 
             </div>
 
-            {/* RIGHT: Agent roster OR Contact detail panel */}
+            {/* RIGHT: Agent roster */}
             <div className="w-80 shrink-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 overflow-hidden flex flex-col">
-              {selectedContact ? (
-                <ContactDetailPanel
-                  contact={selectedContact}
-                  onClose={() => setSelectedContact(null)}
-                  onAskAssistant={onAskAssistant}
-                  connectAlias={connectAlias}
-                />
-              ) : (
-                <div className="flex flex-col h-full gap-4">
-                  <AgentRoster agentRows={agentRows} loading={agentLoading} />
-                  {Object.keys(cbByQueue).length > 0 && (
-                    <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-500 mb-2">Callbacks by Queue</p>
-                      <QueueSummary cbByQueue={cbByQueue} />
-                    </div>
-                  )}
-                </div>
-              )}
+              <AgentRoster agentRows={agentRows} loading={agentLoading} />
             </div>
           </div>
         </>
+
+      {/* ── Contact detail slide-over ─────────────────────────────────────────
+          Opened by View Call on an alert or clicking a contact row. A fixed
+          overlay: visible instantly wherever the page is scrolled, instead of
+          swapping content into the right rail below the fold. */}
+      {selectedContact && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedContact(null)}>
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" />
+          <div
+            className="relative h-full w-[420px] max-w-[92vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl p-4 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ContactDetailPanel
+              contact={selectedContact}
+              onClose={() => setSelectedContact(null)}
+              onAskAssistant={onAskAssistant}
+              connectAlias={connectAlias}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

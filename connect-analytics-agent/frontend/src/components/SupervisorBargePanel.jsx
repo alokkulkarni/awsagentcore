@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useConnectStreams } from '../hooks/useConnectStreams';
-import { monitorContact as monitorContactApi } from '../services/api';
+import { monitorContact as monitorContactApi, stopMonitorContact as stopMonitorApi } from '../services/api';
 
 // ── State labels & colours ─────────────────────────────────────────────────────
 const STATES = {
@@ -49,19 +49,28 @@ const STATES = {
   error:        { label: 'Error',             colour: 'text-rose-600 dark:text-rose-400',   bg: 'bg-rose-500/10 border-rose-500/30' },
 };
 
-export default function SupervisorBargePanel({ contact }) {
+export default function SupervisorBargePanel({ contact, openSignal = 0 }) {
   const streams     = useConnectStreams();
   const ccpRef      = useRef(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [err, setErr] = useState(null);
+  // Monitoring driven through the backend MonitorContact API rather than a
+  // connected CCP — the real UI flow in mock mode, and the initiation path in
+  // real mode when the supervisor hasn't embedded their CCP yet.
+  const [simState, setSimState] = useState(null); // null | 'monitoring' | 'barging'
 
-  // Compute display state from streams
+  // "Suggest Intervention" (and similar) bump openSignal to pop this panel open
+  useEffect(() => {
+    if (openSignal > 0) setPanelOpen(true);
+  }, [openSignal]);
+
+  // Compute display state from streams (API/simulated monitoring wins when active)
   const displayState = (() => {
-    if (!streams.connected && !streams.connecting) return 'disconnected';
-    if (streams.connecting)                         return 'connecting';
     if (streams.monitorState === 'initiating')      return 'initiating';
     if (streams.monitorState === 'monitoring')      return 'monitoring';
     if (streams.monitorState === 'barging')         return 'barging';
+    if (simState)                                   return simState;
+    if (streams.connecting)                         return 'connecting';
     if (streams.connected)                          return 'ccp_ready';
     return 'disconnected';
   })();
@@ -74,6 +83,22 @@ export default function SupervisorBargePanel({ contact }) {
       streams.containerRef.current = ccpRef.current;
     }
   }, [panelOpen, streams.containerRef]);
+
+  // Only show for live voice calls.
+  // Monitoring requires a human AGENT participant — not available during bot/IVR
+  // phase. Declared before handleMonitor: its dependency array reads isBot, and a
+  // later const would be in the temporal dead zone (ReferenceError on render).
+  const hasAgent   = contact?.escalatedToAgent ||
+                     contact?.contactState === 'CONNECTED_TO_AGENT' ||
+                     contact?.agentArn;
+  const isBot      = contact?.contactState === 'CONNECTED_TO_SYSTEM' && !hasAgent;
+  // MonitorContact supports both voice and chat contacts
+  const isEligible = contact && !contact.contactTerminal &&
+    (contact.channel === 'VOICE' || contact.channel === 'CHAT' || !contact.channel) &&
+    contact.contactState !== 'QUEUED';
+
+  // Show panel but disable monitoring when still in bot/IVR phase
+  const canMonitor = isEligible && !isBot;
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -113,50 +138,53 @@ export default function SupervisorBargePanel({ contact }) {
       return;
     }
 
-    // If streams not connected or no supervisorId, use backend only
-    if (streams.supervisorId) {
-      try {
-        await monitorContactApi(contact.contactId, streams.supervisorId, true);
-      } catch (e) {
-        setErr(e?.response?.data?.detail || e.message || 'Monitor failed');
+    // If streams not connected or no supervisorId, use the backend API.
+    // In mock mode this simulates the full monitor → barge flow; in real mode
+    // it needs a supervisor ID, so guide the user to connect their CCP.
+    try {
+      const resp = await monitorContactApi(
+        contact.contactId, streams.supervisorId || 'supervisor-dashboard', true,
+      );
+      if (resp?.mock) {
+        setSimState('monitoring');
+      } else if (!streams.supervisorId) {
+        setErr('Monitoring initiated — accept the ring in your Connect CCP.');
       }
-    } else {
-      setErr('Connect to CCP first so your supervisor ID can be determined.');
+    } catch (e) {
+      setErr(streams.supervisorId
+        ? (e?.response?.data?.detail || e.message || 'Monitor failed')
+        : 'Connect to CCP first so your supervisor ID can be determined.');
     }
   }, [contact, isBot, streams]);
 
   const handleBargeIn = useCallback(() => {
     setErr(null);
+    if (simState === 'monitoring') {
+      setSimState('barging');
+      return;
+    }
     try {
       streams.bargeIn();
     } catch (e) {
       setErr(e.message);
     }
-  }, [streams]);
+  }, [streams, simState]);
 
   const handleStop = useCallback(() => {
     setErr(null);
+    if (simState) {
+      setSimState(null);
+      stopMonitorApi(contact.contactId).catch(() => {});
+      return;
+    }
     streams.stopMonitoring();
-  }, [streams]);
+  }, [streams, simState, contact]);
 
   const handleDisconnect = useCallback(() => {
     streams.disconnect();
     setPanelOpen(false);
     setErr(null);
   }, [streams]);
-
-  // Only show for live voice calls
-  // Monitoring requires a human AGENT participant — not available during bot/IVR phase
-  const hasAgent   = contact?.escalatedToAgent ||
-                     contact?.contactState === 'CONNECTED_TO_AGENT' ||
-                     contact?.agentArn;
-  const isBot      = contact?.contactState === 'CONNECTED_TO_SYSTEM' && !hasAgent;
-  const isEligible = contact && !contact.contactTerminal &&
-    (contact.channel === 'VOICE' || !contact.channel) &&
-    contact.contactState !== 'QUEUED';
-
-  // Show panel but disable monitoring when still in bot/IVR phase
-  const canMonitor = isEligible && !isBot;
 
   if (!isEligible) return null;
 
@@ -258,12 +286,12 @@ export default function SupervisorBargePanel({ contact }) {
               </button>
             )}
 
-            {(displayState === 'ccp_ready') && (
+            {(displayState === 'ccp_ready' || displayState === 'disconnected') && (
               <button
                 type="button"
                 onClick={handleMonitor}
                 disabled={isBot}
-                title={isBot ? 'Waiting for agent — call is still with bot/IVR' : 'Silently monitor this call'}
+                title={isBot ? 'Waiting for agent — call is still with bot/IVR' : 'Silently monitor this contact'}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
               >
                 <EarOff size={11} />
