@@ -1,218 +1,285 @@
 <mxfile host="app.diagrams.net">
   <diagram id="c4-context" name="C4 L1 - System Context">
-    <mxGraphModel adaptiveColors="auto">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
         <mxCell id="t" value="&lt;b&gt;C4 Level 1 — System Context: Connect Analytics Agent&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" vertex="1" parent="1">
-          <mxGeometry x="40" y="10" width="700" height="30" as="geometry"/>
+          <mxGeometry x="40" y="15" width="700" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="p1" value="&lt;b&gt;Contact-Centre Supervisor / Analyst&lt;/b&gt;&lt;br&gt;[Person]&lt;br&gt;Monitors live queues and agents,&#xa;analyses contacts, asks the AI assistant&#xa;questions in natural language" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#052E56;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="400" y="70" width="280" height="110" as="geometry"/>
+          <mxGeometry x="480" y="70" width="280" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="sys" value="&lt;b&gt;Connect Analytics Agent&lt;/b&gt;&lt;br&gt;[Software System]&lt;br&gt;Real-time + historical contact-centre&#xa;analytics dashboard with an AI chat agent&#xa;(Strands + Bedrock) over Amazon Connect data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="400" y="270" width="280" height="120" as="geometry"/>
+          <mxGeometry x="480" y="270" width="280" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="x1" value="&lt;b&gt;Amazon Connect + Contact Lens&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;Contact-centre platform: metrics,&#xa;contacts, users, flows, transcripts,&#xa;recordings, CCP softphone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="60" y="480" width="260" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="x2" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;Claude LLM for tool orchestration,&#xa;answer formatting and theme extraction" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="400" y="480" width="260" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="x3" value="&lt;b&gt;Amazon Cognito&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;User pool issuing JWTs;&#xa;API Gateway authorizer (cloud mode)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="740" y="480" width="260" height="110" as="geometry"/>
+          <mxGeometry x="80" y="275" width="260" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="x4" value="&lt;b&gt;EventBridge + SQS&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;Streams Connect contact/agent&#xa;events for live activity views" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="820" y="280" width="260" height="110" as="geometry"/>
+          <mxGeometry x="900" y="275" width="260" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="ce1" value="views dashboards, chats with agent&#xa;[HTTPS]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="p1" target="sys" parent="1">
+        <mxCell id="x2" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;Claude LLM for tool orchestration,&#xa;answer formatting and theme extraction" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="480" y="510" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="x3" value="&lt;b&gt;Amazon Cognito&lt;/b&gt;&lt;br&gt;[External System]&lt;br&gt;User pool issuing JWTs;&#xa;API Gateway authorizer (cloud mode)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="900" y="510" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce1" value="views dashboards, chats with agent&#xa;[HTTPS]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="p1" target="sys" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="ce2" value="queries analytics APIs, monitor/barge&#xa;[SigV4 / boto3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="sys" target="x1" parent="1">
+        <mxCell id="ce2" value="queries analytics APIs,&#xa;monitor/barge [SigV4 / boto3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="sys" target="x1" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="ce3" value="converse (LLM)&#xa;[SigV4]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="sys" target="x2" parent="1">
+        <mxCell id="ce3" value="converse (LLM)&#xa;[SigV4]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="sys" target="x2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="ce4" value="authenticates users&#xa;[JWT]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="sys" target="x3" parent="1">
+        <mxCell id="ce4" value="authenticates users&#xa;[JWT]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="sys" target="x3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="690" y="460"/>
+              <mxPoint x="830" y="460"/>
+              <mxPoint x="830" y="565"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ce5" value="consumes live events&#xa;[SQS long-poll]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="x4" target="sys" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="ce5" value="consumes live events&#xa;[SQS long-poll]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="x4" target="sys" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="ce7" value="CCP softphone iframe&#xa;[amazon-connect-streams]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="p1" target="x1" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="ce7" value="CCP softphone iframe&#xa;[amazon-connect-streams]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="p1" target="x1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="210" y="125"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
   <diagram id="c4-container" name="C4 L2 - Containers">
-    <mxGraphModel adaptiveColors="auto">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
         <mxCell id="t2" value="&lt;b&gt;C4 Level 2 — Containers: Connect Analytics Agent&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" vertex="1" parent="1">
-          <mxGeometry x="40" y="10" width="700" height="30" as="geometry"/>
+          <mxGeometry x="40" y="15" width="700" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="p2" value="&lt;b&gt;Supervisor / Analyst&lt;/b&gt;&lt;br&gt;[Person]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#052E56;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="60" y="200" width="200" height="70" as="geometry"/>
+          <mxGeometry x="60" y="210" width="200" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="bound" value="Connect Analytics Agent [Software System]" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=none;strokeColor=#1168BD;dashed=1;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="340" y="60" width="1000" height="760" as="geometry"/>
-        </mxCell>
-        <mxCell id="spa" value="&lt;b&gt;Single-Page App&lt;/b&gt;&lt;br&gt;[Container: React 18 + Vite]&lt;br&gt;Realtime command centre, historical&#xa;analytics, contact search, flow funnel,&#xa;AI chat, supervisor barge panel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="380" y="180" width="260" height="110" as="geometry"/>
+          <mxGeometry x="340" y="60" width="1040" height="790" as="geometry"/>
         </mxCell>
         <mxCell id="edge2" value="&lt;b&gt;Web delivery&lt;/b&gt;&lt;br&gt;[Container: CloudFront + private S3 (OAC)]&lt;br&gt;Serves the SPA, routes /api/* to API tier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="380" y="80" width="260" height="70" as="geometry"/>
+          <mxGeometry x="390" y="100" width="260" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="api2" value="&lt;b&gt;API tier&lt;/b&gt;&lt;br&gt;[Container: API Gateway + Cognito authorizer]&lt;br&gt;POST /api/query · GET /api/health · /api/metrics&#xa;(cloud)  —or—  FastAPI local_server :8100&#xa;with ~55 routes (local/Docker)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="720" y="170" width="280" height="120" as="geometry"/>
-        </mxCell>
-        <mxCell id="agent2" value="&lt;b&gt;Analytics Agent&lt;/b&gt;&lt;br&gt;[Container: Python 3.12 Lambda / in-process]&lt;br&gt;Strands agent, 4-tier execution:&#xa;AgentCore MCP → direct Lambda →&#xa;in-process tools → conversational" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="720" y="380" width="280" height="120" as="geometry"/>
+        <mxCell id="spa" value="&lt;b&gt;Single-Page App&lt;/b&gt;&lt;br&gt;[Container: React 18 + Vite]&lt;br&gt;Realtime command centre, historical&#xa;analytics, contact search, flow funnel,&#xa;AI chat, supervisor barge panel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="390" y="240" width="260" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="gw2" value="&lt;b&gt;AgentCore Gateway&lt;/b&gt;&lt;br&gt;[Container: Bedrock AgentCore, optional]&lt;br&gt;MCP tool gateway over SSE (SigV4)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="380" y="400" width="260" height="80" as="geometry"/>
+          <mxGeometry x="390" y="460" width="260" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="sess2" value="&lt;b&gt;Session Store&lt;/b&gt;&lt;br&gt;[Container: DynamoDB + S3 (cloud)&#xa;or SQLite sessions.db (local)]&lt;br&gt;Chat history per session" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="630" width="240" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="api2" value="&lt;b&gt;API tier&lt;/b&gt;&lt;br&gt;[Container: API Gateway + Cognito authorizer]&lt;br&gt;POST /api/query · GET /api/health · /api/metrics&#xa;(cloud)  —or—  FastAPI local_server :8100&#xa;with ~55 routes (local/Docker)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="740" y="235" width="280" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent2" value="&lt;b&gt;Analytics Agent&lt;/b&gt;&lt;br&gt;[Container: Python 3.12 Lambda / in-process]&lt;br&gt;Strands agent, 4-tier execution:&#xa;AgentCore MCP → direct Lambda →&#xa;in-process tools → conversational" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="740" y="440" width="280" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="tools2" value="&lt;b&gt;Connect Tool Functions&lt;/b&gt;&lt;br&gt;[Container: 9 Python Lambdas]&lt;br&gt;realtime/historical metrics, agent states,&#xa;contact search/detail, transcript, keyword&#xa;search, recording URL, flow events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="720" y="580" width="280" height="120" as="geometry"/>
-        </mxCell>
-        <mxCell id="sess2" value="&lt;b&gt;Session Store&lt;/b&gt;&lt;br&gt;[Container: DynamoDB + S3 (cloud)&#xa;or SQLite /data/sessions.db (local)]&lt;br&gt;Chat history per session" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;boundedLbl=1;" vertex="1" parent="1">
-          <mxGeometry x="400" y="560" width="220" height="120" as="geometry"/>
+          <mxGeometry x="740" y="650" width="280" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="listen2" value="&lt;b&gt;Event Listener&lt;/b&gt;&lt;br&gt;[Component in FastAPI: daemon thread]&lt;br&gt;SQS poller → in-memory live-contact registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#2E6295;fontColor=#FFFFFF;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="1050" y="80" width="260" height="80" as="geometry"/>
-        </mxCell>
-        <mxCell id="xc1" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;+ Contact Lens / recordings S3 / flow logs&lt;br&gt;[External System]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="1420" y="590" width="260" height="100" as="geometry"/>
-        </mxCell>
-        <mxCell id="xc2" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;[External System]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="1420" y="400" width="260" height="80" as="geometry"/>
+          <mxGeometry x="1090" y="100" width="260" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="xc3" value="&lt;b&gt;EventBridge + SQS&lt;/b&gt;&lt;br&gt;[External System]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="1420" y="90" width="260" height="70" as="geometry"/>
+          <mxGeometry x="1450" y="100" width="260" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="k1" value="opens [HTTPS]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="p2" target="edge2" parent="1">
+        <mxCell id="xc2" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;[External System]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="470" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="xc1" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;+ Contact Lens / recordings S3 / flow logs&lt;br&gt;[External System]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="650" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="k1" value="opens [HTTPS]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="p2" target="edge2" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="320" y="245"/>
+              <mxPoint x="320" y="140"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="k2" value="delivers" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="edge2" target="spa" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k2" value="delivers" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="edge2" target="spa" parent="1">
+        <mxCell id="k3" value="JSON/HTTPS + Bearer JWT&#xa;(SSE for scans, local)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="spa" target="api2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k3" value="JSON/HTTPS + Bearer JWT&#xa;(SSE for scans, local)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="spa" target="api2" parent="1">
+        <mxCell id="k4" value="invokes query()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="api2" target="agent2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k4" value="invokes query()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="api2" target="agent2" parent="1">
+        <mxCell id="k5" value="MCP/SSE [tier 1]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="agent2" target="gw2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k5" value="MCP/SSE [tier 1]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="agent2" target="gw2" parent="1">
+        <mxCell id="k6" value="gateway targets" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.1;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="gw2" target="tools2" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="416" y="785"/>
+              <mxPoint x="700" y="785"/>
+              <mxPoint x="700" y="710"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="k7" value="lambda:Invoke [tier 2]&#xa;or import [tier 3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="agent2" target="tools2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k6" value="gateway targets" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="gw2" target="tools2" parent="1">
+        <mxCell id="k8" value="persists chat history&#xa;(handler / local_server)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="agent2" target="sess2" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="670" y="530"/>
+              <mxPoint x="670" y="570"/>
+              <mxPoint x="510" y="570"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="k9" value="boto3 [SigV4]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="tools2" target="xc1" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k7" value="lambda:Invoke [tier 2]&#xa;or import [tier 3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agent2" target="tools2" parent="1">
+        <mxCell id="k10" value="converse [tier 4 + formatting]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="agent2" target="xc2" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k8" value="reads/writes chat history" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="api2" target="sess2" parent="1">
+        <mxCell id="k11" value="long-poll" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="listen2" target="xc3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="k9" value="boto3 [SigV4]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="tools2" target="xc1" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="k10" value="converse [tier 4 + formatting]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agent2" target="xc2" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="k11" value="long-poll" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="listen2" target="xc3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="k12" value="live-contact registry feeds /live-* routes" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="listen2" target="api2" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="k12" value="live-contact registry&#xa;feeds /live-* routes" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" source="listen2" target="api2" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="950" y="140"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
   <diagram id="c4-component" name="C4 L3 - Components (Agent)">
-    <mxGraphModel adaptiveColors="auto">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
         <mxCell id="t3" value="&lt;b&gt;C4 Level 3 — Components: Analytics Agent (agent/ + tools/)&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" vertex="1" parent="1">
-          <mxGeometry x="40" y="10" width="700" height="30" as="geometry"/>
+          <mxGeometry x="40" y="15" width="700" height="30" as="geometry"/>
         </mxCell>
-        <mxCell id="b3" value="Analytics Agent [Container]" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=none;strokeColor=#438DD5;dashed=1;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="60" y="60" width="1240" height="820" as="geometry"/>
+        <mxCell id="b3" value="Analytics Agent [Container]" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=#FFFFFF;strokeColor=#438DD5;dashed=1;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="1180" height="830" as="geometry"/>
         </mxCell>
         <mxCell id="h3" value="&lt;b&gt;handler.py&lt;/b&gt;&lt;br&gt;[Component: Lambda entrypoint, cloud]&lt;br&gt;Routes /query /health /metrics,&#xa;CORS allow-list, session-id + message&#xa;validation (security fix)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="100" y="110" width="260" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="ls3" value="&lt;b&gt;local_server.py&lt;/b&gt;&lt;br&gt;[Component: FastAPI app, local/Docker]&lt;br&gt;~55 routes: metrics, live activity, contacts,&#xa;transcripts, scans (SSE), sessions, chat.&#xa;CORS + security headers + rate limit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="420" y="110" width="300" height="110" as="geometry"/>
+          <mxGeometry x="80" y="120" width="280" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="ac3" value="&lt;b&gt;agent_core.ConnectAnalyticsAgent&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;4-tier query execution, regex tool router,&#xa;SigV4 MCP client, Bedrock formatter&#xa;+ LocalToolInvoker (in-process tier)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="420" y="300" width="300" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="ss3" value="&lt;b&gt;session_store.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;SqliteSessionStore (local)&#xa;DynamoDBSessionStore + S3 overflow (cloud)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="100" y="300" width="260" height="100" as="geometry"/>
-        </mxCell>
-        <mxCell id="eb3" value="&lt;b&gt;eventbridge_listener.py&lt;/b&gt;&lt;br&gt;[Component: daemon thread]&lt;br&gt;SQS poll → classify inbound/outbound/&#xa;callback/transfer/bot → live registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="790" y="110" width="280" height="100" as="geometry"/>
-        </mxCell>
-        <mxCell id="sc3" value="&lt;b&gt;startup_scan.py&lt;/b&gt;&lt;br&gt;[Component: leader-elected scan]&lt;br&gt;Discovers Connect resources →&#xa;discovered_resources.json + SSE progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="790" y="250" width="280" height="100" as="geometry"/>
-        </mxCell>
-        <mxCell id="ts3" value="&lt;b&gt;theme_scan.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Contact Lens transcripts → Bedrock&#xa;theme extraction (batched) + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="790" y="390" width="280" height="90" as="geometry"/>
-        </mxCell>
-        <mxCell id="dr3" value="&lt;b&gt;disconnect_reasons.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;CTR DisconnectReason classification&#xa;(Customer/Agent/Technical/Other) + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="790" y="520" width="280" height="90" as="geometry"/>
-        </mxCell>
-        <mxCell id="ho3" value="&lt;b&gt;hours_of_operation.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Queue business-hours resolution,&#xa;day-to-date occupancy windows" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="420" y="470" width="300" height="90" as="geometry"/>
-        </mxCell>
-        <mxCell id="cs3" value="&lt;b&gt;contact_scan_utils.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Shared exhaustive search_contacts&#xa;paginator for both scans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="420" y="620" width="300" height="90" as="geometry"/>
+          <mxGeometry x="80" y="300" width="280" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="tl3" value="&lt;b&gt;tools/&amp;lt;name&amp;gt;/handler.py × 11&lt;/b&gt;&lt;br&gt;[Component: Lambda handlers]&lt;br&gt;9 gateway tools + bot_metrics (local only)&#xa;+ force_logout (API-only)&lt;br&gt;shared/connect_utils · shared/scan_resources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
-          <mxGeometry x="100" y="470" width="260" height="120" as="geometry"/>
+          <mxGeometry x="80" y="490" width="280" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="ext3" value="&lt;b&gt;AWS services&lt;/b&gt;&lt;br&gt;Connect · Contact Lens · Bedrock&#xa;SQS · CloudWatch · S3 · DynamoDB&lt;br&gt;[External]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" vertex="1" parent="1">
-          <mxGeometry x="100" y="720" width="260" height="100" as="geometry"/>
+          <mxGeometry x="80" y="690" width="280" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="m1" value="query()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="h3" target="ac3" parent="1">
+        <mxCell id="ls3" value="&lt;b&gt;local_server.py&lt;/b&gt;&lt;br&gt;[Component: FastAPI app, local/Docker]&lt;br&gt;~55 routes: metrics, live activity, contacts,&#xa;transcripts, scans (SSE), sessions, chat.&#xa;CORS + security headers + rate limit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="460" y="110" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="ss3" value="&lt;b&gt;session_store.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;SqliteSessionStore (local)&#xa;DynamoDBSessionStore + S3 overflow (cloud)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="460" y="300" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="ho3" value="&lt;b&gt;hours_of_operation.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Queue business-hours resolution,&#xa;day-to-date occupancy windows" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="460" y="470" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="cs3" value="&lt;b&gt;contact_scan_utils.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Shared exhaustive search_contacts&#xa;paginator for both scans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="460" y="630" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="eb3" value="&lt;b&gt;eventbridge_listener.py&lt;/b&gt;&lt;br&gt;[Component: daemon thread]&lt;br&gt;SQS poll → classify inbound/outbound/&#xa;callback/transfer/bot → live registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="840" y="110" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="sc3" value="&lt;b&gt;startup_scan.py&lt;/b&gt;&lt;br&gt;[Component: leader-elected scan]&lt;br&gt;Discovers Connect resources →&#xa;discovered_resources.json + SSE progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="840" y="240" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ts3" value="&lt;b&gt;theme_scan.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;Contact Lens transcripts → Bedrock&#xa;theme extraction (batched) + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="840" y="370" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr3" value="&lt;b&gt;disconnect_reasons.py&lt;/b&gt;&lt;br&gt;[Component]&lt;br&gt;CTR DisconnectReason classification&#xa;(Customer/Agent/Technical/Other) + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85BBF0;strokeColor=#5D82A8;" vertex="1" parent="1">
+          <mxGeometry x="840" y="500" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="m1" value="query() (cloud)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="h3" target="ac3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="m2" value="query() / tool routes" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="ac3" parent="1">
+        <mxCell id="m2" value="query() / tool routes" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="ls3" target="ac3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="170"/>
+              <mxPoint x="400" y="270"/>
+              <mxPoint x="220" y="270"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" value="create_session_store()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="ls3" target="ss3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="m3" value="create_session_store()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="ss3" parent="1">
+        <mxCell id="m10" value="today_window()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ls3" target="ho3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="200"/>
+              <mxPoint x="420" y="515"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m4" value="start() / get_summary()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ls3" target="eb3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="m4" value="start() / get_summary()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="eb3" parent="1">
+        <mxCell id="m5" value="run once at boot" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.55;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ls3" target="sc3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="800" y="176"/>
+              <mxPoint x="800" y="285"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" value="start scan" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ls3" target="ts3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="785" y="206"/>
+              <mxPoint x="785" y="415"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" value="start scan" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.95;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ls3" target="dr3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="224"/>
+              <mxPoint x="770" y="545"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m8" value="enumerate_contacts()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="ts3" target="cs3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1160" y="415"/>
+              <mxPoint x="1160" y="760"/>
+              <mxPoint x="600" y="760"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m9" value="enumerate_contacts()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.33;entryDx=0;entryDy=0;" edge="1" source="dr3" target="cs3" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="660"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m11" value="import lambda_handler [tier 3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="ac3" target="tl3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="m5" value="run once at boot" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="sc3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m6" value="start scan" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="ts3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m7" value="start scan" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="dr3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m8" value="enumerate_contacts()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ts3" target="cs3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m9" value="enumerate_contacts()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="dr3" target="cs3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m10" value="today_window()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ls3" target="ho3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m11" value="import lambda_handler [tier 3]" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ac3" target="tl3" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="m12" value="boto3" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="tl3" target="ext3" parent="1">
+        <mxCell id="m12" value="boto3" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="tl3" target="ext3" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
       </root>
