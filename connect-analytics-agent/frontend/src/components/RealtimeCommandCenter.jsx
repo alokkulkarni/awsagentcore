@@ -27,6 +27,7 @@ import {
   Headphones,
   Info,
   Maximize2,
+  MessageSquare,
   Minimize2,
   Phone,
   PhoneCall,
@@ -48,6 +49,8 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
+import TeamsPanel, { TeamsLogo } from './TeamsPanel';
+import { getTeamsProvider, PRESENCE_STYLE } from '../services/teams';
 import {
   getAgentStates,
   getLiveContacts,
@@ -909,7 +912,7 @@ function ForceLogoutBtn({ agent, onSuccess }) {
   );
 }
 
-function AgentRoster({ agentRows, loading, onForceLogout }) {
+function AgentRoster({ agentRows, loading, onForceLogout, onTeamsChat }) {
   const statOrder = { Available: 0, 'On Call': 1, 'After Contact Work': 2, 'Non-Productive': 3, Offline: 4, Error: 5 };
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
@@ -930,25 +933,73 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
   // Collapsed: a preview of the first few agents; expanded: everything + search
   const visible = open ? filtered : sorted.slice(0, 5);
 
+  // Teams presence per agent (mock: coherent with roster status; real mode
+  // needs the agent→M365 mapping that lands in Teams Phase 2). Throttled.
+  const [presence, setPresence] = useState({});
+  const presenceFetchedAt = useRef(0);
+  useEffect(() => {
+    if (!rows.length || Date.now() - presenceFetchedAt.current < 15_000) return;
+    presenceFetchedAt.current = Date.now();
+    let cancelled = false;
+    (async () => {
+      try {
+        const provider = await getTeamsProvider();
+        const map = await provider.getPresence(rows.map((r) => ({
+          key: r.agentId,
+          hint: r.status,
+          email: (r.username || '').includes('@') ? r.username : null,
+        })));
+        if (!cancelled) setPresence(map);
+      } catch { /* presence is decorative — never break the roster */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rows]);
+
   const handleSuccess = (agentId) => {
     setRows((prev) => prev.map((r) => r.agentId === agentId ? { ...r, status: 'Offline', hasActiveContact: false, contactId: '' } : r));
     if (onForceLogout) onForceLogout(agentId);
   };
 
-  const renderAgentRow = (agent) => (
-    <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
-      <div className="min-w-0 flex-1 mr-2">
-        <p className="text-slate-800 dark:text-slate-200 font-medium truncate">{agent.name || '—'}</p>
-        {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
+  const renderAgentRow = (agent) => {
+    const pKey = presence[agent.agentId];
+    const pStyle = pKey ? PRESENCE_STYLE[pKey] : null;
+    return (
+      <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
+        <div className="min-w-0 flex-1 mr-2">
+          <p className="text-slate-800 dark:text-slate-200 font-medium truncate flex items-center gap-1.5">
+            {pStyle && (
+              <span
+                title={`Teams: ${pStyle.label}`}
+                className="inline-block h-2 w-2 rounded-full shrink-0"
+                style={{ background: pStyle.colour }}
+              />
+            )}
+            {agent.name || '—'}
+          </p>
+          {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {pStyle && onTeamsChat && (
+            <button
+              type="button"
+              onClick={() => onTeamsChat({
+                name: agent.name,
+                email: (agent.username || '').includes('@') ? agent.username : null,
+              })}
+              title={`Chat with ${agent.name} in Teams`}
+              className="rounded p-1 hover:bg-indigo-500/10 transition"
+            >
+              <TeamsLogo size={12} />
+            </button>
+          )}
+          <AgentStateBadge status={agent.status} />
+          {agent.status !== 'Offline' && (
+            <ForceLogoutBtn agent={agent} onSuccess={handleSuccess} />
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <AgentStateBadge status={agent.status} />
-        {agent.status !== 'Offline' && (
-          <ForceLogoutBtn agent={agent} onSuccess={handleSuccess} />
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -1089,6 +1140,16 @@ export default function RealtimeCommandCenter({
   const [lastRefresh, setLastRefresh] = useState(null);
   const [selectedContact, setSelectedContact] = useState(null);
   const [sentimentMap, setSentimentMap] = useState({});
+  const [teamsOpen, setTeamsOpen] = useState(false);
+  const [teamsUnread, setTeamsUnread] = useState(0);
+  const [teamsChatTarget, setTeamsChatTarget] = useState(null);
+
+  // Roster chat button: open the in-dashboard Teams panel on that agent's
+  // 1:1 thread (sign-in happens in-panel first when needed) — never a new tab.
+  const handleTeamsChat = useCallback((target) => {
+    setTeamsChatTarget({ ...target, requestId: Date.now() });
+    setTeamsOpen(true);
+  }, []);
 
   // Keep the detail panel in sync — when the live contact list refreshes (every 5s)
   // find the currently selected contact in the fresh data and update its metadata
@@ -1288,6 +1349,19 @@ export default function RealtimeCommandCenter({
               {now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setTeamsOpen(true)}
+            title="Microsoft Teams — chat and agent presence"
+            className="relative rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5"
+          >
+            <TeamsLogo size={14} /> Teams
+            {teamsUnread > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-semibold text-white">
+                {teamsUnread}
+              </span>
+            )}
+          </button>
           <button
             type="button"
             onClick={fetchLive}
@@ -1521,17 +1595,25 @@ export default function RealtimeCommandCenter({
 
             {/* RIGHT: Agent roster */}
             <div className="w-80 shrink-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 overflow-hidden flex flex-col">
-              <AgentRoster agentRows={agentRows} loading={agentLoading} />
+              <AgentRoster agentRows={agentRows} loading={agentLoading} onTeamsChat={handleTeamsChat} />
             </div>
           </div>
         </>
+
+      {/* ── Microsoft Teams slide-over (always mounted for the unread badge) ── */}
+      <TeamsPanel
+        open={teamsOpen}
+        onClose={() => setTeamsOpen(false)}
+        onUnreadChange={setTeamsUnread}
+        chatTarget={teamsChatTarget}
+      />
 
       {/* ── Contact detail slide-over ─────────────────────────────────────────
           Opened by View Call on an alert or clicking a contact row. A fixed
           overlay: visible instantly wherever the page is scrolled, instead of
           swapping content into the right rail below the fold. */}
       {selectedContact && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedContact(null)}>
+        <div className="fixed inset-0 z-[60] flex justify-end" onClick={() => setSelectedContact(null)}>
           <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" />
           <div
             className="relative h-full w-[420px] max-w-[92vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl p-4 flex flex-col"

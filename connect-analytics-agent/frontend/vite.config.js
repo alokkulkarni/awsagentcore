@@ -7,6 +7,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Second HTML entry: the MSAL popup redirect bridge page (Teams sign-in)
+    build: {
+      rollupOptions: {
+        input: {
+          main: 'index.html',
+          authRedirect: 'auth-redirect.html',
+        },
+      },
+    },
+    optimizeDeps: {
+      include: ['@azure/msal-browser', '@azure/msal-browser/redirect-bridge'],
+    },
     server: {
       // Listens on localhost by default; the Docker container overrides with
       // `--host 0.0.0.0` on the CLI (compose maps the port to 127.0.0.1 on the host).
