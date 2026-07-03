@@ -13,7 +13,7 @@
  * no Teams content ever reaches the dashboard backend.
  */
 
-import { getConfig } from './api';
+import { getConfig, getTeamsConfig } from './api';
 
 const CLIENT_ID = import.meta.env.VITE_TEAMS_CLIENT_ID || '';
 const TENANT_ID = import.meta.env.VITE_TEAMS_TENANT_ID || '';
@@ -161,12 +161,27 @@ class MockTeamsProvider {
 
 // ── Graph provider (real mode, env-gated) ──────────────────────────────────────
 
+const READ_STATE_KEY = 'connect.analytics.teams.readState';
+
+function loadReadState() {
+  try { return JSON.parse(localStorage.getItem(READ_STATE_KEY) || '{}'); } catch { return {}; }
+}
+
 class GraphTeamsProvider {
-  constructor() {
+  constructor(clientId = CLIENT_ID, tenantId = TENANT_ID) {
     this.kind = 'graph';
+    this._clientId = clientId;
+    this._tenantId = tenantId;
     this._msal = null;
     this._account = null;
     this._userIdCache = new Map(); // email → AAD object id (null = not found)
+    this._readState = loadReadState(); // chatId → ISO of last read message
+    this._lastChats = [];
+    this._presenceDeniedWarned = false;
+  }
+
+  _saveReadState() {
+    try { localStorage.setItem(READ_STATE_KEY, JSON.stringify(this._readState)); } catch { /* quota — ignore */ }
   }
 
   async _instance() {
@@ -174,8 +189,8 @@ class GraphTeamsProvider {
     const { PublicClientApplication } = await import('@azure/msal-browser');
     this._msal = new PublicClientApplication({
       auth: {
-        clientId: CLIENT_ID,
-        authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+        clientId: this._clientId,
+        authority: `https://login.microsoftonline.com/${this._tenantId}`,
         redirectUri: window.location.origin,
       },
       cache: { cacheLocation: 'sessionStorage' },
@@ -218,13 +233,29 @@ class GraphTeamsProvider {
     }
   }
 
-  async _graph(path, options = {}) {
+  async _graph(path, options = {}, attempt = 0) {
     const token = await this._token();
     const resp = await fetch(`${GRAPH}${path}`, {
       ...options,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
-    if (!resp.ok) throw new Error(`Graph ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    // Graph throttling: honour Retry-After, retry twice before surfacing
+    if (resp.status === 429 && attempt < 2) {
+      const wait = Math.min(Number(resp.headers.get('Retry-After') || 2), 15);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      return this._graph(path, options, attempt + 1);
+    }
+    // Expired/invalidated token: force one refresh cycle then retry
+    if (resp.status === 401 && attempt < 1) {
+      const msal = await this._instance();
+      await msal.acquireTokenPopup({ scopes: GRAPH_SCOPES }).then((r) => { this._account = r.account; }).catch(() => {});
+      return this._graph(path, options, attempt + 1);
+    }
+    if (!resp.ok) {
+      const err = new Error(`Graph ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+      err.status = resp.status;
+      throw err;
+    }
     return resp.status === 204 ? null : resp.json();
   }
 
@@ -236,22 +267,32 @@ class GraphTeamsProvider {
 
   async listChats() {
     const data = await this._graph('/me/chats?$expand=members,lastMessagePreview&$top=20&$orderby=lastMessagePreview/createdDateTime desc');
-    return (data.value || []).map((c) => ({
-      id: c.id,
-      topic: this._chatTopic(c),
-      group: c.chatType === 'group',
-      unread: 0, // Graph has no simple unread count; Phase 2 tracks read state locally
-      last: c.lastMessagePreview ? {
-        from: c.lastMessagePreview.from?.user?.displayName || '',
-        text: (c.lastMessagePreview.body?.content || '').replace(/<[^>]+>/g, '').slice(0, 120),
-        at: c.lastMessagePreview.createdDateTime,
-      } : null,
-    }));
+    this._lastChats = (data.value || []).map((c) => {
+      const last = c.lastMessagePreview || null;
+      const lastAt = last?.createdDateTime || null;
+      const lastMine = last?.from?.user?.id === this._account?.localAccountId;
+      // Graph exposes no unread count — track read state locally per chat
+      const readUpTo = this._readState[c.id];
+      const unread = lastAt && !lastMine && (!readUpTo || lastAt > readUpTo) ? 1 : 0;
+      return {
+        id: c.id,
+        topic: this._chatTopic(c),
+        group: c.chatType === 'group',
+        unread,
+        last: last ? {
+          from: last.from?.user?.displayName || '',
+          mine: lastMine,
+          text: (last.body?.content || '').replace(/<[^>]+>/g, '').slice(0, 120),
+          at: lastAt,
+        } : null,
+      };
+    });
+    return this._lastChats;
   }
 
   async listMessages(chatId) {
     const data = await this._graph(`/me/chats/${encodeURIComponent(chatId)}/messages?$top=30`);
-    return (data.value || [])
+    const messages = (data.value || [])
       .filter((m) => m.messageType === 'message')
       .map((m) => ({
         id: m.id,
@@ -261,6 +302,15 @@ class GraphTeamsProvider {
         text: (m.body?.content || '').replace(/<[^>]+>/g, ''),
       }))
       .reverse();
+    // Opening (or refreshing) a thread marks it read up to its newest message
+    const newest = messages[messages.length - 1];
+    if (newest?.at && (this._readState[chatId] || '') < newest.at) {
+      this._readState[chatId] = newest.at;
+      this._saveReadState();
+      const cached = this._lastChats.find((c) => c.id === chatId);
+      if (cached) cached.unread = 0;
+    }
+    return messages;
   }
 
   async sendMessage(chatId, text) {
@@ -270,7 +320,9 @@ class GraphTeamsProvider {
     });
   }
 
-  async unreadCount() { return 0; } // Phase 2: local read-state tracking
+  async unreadCount() {
+    return this._lastChats.reduce((n, c) => n + (c.unread || 0), 0);
+  }
 
   /** Find (or create via Graph) the 1:1 chat with an agent's M365 account. */
   async openChatWith({ name, email }) {
@@ -318,16 +370,26 @@ class GraphTeamsProvider {
       if (id) { ids.push(id); idToKey[id] = a.key; }
     }
     if (!ids.length) return {};
-    const data = await this._graph('/communications/getPresencesByUserId', {
-      method: 'POST',
-      body: JSON.stringify({ ids: ids.slice(0, 650) }),
-    });
-    const map = {};
-    for (const p of data.value || []) {
-      const key = idToKey[p.id];
-      if (key) map[key] = p.availability || 'Offline';
+    try {
+      const data = await this._graph('/communications/getPresencesByUserId', {
+        method: 'POST',
+        body: JSON.stringify({ ids: ids.slice(0, 650) }),
+      });
+      const map = {};
+      for (const p of data.value || []) {
+        const key = idToKey[p.id];
+        if (key) map[key] = p.availability || 'Offline';
+      }
+      return map;
+    } catch (e) {
+      // Presence.Read.All needs admin consent — degrade to no dots, not errors
+      if (e.status === 403 && !this._presenceDeniedWarned) {
+        this._presenceDeniedWarned = true;
+        console.warn('Teams presence unavailable: Presence.Read.All not consented for this app registration.');
+      }
+      if (e.status === 403) return {};
+      throw e;
     }
-    return map;
   }
 }
 
@@ -345,10 +407,26 @@ export async function getTeamsProvider() {
         const cfg = await getConfig();
         mockMode = !!cfg.mock_mode;
       } catch { /* backend unreachable — fall through on env config */ }
+
+      // Entra IDs come from the backend at runtime (TEAMS_CLIENT_ID /
+      // TEAMS_TENANT_ID env → /config/teams — no frontend rebuild needed),
+      // with build-time VITE_ vars as a fallback.
+      let clientId = CLIENT_ID;
+      let tenantId = TENANT_ID;
+      if (!mockMode) {
+        try {
+          const tc = await getTeamsConfig();
+          if (tc.enabled) {
+            clientId = tc.client_id;
+            tenantId = tc.tenant_id;
+          }
+        } catch { /* older backend without /config/teams — env fallback */ }
+      }
+
       if (mockMode) {
         _provider = new MockTeamsProvider();
-      } else if (CLIENT_ID && TENANT_ID) {
-        _provider = new GraphTeamsProvider();
+      } else if (clientId && tenantId) {
+        _provider = new GraphTeamsProvider(clientId, tenantId);
       } else {
         _provider = {
           kind: 'unconfigured',

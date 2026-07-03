@@ -242,6 +242,11 @@ export const getRecentBotContacts = async (hours = 24) => {
   return response.data;
 };
 
+export const getTeamsConfig = async () => {
+  const response = await api.get('/config/teams');
+  return response.data;
+};
+
 export const getStreamsConfig = async () => {
   const response = await api.get('/config/streams');
   return response.data;

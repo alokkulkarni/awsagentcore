@@ -23,6 +23,10 @@ services:
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5}
       AGENTCORE_GATEWAY_ENDPOINT: ${AGENTCORE_GATEWAY_ENDPOINT:-}
       DATA_DIR: /app/data
+      # Microsoft Teams panel (Entra SPA app registration — public IDs, not secrets).
+      # Served to the frontend via GET /config/teams; set both to enable real mode.
+      TEAMS_CLIENT_ID: ${TEAMS_CLIENT_ID:-}
+      TEAMS_TENANT_ID: ${TEAMS_TENANT_ID:-}
     ports:
       # Loopback only — the agent API is unauthenticated and must not be LAN-reachable
       - "127.0.0.1:8100:8100"

@@ -98,13 +98,28 @@ Outputs → frontend env (config, not secrets): `VITE_TEAMS_CLIENT_ID`,
 presence dots in roster, unread badge updates; `npm run build` clean; no backend
 changes required.
 
-### Phase 2 — Real-tenant hardening (PR: `feature/teams-integration-phase2`)
+### Phase 2 — Real-tenant enablement + hardening (PR: `feature/teams-integration-phase2`)
 
-Requires the Entra app registration. Token refresh + `interaction_required`
-recovery, Graph throttling/backoff (429 `Retry-After`), delta queries for chat
-messages, batched presence (`getPresencesByUserId` ≤ 650 IDs), agent→M365 user
-mapping review, error surfaces, sign-out UX, optional backend `/config/teams` so
-IDs can come from the server instead of build-time env.
+Code-complete; live verification requires the Entra app registration. Delivered:
+
+- **Runtime configuration**: backend `GET /config/teams` serves the Entra IDs
+  from `TEAMS_CLIENT_ID` / `TEAMS_TENANT_ID` env (compose pass-through added) —
+  enabling real mode is two env vars + `docker compose restart agent`, no
+  frontend rebuild. Build-time `VITE_` vars remain as fallback.
+- **Graph hardening**: 429 `Retry-After` backoff (2 retries), 401 → one forced
+  token-refresh retry, `interaction_required` recovery via popup.
+- **Real unread counts**: per-chat read-state in `localStorage` compared against
+  `lastMessagePreview` timestamps; opening a thread marks it read.
+- **Presence degradation**: 403 (admin consent missing for `Presence.Read.All`)
+  silently hides the dots instead of erroring.
+- **Agent→M365 mapping**: `/agent-states` now carries each agent's Connect
+  `username` (mock: synthetic `@contoso-demo.com` addresses) — used for
+  presence lookups and roster chat when it is an email address, which it
+  typically is in SSO-federated Connect instances. Instances whose Connect
+  usernames are not email addresses need a mapping table (future work).
+
+Still Phase 2 backlog after first live sign-in: delta queries for message
+polling, richer message rendering (HTML bodies, attachments placeholder).
 
 ### Phase 3 (optional) — In-panel calling
 
