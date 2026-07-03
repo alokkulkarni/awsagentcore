@@ -244,6 +244,11 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
               {busy ? <RefreshCw size={13} className="animate-spin" /> : <MessageSquare size={13} />}
               Connect Teams
             </button>
+            {state.clientId && (
+              <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                app {state.clientId.slice(0, 8)}… · tenant {state.tenantId?.slice(0, 8)}…
+              </p>
+            )}
           </div>
         )}
 

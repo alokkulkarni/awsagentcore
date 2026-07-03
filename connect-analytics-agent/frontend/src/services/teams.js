@@ -203,9 +203,10 @@ class GraphTeamsProvider {
 
   async getState() {
     await this._instance();
+    const ids = { clientId: this._clientId, tenantId: this._tenantId };
     return this._account
-      ? { status: 'ready', account: { name: this._account.name, username: this._account.username }, mock: false }
-      : { status: 'signed_out', mock: false };
+      ? { status: 'ready', account: { name: this._account.name, username: this._account.username }, mock: false, ...ids }
+      : { status: 'signed_out', mock: false, ...ids };
   }
 
   async signIn() {
@@ -426,6 +427,8 @@ export async function getTeamsProvider() {
       if (mockMode) {
         _provider = new MockTeamsProvider();
       } else if (clientId && tenantId) {
+        // Deliberately loud: makes stale-tab / stale-config debugging trivial
+        console.info(`[teams] Graph provider — app ${clientId.slice(0, 8)}… tenant ${tenantId.slice(0, 8)}…`);
         _provider = new GraphTeamsProvider(clientId, tenantId);
       } else {
         _provider = {
