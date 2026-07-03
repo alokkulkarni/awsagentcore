@@ -49,7 +49,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
-import TeamsPanel from './TeamsPanel';
+import TeamsPanel, { TeamsLogo } from './TeamsPanel';
 import { getTeamsProvider, PRESENCE_STYLE } from '../services/teams';
 import {
   getAgentStates,
@@ -987,9 +987,9 @@ function AgentRoster({ agentRows, loading, onForceLogout, onTeamsChat }) {
                 email: (agent.username || '').includes('@') ? agent.username : null,
               })}
               title={`Chat with ${agent.name} in Teams`}
-              className="rounded p-1 text-indigo-500 hover:bg-indigo-500/10 transition"
+              className="rounded p-1 hover:bg-indigo-500/10 transition"
             >
-              <MessageSquare size={11} />
+              <TeamsLogo size={12} />
             </button>
           )}
           <AgentStateBadge status={agent.status} />
@@ -1355,7 +1355,7 @@ export default function RealtimeCommandCenter({
             title="Microsoft Teams — chat and agent presence"
             className="relative rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5"
           >
-            <MessageSquare size={12} className="text-indigo-500" /> Teams
+            <TeamsLogo size={14} /> Teams
             {teamsUnread > 0 && (
               <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-semibold text-white">
                 {teamsUnread}

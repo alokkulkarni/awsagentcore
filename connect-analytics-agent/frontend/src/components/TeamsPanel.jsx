@@ -20,6 +20,18 @@ const POLL_BADGE_MS = 30_000;  // unread badge while closed
 // Teams brand purple
 const BRAND = '#5B5FC7';
 
+/** Microsoft Teams brand mark — inline so it stays crisp at 12–30px. */
+export function TeamsLogo({ size = 14, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx="17.2" cy="6.9" r="2.5" fill="#7B83EB" />
+      <path d="M14 10.6h6.9a1.6 1.6 0 0 1 1.6 1.6v2.9a4.8 4.8 0 0 1-4.8 4.8H14Z" fill="#7B83EB" />
+      <rect x="1.2" y="4.8" width="12.6" height="14.4" rx="1.9" fill="#4E56C4" />
+      <path d="M4.3 8.4h6.4v1.9H8.65v6.4H6.75v-6.4H4.3Z" fill="#fff" />
+    </svg>
+  );
+}
+
 const AVATAR_PALETTE = [
   'bg-violet-500/20 text-violet-700 dark:text-violet-300',
   'bg-sky-500/20 text-sky-700 dark:text-sky-300',
@@ -315,8 +327,8 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
         <div className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-slate-200 dark:border-slate-800"
              style={{ background: 'linear-gradient(90deg, rgba(91,95,199,0.08), transparent 60%)' }}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl shrink-0" style={{ background: BRAND }}>
-              <MessageSquare size={15} className="text-white" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl shrink-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <TeamsLogo size={19} />
             </span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 leading-tight">Microsoft Teams</p>
@@ -373,7 +385,7 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
         {state?.status === 'signed_out' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'rgba(91,95,199,0.12)' }}>
-              <MessageSquare size={24} style={{ color: BRAND }} />
+              <TeamsLogo size={30} />
             </span>
             <p className="text-sm text-slate-600 dark:text-slate-300 max-w-xs">
               Sign in with your Microsoft 365 work account to chat with your team without leaving the dashboard.
