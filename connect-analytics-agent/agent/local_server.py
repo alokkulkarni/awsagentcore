@@ -248,6 +248,7 @@ def _build_mock_fleet(count: int = 140) -> List[Dict[str, str]]:
         agents.append({
             "agentId": f"mock-agent-{len(agents) + 1:03d}",
             "name": name,
+            "username": f"{name.lower().replace(' ', '.').replace(chr(39), '')}@contoso-demo.com",
             "arn": f"arn:aws:connect:eu-west-2:000000000000:instance/mock/agent/mock-agent-{len(agents) + 1:03d}",
         })
     return agents
@@ -406,6 +407,7 @@ def _mock_agent_states_now() -> List[Dict[str, Any]]:
         if contact is not None:
             agents.append({
                 "agentId": member["agentId"], "name": member["name"],
+                "username": member.get("username", ""),
                 "status": "On Call",
                 "currentQueue": contact["queueName"] if contact["queueName"] != "—" else "Outbound",
                 "timeInStatus": _fmt_hms(contact["_age"] - contact["_wait"] if not contact["isOutbound"] else contact["_age"]),
@@ -427,6 +429,7 @@ def _mock_agent_states_now() -> List[Dict[str, Any]]:
             status = "Error"
         agents.append({
             "agentId": member["agentId"], "name": member["name"],
+                "username": member.get("username", ""),
             "status": status,
             "currentQueue": rng.choice(_MOCK_RT_QUEUES)["name"] if status not in ("Offline",) else "—",
             "timeInStatus": _fmt_hms(rng.randint(20, 5400)),
@@ -1633,6 +1636,7 @@ def agent_states() -> Dict[str, Any]:
             has_active = bool(agent.get("contacts")) or raw_status in {"ON_CALL", "AFTER_CONTACT_WORK"}
             agents.append({
                 "agentId": agent.get("agent_id", ""),
+                "username": agent.get("username", ""),
                 "name": agent.get("display_name") or agent.get("username", "Unknown"),
                 "status": _STATUS_DISPLAY.get(raw_status, raw_status.replace("_", " ").title()),
                 "currentQueue": agent.get("current_queue_name") or agent.get("current_queue") or "—",
@@ -2163,6 +2167,23 @@ def live_outbound() -> Dict[str, Any]:
         "total":           len(outbound),
         "calls":           outbound,
         "by_agent":        by_agent,
+    }
+
+
+@app.get("/config/teams")
+def teams_config() -> Dict[str, Any]:
+    """
+    Runtime Microsoft Teams configuration for the frontend Teams panel.
+    Client and tenant IDs are public identifiers (not secrets) for the Entra
+    SPA app registration — serving them here means the panel can be enabled
+    with two env vars and a container restart, no frontend rebuild.
+    """
+    client_id = os.getenv("TEAMS_CLIENT_ID", "")
+    tenant_id = os.getenv("TEAMS_TENANT_ID", "")
+    return {
+        "enabled": bool(client_id and tenant_id),
+        "client_id": client_id,
+        "tenant_id": tenant_id,
     }
 
 

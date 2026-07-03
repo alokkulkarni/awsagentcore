@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- MSAL popup redirect target (spec: docs/teams-integration-spec.md).
+     msal-browser v5 replaced URL-polling with a BroadcastChannel bridge: this
+     page must run broadcastResponseToMainFrame() to hand the auth response
+     back to the dashboard window, which then closes this popup.
+     Registered in Entra as SPA redirect URI:
+     http://localhost:5274/auth-redirect.html (+ the CloudFront equivalent). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in…</title>
+  </head>
+  <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #475569;">
+    <p id="msg">Completing Microsoft 365 sign-in…</p>
+    <script type="module">
+      import { broadcastResponseToMainFrame } from '@azure/msal-browser/redirect-bridge';
+      broadcastResponseToMainFrame().catch((err) => {
+        document.getElementById('msg').textContent =
+          `Sign-in could not be completed: ${err?.errorCode || err?.message || err}. You can close this window and try again.`;
+      });
+    </script>
+  </body>
+</html>

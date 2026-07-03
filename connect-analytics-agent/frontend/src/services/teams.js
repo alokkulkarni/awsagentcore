@@ -13,11 +13,13 @@
  * no Teams content ever reaches the dashboard backend.
  */
 
-import { getConfig } from './api';
+import { getConfig, getTeamsConfig } from './api';
 
 const CLIENT_ID = import.meta.env.VITE_TEAMS_CLIENT_ID || '';
 const TENANT_ID = import.meta.env.VITE_TEAMS_TENANT_ID || '';
-const GRAPH_SCOPES = ['User.Read', 'Chat.ReadWrite', 'Presence.Read.All'];
+// User.ReadBasic.All powers the people search (start-a-new-chat); it is
+// user-consentable and requested incrementally on first use.
+const GRAPH_SCOPES = ['User.Read', 'User.ReadBasic.All', 'Chat.ReadWrite', 'Presence.Read.All'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
 // Teams-style presence, keyed the way Graph reports availability
@@ -115,8 +117,11 @@ class MockTeamsProvider {
     if (!chat) return;
     chat.messages.push({ id: `m${Date.now()}`, from: 'You', mine: true, at: new Date().toISOString(), text });
     const timer = setTimeout(() => {
+      const groupSender = chat.memberNames?.length
+        ? chat.memberNames[Math.floor(Math.random() * chat.memberNames.length)]
+        : 'Priya Sharma';
       chat.messages.push({
-        id: `m${Date.now()}r`, from: chat.group ? 'Priya Sharma' : chat.topic, mine: false,
+        id: `m${Date.now()}r`, from: chat.group ? groupSender : chat.topic, mine: false,
         at: new Date().toISOString(),
         text: MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)],
       });
@@ -129,6 +134,20 @@ class MockTeamsProvider {
     return this.chats.reduce((n, c) => n + c.unread, 0);
   }
 
+  /** Directory search for starting a new chat. */
+  async searchPeople(query) {
+    const q = query.toLowerCase();
+    const names = ['Sarah Johnson', 'Marcus Lee', 'Priya Sharma', 'Andre Campbell',
+                   'Chloe Moreau', 'Kwame Murphy', 'Expert One', 'Expert Two'];
+    return names
+      .filter((n) => n.toLowerCase().includes(q))
+      .map((n) => ({
+        id: n,
+        displayName: n,
+        email: `${n.toLowerCase().replace(/[^a-z]+/g, '.')}@contoso-demo.com`,
+      }));
+  }
+
   /** Find or create the 1:1 chat with a person — used by the roster chat button. */
   async openChatWith({ name }) {
     let chat = this.chats.find((c) => !c.group && c.topic === name);
@@ -137,6 +156,21 @@ class MockTeamsProvider {
       this.chats.unshift(chat);
     }
     return { id: chat.id, topic: chat.topic, group: false };
+  }
+
+  /** Create a group chat with the selected people. */
+  async createGroupChat({ topic, members }) {
+    const names = members.map((m) => m.displayName);
+    const chat = {
+      id: `group-${Date.now()}`,
+      topic: topic || names.join(', '),
+      group: true,
+      unread: 0,
+      messages: [],
+      memberNames: names,
+    };
+    this.chats.unshift(chat);
+    return { id: chat.id, topic: chat.topic, group: true };
   }
 
   /**
@@ -161,12 +195,27 @@ class MockTeamsProvider {
 
 // ── Graph provider (real mode, env-gated) ──────────────────────────────────────
 
+const READ_STATE_KEY = 'connect.analytics.teams.readState';
+
+function loadReadState() {
+  try { return JSON.parse(localStorage.getItem(READ_STATE_KEY) || '{}'); } catch { return {}; }
+}
+
 class GraphTeamsProvider {
-  constructor() {
+  constructor(clientId = CLIENT_ID, tenantId = TENANT_ID) {
     this.kind = 'graph';
+    this._clientId = clientId;
+    this._tenantId = tenantId;
     this._msal = null;
     this._account = null;
     this._userIdCache = new Map(); // email → AAD object id (null = not found)
+    this._readState = loadReadState(); // chatId → ISO of last read message
+    this._lastChats = [];
+    this._presenceDeniedWarned = false;
+  }
+
+  _saveReadState() {
+    try { localStorage.setItem(READ_STATE_KEY, JSON.stringify(this._readState)); } catch { /* quota — ignore */ }
   }
 
   async _instance() {
@@ -174,9 +223,12 @@ class GraphTeamsProvider {
     const { PublicClientApplication } = await import('@azure/msal-browser');
     this._msal = new PublicClientApplication({
       auth: {
-        clientId: CLIENT_ID,
-        authority: `https://login.microsoftonline.com/${TENANT_ID}`,
-        redirectUri: window.location.origin,
+        clientId: this._clientId,
+        authority: `https://login.microsoftonline.com/${this._tenantId}`,
+        // Dedicated blank page: if the popup returns to the SPA itself, the
+        // whole dashboard boots inside the popup and the handshake never
+        // completes. Must be registered as an SPA redirect URI in Entra.
+        redirectUri: `${window.location.origin}/auth-redirect.html`,
       },
       cache: { cacheLocation: 'sessionStorage' },
     });
@@ -188,9 +240,10 @@ class GraphTeamsProvider {
 
   async getState() {
     await this._instance();
+    const ids = { clientId: this._clientId, tenantId: this._tenantId };
     return this._account
-      ? { status: 'ready', account: { name: this._account.name, username: this._account.username }, mock: false }
-      : { status: 'signed_out', mock: false };
+      ? { status: 'ready', account: { name: this._account.name, username: this._account.username }, mock: false, ...ids }
+      : { status: 'signed_out', mock: false, ...ids };
   }
 
   async signIn() {
@@ -218,13 +271,29 @@ class GraphTeamsProvider {
     }
   }
 
-  async _graph(path, options = {}) {
+  async _graph(path, options = {}, attempt = 0) {
     const token = await this._token();
     const resp = await fetch(`${GRAPH}${path}`, {
       ...options,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
-    if (!resp.ok) throw new Error(`Graph ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    // Graph throttling: honour Retry-After, retry twice before surfacing
+    if (resp.status === 429 && attempt < 2) {
+      const wait = Math.min(Number(resp.headers.get('Retry-After') || 2), 15);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      return this._graph(path, options, attempt + 1);
+    }
+    // Expired/invalidated token: force one refresh cycle then retry
+    if (resp.status === 401 && attempt < 1) {
+      const msal = await this._instance();
+      await msal.acquireTokenPopup({ scopes: GRAPH_SCOPES }).then((r) => { this._account = r.account; }).catch(() => {});
+      return this._graph(path, options, attempt + 1);
+    }
+    if (!resp.ok) {
+      const err = new Error(`Graph ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+      err.status = resp.status;
+      throw err;
+    }
     return resp.status === 204 ? null : resp.json();
   }
 
@@ -236,22 +305,32 @@ class GraphTeamsProvider {
 
   async listChats() {
     const data = await this._graph('/me/chats?$expand=members,lastMessagePreview&$top=20&$orderby=lastMessagePreview/createdDateTime desc');
-    return (data.value || []).map((c) => ({
-      id: c.id,
-      topic: this._chatTopic(c),
-      group: c.chatType === 'group',
-      unread: 0, // Graph has no simple unread count; Phase 2 tracks read state locally
-      last: c.lastMessagePreview ? {
-        from: c.lastMessagePreview.from?.user?.displayName || '',
-        text: (c.lastMessagePreview.body?.content || '').replace(/<[^>]+>/g, '').slice(0, 120),
-        at: c.lastMessagePreview.createdDateTime,
-      } : null,
-    }));
+    this._lastChats = (data.value || []).map((c) => {
+      const last = c.lastMessagePreview || null;
+      const lastAt = last?.createdDateTime || null;
+      const lastMine = last?.from?.user?.id === this._account?.localAccountId;
+      // Graph exposes no unread count — track read state locally per chat
+      const readUpTo = this._readState[c.id];
+      const unread = lastAt && !lastMine && (!readUpTo || lastAt > readUpTo) ? 1 : 0;
+      return {
+        id: c.id,
+        topic: this._chatTopic(c),
+        group: c.chatType === 'group',
+        unread,
+        last: last ? {
+          from: last.from?.user?.displayName || '',
+          mine: lastMine,
+          text: (last.body?.content || '').replace(/<[^>]+>/g, '').slice(0, 120),
+          at: lastAt,
+        } : null,
+      };
+    });
+    return this._lastChats;
   }
 
   async listMessages(chatId) {
     const data = await this._graph(`/me/chats/${encodeURIComponent(chatId)}/messages?$top=30`);
-    return (data.value || [])
+    const messages = (data.value || [])
       .filter((m) => m.messageType === 'message')
       .map((m) => ({
         id: m.id,
@@ -261,6 +340,15 @@ class GraphTeamsProvider {
         text: (m.body?.content || '').replace(/<[^>]+>/g, ''),
       }))
       .reverse();
+    // Opening (or refreshing) a thread marks it read up to its newest message
+    const newest = messages[messages.length - 1];
+    if (newest?.at && (this._readState[chatId] || '') < newest.at) {
+      this._readState[chatId] = newest.at;
+      this._saveReadState();
+      const cached = this._lastChats.find((c) => c.id === chatId);
+      if (cached) cached.unread = 0;
+    }
+    return messages;
   }
 
   async sendMessage(chatId, text) {
@@ -270,7 +358,23 @@ class GraphTeamsProvider {
     });
   }
 
-  async unreadCount() { return 0; } // Phase 2: local read-state tracking
+  async unreadCount() {
+    return this._lastChats.reduce((n, c) => n + (c.unread || 0), 0);
+  }
+
+  /** Directory search (User.ReadBasic.All) for starting a new chat. */
+  async searchPeople(query) {
+    const q = encodeURIComponent(query.replace(/'/g, "''"));
+    const data = await this._graph(
+      `/users?$filter=startswith(displayName,'${q}') or startswith(userPrincipalName,'${q}')`
+      + '&$select=id,displayName,userPrincipalName&$top=10',
+    );
+    return (data.value || []).map((u) => ({
+      id: u.id,
+      displayName: u.displayName || u.userPrincipalName,
+      email: u.userPrincipalName,
+    }));
+  }
 
   /** Find (or create via Graph) the 1:1 chat with an agent's M365 account. */
   async openChatWith({ name, email }) {
@@ -300,6 +404,32 @@ class GraphTeamsProvider {
     return { id: created.id, topic: name || email, group: false };
   }
 
+  /** Create a group chat (Graph requires ≥3 members incl. the creator). */
+  async createGroupChat({ topic, members }) {
+    const ids = [this._account.localAccountId];
+    for (const m of members) {
+      const u = await this._graph(`/users/${encodeURIComponent(m.email)}?$select=id`);
+      ids.push(u.id);
+    }
+    const created = await this._graph('/chats', {
+      method: 'POST',
+      body: JSON.stringify({
+        chatType: 'group',
+        ...(topic ? { topic } : {}),
+        members: ids.map((id) => ({
+          '@odata.type': '#microsoft.graph.aadUserConversationMember',
+          roles: ['owner'],
+          'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${id}')`,
+        })),
+      }),
+    });
+    return {
+      id: created.id,
+      topic: created.topic || topic || members.map((m) => m.displayName).join(', '),
+      group: true,
+    };
+  }
+
   async getPresence(agents) {
     // Resolve agent emails to AAD ids (cached), then batch-fetch presence.
     const ids = [];
@@ -318,16 +448,26 @@ class GraphTeamsProvider {
       if (id) { ids.push(id); idToKey[id] = a.key; }
     }
     if (!ids.length) return {};
-    const data = await this._graph('/communications/getPresencesByUserId', {
-      method: 'POST',
-      body: JSON.stringify({ ids: ids.slice(0, 650) }),
-    });
-    const map = {};
-    for (const p of data.value || []) {
-      const key = idToKey[p.id];
-      if (key) map[key] = p.availability || 'Offline';
+    try {
+      const data = await this._graph('/communications/getPresencesByUserId', {
+        method: 'POST',
+        body: JSON.stringify({ ids: ids.slice(0, 650) }),
+      });
+      const map = {};
+      for (const p of data.value || []) {
+        const key = idToKey[p.id];
+        if (key) map[key] = p.availability || 'Offline';
+      }
+      return map;
+    } catch (e) {
+      // Presence.Read.All needs admin consent — degrade to no dots, not errors
+      if (e.status === 403 && !this._presenceDeniedWarned) {
+        this._presenceDeniedWarned = true;
+        console.warn('Teams presence unavailable: Presence.Read.All not consented for this app registration.');
+      }
+      if (e.status === 403) return {};
+      throw e;
     }
-    return map;
   }
 }
 
@@ -345,10 +485,28 @@ export async function getTeamsProvider() {
         const cfg = await getConfig();
         mockMode = !!cfg.mock_mode;
       } catch { /* backend unreachable — fall through on env config */ }
+
+      // Entra IDs come from the backend at runtime (TEAMS_CLIENT_ID /
+      // TEAMS_TENANT_ID env → /config/teams — no frontend rebuild needed),
+      // with build-time VITE_ vars as a fallback.
+      let clientId = CLIENT_ID;
+      let tenantId = TENANT_ID;
+      if (!mockMode) {
+        try {
+          const tc = await getTeamsConfig();
+          if (tc.enabled) {
+            clientId = tc.client_id;
+            tenantId = tc.tenant_id;
+          }
+        } catch { /* older backend without /config/teams — env fallback */ }
+      }
+
       if (mockMode) {
         _provider = new MockTeamsProvider();
-      } else if (CLIENT_ID && TENANT_ID) {
-        _provider = new GraphTeamsProvider();
+      } else if (clientId && tenantId) {
+        // Deliberately loud: makes stale-tab / stale-config debugging trivial
+        console.info(`[teams] Graph provider — app ${clientId.slice(0, 8)}… tenant ${tenantId.slice(0, 8)}…`);
+        _provider = new GraphTeamsProvider(clientId, tenantId);
       } else {
         _provider = {
           kind: 'unconfigured',
