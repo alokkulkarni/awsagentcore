@@ -108,6 +108,8 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
   const [draft, setDraft] = useState('');
   const [chatSearch, setChatSearch] = useState('');
   const [people, setPeople] = useState([]);
+  const [selected, setSelected] = useState([]);   // people picked for a new chat
+  const [groupTopic, setGroupTopic] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
@@ -214,10 +216,39 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
     return () => clearTimeout(t);
   }, [chatSearch, open]);
 
-  const startChatWithPerson = (person) => {
+  // Clicking a person toggles them into the new-chat selection; one selected
+  // person starts a 1:1, two or more create a group chat (optionally named).
+  const togglePerson = (person) => {
+    setSelected((prev) => (prev.some((p) => p.email === person.email)
+      ? prev.filter((p) => p.email !== person.email)
+      : [...prev, person]));
+  };
+
+  const startSelectedChat = async () => {
+    if (!selected.length) return;
+    const picked = [...selected];
+    const topic = groupTopic.trim();
+    setSelected([]);
+    setGroupTopic('');
     setChatSearch('');
     setPeople([]);
-    openTarget({ name: person.displayName, email: person.email });
+    if (picked.length === 1) {
+      openTarget({ name: picked[0].displayName, email: picked[0].email });
+      return;
+    }
+    setBusy(true);
+    try {
+      const provider = await getTeamsProvider();
+      const chat = await provider.createGroupChat({ topic: topic || undefined, members: picked });
+      setActiveChat(chat);
+      setMessages(await provider.listMessages(chat.id));
+      setError(null);
+      await refresh();
+    } catch (e) {
+      setError(e.message || 'Could not create the group chat');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const send = async () => {
@@ -393,26 +424,68 @@ export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }
                   />
                 </div>
               </div>
+              {/* New-chat selection: chips + optional group name + start */}
+              {selected.length > 0 && (
+                <div className="mx-3 mb-2 rounded-xl border border-indigo-300/50 dark:border-indigo-500/30 bg-indigo-500/5 p-2 shrink-0">
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {selected.map((p) => (
+                      <span key={p.email} className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 pl-1 pr-1.5 py-0.5 text-[10px] text-slate-700 dark:text-slate-200">
+                        <Avatar name={p.displayName} size="h-4 w-4 text-[7px]" />
+                        {p.displayName}
+                        <button type="button" onClick={() => togglePerson(p)} className="text-slate-400 hover:text-rose-500">
+                          <X size={9} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {selected.length >= 2 && (
+                    <input
+                      type="text"
+                      value={groupTopic}
+                      onChange={(e) => setGroupTopic(e.target.value)}
+                      placeholder="Group name (optional)…"
+                      className="w-full mb-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-[10px] text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={startSelectedChat}
+                    disabled={busy}
+                    className="w-full rounded-lg py-1.5 text-[11px] font-medium text-white disabled:opacity-50 transition hover:brightness-110"
+                    style={{ background: BRAND }}
+                  >
+                    {selected.length === 1
+                      ? `Chat with ${selected[0].displayName}`
+                      : `Start group chat (${selected.length + 1} people)`}
+                  </button>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto px-1.5 pb-2">
                 {people.length > 0 && (
                   <div className="mb-1">
                     <p className="px-2 pt-1 pb-1 text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      People — start a new chat
+                      People — click to select
                     </p>
-                    {people.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => startChatWithPerson(p)}
-                        className="w-full flex items-center gap-2.5 rounded-xl px-2 py-2 text-left hover:bg-indigo-500/10 transition"
-                      >
-                        <Avatar name={p.displayName} size="h-8 w-8 text-[11px]" />
-                        <span className="min-w-0">
-                          <span className="block text-xs font-medium text-slate-800 dark:text-slate-200 truncate">{p.displayName}</span>
-                          <span className="block text-[10px] text-slate-500 dark:text-slate-400 truncate">{p.email}</span>
-                        </span>
-                      </button>
-                    ))}
+                    {people.map((p) => {
+                      const isPicked = selected.some((s) => s.email === p.email);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => togglePerson(p)}
+                          className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition ${
+                            isPicked ? 'bg-indigo-500/15 ring-1 ring-indigo-400/40' : 'hover:bg-indigo-500/10'
+                          }`}
+                        >
+                          <Avatar name={p.displayName} size="h-8 w-8 text-[11px]" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-medium text-slate-800 dark:text-slate-200 truncate">{p.displayName}</span>
+                            <span className="block text-[10px] text-slate-500 dark:text-slate-400 truncate">{p.email}</span>
+                          </span>
+                          {isPicked && <span className="text-[10px] font-semibold" style={{ color: BRAND }}>✓</span>}
+                        </button>
+                      );
+                    })}
                     <div className="mx-2 my-1 border-b border-slate-200 dark:border-slate-800" />
                   </div>
                 )}

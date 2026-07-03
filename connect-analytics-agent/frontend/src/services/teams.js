@@ -117,8 +117,11 @@ class MockTeamsProvider {
     if (!chat) return;
     chat.messages.push({ id: `m${Date.now()}`, from: 'You', mine: true, at: new Date().toISOString(), text });
     const timer = setTimeout(() => {
+      const groupSender = chat.memberNames?.length
+        ? chat.memberNames[Math.floor(Math.random() * chat.memberNames.length)]
+        : 'Priya Sharma';
       chat.messages.push({
-        id: `m${Date.now()}r`, from: chat.group ? 'Priya Sharma' : chat.topic, mine: false,
+        id: `m${Date.now()}r`, from: chat.group ? groupSender : chat.topic, mine: false,
         at: new Date().toISOString(),
         text: MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)],
       });
@@ -153,6 +156,21 @@ class MockTeamsProvider {
       this.chats.unshift(chat);
     }
     return { id: chat.id, topic: chat.topic, group: false };
+  }
+
+  /** Create a group chat with the selected people. */
+  async createGroupChat({ topic, members }) {
+    const names = members.map((m) => m.displayName);
+    const chat = {
+      id: `group-${Date.now()}`,
+      topic: topic || names.join(', '),
+      group: true,
+      unread: 0,
+      messages: [],
+      memberNames: names,
+    };
+    this.chats.unshift(chat);
+    return { id: chat.id, topic: chat.topic, group: true };
   }
 
   /**
@@ -384,6 +402,32 @@ class GraphTeamsProvider {
       }),
     });
     return { id: created.id, topic: name || email, group: false };
+  }
+
+  /** Create a group chat (Graph requires ≥3 members incl. the creator). */
+  async createGroupChat({ topic, members }) {
+    const ids = [this._account.localAccountId];
+    for (const m of members) {
+      const u = await this._graph(`/users/${encodeURIComponent(m.email)}?$select=id`);
+      ids.push(u.id);
+    }
+    const created = await this._graph('/chats', {
+      method: 'POST',
+      body: JSON.stringify({
+        chatType: 'group',
+        ...(topic ? { topic } : {}),
+        members: ids.map((id) => ({
+          '@odata.type': '#microsoft.graph.aadUserConversationMember',
+          roles: ['owner'],
+          'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${id}')`,
+        })),
+      }),
+    });
+    return {
+      id: created.id,
+      topic: created.topic || topic || members.map((m) => m.displayName).join(', '),
+      group: true,
+    };
   }
 
   async getPresence(agents) {
