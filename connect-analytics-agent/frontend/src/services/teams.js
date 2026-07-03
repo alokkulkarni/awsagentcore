@@ -129,6 +129,16 @@ class MockTeamsProvider {
     return this.chats.reduce((n, c) => n + c.unread, 0);
   }
 
+  /** Find or create the 1:1 chat with a person — used by the roster chat button. */
+  async openChatWith({ name }) {
+    let chat = this.chats.find((c) => !c.group && c.topic === name);
+    if (!chat) {
+      chat = { id: `chat-${name.toLowerCase().replace(/[^a-z]+/g, '-')}`, topic: name, unread: 0, messages: [] };
+      this.chats.unshift(chat);
+    }
+    return { id: chat.id, topic: chat.topic, group: false };
+  }
+
   /**
    * Mock presence coheres with what the roster already shows: an agent the
    * dashboard says is On Call reads as Busy in Teams, and so on.
@@ -261,6 +271,34 @@ class GraphTeamsProvider {
   }
 
   async unreadCount() { return 0; } // Phase 2: local read-state tracking
+
+  /** Find (or create via Graph) the 1:1 chat with an agent's M365 account. */
+  async openChatWith({ name, email }) {
+    if (!email) {
+      throw new Error(
+        `No Microsoft 365 address is known for ${name || 'this agent'} yet — the agent→M365 mapping arrives in Phase 2.`,
+      );
+    }
+    const chats = await this._graph("/me/chats?$expand=members&$filter=chatType eq 'oneOnOne'&$top=50");
+    const existing = (chats.value || []).find((c) =>
+      (c.members || []).some((m) => (m.email || '').toLowerCase() === email.toLowerCase()),
+    );
+    if (existing) return { id: existing.id, topic: name || email, group: false };
+
+    const user = await this._graph(`/users/${encodeURIComponent(email)}?$select=id`);
+    const created = await this._graph('/chats', {
+      method: 'POST',
+      body: JSON.stringify({
+        chatType: 'oneOnOne',
+        members: [this._account.localAccountId, user.id].map((id) => ({
+          '@odata.type': '#microsoft.graph.aadUserConversationMember',
+          roles: ['owner'],
+          'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${id}')`,
+        })),
+      }),
+    });
+    return { id: created.id, topic: name || email, group: false };
+  }
 
   async getPresence(agents) {
     // Resolve agent emails to AAD ids (cached), then batch-fetch presence.

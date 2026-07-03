@@ -50,7 +50,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import TeamsPanel from './TeamsPanel';
-import { getTeamsProvider, PRESENCE_STYLE, teamsDeepLink } from '../services/teams';
+import { getTeamsProvider, PRESENCE_STYLE } from '../services/teams';
 import {
   getAgentStates,
   getLiveContacts,
@@ -912,7 +912,7 @@ function ForceLogoutBtn({ agent, onSuccess }) {
   );
 }
 
-function AgentRoster({ agentRows, loading, onForceLogout }) {
+function AgentRoster({ agentRows, loading, onForceLogout, onTeamsChat }) {
   const statOrder = { Available: 0, 'On Call': 1, 'After Contact Work': 2, 'Non-Productive': 3, Offline: 4, Error: 5 };
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
@@ -963,9 +963,6 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
   const renderAgentRow = (agent) => {
     const pKey = presence[agent.agentId];
     const pStyle = pKey ? PRESENCE_STYLE[pKey] : null;
-    const chatAddress = (agent.username || '').includes('@')
-      ? agent.username
-      : (pStyle ? `${(agent.name || 'agent').toLowerCase().replace(/[^a-z]+/g, '.')}@contoso-demo.com` : null);
     return (
       <div key={agent.agentId || agent.name} className="flex items-center justify-between py-1.5 border-b border-slate-200 dark:border-slate-800/50 text-[11px]">
         <div className="min-w-0 flex-1 mr-2">
@@ -982,16 +979,18 @@ function AgentRoster({ agentRows, loading, onForceLogout }) {
           {agent.currentQueue && <p className="text-slate-600 dark:text-slate-500 truncate">{agent.currentQueue}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {chatAddress && (
-            <a
-              href={teamsDeepLink(chatAddress)}
-              target="_blank"
-              rel="noreferrer"
+          {pStyle && onTeamsChat && (
+            <button
+              type="button"
+              onClick={() => onTeamsChat({
+                name: agent.name,
+                email: (agent.username || '').includes('@') ? agent.username : null,
+              })}
               title={`Chat with ${agent.name} in Teams`}
               className="rounded p-1 text-indigo-500 hover:bg-indigo-500/10 transition"
             >
               <MessageSquare size={11} />
-            </a>
+            </button>
           )}
           <AgentStateBadge status={agent.status} />
           {agent.status !== 'Offline' && (
@@ -1143,6 +1142,14 @@ export default function RealtimeCommandCenter({
   const [sentimentMap, setSentimentMap] = useState({});
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [teamsUnread, setTeamsUnread] = useState(0);
+  const [teamsChatTarget, setTeamsChatTarget] = useState(null);
+
+  // Roster chat button: open the in-dashboard Teams panel on that agent's
+  // 1:1 thread (sign-in happens in-panel first when needed) — never a new tab.
+  const handleTeamsChat = useCallback((target) => {
+    setTeamsChatTarget({ ...target, requestId: Date.now() });
+    setTeamsOpen(true);
+  }, []);
 
   // Keep the detail panel in sync — when the live contact list refreshes (every 5s)
   // find the currently selected contact in the fresh data and update its metadata
@@ -1588,7 +1595,7 @@ export default function RealtimeCommandCenter({
 
             {/* RIGHT: Agent roster */}
             <div className="w-80 shrink-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-4 overflow-hidden flex flex-col">
-              <AgentRoster agentRows={agentRows} loading={agentLoading} />
+              <AgentRoster agentRows={agentRows} loading={agentLoading} onTeamsChat={handleTeamsChat} />
             </div>
           </div>
         </>
@@ -1598,6 +1605,7 @@ export default function RealtimeCommandCenter({
         open={teamsOpen}
         onClose={() => setTeamsOpen(false)}
         onUnreadChange={setTeamsUnread}
+        chatTarget={teamsChatTarget}
       />
 
       {/* ── Contact detail slide-over ─────────────────────────────────────────

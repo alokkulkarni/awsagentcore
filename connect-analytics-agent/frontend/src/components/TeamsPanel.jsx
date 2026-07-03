@@ -23,7 +23,7 @@ function fmtWhen(iso) {
   return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
-export default function TeamsPanel({ open, onClose, onUnreadChange }) {
+export default function TeamsPanel({ open, onClose, onUnreadChange, chatTarget }) {
   const [state, setState] = useState(null);           // {status, account, mock}
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null); // {id, topic}
@@ -76,6 +76,33 @@ export default function TeamsPanel({ open, onClose, onUnreadChange }) {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
+  // Roster "chat with agent" requests: jump straight into (or create) that
+  // 1:1 thread. If the supervisor isn't signed in yet the sign-in view shows
+  // first and the request completes right after a successful sign-in.
+  const pendingTargetRef = useRef(null);
+  const openTarget = useCallback(async (target) => {
+    const provider = await getTeamsProvider();
+    const s = await provider.getState();
+    setState(s);
+    if (s.status !== 'ready') {
+      pendingTargetRef.current = target;
+      return;
+    }
+    if (!provider.openChatWith) return;
+    try {
+      const chat = await provider.openChatWith(target);
+      setActiveChat(chat);
+      setMessages(await provider.listMessages(chat.id));
+      setError(null);
+    } catch (e) {
+      setError(e.message || 'Could not open the chat');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (chatTarget) openTarget(chatTarget);
+  }, [chatTarget, openTarget]);
+
   const openChat = async (chat) => {
     setActiveChat(chat);
     setMessages([]);
@@ -107,6 +134,11 @@ export default function TeamsPanel({ open, onClose, onUnreadChange }) {
       const provider = await getTeamsProvider();
       setState(await provider.signIn());
       await refresh();
+      if (pendingTargetRef.current) {
+        const target = pendingTargetRef.current;
+        pendingTargetRef.current = null;
+        await openTarget(target);
+      }
     } catch (e) {
       setError(e.message || 'Sign-in failed');
     } finally {
