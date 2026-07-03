@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -106,6 +107,17 @@ ALLOWED_METRICS = {
     # Step / routing step metrics
     "STEP_CONTACTS_QUEUED",
 }
+
+# Agent-pool metrics: GetMetricDataV2 rejects these with "Invalid filter" when
+# filtered or grouped by QUEUE — they only accept ROUTING_PROFILE / AGENT /
+# AGENT_HIERARCHY. They are fetched in a separate routing-profile-scoped call.
+AGENT_POOL_METRICS = frozenset({
+    "AGENT_OCCUPANCY",
+    "SUM_ONLINE_TIME_AGENT",
+    "SUM_IDLE_TIME_AGENT",
+    "SUM_NON_PRODUCTIVE_TIME_AGENT",
+    "SUM_CONTACT_TIME_AGENT",
+})
 
 METRIC_INTENTS = {
     "agent_state": [
@@ -526,27 +538,72 @@ def lambda_handler(event, _context):
                 "No queues found in the Connect instance. GetMetricDataV2 requires at least one queue or routing_profile_filter."
             )
 
-        metric_results: List[Dict[str, Any]] = []
-        next_token: Optional[str] = None
-        while True:
-            request_kwargs: Dict[str, Any] = {
-                "ResourceArn": _resource_arn(instance_id),
-                "StartTime": start_time,
-                "EndTime": end_time,
-                "Interval": {"TimeZone": "UTC", "IntervalPeriod": interval_period},
-                "Filters": filters,
-                "Groupings": [group_by],
-                "Metrics": [_build_metric_spec(metric) for metric in requested_metrics],
-                "MaxResults": 100,
-            }
-            if next_token:
-                request_kwargs["NextToken"] = next_token
+        queue_metric_names = [metric for metric in requested_metrics if metric not in AGENT_POOL_METRICS]
+        agent_metric_names = [metric for metric in requested_metrics if metric in AGENT_POOL_METRICS]
 
-            response = _CONNECT_CLIENT.get_metric_data_v2(**request_kwargs)
-            metric_results.extend(response.get("MetricResults", []))
-            next_token = response.get("NextToken")
-            if not next_token:
-                break
+        batches: List[Tuple[List[str], List[Dict[str, Any]]]] = []
+        if queue_metric_names:
+            batches.append((queue_metric_names, filters))
+        if agent_metric_names:
+            if group_by == "QUEUE":
+                warnings.append(
+                    f"Skipped {', '.join(agent_metric_names)}: agent-pool metrics cannot be filtered "
+                    "or grouped by QUEUE. Use group_by AGENT or ROUTING_PROFILE to include them."
+                )
+            else:
+                rp_values = routing_profile_filters or list(
+                    _load_routing_profile_names(_CONNECT_CLIENT, instance_id).keys()
+                )[:100]
+                if not rp_values:
+                    warnings.append(
+                        f"Skipped {', '.join(agent_metric_names)}: no routing profiles found to scope them."
+                    )
+                else:
+                    agent_filters: List[Dict[str, Any]] = [
+                        {"FilterKey": "ROUTING_PROFILE", "FilterValues": rp_values}
+                    ]
+                    if channel_filters:
+                        agent_filters.append({"FilterKey": "CHANNEL", "FilterValues": channel_filters})
+                    batches.append((agent_metric_names, agent_filters))
+
+        metric_results: List[Dict[str, Any]] = []
+        for batch_metrics, batch_filters in batches:
+            remaining = list(batch_metrics)
+            while remaining:
+                try:
+                    next_token: Optional[str] = None
+                    while True:
+                        request_kwargs: Dict[str, Any] = {
+                            "ResourceArn": _resource_arn(instance_id),
+                            "StartTime": start_time,
+                            "EndTime": end_time,
+                            "Interval": {"TimeZone": "UTC", "IntervalPeriod": interval_period},
+                            "Filters": batch_filters,
+                            "Groupings": [group_by],
+                            "Metrics": [_build_metric_spec(metric) for metric in remaining],
+                            "MaxResults": 100,
+                        }
+                        if next_token:
+                            request_kwargs["NextToken"] = next_token
+
+                        response = _CONNECT_CLIENT.get_metric_data_v2(**request_kwargs)
+                        metric_results.extend(response.get("MetricResults", []))
+                        next_token = response.get("NextToken")
+                        if not next_token:
+                            break
+                    break
+                except ClientError as exc:
+                    # One unsupported metric name fails the whole call — drop it
+                    # and retry so the remaining metrics still return.
+                    message = exc.response.get("Error", {}).get("Message", "")
+                    match = re.search(r"Invalid metric name:\s*([A-Z_]+)", message)
+                    if match and match.group(1) in remaining:
+                        remaining.remove(match.group(1))
+                        warnings.append(
+                            f"Skipped {match.group(1)}: not supported by GetMetricDataV2 on this instance."
+                        )
+                        continue
+                    raise
 
         routing_profile_names = _load_routing_profile_names(_CONNECT_CLIENT, instance_id) if group_by == "ROUTING_PROFILE" else {}
         display_name_cache: Dict[str, str] = {}
@@ -670,7 +727,18 @@ def lambda_handler(event, _context):
                 dimension_results.append(dim_row)
             dimension_results.sort(key=lambda row: row.get("totals", {}).get(sort_metric) or 0, reverse=True)
         else:
+            # The queue-metric and agent-pool batches each return their own row
+            # per dimension — concatenate Collections so a dimension yields one row.
+            merged_by_dimension: Dict[Optional[str], Dict[str, Any]] = {}
             for result in metric_results:
+                dimension_value = result.get("Dimensions", {}).get(group_by)
+                existing = merged_by_dimension.get(dimension_value)
+                if existing is None:
+                    merged_by_dimension[dimension_value] = result
+                else:
+                    existing["Collections"] = list(existing.get("Collections", [])) + list(result.get("Collections", []))
+
+            for result in merged_by_dimension.values():
                 dimension_value = result.get("Dimensions", {}).get(group_by)
                 metrics, formatted_metrics, time_breakdown = _build_metric_maps(requested_metrics, result.get("Collections", []))
                 row = {
