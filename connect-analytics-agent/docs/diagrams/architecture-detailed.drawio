@@ -1,202 +1,253 @@
 <mxfile host="app.diagrams.net">
   <diagram id="cloud-arch" name="Cloud Architecture">
-    <mxGraphModel adaptiveColors="auto">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
         <mxCell id="title" value="&lt;b&gt;Amazon Connect Analytics Agent — Cloud Deployment (deploy.sh deploy)&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" vertex="1" parent="1">
-          <mxGeometry x="40" y="10" width="820" height="30" as="geometry"/>
+          <mxGeometry x="40" y="15" width="820" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="user" value="&lt;b&gt;Supervisor / Analyst&lt;/b&gt;&lt;br&gt;Contact-centre operations" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="60" y="200" width="40" height="70" as="geometry"/>
+          <mxGeometry x="60" y="235" width="40" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="browser" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br&gt;React 18 SPA (Vite build)&lt;br&gt;+ hidden Connect CCP iframe&lt;br&gt;(amazon-connect-streams)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
-          <mxGeometry x="180" y="190" width="190" height="90" as="geometry"/>
+          <mxGeometry x="170" y="225" width="190" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="aws" value="AWS Cloud" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=none;strokeColor=#232F3E;dashed=1;container=0;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="420" y="60" width="1340" height="800" as="geometry"/>
-        </mxCell>
-        <mxCell id="cf" value="&lt;b&gt;Amazon CloudFront&lt;/b&gt;&lt;br&gt;SPA CDN + /api/* behaviour&lt;br&gt;redirect-to-https" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2E7F7;strokeColor=#8C4FFF;" vertex="1" parent="1">
-          <mxGeometry x="470" y="200" width="190" height="80" as="geometry"/>
+          <mxGeometry x="420" y="60" width="1460" height="800" as="geometry"/>
         </mxCell>
         <mxCell id="s3web" value="&lt;b&gt;S3 frontend bucket&lt;/b&gt;&lt;br&gt;PRIVATE — Block Public Access ON&lt;br&gt;CloudFront Origin Access Control&lt;br&gt;(security fix)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F2E6;strokeColor=#277116;" vertex="1" parent="1">
-          <mxGeometry x="470" y="90" width="190" height="80" as="geometry"/>
+          <mxGeometry x="460" y="90" width="200" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="apigw" value="&lt;b&gt;API Gateway (REST, regional)&lt;/b&gt;&lt;br&gt;POST /api/query&lt;br&gt;GET /api/health, /api/metrics&lt;br&gt;AWS_PROXY integration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2E7F7;strokeColor=#8C4FFF;" vertex="1" parent="1">
-          <mxGeometry x="740" y="200" width="210" height="90" as="geometry"/>
+        <mxCell id="cf" value="&lt;b&gt;Amazon CloudFront&lt;/b&gt;&lt;br&gt;SPA CDN + /api/* behaviour&lt;br&gt;redirect-to-https" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2E7F7;strokeColor=#8C4FFF;" vertex="1" parent="1">
+          <mxGeometry x="460" y="230" width="200" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="cognito" value="&lt;b&gt;Amazon Cognito&lt;/b&gt;&lt;br&gt;User pool + SPA client (SRP only)&lt;br&gt;12-char password policy&lt;br&gt;JWT authorizer on query/metrics&lt;br&gt;(security fix — API_AUTH=cognito)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F2E6;strokeColor=#277116;" vertex="1" parent="1">
-          <mxGeometry x="740" y="70" width="210" height="100" as="geometry"/>
+          <mxGeometry x="740" y="80" width="220" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="agentl" value="&lt;b&gt;Agent Lambda (Python 3.12)&lt;/b&gt;&lt;br&gt;handler.py + agent_core.py&lt;br&gt;Strands Agent, 4-tier execution:&lt;br&gt;1 Gateway (MCP)  2 Direct Lambda&lt;br&gt;3 In-process  4 Conversational" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
-          <mxGeometry x="1030" y="190" width="220" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="bedrock" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;Claude (BEDROCK_MODEL_ID)&lt;br&gt;converse + model fallback list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1030" y="380" width="220" height="80" as="geometry"/>
+        <mxCell id="apigw" value="&lt;b&gt;API Gateway (REST, regional)&lt;/b&gt;&lt;br&gt;POST /api/query&lt;br&gt;GET /api/health, /api/metrics&lt;br&gt;AWS_PROXY integration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2E7F7;strokeColor=#8C4FFF;" vertex="1" parent="1">
+          <mxGeometry x="740" y="225" width="220" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="gw" value="&lt;b&gt;AgentCore Gateway (optional)&lt;/b&gt;&lt;br&gt;MCP over SSE, SigV4&lt;br&gt;falls back to direct Lambda&lt;br&gt;when unavailable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="1030" y="70" width="220" height="90" as="geometry"/>
+          <mxGeometry x="1040" y="80" width="220" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="tools" value="&lt;b&gt;9 Tool Lambdas (Python 3.12, boto3)&lt;/b&gt;&lt;br&gt;realtime-metrics · historical-metrics&lt;br&gt;agent-states · search-contacts&lt;br&gt;contact-detail · transcript&lt;br&gt;keyword-search · recording-url&lt;br&gt;contact-flow-events&lt;br&gt;&lt;i&gt;IAM scoped to connect-analytics-* (fix)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
-          <mxGeometry x="1330" y="150" width="240" height="150" as="geometry"/>
+        <mxCell id="agentl" value="&lt;b&gt;Agent Lambda (Python 3.12)&lt;/b&gt;&lt;br&gt;handler.py + agent_core.py&lt;br&gt;Strands Agent, 4-tier execution:&lt;br&gt;1 Gateway (MCP)  2 Direct Lambda&lt;br&gt;3 In-process  4 Conversational" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="215" width="220" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="connect" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;metrics · users · contacts&lt;br&gt;queues · flows · monitor_contact&lt;br&gt;+ Contact Lens transcripts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1330" y="380" width="240" height="90" as="geometry"/>
-        </mxCell>
-        <mxCell id="s3rec" value="&lt;b&gt;S3 recordings bucket&lt;/b&gt;&lt;br&gt;pre-signed GET URLs (max 12h)&lt;br&gt;&lt;i&gt;s3:GetObject scoped to&lt;br&gt;amazon-connect-* (fix)&lt;/i&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;boundedLbl=1;" vertex="1" parent="1">
-          <mxGeometry x="1620" y="370" width="120" height="110" as="geometry"/>
-        </mxCell>
-        <mxCell id="cw" value="&lt;b&gt;CloudWatch Logs&lt;/b&gt;&lt;br&gt;Connect flow logs&lt;br&gt;(Logs Insights queries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1620" y="180" width="130" height="90" as="geometry"/>
+        <mxCell id="bedrock" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;Claude (BEDROCK_MODEL_ID)&lt;br&gt;converse + model fallback list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="430" width="220" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="sess" value="&lt;b&gt;Session store (optional)&lt;/b&gt;&lt;br&gt;DynamoDB (SESSION_TABLE_NAME)&lt;br&gt;+ S3 overflow &amp;gt; 300 KB&lt;br&gt;SESSION_BACKEND=dynamodb" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;boundedLbl=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="780" y="370" width="170" height="110" as="geometry"/>
+          <mxGeometry x="720" y="430" width="200" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="tools" value="&lt;b&gt;9 Tool Lambdas (Python 3.12, boto3)&lt;/b&gt;&lt;br&gt;realtime-metrics · historical-metrics&lt;br&gt;agent-states · search-contacts&lt;br&gt;contact-detail · transcript&lt;br&gt;keyword-search · recording-url&lt;br&gt;contact-flow-events&lt;br&gt;&lt;i&gt;IAM scoped to connect-analytics-* (fix)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="195" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="connect" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;metrics · users · contacts&lt;br&gt;queues · flows · monitor_contact&lt;br&gt;+ Contact Lens transcripts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="430" width="240" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="cw" value="&lt;b&gt;CloudWatch Logs&lt;/b&gt;&lt;br&gt;Connect flow logs&lt;br&gt;(Logs Insights queries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="1660" y="120" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3rec" value="&lt;b&gt;S3 recordings bucket&lt;/b&gt;&lt;br&gt;pre-signed GET URLs (max 12h)&lt;br&gt;&lt;i&gt;s3:GetObject scoped to&lt;br&gt;amazon-connect-* (fix)&lt;/i&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="1660" y="240" width="160" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="iamnote" value="&lt;b&gt;Security hardening applied&lt;/b&gt;&lt;br&gt;• Cognito JWT authorizer on /api/query + /api/metrics (was NONE)&lt;br&gt;• Private S3 + OAC (was public website bucket over HTTP)&lt;br&gt;• IAM: lambda:InvokeFunction + s3:GetObject de-wildcarded&lt;br&gt;• No PII/event payloads in CloudWatch logs&lt;br&gt;• npm/pip dependencies: 0 known vulnerabilities" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=8;fillColor=#E6F2E6;strokeColor=#277116;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="470" y="560" width="400" height="120" as="geometry"/>
+          <mxGeometry x="460" y="620" width="430" height="130" as="geometry"/>
         </mxCell>
         <mxCell id="flow1" value="&lt;b&gt;Chat request path&lt;/b&gt;&lt;br&gt;Browser → CloudFront /api/query → API Gateway (JWT) → Agent Lambda&lt;br&gt;→ tier 1: Strands + MCP via AgentCore Gateway → Tool Lambda&lt;br&gt;→ or tier 2: direct lambda:Invoke → Connect APIs&lt;br&gt;→ Bedrock formats the answer → response to browser" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=8;fillColor=#FFF9E6;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="920" y="560" width="440" height="120" as="geometry"/>
+          <mxGeometry x="940" y="620" width="480" height="130" as="geometry"/>
         </mxCell>
-        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="user" target="browser" parent="1">
+        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="user" target="browser" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e2" value="HTTPS 443" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="browser" target="cf" parent="1">
+        <mxCell id="e2" value="HTTPS 443" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="browser" target="cf" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e3" value="OAC (SigV4, HTTPS)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="cf" target="s3web" parent="1">
+        <mxCell id="e3" value="OAC (SigV4, HTTPS)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="cf" target="s3web" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e4" value="/api/* (HTTPS)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="cf" target="apigw" parent="1">
+        <mxCell id="e4" value="/api/* (HTTPS)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="cf" target="apigw" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e5" value="validate JWT" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="apigw" target="cognito" parent="1">
+        <mxCell id="e5" value="validate JWT" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="apigw" target="cognito" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e6" value="AWS_PROXY" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="apigw" target="agentl" parent="1">
+        <mxCell id="e6" value="AWS_PROXY" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="apigw" target="agentl" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e7" value="MCP / SSE (SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="agentl" target="gw" parent="1">
+        <mxCell id="e7" value="MCP / SSE (SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="agentl" target="gw" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e8" value="gateway targets" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="gw" target="tools" parent="1">
+        <mxCell id="e8" value="gateway targets" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="gw" target="tools" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1460" y="125"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" value="lambda:Invoke (direct mode)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="agentl" target="tools" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e9" value="lambda:Invoke (direct mode)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agentl" target="tools" parent="1">
+        <mxCell id="e10" value="converse" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="agentl" target="bedrock" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e10" value="converse" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agentl" target="bedrock" parent="1">
+        <mxCell id="e11" value="Connect / Contact Lens APIs (SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="tools" target="connect" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e11" value="Connect / Contact Lens APIs (SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="tools" target="connect" parent="1">
+        <mxCell id="e12" value="generate_presigned_url" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="tools" target="s3rec" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e12" value="generate_presigned_url" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="tools" target="s3rec" parent="1">
+        <mxCell id="e13" value="filter_log_events / Insights" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="tools" target="cw" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="e13" value="filter_log_events / Insights" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="tools" target="cw" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="e14" value="sessions" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="agentl" target="sess" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="985" y="298"/>
+              <mxPoint x="985" y="485"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e14" value="sessions" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="agentl" target="sess" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="e15" value="CCP iframe (ccp-v2, Connect login)&#xa;supervisor monitor / barge" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="browser" target="connect" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="e15" value="CCP iframe (ccp-v2, Connect login) — supervisor monitor / barge" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" source="browser" target="connect" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="265" y="790"/>
+              <mxPoint x="1460" y="790"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
   <diagram id="local-arch" name="Local Architecture (Docker)">
-    <mxGraphModel adaptiveColors="auto">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
         <mxCell id="ltitle" value="&lt;b&gt;Amazon Connect Analytics Agent — Local Deployment (deploy.sh local, Docker Compose)&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;" vertex="1" parent="1">
-          <mxGeometry x="40" y="10" width="900" height="30" as="geometry"/>
+          <mxGeometry x="40" y="15" width="900" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="luser" value="&lt;b&gt;Developer /&lt;br&gt;Supervisor&lt;/b&gt;" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="60" y="220" width="40" height="70" as="geometry"/>
+          <mxGeometry x="60" y="235" width="40" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="lbrowser" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br&gt;http://localhost:5274&lt;br&gt;React SPA + CCP iframe&lt;br&gt;SSE consumers (scans)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
-          <mxGeometry x="170" y="200" width="180" height="100" as="geometry"/>
+          <mxGeometry x="170" y="210" width="180" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="dockerbox" value="Docker Compose (ports published on 127.0.0.1 only — security fix)" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=none;strokeColor=#0B5394;dashed=1;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="410" y="60" width="760" height="640" as="geometry"/>
+          <mxGeometry x="420" y="60" width="760" height="700" as="geometry"/>
         </mxCell>
         <mxCell id="vite" value="&lt;b&gt;frontend container&lt;/b&gt;&lt;br&gt;node:20-alpine, USER node (fix)&lt;br&gt;Vite dev server :5274&lt;br&gt;allowedHosts allow-list (fix)&lt;br&gt;proxy /api → agent:8100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
-          <mxGeometry x="450" y="190" width="220" height="120" as="geometry"/>
+          <mxGeometry x="460" y="200" width="220" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="fastapi" value="&lt;b&gt;agent container — FastAPI :8100&lt;/b&gt;&lt;br&gt;python:3.12-slim, USER appuser (fix)&lt;br&gt;local_server.py (~55 routes)&lt;br&gt;CORS allow-list · security headers&lt;br&gt;rate limiting · MOCK_MODE toggle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
-          <mxGeometry x="760" y="180" width="250" height="130" as="geometry"/>
-        </mxCell>
-        <mxCell id="agcore" value="&lt;b&gt;ConnectAnalyticsAgent&lt;/b&gt;&lt;br&gt;agent_core.py · regex tool router&lt;br&gt;LocalToolInvoker (in-process)&lt;br&gt;Bedrock response formatter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
-          <mxGeometry x="760" y="370" width="250" height="100" as="geometry"/>
-        </mxCell>
-        <mxCell id="ltools" value="&lt;b&gt;tools/* handlers (in-process import)&lt;/b&gt;&lt;br&gt;9 gateway tools + bot_metrics&lt;br&gt;+ force_logout (API-only)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
-          <mxGeometry x="760" y="530" width="250" height="90" as="geometry"/>
+          <mxGeometry x="770" y="200" width="260" height="130" as="geometry"/>
         </mxCell>
         <mxCell id="scans" value="&lt;b&gt;Background modules&lt;/b&gt;&lt;br&gt;startup_scan (resource discovery)&lt;br&gt;theme_scan (Bedrock themes)&lt;br&gt;disconnect_reasons (CTR analysis)&lt;br&gt;eventbridge_listener (SQS poll)&lt;br&gt;hours_of_operation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;" vertex="1" parent="1">
-          <mxGeometry x="450" y="370" width="240" height="130" as="geometry"/>
+          <mxGeometry x="460" y="390" width="240" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="agcore" value="&lt;b&gt;ConnectAnalyticsAgent&lt;/b&gt;&lt;br&gt;agent_core.py · regex tool router&lt;br&gt;LocalToolInvoker (in-process)&lt;br&gt;Bedrock response formatter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="770" y="390" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="ltools" value="&lt;b&gt;tools/* handlers (in-process import)&lt;/b&gt;&lt;br&gt;9 gateway tools + bot_metrics&lt;br&gt;+ force_logout (API-only)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="770" y="550" width="260" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="vols" value="&lt;b&gt;Volumes&lt;/b&gt;&lt;br&gt;~/.aws → /home/appuser/.aws (ro)&lt;br&gt;agent_data → /app/data&lt;br&gt;(sessions.db SQLite,&lt;br&gt;discovered_resources.json)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;boundedLbl=1;" vertex="1" parent="1">
-          <mxGeometry x="480" y="540" width="180" height="130" as="geometry"/>
+          <mxGeometry x="460" y="590" width="180" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="lawsbox" value="AWS (live mode — MOCK_MODE=false)" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;fontStyle=1;fillColor=none;strokeColor=#232F3E;dashed=1;fontSize=13;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="1230" y="60" width="330" height="640" as="geometry"/>
-        </mxCell>
-        <mxCell id="lconnect" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;+ Contact Lens&lt;br&gt;+ Lex V2 bot metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1270" y="120" width="250" height="80" as="geometry"/>
+          <mxGeometry x="1240" y="60" width="360" height="700" as="geometry"/>
         </mxCell>
         <mxCell id="lbedrock" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;Claude converse&lt;br&gt;(chat formatting + theme scan)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1270" y="240" width="250" height="80" as="geometry"/>
+          <mxGeometry x="1280" y="110" width="260" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="leb" value="&lt;b&gt;EventBridge rule → SQS queue&lt;/b&gt;&lt;br&gt;Connect Contact + Agent events&lt;br&gt;(deploy.sh setup-eventbridge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1270" y="360" width="250" height="80" as="geometry"/>
+        <mxCell id="lconnect" value="&lt;b&gt;Amazon Connect&lt;/b&gt;&lt;br&gt;+ Contact Lens&lt;br&gt;+ Lex V2 bot metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="240" width="260" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="lcw" value="&lt;b&gt;CloudWatch Logs&lt;/b&gt;&lt;br&gt;flow logs · S3 recordings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
-          <mxGeometry x="1270" y="480" width="250" height="70" as="geometry"/>
+          <mxGeometry x="1280" y="380" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="leb" value="&lt;b&gt;EventBridge rule → SQS queue&lt;/b&gt;&lt;br&gt;Connect Contact + Agent events&lt;br&gt;(deploy.sh setup-eventbridge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="500" width="260" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="mock" value="&lt;b&gt;MOCK_MODE=true (default)&lt;/b&gt;&lt;br&gt;canned data, zero AWS calls&lt;br&gt;scans + listener disabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;" vertex="1" parent="1">
-          <mxGeometry x="1270" y="590" width="250" height="80" as="geometry"/>
+          <mxGeometry x="1280" y="640" width="260" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="le1" value="http://127.0.0.1:5274" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="lbrowser" target="vite" parent="1">
+        <mxCell id="le0" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="luser" target="lbrowser" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le0" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="luser" target="lbrowser" parent="1">
+        <mxCell id="le1" value="http://127.0.0.1:5274" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="lbrowser" target="vite" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le2" value="proxy /api → http://agent:8100" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="vite" target="fastapi" parent="1">
+        <mxCell id="le2" value="proxy /api → agent:8100" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="vite" target="fastapi" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le3" value="query()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="fastapi" target="agcore" parent="1">
+        <mxCell id="le3" value="query()" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="fastapi" target="agcore" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le4" value="import handler.py" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agcore" target="ltools" parent="1">
+        <mxCell id="le4" value="import handler.py" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="agcore" target="ltools" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le5" value="starts / streams SSE" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="fastapi" target="scans" parent="1">
+        <mxCell id="le5" value="starts / streams SSE" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="fastapi" target="scans" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="730" y="298"/>
+              <mxPoint x="730" y="460"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="le6" value="scan cache / sessions.db" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="scans" target="vols" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="le6" value="sessions.db / scan cache" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="scans" target="vols" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le7" value="boto3 (mounted ~/.aws, SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ltools" target="lconnect" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1150" y="600"/>
+              <mxPoint x="1150" y="285"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="le7" value="boto3 (mounted ~/.aws, SigV4)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ltools" target="lconnect" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le8" value="converse" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="agcore" target="lbedrock" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1100" y="440"/>
+              <mxPoint x="1100" y="150"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="le8" value="converse" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="agcore" target="lbedrock" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le9" value="long-poll receive_message" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="scans" target="leb" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="652" y="740"/>
+              <mxPoint x="1210" y="740"/>
+              <mxPoint x="1210" y="545"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="le9" value="long-poll receive_message" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="scans" target="leb" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le10" value="flow logs / recordings" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="ltools" target="lcw" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1180" y="575"/>
+              <mxPoint x="1180" y="415"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="le10" value="flow logs / recordings" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;" edge="1" source="ltools" target="lcw" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le11" value="SSE: /startup-scan · /transcript-themes · /disconnect-reasons" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" source="fastapi" target="lbrowser" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="110"/>
+              <mxPoint x="260" y="110"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="le11" value="SSE: /startup-scan · /transcript-themes · /disconnect-reasons" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="fastapi" target="lbrowser" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="le12" value="CCP iframe (supervisor barge)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;" edge="1" source="lbrowser" target="lconnect" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="le12" value="CCP iframe (supervisor barge)" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="lbrowser" target="lconnect" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="790"/>
+              <mxPoint x="1570" y="790"/>
+              <mxPoint x="1570" y="285"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>

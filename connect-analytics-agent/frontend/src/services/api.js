@@ -147,6 +147,11 @@ export const summarizeTranscript = async (contactId) => {
   return response.data;
 };
 
+export const getContactMetrics = async (contactId) => {
+  const response = await api.get(`/contact-metrics/${contactId}`);
+  return response.data;
+};
+
 export const getRecording = async (contactId) => {
   const response = await api.get(`/recording/${contactId}`);
   return response.data;
@@ -271,6 +276,11 @@ export const forceLogoutAgent = async (agentId, reason = '') => {
 
 export const getRealtimeQueueMetrics = async () => {
   const response = await api.get('/realtime-queue-metrics');
+  return response.data;
+};
+
+export const getPcaByQueue = async () => {
+  const response = await api.get('/pca-by-queue');
   return response.data;
 };
 

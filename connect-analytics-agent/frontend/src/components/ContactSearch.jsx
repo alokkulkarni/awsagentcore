@@ -18,8 +18,10 @@ import {
   Layers,
   Filter,
   Tag,
+  Gauge,
+  Sparkles,
 } from 'lucide-react';
-import { searchContacts, getQueues, getAgentsForSearch } from '../services/api';
+import { searchContacts, getQueues, getAgentsForSearch, getContactMetrics } from '../services/api';
 import ContactFlowGraph from './ContactFlowGraph';
 
 const CHANNEL_OPTIONS = [
@@ -166,12 +168,131 @@ function LoadingRows() {
   ));
 }
 
+// ── Contact Lens metrics panel ────────────────────────────────────────────────
+// The same conversation analytics the Contact Lens page shows in the Connect
+// console: talk time split, non-talk time, interruptions, talk speed, sentiment.
+function sentimentBadge(score) {
+  if (score == null) return { label: '—', cls: 'bg-slate-500/10 text-slate-500' };
+  const val = Number(score);
+  if (val >= 1) return { label: `+${val}`, cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' };
+  if (val <= -1) return { label: `${val}`, cls: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' };
+  return { label: `${val}`, cls: 'bg-slate-500/15 text-slate-600 dark:text-slate-300' };
+}
+
+function ContactLensMetricsPanel({ contactId, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setData(null);
+    getContactMetrics(contactId)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e?.response?.data?.detail || e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [contactId]);
+
+  const m = data?.metrics;
+  const talkTotal = m?.talk_time_s?.total ?? 0;
+  const nonTalk = m?.non_talk_time_s ?? 0;
+  const convTotal = talkTotal + nonTalk;
+  const agentPct = talkTotal > 0 ? Math.round(((m?.talk_time_s?.agent ?? 0) / talkTotal) * 100) : 0;
+  const talkPct = convTotal > 0 ? Math.round((talkTotal / convTotal) * 100) : 0;
+  const agentSent = sentimentBadge(m?.sentiment?.agent);
+  const custSent = sentimentBadge(m?.sentiment?.customer);
+
+  return (
+    <div className="mt-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+          <Gauge size={14} className="text-connect-700 dark:text-connect-400" />
+          Contact Lens metrics — <span className="font-mono text-slate-500 dark:text-slate-400">…{contactId.slice(-12)}</span>
+          {data?.mock && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">mock data</span>}
+        </p>
+        <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"><X size={14} /></button>
+      </div>
+
+      {loading && <p className="py-4 text-sm text-slate-500 dark:text-slate-400">Loading Contact Lens analysis…</p>}
+      {error && <p className="py-4 text-sm text-rose-600 dark:text-rose-400">{error}</p>}
+      {!loading && !error && data && !data.available && (
+        <p className="py-4 text-sm text-slate-600 dark:text-slate-400">{data.message}</p>
+      )}
+
+      {!loading && !error && m && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400 mb-1">
+                <span>Talk time vs non-talk time</span>
+                <span className="tabular-nums">{formatDuration(talkTotal)} talk · {formatDuration(nonTalk)} non-talk</span>
+              </div>
+              <div className="flex h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" title={`${talkPct}% of the conversation was talk time`}>
+                <div className="bg-sky-500/80" style={{ width: `${talkPct}%` }} />
+                <div className="bg-slate-400/60" style={{ width: `${100 - talkPct}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400 mb-1">
+                <span>Talk time split — agent vs customer</span>
+                <span className="tabular-nums">
+                  {formatDuration(m.talk_time_s?.agent ?? 0)} agent · {formatDuration(m.talk_time_s?.customer ?? 0)} customer
+                </span>
+              </div>
+              <div className="flex h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" title={`Agent spoke ${agentPct}% of talk time`}>
+                <div className="bg-emerald-500/80" style={{ width: `${agentPct}%` }} />
+                <div className="bg-indigo-500/70" style={{ width: `${100 - agentPct}%` }} />
+              </div>
+              <div className="mt-1 flex gap-3 text-[10px] text-slate-500 dark:text-slate-400">
+                <span><span className="inline-block h-2 w-2 rounded-full bg-emerald-500/80 mr-1" />Agent {agentPct}%</span>
+                <span><span className="inline-block h-2 w-2 rounded-full bg-indigo-500/70 mr-1" />Customer {100 - agentPct}%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 content-start">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Interruptions</p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-200 tabular-nums">
+                {m.interruptions?.agent ?? 0} by agent · {m.interruptions?.customer ?? 0} by customer
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Talk speed (wpm)</p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-200 tabular-nums">
+                {m.talk_speed_wpm?.agent ?? '—'} agent · {m.talk_speed_wpm?.customer ?? '—'} customer
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Sentiment (−5…+5)</p>
+              <p className="mt-1 flex items-center gap-2 text-sm">
+                <span className={`rounded-lg px-2 py-0.5 text-xs font-medium ${agentSent.cls}`}>agent {agentSent.label}</span>
+                <span className={`rounded-lg px-2 py-0.5 text-xs font-medium ${custSent.cls}`}>customer {custSent.label}</span>
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Conversation duration</p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-200 tabular-nums">
+                {formatDuration(m.total_duration_s ?? convTotal)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ContactSearch({ onAskQuery, onSelectContact }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [journeyContactId, setJourneyContactId] = useState(null);
+  const [metricsContactId, setMetricsContactId] = useState(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [queues, setQueues] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -738,7 +859,30 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => onAskQuery(`Show me details for contact ${contact.contactId}.`)} className="rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700">View Detail</button>
+                      <button
+                        type="button"
+                        onClick={() => setMetricsContactId(metricsContactId === contact.contactId ? null : contact.contactId)}
+                        className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs transition ${
+                          metricsContactId === contact.contactId
+                            ? 'bg-connect-700 text-white'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        <Gauge size={11} />
+                        {metricsContactId === contact.contactId ? 'Hide Detail' : 'View Detail'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAskQuery(
+                          `Analyse contact ${contact.contactId} (queue: ${contact.queue || 'unknown'}, agent: ${contact.agent || 'unknown'}, `
+                          + `channel: ${contact.channel || 'unknown'}, status: ${contact.status || 'unknown'}). `
+                          + 'Summarise what happened on this contact and anything a supervisor should follow up on.'
+                        )}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/15 px-3 py-2 text-xs text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/25"
+                      >
+                        <Sparkles size={11} />
+                        Ask AI
+                      </button>
                       <button type="button" onClick={() => onSelectContact(contact, highlightKeyword)} className="rounded-xl bg-connect-500 px-3 py-2 text-xs text-white hover:bg-connect-700">Get Transcript</button>
                       {contact.hasRecording && contact.channel === 'VOICE' && (
                         <button type="button" onClick={() => onSelectContact(contact, highlightKeyword)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs text-white hover:bg-emerald-600">Play Recording</button>
@@ -762,6 +906,13 @@ export default function ContactSearch({ onAskQuery, onSelectContact }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {metricsContactId && (
+        <ContactLensMetricsPanel
+          contactId={metricsContactId}
+          onClose={() => setMetricsContactId(null)}
+        />
       )}
 
       {journeyContactId && (

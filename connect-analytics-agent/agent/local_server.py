@@ -118,14 +118,42 @@ _STATUS_DISPLAY: Dict[str, str] = {
 
 
 # Runtime override for mock mode, settable via PUT /config/mock-mode without a
-# container restart. None = defer to the MOCK_MODE env var (the original
-# behaviour); True/False = explicit override for the life of this process.
-_mock_override: Optional[bool] = None
+# container restart. Persisted to a file under DATA_DIR: the in-memory global it
+# replaced was wiped by every `uvicorn --reload` restart (the code is
+# bind-mounted in Docker), silently flipping the server back to the MOCK_MODE
+# env default while the UI still showed dummy data — mock contact IDs then hit
+# real AWS APIs. Absent/unreadable file = defer to the MOCK_MODE env var.
+_MOCK_OVERRIDE_FILE = os.path.join(os.getenv("DATA_DIR", "/app/data"), "mock_mode_override.json")
+_mock_override_cache: Dict[str, Any] = {"checked": 0.0, "mtime": None, "value": None}
+
+
+def _write_mock_override(mock: bool) -> None:
+    try:
+        os.makedirs(os.path.dirname(_MOCK_OVERRIDE_FILE), exist_ok=True)
+        with open(_MOCK_OVERRIDE_FILE, "w", encoding="utf-8") as fh:
+            json.dump({"mock": mock}, fh)
+    except OSError as exc:
+        LOGGER.warning("Could not persist mock-mode override: %s", exc)
+    _mock_override_cache["checked"] = 0.0  # force re-read on next _is_mock()
+    _mock_override_cache["mtime"] = None
 
 
 def _is_mock() -> bool:
-    if _mock_override is not None:
-        return _mock_override
+    cache = _mock_override_cache
+    now_mono = time.monotonic()
+    if now_mono - cache["checked"] > 2.0:
+        cache["checked"] = now_mono
+        try:
+            mtime = os.path.getmtime(_MOCK_OVERRIDE_FILE)
+            if mtime != cache["mtime"]:
+                with open(_MOCK_OVERRIDE_FILE, "r", encoding="utf-8") as fh:
+                    cache["value"] = bool(json.load(fh).get("mock"))
+                cache["mtime"] = mtime
+        except (OSError, ValueError):
+            cache["mtime"] = None
+            cache["value"] = None
+    if cache["value"] is not None:
+        return cache["value"]
     return os.getenv("MOCK_MODE", "true").lower() == "true"
 
 
@@ -175,15 +203,23 @@ _MOCK_CHAT: Dict[str, str] = {
 # and are replaced organically, and every realtime endpoint reads the same
 # snapshot. Slot i is always served by agent i, so no agent is double-booked.
 
+# 14 functions × 4 segments = 56 queues, so queue-driven widgets (live chart,
+# legend, utilisation list, occupancy) are exercised at large-estate scale.
+_MOCK_QUEUE_FUNCTIONS = [
+    "Technical Support", "Billing", "General Enquiry", "Sales",
+    "Customer Support", "VIP Support", "Fraud & Security", "Mortgages",
+    "Credit Cards", "Loans", "Savings & ISAs", "Insurance",
+    "Collections", "Complaints",
+]
+_MOCK_QUEUE_SEGMENTS = ["UK", "Ireland", "Business", "Premier"]
+
 _MOCK_RT_QUEUES = [
-    {"id": "mock-queue-1", "name": "Technical Support"},
-    {"id": "mock-queue-2", "name": "Billing"},
-    {"id": "mock-queue-3", "name": "General Enquiry"},
-    {"id": "mock-queue-4", "name": "Sales"},
-    {"id": "mock-queue-5", "name": "Customer Support"},
-    {"id": "mock-queue-6", "name": "VIP Support"},
-    {"id": "mock-queue-7", "name": "Fraud & Security"},
-    {"id": "mock-queue-8", "name": "Mortgages"},
+    {"id": f"mock-queue-{i + 1:02d}", "name": f"{function} ({segment})"}
+    for i, (segment, function) in enumerate(
+        (segment, function)
+        for segment in _MOCK_QUEUE_SEGMENTS
+        for function in _MOCK_QUEUE_FUNCTIONS
+    )
 ]
 
 _MOCK_FIRST_NAMES = [
@@ -719,8 +755,7 @@ def set_mock_mode(req: MockModeRequest) -> Dict[str, Any]:
     against this local FastAPI server (the cloud Lambda doesn't serve this route
     at all), so it's inherently local-only.
     """
-    global _mock_override
-    _mock_override = req.mock
+    _write_mock_override(req.mock)
     LOGGER.info("Mock mode runtime override set to %s", req.mock)
     return {"mock_mode": _is_mock()}
 
@@ -2699,8 +2734,15 @@ def list_contact_flows() -> Dict[str, Any]:
              "type": "CONTACT_FLOW", "state": "ACTIVE", "logging_enabled": True},
             {"id": "mock-flow-2", "arn": None, "name": "conversationalbot",
              "type": "CONTACT_FLOW", "state": "ACTIVE", "logging_enabled": True},
+            {"id": "mock-flow-3", "arn": None, "name": "CustomerSupportFlow",
+             "type": "CONTACT_FLOW", "state": "ACTIVE", "logging_enabled": False},
+            {"id": "mock-flow-4", "arn": None, "name": "LegacyIVR_2023",
+             "type": "CONTACT_FLOW", "state": "ARCHIVED", "logging_enabled": False},
+            {"id": "mock-flow-5", "arn": None, "name": "OutboundCampaignFlow",
+             "type": "CONTACT_FLOW", "state": "ARCHIVED", "logging_enabled": True},
         ]
-        return {"mock": True, "flows": flows, "total": len(flows), "logging_enabled_count": len(flows)}
+        return {"mock": True, "flows": flows, "total": len(flows),
+                "logging_enabled_count": sum(1 for f in flows if f["logging_enabled"])}
     try:
         import boto3  # pylint: disable=import-outside-toplevel
         instance_id = os.environ.get("CONNECT_INSTANCE_ID", "")
@@ -3107,6 +3149,84 @@ def get_contact_sentiment(contact_id: str) -> Dict[str, Any]:
         return {"contact_id": contact_id, "sentiment": None}
 
 
+@app.get("/contact-metrics/{contact_id}")
+def contact_metrics(contact_id: str) -> Dict[str, Any]:
+    """Contact Lens conversation metrics for one contact — talk time,
+    non-talk time, interruptions, talk speed and sentiment — the figures the
+    Contact Lens page shows in the Amazon Connect console."""
+    _assert_valid_contact_id(contact_id)
+    if _is_mock():
+        rng = random.Random(sum(ord(c) * (i + 7) for i, c in enumerate(contact_id)))
+        total = rng.randint(180, 1500)
+        talk = int(total * rng.uniform(0.55, 0.80))
+        agent_talk = int(talk * rng.uniform(0.35, 0.60))
+        return {
+            "mock": True, "contact_id": contact_id, "available": True,
+            "metrics": {
+                "total_duration_s": total,
+                "talk_time_s": {"total": talk, "agent": agent_talk, "customer": talk - agent_talk},
+                "non_talk_time_s": total - talk,
+                "interruptions": {"agent": rng.randint(0, 4), "customer": rng.randint(0, 5)},
+                "talk_speed_wpm": {"agent": rng.randint(120, 165), "customer": rng.randint(110, 175)},
+                "sentiment": {"agent": round(rng.uniform(-1.5, 4.5), 1), "customer": round(rng.uniform(-3.5, 4.0), 1)},
+            },
+        }
+    try:
+        data = _invoke_tool("get_transcript", [{"name": "contact_id", "type": "string", "value": contact_id}])
+        cc = data.get("conversation_characteristics") or {}
+        if not cc:
+            return {
+                "mock": False, "contact_id": contact_id, "available": False,
+                "message": data.get("message") or (
+                    "Contact Lens analysis is not available for this contact — it appears "
+                    "2–5 minutes after a call ends, and only when Contact Lens is enabled on the flow."
+                ),
+            }
+
+        def _ms_to_s(value):
+            return int(value / 1000) if isinstance(value, (int, float)) else None
+
+        talk = cc.get("TalkTime") or {}
+        talk_by = talk.get("DetailsByParticipant") or {}
+        interruptions = cc.get("Interruptions") or {}
+        interrupter_counts = {
+            participant.lower(): len(items or [])
+            for participant, items in (interruptions.get("InterruptionsByInterrupter") or {}).items()
+        }
+        speed_by = (cc.get("TalkSpeed") or {}).get("DetailsByParticipant") or {}
+        overall_sentiment = (cc.get("Sentiment") or {}).get("OverallSentiment") or {}
+        return {
+            "mock": False, "contact_id": contact_id, "available": True,
+            "metrics": {
+                "total_duration_s": _ms_to_s(cc.get("TotalConversationDurationMillis")),
+                "talk_time_s": {
+                    "total": _ms_to_s(talk.get("TotalTimeMillis")),
+                    "agent": _ms_to_s((talk_by.get("AGENT") or {}).get("TotalTimeMillis")),
+                    "customer": _ms_to_s((talk_by.get("CUSTOMER") or {}).get("TotalTimeMillis")),
+                },
+                "non_talk_time_s": _ms_to_s((cc.get("NonTalkTime") or {}).get("TotalTimeMillis")),
+                "interruptions": {
+                    "agent": interrupter_counts.get("agent", 0),
+                    "customer": interrupter_counts.get("customer", 0),
+                },
+                "talk_speed_wpm": {
+                    "agent": (speed_by.get("AGENT") or {}).get("AverageWordsPerMinute"),
+                    "customer": (speed_by.get("CUSTOMER") or {}).get("AverageWordsPerMinute"),
+                },
+                "sentiment": {
+                    "agent": overall_sentiment.get("AGENT"),
+                    "customer": overall_sentiment.get("CUSTOMER"),
+                },
+            },
+            "sentiment_summary": data.get("sentiment_summary"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("contact_metrics failed for %s: %s", contact_id, exc)
+        raise HTTPException(status_code=502, detail="Failed to fetch Contact Lens metrics") from exc
+
+
 @app.get("/transcript/{contact_id}/summarize")
 def summarize_transcript(contact_id: str) -> Dict[str, Any]:
     _assert_valid_contact_id(contact_id)
@@ -3441,7 +3561,7 @@ def _mock_realtime_queue_metrics() -> Dict[str, Any]:
     by_queue: Dict[str, Dict[str, Any]] = {
         q["name"]: {"id": q["id"], "name": q["name"], "contacts_in_queue": 0,
                     "agents_available": 0, "agents_on_call": 0, "agents_online": 0,
-                    "oldest_contact_age": 0, "contacts_scheduled": 0}
+                    "agents_acw": 0, "oldest_contact_age": 0, "contacts_scheduled": 0}
         for q in _MOCK_RT_QUEUES
     }
     for c in state["contacts"]:
@@ -3463,6 +3583,8 @@ def _mock_realtime_queue_metrics() -> Dict[str, Any]:
             row["agents_on_call"] += 1
         elif a["status"] == "Available":
             row["agents_available"] += 1
+        elif a["status"] == "After Contact Work":
+            row["agents_acw"] += 1
     return {"mock": True, "timestamp": ts, "queues": list(by_queue.values())}
 
 
@@ -3512,6 +3634,7 @@ def realtime_queue_metrics() -> Dict[str, Any]:
                 {"Name": "AGENTS_AVAILABLE",    "Unit": "COUNT"},
                 {"Name": "AGENTS_ON_CONTACT",   "Unit": "COUNT"},
                 {"Name": "AGENTS_ONLINE",       "Unit": "COUNT"},
+                {"Name": "AGENTS_AFTER_CONTACT_WORK", "Unit": "COUNT"},
                 {"Name": "OLDEST_CONTACT_AGE",  "Unit": "SECONDS"},
                 {"Name": "CONTACTS_SCHEDULED",  "Unit": "COUNT"},
             ],
@@ -3529,6 +3652,7 @@ def realtime_queue_metrics() -> Dict[str, Any]:
                 "agents_available":    int(values.get("AGENTS_AVAILABLE", 0)),
                 "agents_on_call":      int(values.get("AGENTS_ON_CONTACT", 0)),
                 "agents_online":       int(values.get("AGENTS_ONLINE", 0)),
+                "agents_acw":          int(values.get("AGENTS_AFTER_CONTACT_WORK", 0)),
                 "oldest_contact_age":  int(values.get("OLDEST_CONTACT_AGE", 0)),
                 "contacts_scheduled":  int(values.get("CONTACTS_SCHEDULED", 0)),
             }
@@ -3542,11 +3666,70 @@ def realtime_queue_metrics() -> Dict[str, Any]:
             metrics_by_queue[qid] = {
                 "id": qid, "name": qname,
                 "contacts_in_queue": 0, "agents_available": 0,
-                "agents_on_call": 0, "agents_online": 0,
+                "agents_on_call": 0, "agents_online": 0, "agents_acw": 0,
                 "oldest_contact_age": 0, "contacts_scheduled": 0,
             }
 
     return {"timestamp": ts, "queues": list(metrics_by_queue.values())}
+
+
+@app.get("/pca-by-queue")
+def pca_by_queue() -> Dict[str, Any]:
+    """
+    Day-to-date PCA (Percentage Calls Answered) per queue:
+    handled / (handled + abandoned) × 100, midnight UTC → now.
+    Computed from GetMetricDataV2 totals — a day-so-far figure, not an
+    instantaneous snapshot, so the frontend polls it once a minute.
+    """
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if _is_mock():
+        # Day-seeded so numbers grow through the day and agree across polls
+        day_fraction = min(1.0, max(0.05, (now.hour + now.minute / 60) / 18))
+        queues = []
+        for qi, q in enumerate(_MOCK_RT_QUEUES):
+            rng = random.Random(now.toordinal() * 131 + qi * 7)
+            handled = int(rng.randint(30, 240) * day_fraction)
+            # ~1 in 8 queues has a bad day so all three PCA colour bands appear
+            abandon_ratio = rng.uniform(0.5, 1.1) if rng.random() < 0.12 else rng.uniform(0.02, 0.30)
+            abandoned = int(handled * abandon_ratio)
+            offered = handled + abandoned
+            queues.append({
+                "queue_id": q["id"], "queue_name": q["name"],
+                "handled": handled, "abandoned": abandoned,
+                "pca": round(handled / offered * 100, 1) if offered else None,
+            })
+        queues.sort(key=lambda r: r["handled"], reverse=True)
+        return {"mock": True, "as_of": now.isoformat(),
+                "window": {"start": start.isoformat(), "end": now.isoformat()}, "queues": queues}
+
+    try:
+        rows = _invoke_tool("get_historical_metrics", [
+            {"name": "start_time", "type": "string", "value": start.isoformat()},
+            {"name": "end_time",   "type": "string", "value": now.isoformat()},
+            {"name": "group_by",   "type": "string", "value": "QUEUE"},
+            {"name": "interval",   "type": "string", "value": "TOTAL"},
+            {"name": "metrics",    "type": "string", "value": "CONTACTS_HANDLED,CONTACTS_ABANDONED"},
+        ]).get("results", [])
+        queues = []
+        for row in rows:
+            m = row.get("metrics", {})
+            handled = int(m.get("CONTACTS_HANDLED") or 0)
+            abandoned = int(m.get("CONTACTS_ABANDONED") or 0)
+            offered = handled + abandoned
+            queues.append({
+                "queue_id": row.get("dimension_value"),
+                "queue_name": row.get("display_name") or row.get("dimension_value"),
+                "handled": handled, "abandoned": abandoned,
+                "pca": round(handled / offered * 100, 1) if offered else None,
+            })
+        queues.sort(key=lambda r: r["handled"], reverse=True)
+        return {"mock": False, "as_of": now.isoformat(),
+                "window": {"start": start.isoformat(), "end": now.isoformat()}, "queues": queues}
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.warning("pca_by_queue failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Failed to compute PCA by queue") from exc
 
 
 # ── Agent occupancy (time-averaged utilisation, NOT a live snapshot) ───────────
