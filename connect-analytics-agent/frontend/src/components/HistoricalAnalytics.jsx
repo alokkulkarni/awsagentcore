@@ -1220,19 +1220,6 @@ function CallbackAnalyticsPanel({ period, onAskAssistant }) {
     esRef.current = es;
   };
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const status = await getCallbackStatus();
-        setScan(status);
-        if (status.running) openStream();
-      } catch {
-        // No prior scan yet — fine.
-      }
-    })();
-    return () => closeStream();
-  }, []);
-
   const runScan = async () => {
     setError(null);
     try {
@@ -1243,6 +1230,35 @@ function CallbackAnalyticsPanel({ period, onAskAssistant }) {
       setError(e?.response?.data?.detail || e.message || 'Failed to start callback scan');
     }
   };
+  const runScanRef = useRef(runScan);
+  runScanRef.current = runScan;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await getCallbackStatus();
+        setScan(status);
+        if (status.running) {
+          openStream();
+        } else if (!status.result) {
+          runScanRef.current(); // first visit — load without a manual click
+        }
+      } catch {
+        runScanRef.current();
+      }
+    })();
+    return () => closeStream();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Selecting a period triggers the scan immediately — no manual click needed.
+  const periodSig = periodKey(period);
+  const lastScannedSig = useRef(periodSig);
+  useEffect(() => {
+    if (periodSig !== lastScannedSig.current) {
+      lastScannedSig.current = periodSig;
+      runScanRef.current();
+    }
+  }, [periodSig]);
 
   const running = !!scan?.running;
   const result = scan?.result;
@@ -2186,7 +2202,13 @@ export default function HistoricalAnalytics({ onAskAssistant }) {
         <QueuePcaSection period={period} onAskAssistant={onAskAssistant} />
       </div>
 
-      <div className={activeTab === 'callbacks' ? '' : 'hidden'}>
+      <div className={activeTab === 'callbacks' ? 'flex flex-col gap-4' : 'hidden'}>
+        {/* Shares the same period state as the Overview tab — changing it in
+            either place keeps both in sync. The scan itself clamps to the
+            search_contacts 55-day window and says so in the panel. */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <PeriodSelector period={period} setPeriod={setPeriod} />
+        </div>
         <SectionCard
           title="Callback Analytics"
           subtitle="Requested vs handled callbacks, retries, and failure reasons — from contact records"

@@ -380,9 +380,9 @@ export default function FlowFunnelPage() {
         const list = res.flows || [];
         setFlows(list);
         setFlowsLoaded(true);
-        // Auto-select the first flow with logging enabled, or the first flow overall
-        const withLogging = list.filter((f) => f.logging_enabled);
-        const first = withLogging[0] || list[0];
+        // Auto-select: active + logging > active > anything
+        const actives = list.filter((f) => (f.state || 'ACTIVE') === 'ACTIVE');
+        const first = actives.find((f) => f.logging_enabled) || actives[0] || list[0];
         if (first && !flowName) setFlowName(first.name);
       })
       .catch(() => {
@@ -438,42 +438,68 @@ export default function FlowFunnelPage() {
       {/* ── Controls ── */}
       <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 px-5 py-4">
 
-        {/* Flow name */}
-        <div className="flex flex-col gap-1.5 min-w-[280px]">
+        {/* Flow selector — active flows first, inactive/archived grouped below */}
+        <div className="flex flex-col gap-1.5 min-w-[300px]">
           <label className="text-[10px] font-medium uppercase tracking-widest text-slate-600 dark:text-slate-500">
-            Flow Name
+            Flow
           </label>
-          <input
-            type="text"
-            value={flowName}
-            onChange={(e) => setFlowName(e.target.value)}
-            placeholder={flowsLoaded ? 'Type or select a flow below' : 'Loading flows…'}
-            className="h-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:outline-none transition"
-          />
-          {/* Quick-pick chips from real Connect flows */}
-          <div className="flex flex-wrap gap-1 mt-0.5">
-            {!flowsLoaded && (
-              <span className="text-[9px] text-slate-600 italic">Loading flows from Connect…</span>
-            )}
-            {flows.map((f) => (
-              <button
-                key={f.id || f.name}
-                type="button"
-                onClick={() => setFlowName(f.name)}
-                title={f.logging_enabled ? 'Flow logging enabled' : 'No CloudWatch log group found'}
-                className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[9px] font-medium transition ${
-                  flowName === f.name
-                    ? 'bg-cyan-500/25 text-cyan-600 dark:text-cyan-300'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                }`}
-              >
-                {f.logging_enabled
-                  ? <Wifi size={8} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  : <WifiOff size={8} className="text-slate-600 shrink-0" />}
-                {f.name}
-              </button>
-            ))}
-          </div>
+          {(() => {
+            const activeFlows = flows.filter((f) => (f.state || 'ACTIVE') === 'ACTIVE');
+            const inactiveFlows = flows.filter((f) => (f.state || 'ACTIVE') !== 'ACTIVE');
+            const selectedFlow = flows.find((f) => f.name === flowName);
+            return (
+              <>
+                <select
+                  value={flowName}
+                  onChange={(e) => setFlowName(e.target.value)}
+                  className="h-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2 text-xs text-slate-800 dark:text-slate-200 focus:border-cyan-500 focus:outline-none transition"
+                >
+                  {!flowsLoaded && <option value="">Loading flows from Connect…</option>}
+                  {flowsLoaded && flows.length === 0 && <option value="">No flows found</option>}
+                  {flowName && !flows.some((f) => f.name === flowName) && (
+                    <option value={flowName}>{flowName}</option>
+                  )}
+                  {activeFlows.length > 0 && (
+                    <optgroup label={`● Active in Connect (${activeFlows.length})`}>
+                      {activeFlows.map((f) => (
+                        <option key={f.id || f.name} value={f.name}>
+                          {f.name}{f.logging_enabled ? '' : '  — no flow logs'}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {inactiveFlows.length > 0 && (
+                    <optgroup label={`○ Inactive / archived (${inactiveFlows.length})`}>
+                      {inactiveFlows.map((f) => (
+                        <option key={f.id || f.name} value={f.name}>
+                          {f.name}{f.logging_enabled ? '' : '  — no flow logs'}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                {selectedFlow && (
+                  <div className="flex items-center gap-2 text-[10px] text-slate-600 dark:text-slate-400">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${
+                      (selectedFlow.state || 'ACTIVE') === 'ACTIVE'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-500/15 text-slate-500 dark:text-slate-400'
+                    }`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        (selectedFlow.state || 'ACTIVE') === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'
+                      }`} />
+                      {(selectedFlow.state || 'ACTIVE') === 'ACTIVE' ? 'Active' : 'Inactive / archived'}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      {selectedFlow.logging_enabled
+                        ? <><Wifi size={9} className="text-emerald-600 dark:text-emerald-400" /> flow logging enabled</>
+                        : <><WifiOff size={9} className="text-slate-500" /> no CloudWatch log group — funnel uses sample data</>}
+                    </span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* Time period */}
