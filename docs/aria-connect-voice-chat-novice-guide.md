@@ -2390,7 +2390,7 @@ editor:
 > `aaaaaaaa-bbbb-cccc-dddd-111111111111`). Copy this — you need the **ID, not the name**.
 
 ```json
-{ "topicCategory": "mortgage",        "queueId": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",    "queueName": "Mortgage Advisors",   "proficiencyLevel": "3", "proficiencySkill": "Mortgage" }
+{ "topicCategory": "mortgages",        "queueId": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",    "queueName": "Mortgage Advisors",   "proficiencyLevel": "3", "proficiencySkill": "Mortgage" }
 { "topicCategory": "credit_card",     "queueId": "d3037cfb-f265-47ff-a28e-f96bf6ab1279",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
 { "topicCategory": "debit_card",      "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",    "queueName": "Cards Team",          "proficiencyLevel": "2", "proficiencySkill": "Cards" }
 { "topicCategory": "fraud_security",  "queueId": "42646d26-77fb-49f7-a525-a40856c97539",   "queueName": "Fraud Team",          "proficiencyLevel": "4", "proficiencySkill": "Fraud" }
@@ -2398,6 +2398,9 @@ editor:
 { "topicCategory": "current_account", "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
 { "topicCategory": "savings_account", "queueId": "846c08b2-574a-415f-84d3-11d46a5f8a16",      "queueName": "Retail Banking",      "proficiencyLevel": "1", "proficiencySkill": "Retail" }
 { "topicCategory": "general_banking", "queueId": "ae9b5b06-06e6-487c-945e-e67dc1462ea9",     "queueName": "General Queue",       "proficiencyLevel": "1", "proficiencySkill": "General" }
+{ "topicCategory": "bereavement", "queueId": "8bf823e5-2f07-4749-a2e7-88ebc0b04533",     "queueName": "Bereavement Team",       "proficiencyLevel": "5", "proficiencySkill": "Bereavement" }
+{ "topicCategory": "power_of_attorney", "queueId": "a19328b4-68cb-4850-90ba-714e3fa88bb0",     "queueName": "Power Of Attorney Team",       "proficiencyLevel": "5", "proficiencySkill": "Power_Of_Attorney" }
+{ "topicCategory": "branch_services", "queueId": "eee53991-6dc9-42e3-941f-0ccc78b762ce",     "queueName": "Branch Services",       "proficiencyLevel": "1", "proficiencySkill": "Branch_Services" }
 ```
 
 > Replace every `YOUR-...-UUID` with the actual Queue ID from your Connect instance.
