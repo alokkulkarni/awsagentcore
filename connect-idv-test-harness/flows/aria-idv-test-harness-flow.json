@@ -1,0 +1,380 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "EnableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "EnableLogging": {
+        "position": {
+          "x": 200,
+          "y": 40
+        }
+      },
+      "SetVoice": {
+        "position": {
+          "x": 440,
+          "y": 40
+        }
+      },
+      "StartHarness": {
+        "position": {
+          "x": 680,
+          "y": 40
+        }
+      },
+      "SaveResult": {
+        "position": {
+          "x": 920,
+          "y": 40
+        }
+      },
+      "CheckAction": {
+        "position": {
+          "x": 1160,
+          "y": 40
+        }
+      },
+      "CollectInput": {
+        "position": {
+          "x": 1400,
+          "y": 240
+        }
+      },
+      "StepHarness": {
+        "position": {
+          "x": 920,
+          "y": 300
+        }
+      },
+      "StepTimeout": {
+        "position": {
+          "x": 920,
+          "y": 520
+        }
+      },
+      "SayHandoff": {
+        "position": {
+          "x": 1400,
+          "y": 40
+        }
+      },
+      "TransferToMain": {
+        "position": {
+          "x": 1640,
+          "y": 40
+        }
+      },
+      "SayGoodbye": {
+        "position": {
+          "x": 1400,
+          "y": -160
+        }
+      },
+      "HarnessError": {
+        "position": {
+          "x": 1160,
+          "y": -160
+        }
+      },
+      "Disconnect": {
+        "position": {
+          "x": 1880,
+          "y": -160
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "ARIA IDV Test Harness",
+    "description": "TEST ONLY. Pick any session-injector test customer, simulate the calling line, run CLI identification and caller verification, then hand over to the conversation bot flow.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "EnableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "SetVoice"
+      }
+    },
+    {
+      "Identifier": "SetVoice",
+      "Type": "UpdateContactTextToSpeechVoice",
+      "Parameters": {
+        "TextToSpeechVoice": "Amy",
+        "TextToSpeechEngine": "Generative",
+        "TextToSpeechStyle": "None"
+      },
+      "Transitions": {
+        "NextAction": "StartHarness",
+        "Errors": [
+          {
+            "NextAction": "StartHarness",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "StartHarness",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-idv-test-harness",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "start"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SaveResult",
+        "Errors": [
+          {
+            "NextAction": "HarnessError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SaveResult",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "idvState": "$.External.idvState",
+          "customerId": "$.External.customerId",
+          "authStatus": "$.External.authStatus",
+          "LoA": "$.External.LoA",
+          "idvMethod": "$.External.idvMethod",
+          "cliRelationship": "$.External.cliRelationship",
+          "riskScore": "$.External.riskScore",
+          "reasonCodes": "$.External.reasonCodes",
+          "idvStatus": "$.External.idvStatus",
+          "idvIntent": "$.External.idvIntent",
+          "idvDecision": "$.External.idvDecision",
+          "idvObligations": "$.External.idvObligations",
+          "idvSummary": "$.External.idvSummary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "CheckAction",
+        "Errors": [
+          {
+            "NextAction": "HarnessError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckAction",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.External.action"
+      },
+      "Transitions": {
+        "NextAction": "SayGoodbye",
+        "Conditions": [
+          {
+            "NextAction": "CollectInput",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "input"
+              ]
+            }
+          },
+          {
+            "NextAction": "SayHandoff",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "handoff"
+              ]
+            }
+          },
+          {
+            "NextAction": "SayGoodbye",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "end"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "SayGoodbye",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CollectInput",
+      "Type": "GetParticipantInput",
+      "Parameters": {
+        "Text": "$.External.prompt",
+        "StoreInput": "True",
+        "InputTimeLimitSeconds": "10",
+        "InputValidation": {
+          "CustomValidation": {
+            "MaximumLength": "12"
+          }
+        },
+        "DTMFConfiguration": {
+          "InputTerminationSequence": "#",
+          "DisableCancelKey": "False",
+          "InterdigitTimeLimitSeconds": "4"
+        }
+      },
+      "Transitions": {
+        "NextAction": "StepHarness",
+        "Errors": [
+          {
+            "NextAction": "StepTimeout",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "StepTimeout",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "StepHarness",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-idv-test-harness",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "step",
+          "input": "$.StoredCustomerInput"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SaveResult",
+        "Errors": [
+          {
+            "NextAction": "HarnessError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "StepTimeout",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-idv-test-harness",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "step",
+          "input": "Timeout"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SaveResult",
+        "Errors": [
+          {
+            "NextAction": "HarnessError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SayHandoff",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "$.External.prompt"
+      },
+      "Transitions": {
+        "NextAction": "TransferToMain",
+        "Errors": [
+          {
+            "NextAction": "TransferToMain",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "TransferToMain",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SayGoodbye",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "$.External.prompt"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "HarnessError",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "Sorry, the test harness is not available right now. Goodbye."
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

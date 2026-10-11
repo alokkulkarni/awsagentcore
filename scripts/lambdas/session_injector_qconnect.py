@@ -67,6 +67,17 @@ Context variables (injected when customerId is available):
     priorSummary       — Brief summary of the customer's last interaction
     productContext     — JSON string of masked account/card references
 
+ID&V pass-through (optional — set by an upstream ID&V flow)
+-----------------------------------------------------------
+If an upstream flow has already identified and verified the caller (for example
+the ARIA IDV Test Harness in connect-idv-test-harness/), it leaves its result
+in contact attributes. When the `idvStatus` attribute is present this Lambda:
+    - does NOT fall back to the phone-number lookup, so a caller the ID&V flow
+      left unverified is never upgraded to "authenticated" by CLI alone
+    - injects loa, idvMethod, cliRelationship, riskScore, reasonCodes and
+      idvStatus as {{$.Custom.*}} so the AI prompt can see the assurance level
+Contacts that never went through an ID&V flow behave exactly as before.
+
 ENVIRONMENT VARIABLES
 ----------------------
 Required:
@@ -666,9 +677,25 @@ def handler(event: dict, context: Any) -> dict:
         logger.error("ContactId is missing from event. Cannot process session.")
         return {"status": "error", "reason": "missing_contact_id"}
 
+    # ── Upstream ID&V result (optional) ───────────────────────────────────────
+    # Set by an ID&V flow that ran before this one. Its presence means the
+    # caller's identity has already been decided upstream, so CLI must not
+    # override that decision below.
+    idv_status: str = _attr("idvStatus")
+    idv_vars: dict[str, str] = {
+        "loa":             _attr("LoA"),
+        "idvStatus":       idv_status,
+        "idvMethod":       _attr("idvMethod"),
+        "cliRelationship": _attr("cliRelationship"),
+        "riskScore":       _attr("riskScore"),
+        "reasonCodes":     _attr("reasonCodes"),
+    } if idv_status else {}
+
     # ── Phone-based customer lookup (dev/test fallback) ───────────────────────
     caller_phone: str = (contact_data.get("CustomerEndpoint") or {}).get("Address", "")
-    if not customer_id and caller_phone:
+    if idv_status and not customer_id:
+        logger.info("Upstream ID&V left this contact %r — skipping phone lookup", idv_status)
+    elif not customer_id and caller_phone:
         normalised_phone = _normalise_phone(caller_phone)
         resolved = _PHONE_TO_CUSTOMER.get(normalised_phone) or _PHONE_TO_CUSTOMER.get(caller_phone, "")
         if resolved:
@@ -712,6 +739,9 @@ def handler(event: dict, context: Any) -> dict:
         "instanceId": instance_id,
         "locale":     locale,
     }
+    # Empty values are dropped by _inject_session_data, so this is a no-op for
+    # contacts that never went through an ID&V flow.
+    session_vars.update(idv_vars)
 
     # ── 4. Enrich with customer context ──────────────────────────────────────
     if customer_id:
@@ -789,6 +819,9 @@ def handler(event: dict, context: Any) -> dict:
         "locale":               session_vars.get("locale", locale),
         "dateTime":             session_vars.get("dateTime", ""),
         "instanceId":           session_vars.get("instanceId", instance_id),
+        # Upstream ID&V result (empty strings when no ID&V flow ran)
+        "loa":                  idv_vars.get("loa", ""),
+        "idvStatus":            idv_vars.get("idvStatus", ""),
     }
 
     if not q_connect_success:
