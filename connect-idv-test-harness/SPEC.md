@@ -123,6 +123,9 @@ Rules enforced in `idv_policy.py`:
   only if their app is on a second device.
 - Email OTP + KBA stays at LoA2. SMS OTP + KBA on the caller's own registered phone reaches LoA3.
 - Push is offered once. OTP and KBA allow two attempts each. Then the intent is refused.
+- The dialogue asks only for a factor that would raise the level. After an emailed code (LoA2) the
+  security-number question is skipped, because email OTP + KBA is still LoA2. The source document's
+  Dialogue 2 asks both; the harness does not.
 - A receipt is rejected if its signature is wrong, it has expired, it was used before, or it is bound
   to another contact or customer.
 
@@ -255,10 +258,13 @@ Observed while reading the instance. Nothing here was changed.
 | Flow imported into Connect | **Not done** |
 | End-to-end call or chat | **Not done** |
 
-Three behaviours can only be confirmed on a live contact, and the README's first-call checklist
-covers them: whether setting an attribute from an empty Lambda value clears a previous value;
-whether keypad input works on in-app (WebRTC) calls; and the exact wording Connect's text-to-speech
-gives the longer menus.
+Two behaviours can only be confirmed on a live contact: whether keypad input works on in-app
+(WebRTC) calls, and how Connect's text-to-speech handles the longer menus.
+
+Empty Lambda values are not a concern. The main flow already copies empty `$.External` values
+(`priorChannel`, `vulnerabilityContext`) into attributes on every call, and the harness never
+replaces a set value with an empty one: `customerId` stays empty until LoA2, and the level never
+falls within a contact.
 
 ## 12. Follow-up work
 

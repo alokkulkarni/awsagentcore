@@ -328,7 +328,7 @@ Click **Save**, then **Publish**.
 
 ## Part E — Point a Test Phone Number at the Flow
 
-Your instance has two claimed numbers: `+44 20 4640 7508` and `+44 20 4640 7512`.
+Your instance has two claimed phone numbers.
 
 > **Check before you change anything.** One of these almost certainly points at your main flow
 > today. Reassigning it would send your normal callers into the test harness. If you are unsure
@@ -394,7 +394,7 @@ You are now Margaret Okonkwo in the main flow, although you called from your own
 
 ### First-call checklist
 
-These three things could only be confirmed on a live call, so check them now.
+These three things can only be confirmed on a live call, so check them now.
 
 1. **ARIA used the right name.** If it used a different customer, see
    [Troubleshooting](#aria-greets-the-wrong-customer).
@@ -766,13 +766,6 @@ below 2 the harness withholds it by design.
 
 Read `reasonCodes` on the contact. `PREAUTH_TOKEN_INVALID` means the session token was wrong or
 expired. `UNAUTHENTICATED_CHAT` means no token arrived: check the attribute name.
-
-### An attribute shows a value from earlier in the call
-
-If `customerId` still shows a customer after a later step should have cleared it, Connect kept the
-old value when the Lambda returned an empty one. This was not confirmed on a live contact. Tell
-whoever maintains the harness: the fix is to return a placeholder such as `none` instead of empty
-and to treat it as empty in the injector.
 
 ---
 
