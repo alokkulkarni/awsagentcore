@@ -151,6 +151,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 | [lambda/idv_tokens.py](lambda/idv_tokens.py) | Signing helpers |
 | [lambda/idv_test_data.py](lambda/idv_test_data.py) | Test dates of birth and security numbers. Customers are imported from the injector |
 | [flows/aria-idv-test-harness-flow.json](flows/aria-idv-test-harness-flow.json) | The contact flow, ready to import |
+| [flows/BUILD-THE-FLOW-BY-HAND.md](flows/BUILD-THE-FLOW-BY-HAND.md) | Step-by-step guide to building the same flow manually, block by block |
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON if your IDs differ |
 | [scripts/deploy_idv_test_harness.sh](scripts/deploy_idv_test_harness.sh) | Creates the Lambda. **You** run it |
 | [scripts/mint_test_token.py](scripts/mint_test_token.py) | Makes test tokens for Options D and E |
@@ -293,6 +294,11 @@ Choose **one** of the two methods. Importing is faster. Building by hand teaches
 > `python3 connect-idv-test-harness/flows/build_flow.py --account-id ... --instance-id ... --main-flow-id ...`
 
 ### Method 2 — Build it block by block
+
+**To learn how the flow works, follow the full walkthrough:
+[flows/BUILD-THE-FLOW-BY-HAND.md](flows/BUILD-THE-FLOW-BY-HAND.md).** It explains what each block
+is, why it is there, every setting, where each branch goes, and how to check your result against
+the JSON. The table below is the short version for people who have built flows before.
 
 Create a new inbound flow and add these 13 blocks. The **Name** column is the label used in the
 JSON, so you can compare your flow with the file.
