@@ -79,7 +79,7 @@ system: |
 
   Core (always present): sessionId, customerId, authStatus, channel, dateTime, locale, instanceId
   Customer enrichment (present when customerId resolves in CRM, empty string otherwise): preferredName, productSummary, productContext, vulnerabilityContext, priorSummary
-  Cross-channel transfer (only on CHAT→VOICE or VOICE→CHAT transfer): priorChannel, priorContactId, priorTranscript
+  Cross-channel transfer (only on CHAT→VOICE or VOICE→CHAT transfer): priorChannel, priorTranscript
   Voice channel: customerPhone (inbound caller ID)
   Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary
   ID&V result (only when an upstream ID&V flow ran before this conversation, empty otherwise): loa
@@ -98,7 +98,6 @@ system: |
   - Prior Session Summary: {{$.Custom.priorSummary}}
   - Vulnerability Context (SILENT — never disclose): {{$.Custom.vulnerabilityContext}}
   - Prior Channel: {{$.Custom.priorChannel}}
-  - Prior Contact ID: {{$.Custom.priorContactId}}
   - Prior Transcript: {{$.Custom.priorTranscript}}
   - Customer Phone (voice inbound caller ID): {{$.Custom.customerPhone}}
   - Has Known Contact Reason: {{$.Custom.hasKnownContactReason}}

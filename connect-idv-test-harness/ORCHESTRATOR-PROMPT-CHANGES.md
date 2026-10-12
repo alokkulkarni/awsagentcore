@@ -76,8 +76,11 @@ as `James`. The values come from the **session injector** Lambda.
 | `{{$.Custom.topContactReasonCategory}}` | `mortgages` | Which team deals with it |
 | `{{$.Custom.contactReasonSummary}}` | `(1) your mortgage application: Application started online and paused at the income documents step...` | Up to three reasons with background detail |
 
-> **Connect allows at most 20 custom variables in one prompt.** Your prompt already uses 15, so
-> there is room for five more. This guide adds **four**, which leaves one spare. The injector also
+> **Connect limits custom variables, and for this prompt the working maximum is 19.** The error
+> message says "may not exceed 20", but a version with exactly 20 `{{$.Custom...}}` placeholders
+> was rejected and one with 19 was accepted, so Connect appears to count one of the built-in
+> variables as well. Your prompt started with 15. This guide adds **four**, which makes 19: the
+> prompt is full. The injector also
 > provides two further values that are deliberately **not** added, because no rule needs them:
 > `contactReasons` (the same reasons as structured data, which duplicates `contactReasonSummary`)
 > and `loa` (the level of assurance the ID&V harness reached). If you try to add a 21st variable,
@@ -662,7 +665,7 @@ Use search to confirm each of these. It takes two minutes and catches almost eve
 | `</known_contact_reasons>` | 1 |
 | `Authenticated with a known contact reason` | 2 (Edits 4a and 4b) |
 | `[topContactReason]` | 6 (two in Edit 3, one each in Edits 4a and 4b, two in Edit 7b) |
-| `{{$.Custom.` | **19** for the contact-reasons change alone; **20** with the level 4 prompt. Never more than 20, or Connect refuses to save |
+| `{{$.Custom.` | **19**, with or without the level 4 change. Connect refuses to save this prompt with 20 or more |
 | `Meridian` | 0, or 1 if you are still confirming the rewards scheme name (Part C, item 5) |
 
 Then check these by eye:
@@ -793,7 +796,7 @@ is easier and safer than making the edits one by one.
 |---|---|---|
 | 1 | `## Agent Identity` | "You cannot make payments" becomes "a payment request is handled only through the Level 4 payment step-up" |
 | 2 | `## Session Context` | One line describing `loa` |
-| 3 | Inside `<customer_context>` | `- Level of Assurance …: {{$.Custom.loa}}`. This is the **20th** custom variable: the prompt is now at Connect's limit and no more can be added without removing one |
+| 3 | Inside `<customer_context>` | Adds `- Level of Assurance …: {{$.Custom.loa}}` and **removes** `- Prior Contact ID: {{$.Custom.priorContactId}}`. The prompt can hold only 19 custom variables, and `priorContactId` was bound but used by no rule. The count stays at 19 |
 | 4 | Directly under `## Authentication Gate` | A new `<assurance_levels>` block: what each level allows, and the ten-step payment step-up |
 | 5 | `## Security Guardrails` | Four bullets: level 4 only on `verified: true`; no payment below level 3; never claim a payment was made; never say level numbers |
 | 6 | `<response_examples>` | Four examples covering the payment conversation |
@@ -902,7 +905,7 @@ switched on again later the same way.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Connect will not save: *"Number of custom variables may not exceed 20"* | More than 20 different `{{$.Custom...}}` placeholders | Remove one you do not need. This guide's edits total 19 |
+| Connect will not save: *"Number of custom variables may not exceed 20"* | 20 or more `{{$.Custom...}}` placeholders. In practice the most this prompt accepts is 19 | Remove one that no rule uses. `priorContactId` was removed for this reason |
 | Connect will not save the prompt | A pasted line starts at the left edge instead of two spaces in | Find the line (often the first or last of a pasted block) and add two spaces at its start |
 | The prompt saves, but ARIA stops responding or behaves erratically | The line `messages:` near the end was indented, or a line before it lost its indentation | `messages:` must start at the left edge. Everything between `system: \|` and `messages:` must be indented |
 | ARIA greets normally for every customer | A placeholder is misspelt, so the value is empty | Compare each of the four lines from Edit 2 with this guide, letter by letter |
