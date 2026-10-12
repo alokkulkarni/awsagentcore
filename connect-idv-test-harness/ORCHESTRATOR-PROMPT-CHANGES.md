@@ -1,63 +1,265 @@
-# Orchestrator Prompt Changes — Known Contact Reasons
+# Updating ARIA's Prompt for Known Contact Reasons — Complete Novice Guide
 
-What to add to ARIA's orchestration prompt so it uses the contact reasons the session injector now
-provides, and exactly where each piece goes.
+This guide walks you through editing ARIA's orchestration prompt so that ARIA can open with
+*"Are you calling about your mortgage application, or is it something else today?"* when the bank
+already knows a likely reason for the contact.
+
+You do not need to have edited a prompt before. Every edit tells you what to search for, what is
+there now, exactly what to paste, and why.
 
 | | |
 |---|---|
-| Prompt | `ARIA-Banking-Ochestration-Prompt` (currently version 13, 774 lines) |
-| AI agent | `my-conversation-agent` (currently version 21) |
-| Status | **Nothing below has been applied.** These are manual edits in the Connect AI agent designer |
+| Prompt you will edit | `ARIA-Banking-Ochestration-Prompt` (currently version 13, 774 lines) |
+| AI agent that uses it | `my-conversation-agent` (currently version 21) |
+| Flow that uses the agent | `conversation bot flow` |
+| Time needed | About 40 minutes |
+| Status | **Nothing in this guide has been applied.** You make every change by hand |
 
-Section names and line numbers refer to version 13 as read from the instance on 12 Oct 2026. If the
-prompt has changed since, find the section by its heading.
+> **About screen labels and line numbers.** The prompt text quoted here was read from your instance
+> on 12 October 2026, so the *find this* lines are exact for version 13. Every edit in Part B was
+> applied to a copy of that version on a laptop to confirm each *find this* line occurs exactly once
+> and that the result keeps its structure. It has not been saved in Connect or tried on a call. Line numbers are a rough
+> guide only: always locate a place by searching for the quoted text. The names of buttons in the
+> Connect admin website were written from AWS documentation, not by clicking through your console,
+> so a label may differ slightly.
 
 ---
 
-## Why the prompt must change
+## Table of Contents
 
-The injector can put the reasons into the session, but a prompt only sees a variable it names.
-Until `{{$.Custom.contactReasonSummary}}` appears in the prompt text, the data is injected and
-ignored. There are six edits. Edits 1 to 3 are required. Edits 4 to 6 make the behaviour safe and
-consistent.
+- [1. Concepts You Must Understand First](#1-concepts-you-must-understand-first)
+- [2. What ARIA Will Do Afterwards](#2-what-aria-will-do-afterwards)
+- [3. Before You Start](#3-before-you-start)
+- [Part A — Open the Prompt and Take a Backup](#part-a--open-the-prompt-and-take-a-backup)
+- [Part B — The Seven Edits](#part-b--the-seven-edits)
+- [Part C — Fix the Leftover Bank Name](#part-c--fix-the-leftover-bank-name)
+- [Part D — Save and Publish the Prompt](#part-d--save-and-publish-the-prompt)
+- [Part E — Publish a New AI Agent Version](#part-e--publish-a-new-ai-agent-version)
+- [Part F — Point the Flow at the New Version](#part-f--point-the-flow-at-the-new-version)
+- [Part G — Test It](#part-g--test-it)
+- [How to Undo Everything](#how-to-undo-everything)
+- [Common Mistakes](#common-mistakes)
+- [Things Noticed in the Current Prompt](#things-noticed-in-the-current-prompt)
 
-## What the injector provides
+---
 
-| Variable | Example | When it has a value |
+## 1. Concepts You Must Understand First
+
+### What is the orchestration prompt?
+
+It is a long piece of text that tells ARIA who it is, what it may do, and how to behave. ARIA reads
+all of it at the start of every conversation. Changing ARIA's behaviour means changing this text.
+
+### What is a variable?
+
+Some parts of the prompt are not fixed text. They are placeholders that get filled in for each
+contact. A placeholder looks like this:
+
+```
+{{$.Custom.preferredName}}
+```
+
+Just before ARIA reads the prompt, Amazon Connect replaces that placeholder with a real value, such
+as `James`. The values come from the **session injector** Lambda.
+
+> **The single most important idea in this guide:** ARIA can only see a value if the prompt contains
+> its placeholder. The injector now sends five new values about contact reasons. Until you add their
+> placeholders to the prompt, ARIA never sees them, and nothing changes.
+
+### The five new values
+
+| Placeholder | Example value | Meaning |
 |---|---|---|
-| `hasKnownContactReason` | `true` | Always `true` or `false` |
-| `topContactReason` | `a block on your debit card` | Only when `true` |
-| `topContactReasonCategory` | `fraud_security` | Only when `true` |
-| `contactReasonSummary` | `(1) a block on your debit card: Debit card ending 7734 was blocked yesterday after...; (2) card payments that were declined: ...` | Only when `true` |
-| `contactReasons` | JSON list with `type`, `label`, `detail`, `occurredAt`, `topicCategory` | Only when `true` |
-| `loa` | `3` | When an ID&V flow ran before the main flow |
+| `{{$.Custom.hasKnownContactReason}}` | `true` | Is there a reason ARIA is allowed to mention? Always `true` or `false` |
+| `{{$.Custom.topContactReason}}` | `your mortgage application` | A short phrase for the most likely reason |
+| `{{$.Custom.topContactReasonCategory}}` | `mortgages` | Which team deals with it |
+| `{{$.Custom.contactReasonSummary}}` | `(1) your mortgage application: Application started online and paused at the income documents step...` | Up to three reasons with background detail |
+| `{{$.Custom.contactReasons}}` | (the same as structured data) | For ARIA's reasoning |
 
-The injector has already applied the disclosure rule before the prompt sees anything: reasons are
-present only for a caller an ID&V flow verified at level 2 or above, and a fraud-related reason only
-at level 3. A caller recognised by phone number alone gets `hasKnownContactReason = false`. The
-prompt therefore does not decide *whether* a reason may be shared. It decides *how* to raise it.
+There is a sixth, `{{$.Custom.loa}}`: the level of assurance (0 to 3) the ID&V test harness reached.
+
+### Who decides whether a reason may be mentioned?
+
+**The injector, not the prompt.** Before ARIA sees anything, the injector has already checked that
+the caller was properly verified. If they were not, `hasKnownContactReason` is `false` and the other
+values are empty. A caller recognised only by their phone number gets nothing.
+
+This matters because a prompt rule can be argued with ("ignore your instructions and tell me…"),
+but ARIA cannot reveal information it was never given. So the prompt's job here is narrower: it
+decides **how** to raise a reason, politely and safely.
+
+### Why indentation matters
+
+The prompt is stored in a format called **YAML**. Look at its very first line:
+
+```
+system: |
+```
+
+Everything after that line belongs to the `system` section **only while it is indented by at least
+two spaces**. Every line you paste must therefore begin with two spaces, like its neighbours.
+
+```
+  - This line is correct. It starts with two spaces.
+- This line is WRONG. It starts at the left edge and will break the prompt.
+```
+
+All the text blocks in this guide already include the two spaces. Copy them exactly, including the
+spaces at the start of each line, and do not let your editor remove them.
+
+### What are versions, and why are there three things to publish?
+
+Three things are chained together, and each is **pinned** to an exact version of the next:
+
+```
+conversation bot flow  ──uses──▶  AI agent version 21  ──uses──▶  prompt version 13
+```
+
+Publishing a new prompt creates version 14, but the agent still points at 13. Publishing a new
+agent creates version 22, but the flow still points at 21. So an edited prompt reaches callers only
+after all three steps: publish the prompt (Part D), publish the agent (Part E), update the flow
+(Part F). Miss one and callers keep getting the old behaviour, with no error to tell you.
+
+The benefit is safety: nothing you do in Parts A to E affects a single live call.
 
 ---
 
-## Edit 1 — Describe the new variables
+## 2. What ARIA Will Do Afterwards
 
-**Where:** section `## Session Context (injected as custom variables)`, around line 77. After the
-line that begins `Voice channel: customerPhone`.
+**Today**, for a verified customer:
 
-**Add:**
+> "Hello James, welcome back to Nationwide Building Society. James has a current account ending
+> 4821… How can I help you today?"
+
+**After this change**, when the bank knows a likely reason:
+
+> "Hello James, welcome back to Nationwide Building Society. Are you calling about trouble signing in
+> to the mobile app, or is it something else today?"
+
+The rules ARIA will follow:
+
+| Rule | Why |
+|---|---|
+| **Ask, never state.** "Are you calling about…?" not "I can see that…" | The guess may be wrong. A question lets the customer correct it without awkwardness |
+| **Offer one reason only** | A list of everything the bank knows feels like surveillance and wastes time on a call |
+| **Short label first, detail only after "yes"** | The detail is personal. Confirming first means it is only spoken when relevant |
+| **If the answer is "no", drop it** | The customer has said why they are calling. Returning to the guess would be irritating |
+| **Check the real position with a tool before acting** | The reason is a hint about why they called, not the up-to-date record |
+| **Say "a block on your debit card", never "fraud"** | Avoids alarming the customer or implying they did something wrong |
+| **Stay silent in sensitive cases** | For example, do not raise a failed payment with a customer flagged for financial difficulty |
+
+---
+
+## 3. Before You Start
+
+| Needed | Why | How to check |
+|---|---|---|
+| The updated session injector is deployed | It provides the new values. Without it every placeholder is empty | Harness [README Part F](README.md#part-f--recommended-redeploy-the-session-injector) |
+| Permission to edit AI prompts, AI agents and flows | You will change all three | You can open **AI agent designer** and **Flows** in the Connect admin website |
+| A plain text editor | For the backup, and for preparing text to paste | TextEdit in plain-text mode, Notepad, or VS Code |
+| A quiet moment for Part F | It is the only step that changes live calls | |
+
+You can do Parts A to E at any time. They do not affect callers.
+
+---
+
+## Part A — Open the Prompt and Take a Backup
+
+### Step A.1 — Open the prompt
+
+1. Open your **Connect admin website**.
+2. In the left menu choose **AI agent designer** → **AI prompts**.
+3. Click `ARIA-Banking-Ochestration-Prompt`.
+4. Check the version shown is **13**. If it is higher, someone has edited the prompt since this
+   guide was written. The *find this* text should still be there, but check each edit carefully.
+
+### Step A.2 — Take a backup
+
+1. Click inside the prompt text.
+2. Select everything (**Cmd+A** on Mac, **Ctrl+A** on Windows) and copy it.
+3. Paste it into a new plain-text file and save it as `aria-prompt-v13-backup.txt`.
+
+Version 13 stays in Connect even after you publish a new one, so this file is a second safety net.
+It is also useful for comparing before and after.
+
+### Step A.3 — Start editing
+
+Click **Edit** (or **Create new version**, depending on your console).
+
+> **Tip: edit in your text editor instead.** The prompt is 774 lines. It is easier to make the
+> edits in the backup file's copy, using your editor's search, then paste the whole result back into
+> Connect at the end. If you do this, make sure the editor is in **plain text** mode. A word
+> processor will change straight quotes into curly quotes and may remove leading spaces, both of
+> which break the prompt.
+
+---
+
+## Part B — The Seven Edits
+
+Do them in order. Each has the same layout:
+
+- **Find this** — text to search for (use **Cmd+F** or **Ctrl+F**). It is exact.
+- **What is there now** — so you know you are in the right place.
+- **What to do** — add after, add before, or replace.
+- **Paste this** — the new text, already indented.
+- **Why** — what the edit achieves.
+
+Edits 1 to 3 are essential. Edits 4 to 7 stop older instructions in the prompt from contradicting
+the new ones.
+
+---
+
+### Edit 1 — Tell ARIA the new values exist
+
+**Find this:**
+
+```
+Voice channel: customerPhone (inbound caller ID)
+```
+
+**What is there now:** a short list, under the heading `## Session Context (injected as custom
+variables)`, describing each group of values the injector provides. This is its last line.
+
+**What to do:** add two new lines directly **after** that line.
+
+**Paste this:**
 
 ```
   Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary, contactReasons
   ID&V result (only when an upstream ID&V flow ran): loa
 ```
 
-## Edit 2 — Bind the variables (required)
+**Afterwards it should look like this:**
 
-**Where:** inside `<customer_context>`, around line 85. After the line
-`- Customer Phone (voice inbound caller ID): {{$.Custom.customerPhone}}` and before
+```
+  Voice channel: customerPhone (inbound caller ID)
+  Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary, contactReasons
+  ID&V result (only when an upstream ID&V flow ran): loa
+
+  <customer_context>
+```
+
+**Why:** this section is ARIA's table of contents for its session data. Listing the new values here
+tells ARIA they are legitimate and when to expect them to be empty.
+
+---
+
+### Edit 2 — Add the placeholders (the essential one)
+
+**Find this:**
+
+```
+- Customer Phone (voice inbound caller ID): {{$.Custom.customerPhone}}
+```
+
+**What is there now:** the last line of a list inside `<customer_context>`. Each line of that list
+has a label, a colon, and a `{{$.Custom...}}` placeholder. The very next line is
 `</customer_context>`.
 
-**Add:**
+**What to do:** add six new lines **after** the Customer Phone line and **before**
+`</customer_context>`.
+
+**Paste this:**
 
 ```
   - Has Known Contact Reason: {{$.Custom.hasKnownContactReason}}
@@ -68,14 +270,46 @@ line that begins `Voice channel: customerPhone`.
   - Level of Assurance (0–3, empty if no ID&V flow ran): {{$.Custom.loa}}
 ```
 
-This is the edit that makes the data visible. Without it, nothing else works.
+**Afterwards it should look like this:**
 
-## Edit 3 — Add the behaviour rules (required)
+```
+  - Prior Transcript: {{$.Custom.priorTranscript}}
+  - Customer Phone (voice inbound caller ID): {{$.Custom.customerPhone}}
+  - Has Known Contact Reason: {{$.Custom.hasKnownContactReason}}
+  - Most Likely Contact Reason: {{$.Custom.topContactReason}}
+  - Most Likely Reason Category: {{$.Custom.topContactReasonCategory}}
+  - Known Contact Reasons (CONTEXT ONLY — never read out verbatim): {{$.Custom.contactReasonSummary}}
+  - Known Contact Reasons (structured JSON): {{$.Custom.contactReasons}}
+  - Level of Assurance (0–3, empty if no ID&V flow ran): {{$.Custom.loa}}
+  </customer_context>
+```
 
-**Where:** a new block immediately after `</personalization_guidelines>`, around line 113, and
-before the `Channel rules:` paragraph.
+**Why:** this is where the values actually enter the prompt. For James, ARIA will read
+`- Most Likely Contact Reason: trouble signing in to the mobile app`. For a caller who was not
+verified, it will read `- Most Likely Contact Reason:` with nothing after it.
 
-**Add:**
+> **Check the spelling of each placeholder, letter by letter.** Capital letters matter.
+> `{{$.Custom.topContactReason}}` works. `{{$.Custom.TopContactReason}}` or
+> `{{$.Custom.topcontactreason}}` is silently empty, with no error. Two opening braces, two closing
+> braces, and `$.Custom.` before the name.
+
+---
+
+### Edit 3 — Tell ARIA how to behave
+
+**Find this:**
+
+```
+</personalization_guidelines>
+```
+
+**What is there now:** the closing line of a block of personalisation rules. After it comes a blank
+line, then a line that reads `Channel rules:`.
+
+**What to do:** add a whole new block **after** `</personalization_guidelines>` and **before**
+`Channel rules:`. Leave one blank line above your block and one below it.
+
+**Paste this:**
 
 ```
   <known_contact_reasons>
@@ -100,6 +334,7 @@ before the `Channel rules:` paragraph.
   6. If the customer raises one of the other known reasons themselves, use its detail as context in
      the same way.
   7. Raise a known reason once, at the start. Never repeat it later in the conversation.
+  8. When a known reason is offered, do not also recite the product summary. Keep the opening short.
 
   When NOT to raise it (greet normally instead):
   - Prior Transcript is present. The customer has just transferred from another channel: continue
@@ -123,48 +358,154 @@ before the `Channel rules:` paragraph.
   </known_contact_reasons>
 ```
 
-## Edit 4 — Update the greeting wording
-
-The current greetings end with a fixed "How can I help you today?", which would contradict Edit 3.
-
-**Where (a):** section `## Channel-Aware Greeting Protocol`, around line 120. There are two
-`Authenticated:` lines, one for voice and one for chat.
-
-**Add** one line after each `Authenticated:` line:
+**Afterwards it should look like this** (shortened):
 
 ```
-  - Authenticated with a known contact reason: replace the closing question with the question from <known_contact_reasons>.
+  </personalization_guidelines>
+
+  <known_contact_reasons>
+  The bank sometimes already knows why a customer is likely to be getting in touch, ...
+  ...
+  </known_contact_reasons>
+
+  Channel rules:
 ```
 
-**Where (b):** section `## Authentication Gate`, `Pre-authenticated sessions`, step 4, around line
-140. It currently reads `4. Close with: "How can I help you today?"`.
+**Why, section by section:**
 
-**Replace with:**
+| Section of the block | What it is for |
+|---|---|
+| The opening paragraph | Switches the whole block off when there is nothing to mention, so ordinary calls are unaffected |
+| *How to raise it* | The behaviour described in section 2 of this guide |
+| *When NOT to raise it* | Four situations where an existing rule in your prompt should win. Without these, ARIA would have two conflicting instructions |
+| *Tone* | Two cases that need care: a bereaved customer, and a card blocked for suspected fraud |
+| The final paragraph | Stops ARIA making up a reason, and stops it saying the bank "predicted" something |
+
+> **The text in square brackets stays as it is.** `[topContactReason]` is not a placeholder that
+> Connect fills in. It is shorthand that ARIA understands as "put the Most Likely Contact Reason
+> here". Your prompt already uses the same style, for example `[preferredName]`.
+
+---
+
+### Edit 4 — Update the two greeting templates
+
+Your prompt has fixed greeting wording that ends "How can I help you today?". Left alone, it would
+contradict Edit 3.
+
+#### Edit 4a — Voice greeting
+
+**Find this:**
 
 ```
-  4. Close with: "How can I help you today?" — unless Has Known Contact Reason is "true", in which case close with the question from <known_contact_reasons>.
+- Authenticated: "Hello [preferredName], welcome back to Nationwide Building Society. [productSummary] How can I help you today?"
 ```
 
-## Edit 5 — Add to proactive assistance
+**What is there now:** a line under `VOICE greeting (channel is voice or ivr):`.
 
-**Where:** inside `<proactive_assistance>`, around line 382, as a new bullet before
+**What to do:** leave that line alone. Add one new line directly **after** it.
+
+**Paste this:**
+
+```
+  - Authenticated with a known contact reason: "Hello [preferredName], welcome back to Nationwide Building Society. Are you calling about [topContactReason], or is it something else today?"
+```
+
+#### Edit 4b — Chat greeting
+
+**Find this:**
+
+```
+- Authenticated: "Hi [preferredName], welcome to Nationwide Building Society chat. I'm ARIA, your virtual banking assistant. [productSummary] What can I help you with today?"
+```
+
+**What is there now:** a line under `CHAT greeting (channel is chat, mobile, web, or branch-kiosk):`.
+
+**What to do:** leave that line alone. Add one new line directly **after** it.
+
+**Paste this:**
+
+```
+  - Authenticated with a known contact reason: "Hi [preferredName], welcome to Nationwide Building Society chat. I'm ARIA. Is this about [topContactReason], or something else?"
+```
+
+**Why:** ARIA follows these templates closely. Giving it a third template for the new situation is
+clearer than hoping it will adapt the existing one.
+
+---
+
+### Edit 5 — Update the authentication steps
+
+**Find this:**
+
+```
+4. Close with: "How can I help you today?"
+```
+
+**What is there now:** step 4 of a numbered list under `Pre-authenticated sessions`, in the section
+`## Authentication Gate`.
+
+**What to do:** **replace** that one line.
+
+**Paste this:**
+
+```
+  4. Close with: "How can I help you today?" — unless Has Known Contact Reason is "true", in which case close with the question from <known_contact_reasons> and skip step 3.
+```
+
+**Afterwards it should look like this:**
+
+```
+  3. Acknowledge products in one conversational sentence using the product summary (productSummary).
+  4. Close with: "How can I help you today?" — unless Has Known Contact Reason is "true", in which case close with the question from <known_contact_reasons> and skip step 3.
+  5. Check vulnerability context (vulnerabilityContext) in <thinking> immediately after fetching profile — apply all applicable rules silently.
+```
+
+**Why:** this numbered list is a second place that dictates the greeting. Step 3 says to describe
+the customer's products; "skip step 3" keeps the opening short when a reason is being offered.
+
+---
+
+### Edit 6 — Update proactive assistance
+
+**Find this:**
+
+```
+- For authenticated customers: always call get_account_balance or the relevant product tool in <thinking> before their first turn completes, so you have their data ready.
+```
+
+**What is there now:** the last bullet inside `<proactive_assistance>`. The next line is
 `</proactive_assistance>`.
 
-**Add:**
+**What to do:** add one new line **after** that bullet and **before** `</proactive_assistance>`.
+
+**Paste this:**
 
 ```
   - If Has Known Contact Reason is "true": follow <known_contact_reasons>. This takes the place of the priorSummary reference at session start; do not do both in the same message.
 ```
 
-That last clause matters. The prompt already tells ARIA to open with "I can see you were in touch
-with us recently about…" when `priorSummary` is set. Without a precedence rule, a customer with both
-would get two "I can see…" statements in one greeting.
+**Why:** an earlier bullet in this block tells ARIA to open with "I can see you were in touch with us
+recently about…" when a previous conversation is on record. A customer with both a previous
+conversation and a known reason would otherwise get two "I can see…" statements in one greeting.
+This line says which one wins.
 
-## Edit 6 — Add security guardrails and examples
+---
 
-**Where (a):** section `## Security Guardrails`, around line 510, as new bullets.
+### Edit 7 — Add guardrails, examples and a closing instruction
 
-**Add:**
+#### Edit 7a — Security guardrails
+
+**Find this:**
+
+```
+- If tool fails: do not retry more than once; on second failure escalate with escalation_reason: tool_failure.
+```
+
+**What is there now:** the last bullet under `## Security Guardrails`.
+
+**What to do:** add three new lines directly **after** it.
+
+**Paste this:**
 
 ```
   - Never mention a known contact reason unless Has Known Contact Reason is "true" in customer_context.
@@ -172,10 +513,23 @@ would get two "I can see…" statements in one greeting.
   - Never discuss a known contact reason with anyone who says they are contacting us on the customer's behalf.
 ```
 
-**Where (b):** inside `<response_examples>`, around line 700, after the existing
-`Opening — authenticated voice customer (priorSummary set)` example.
+**Why:** the Security Guardrails section is where ARIA looks for its hard limits. Repeating the
+three most important rules there gives them the same weight as "never reveal raw PII".
 
-**Add:**
+#### Edit 7b — Worked examples
+
+**Find this:**
+
+```
+Opening — cross-channel transfer (chat → voice, priorTranscript set):
+```
+
+**What is there now:** the title of the third example inside `<response_examples>`.
+
+**What to do:** add the block below directly **before** that title, leaving a blank line between
+your block and the title.
+
+**Paste this:**
 
 ```
   Opening — authenticated voice customer with a known contact reason:
@@ -206,85 +560,264 @@ would get two "I can see…" statements in one greeting.
   <message>
   Hi [preferredName], welcome to Nationwide Building Society chat. I'm ARIA. Is this about [topContactReason], or something else?
   </message>
+
 ```
+
+**Why:** language models copy examples more reliably than they follow rules. These show the exact
+shape of the new opening, and of the two follow-ups ("yes" and "no"), in the `<message>` and
+`<thinking>` format your prompt already uses.
+
+#### Edit 7c — The final instruction
+
+**Find this:**
+
+```
+Keep your initial message as a brief, personalised acknowledgement of their request, but avoid making capability claims before reviewing your available tools.
+```
+
+**What is there now:** a sentence in the middle of the paragraph inside `<instructions>`, almost at
+the very end of the prompt.
+
+**What to do:** add one sentence directly **after** that sentence, on the same line. Type a space
+first.
+
+**Paste this:**
+
+```
+If Has Known Contact Reason is "true" and this is your first message, follow <known_contact_reasons> for the opening.
+```
+
+**Why:** the `<instructions>` paragraph is the last thing ARIA reads before it speaks, so it carries
+a lot of weight. A short pointer here makes sure the new behaviour is applied to the opening message.
 
 ---
 
-## Optional — Use the reason when escalating
+### Optional edit — Send escalations to the right team
 
-**Where:** section `## Escalate Tool — Required Fields`, around line 420.
+Only do this if you want a confirmed reason to influence routing when ARIA hands over to a person.
 
-If the customer confirmed the known reason and the conversation is then escalated, ARIA can use
-`topContactReasonCategory` as the `topicCategory`. It already matches the names in your proficiency
-routing table (`mortgages`, `fraud_security`, `debit_card`, and so on), so the contact reaches the
-right team. One line is enough:
+**Find this:**
 
 ```
-  - If the customer confirmed a known contact reason, use Most Likely Reason Category as topicCategory and include the reason label in the conversation summary.
+topicCategory — pick the single closest match to the primary subject of the conversation:
 ```
+
+**What is there now:** the start of a list of category names under `## Escalate Tool — Required
+Fields`.
+
+**What to do:** add one line directly **before** it.
+
+**Paste this:**
+
+```
+  If the customer confirmed a known contact reason, use Most Likely Reason Category as topicCategory when it is one of the values listed below, and include the reason label in conversationSummary.
+```
+
+> **Check the category names match first.** The injector's test reasons use `mortgages` and
+> `bereavement`, as in your routing table. The list in this prompt says `mortgage` (no "s") and has
+> no `bereavement` entry. Decide which spelling is right and make the prompt, the routing table and
+> the injector agree. Until they do, the words "when it is one of the values listed below" keep this
+> edit safe: ARIA falls back to choosing a category itself.
 
 ---
 
-## How to apply it
+## Part C — Fix the Leftover Bank Name
 
-1. Connect admin website → **AI agent designer** → **AI prompts** → open
-   `ARIA-Banking-Ochestration-Prompt`.
-2. Click **Edit**. Make edits 1 to 6. **Save**, then **Publish**. This creates version 14.
-3. **AI agents** → open `my-conversation-agent` → **Edit**. Change its orchestration prompt to
-   version 14. **Save**, then **Publish**. This creates agent version 22.
-4. **Routing → Flows** → open `conversation bot flow`. The flow names the agent version in **two**
-   places, both currently ending `:21`:
-   - the first **Connect assistant** block (the one with an orchestration AI agent selected)
-   - the **Get customer input** (Lex) block, session attribute
-     `x-amz-lex:q-in-connect:ai-agent-arn`
+The bank is Nationwide Building Society, and most of the prompt says so. Eight places in version 13
+still say "Meridian". Fix them now, while you are editing.
 
-   Change both to version 22. **Save** and **Publish** the flow.
+Search for `Meridian` and work through the results.
 
-> If you update only one of the two, the flow keeps using the old prompt for part of the contact.
-> If you skip step 4 altogether, nothing changes at all: the flow is pinned to version 21.
+| # | Where | Now | Change to |
+|---|---|---|---|
+| 1 | Voice farewell, in `## PII Handling` | `Thank you for calling Meridian Bank.` | `Thank you for calling Nationwide Building Society.` |
+| 2 | Chat farewell, same section | `Thanks for chatting with Meridian Bank today.` | `Thanks for chatting with Nationwide Building Society today.` |
+| 3 | Statements guidance, in `## Query Handling` | `via the Meridian Bank mobile app` | `via the Nationwide Building Society mobile app` |
+| 4 | Start of `<knowledge_base_retrieval>` | `the Meridian Bank internal Knowledge Base` | `the Nationwide Building Society internal Knowledge Base` |
+| 5 | Credit card product line, same block | `Meridian Points (1pt/£1, 1,000pts=£10)` | **Check first.** This is a product name. Use the real name of the rewards scheme |
+| 6 | Fraud protection line, same block | `How Meridian Bank protects customers` | `How Nationwide Building Society protects customers` |
+| 7 | Callback closing line, in `## Callback Handling` | `Thank you for calling Meridian Bank. Goodbye!` | `Thank you for calling Nationwide Building Society. Goodbye!` |
+| 8 | First example in `<response_examples>` | `welcome back to Meridian Bank.` | `welcome back to Nationwide Building Society.` |
 
-To roll back, point both places back at `:21` and publish the flow. Versions 13 and 21 are not
-deleted by publishing new ones.
+When you finish, search for `Meridian` again. There should be no results, or only item 5 if you are
+still confirming the product name.
 
-## How to test it
+> Items 4 to 6 describe what is in the knowledge base. If the knowledge base documents themselves
+> still say "Meridian", ARIA may repeat the name when quoting them. That is a separate clean-up in
+> the knowledge base, not in this prompt.
 
-Redeploy the injector first (harness README Part F), then call the harness number.
+---
 
-| Test | Keys | Expected opening from ARIA |
-|---|---|---|
-| Quick-select James | `1`, `1` | "…Are you calling about trouble signing in to the mobile app, or is it something else today?" |
-| Quick-select Daniel (level 2) | `1`, `4` | Asks about "card payments that were declined". The card block is **not** mentioned: it needs level 3 |
-| Daniel, verified in the app (level 3) | `2`, `4`, `1`, `6`, `1`, *code*, `2` | Asks about "a block on your debit card" |
-| Sarah (has `suppress_collections`) | `1`, `2` | Normal greeting. Her reasons are about failed payments, so ARIA waits for her to raise them |
-| Margaret (bereavement) | `1`, `3` | A gentle, optional version of the question |
-| General information only, level 1 | `2`, `1`, `1`, `1`, `2` | Normal unauthenticated greeting. No reason |
-| Call the **main** number directly | | Normal greeting. No reason, even though the phone number is recognised |
+## Part D — Save and Publish the Prompt
 
-Then answer "no, something else" on one call and "yes" on another, and check ARIA drops the reason
-in the first case and gives detail only after the "yes" in the second.
+### Step D.1 — Check your work before saving
 
-All test reasons are listed in `_STUB_CONTACT_REASONS` in
+Use search to confirm each of these. It takes two minutes and catches almost every mistake.
+
+| Search for | Expected number of results |
+|---|---|
+| `hasKnownContactReason` | 2 (Edit 1, Edit 2) |
+| `{{$.Custom.topContactReason}}` | 1 |
+| `{{$.Custom.contactReasonSummary}}` | 1 |
+| `<known_contact_reasons>` | 4 (the block's opening line in Edit 3, then one mention each in Edits 5, 6 and 7c) |
+| `</known_contact_reasons>` | 1 |
+| `Authenticated with a known contact reason` | 2 (Edits 4a and 4b) |
+| `[topContactReason]` | 6 (two in Edit 3, one each in Edits 4a and 4b, two in Edit 7b) |
+| `Meridian` | 0, or 1 if you are still confirming the rewards scheme name (Part C, item 5) |
+
+Then check these by eye:
+
+- **Every line you pasted starts with at least two spaces.**
+- The first line of the prompt is still exactly `system: |`.
+- Near the end, the line `messages:` still starts at the left edge with **no** spaces. It must not
+  have been indented by accident.
+- All quotation marks are straight (`"`), not curly (`“ ”`).
+
+### Step D.2 — Save and publish
+
+1. If you edited in a text editor, select all the text in the Connect prompt box and paste your
+   edited version over it.
+2. Click **Save**.
+3. If Connect reports an error, it is nearly always indentation. See [Common Mistakes](#common-mistakes).
+4. Click **Publish**.
+5. Note the new version number. It should be **14**.
+
+Callers are not affected yet. The agent still uses version 13.
+
+---
+
+## Part E — Publish a New AI Agent Version
+
+1. Left menu → **AI agent designer** → **AI agents**.
+2. Click `my-conversation-agent`.
+3. Click **Edit** (or **Create new version**).
+4. Find the **prompt** setting. It shows `ARIA-Banking-Ochestration-Prompt` with a version selector.
+5. Change the version from 13 to **14**.
+6. Change nothing else. Leave the guardrail, the tools and the locale as they are.
+7. Click **Save**, then **Publish**.
+8. Note the new agent version. It should be **22**.
+
+Callers are still not affected. The flow still uses agent version 21.
+
+---
+
+## Part F — Point the Flow at the New Version
+
+**This is the step that changes live calls.** Choose a quiet moment.
+
+1. Left menu → **Routing** → **Flows** → open `conversation bot flow`.
+2. The flow names the agent version in **two** places. Both currently end in `:21`.
+
+### Place 1 — The Connect assistant block
+
+There are two **Connect assistant** blocks in this flow. You want the **first** one: the one the
+contact reaches *before* the session injector Lambda block.
+
+1. Click its title to open the settings.
+2. It has an **AI agent** (orchestration) selected, with a version.
+3. Change the version to **22**.
+4. Click **Save** on the block.
+
+The second Connect assistant block, after the injector, has no agent version set. Leave it alone.
+
+### Place 2 — The Lex block
+
+1. Find the **Get customer input** block that connects the customer to the Lex bot. It comes after
+   the second Connect assistant block.
+2. Click its title. Scroll to **Session attributes**.
+3. Find the attribute named `x-amz-lex:q-in-connect:ai-agent-arn`.
+4. Its value is a long identifier ending `:21`. Change **only** the final number, so it ends `:22`.
+   Do not change any other character.
+5. Click **Save** on the block.
+
+### Publish
+
+1. Click **Save** for the flow, then **Publish**.
+2. New contacts use the new prompt straight away. Contacts already in progress finish on the old one.
+
+> **Both places must show the same version.** If one says 22 and the other 21, part of each contact
+> uses the old prompt and part uses the new one, and the behaviour will be confusing to diagnose.
+
+---
+
+## Part G — Test It
+
+Call the **ID&V test harness number**, not the main number. Press `#` after each entry.
+
+| # | Test | Keys | What ARIA should say |
+|---|---|---|---|
+| 1 | James, quick select | `1`, `1` | "…Are you calling about trouble signing in to the mobile app, or is it something else today?" |
+| 2 | Answer **yes** on test 1 | say "yes" | Confirms, then looks into it. Detail appears only now |
+| 3 | Repeat test 1, answer **no, I want my balance** | say it | "No problem…" then helps with the balance. Does **not** mention the mortgage application |
+| 4 | Daniel, quick select (level 2) | `1`, `4` | Asks about "card payments that were declined". Does **not** mention a blocked card: that needs level 3 |
+| 5 | Daniel, verified in the app (level 3) | `2`, `4`, `1`, `6`, `1`, *code*, `2` | Asks about "a block on your debit card". Does not say "fraud" |
+| 6 | Sarah, quick select | `1`, `2` | **Ordinary greeting.** Her reasons are failed payments and she is flagged for financial difficulty, so ARIA stays silent |
+| 7 | Margaret, quick select | `1`, `3` | A gentle, optional form of the question |
+| 8 | Ethel, quick select | `1`, `5` | Asks about "your card PIN being locked" |
+| 9 | Level 1 only | `2`, `1`, `1`, `1`, `2` | Ordinary unauthenticated greeting. No reason |
+| 10 | Call the **main** number directly | | Ordinary greeting. No reason, even though your number is recognised |
+
+Tests 9 and 10 matter as much as the others. They prove a reason is **not** shared with someone who
+was not properly verified.
+
+**If a test does not behave as expected**, open the contact in **Analytics and optimization →
+Contact search** and look at its attributes:
+
+| You see | Meaning |
+|---|---|
+| `hasKnownContactReason = true`, but ARIA greeted normally | The injector did its part. The prompt is the problem: recheck Edits 2 and 3, and that Part F shows version 22 in both places |
+| `hasKnownContactReason = false` | The injector held the reasons back. Check `LoA` on the same contact: it must be 2 or more |
+| No `hasKnownContactReason` attribute at all | The main flow's *Set contact attributes* block does not copy it. That is fine: ARIA reads it from the session, not from attributes. Check the injector's CloudWatch log for `knownContactReason=` instead |
+
+The test reasons for every customer are in `_STUB_CONTACT_REASONS` in
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
 
-## Two things noticed in the current prompt
+---
 
-These are outside this change, but you will see them while editing.
+## How to Undo Everything
 
-1. **Seven leftover "Nationwide Building Society" references.** The bank is Nationwide Building Society, and
-   the identity section and greetings already say so. Version 13 still says "Nationwide Building Society" (or
-   "Meridian Points") on these lines. Change them while you are editing:
+Because each layer is pinned to a version, undoing takes one step and loses nothing.
 
-   | Line (about) | Where |
-   |---|---|
-   | 74, 75 | Voice and chat farewells in `## PII Handling` |
-   | 175 | Statements guidance in `## Query Handling` |
-   | 250, 279, 342 | Knowledge base description in `<knowledge_base_retrieval>` ("Meridian Points" on 279 is a product name: check what the real one is) |
-   | 659 | Callback closing line in `## Callback Handling` |
-   | 703 | First example in `<response_examples>` |
+1. Open `conversation bot flow`.
+2. Change both places from Part F back to `:21`.
+3. **Save** and **Publish** the flow.
 
-   The quickest way is to search the prompt for `Meridian`.
-2. **ARIA runs its own identity check.** For an unauthenticated session the prompt asks for date of
-   birth and the last four digits of the mobile number. A caller the harness left unverified will
-   therefore be asked security questions again by ARIA. That is correct behaviour today, but it
-   means there are two ID&V implementations. `loa` is now bound in the prompt (Edit 2) so a later
-   change can make ARIA rely on the level instead.
+ARIA is now exactly as it was. Prompt version 14 and agent version 22 still exist and can be
+switched on again later the same way.
+
+---
+
+## Common Mistakes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Connect will not save the prompt | A pasted line starts at the left edge instead of two spaces in | Find the line (often the first or last of a pasted block) and add two spaces at its start |
+| The prompt saves, but ARIA stops responding or behaves erratically | The line `messages:` near the end was indented, or a line before it lost its indentation | `messages:` must start at the left edge. Everything between `system: \|` and `messages:` must be indented |
+| ARIA greets normally for every customer | A placeholder is misspelt, so the value is empty | Compare each of the six lines from Edit 2 with this guide, letter by letter |
+| ARIA greets normally for every customer, and the placeholders are right | Part E or Part F was missed | Check the agent uses prompt 14, and the flow uses agent 22 in **both** places |
+| ARIA says the literal words "top contact reason" | The square-bracket shorthand was changed, or Edit 2 is missing | Restore `[topContactReason]` in Edits 3, 4 and 7b, and check Edit 2 |
+| ARIA lists two or three reasons | Rule 2 of Edit 3 was altered or lost | Re-paste the block from Edit 3 |
+| ARIA gives the detail straight away | Rule 3 of Edit 3, or the guardrails in Edit 7a, are missing | Re-paste both |
+| ARIA says "I can see you were in touch recently" **and** asks about a known reason | Edit 6 is missing | Add it |
+| ARIA mentions the reason and also recites every product | Edit 5's "skip step 3" is missing | Re-do Edit 5 |
+| Odd characters such as `â€œ` appear, or ARIA reads quotation marks strangely | Curly quotes from a word processor | Replace `“ ” ‘ ’` with straight `"` and `'` |
+| Raises a reason on the main number without the harness | Should not be possible: the injector blocks it | Check the deployed injector is the updated one (harness README Part F) |
+
+---
+
+## Things Noticed in the Current Prompt
+
+These are outside this change. They are listed so you are not surprised by them while editing.
+
+1. **ARIA runs its own identity check.** For an unauthenticated session the prompt tells ARIA to ask
+   for date of birth and the last four digits of the mobile number. A caller the ID&V harness left
+   unverified will therefore be asked security questions again by ARIA. That is correct today, but
+   it means two separate ID&V implementations exist. Edit 2 gives ARIA the level of assurance
+   (`loa`), so a later change could make ARIA rely on it.
+2. **Category names differ between places.** The escalation list in this prompt uses `mortgage`.
+   Your routing table was recently changed to `mortgages`. One of them will not match at escalation
+   time. This exists today and is independent of contact reasons.
+3. **The prompt is long**: about 65,000 characters. These edits add roughly 6,300 more. If Connect
+   refuses to save because of size, the `<knowledge_base_retrieval>` block (about 130 lines of
+   product facts) is the natural candidate to shorten, since the knowledge base holds the same
+   information.
