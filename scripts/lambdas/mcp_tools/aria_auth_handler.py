@@ -42,6 +42,24 @@ if _MOCK_DATA:
             "mobile_last_four": "4471",
             "status": "active",
         },
+        "CUST-003": {
+            "name": "Margaret",
+            "dob": "09/11/1958",
+            "mobile_last_four": "0002",
+            "status": "active",
+        },
+        "CUST-004": {
+            "name": "Daniel",
+            "dob": "30/05/1994",
+            "mobile_last_four": "0003",
+            "status": "active",
+        },
+        "CUST-005": {
+            "name": "Ethel",
+            "dob": "03/02/1941",
+            "mobile_last_four": "0004",
+            "status": "active",
+        },
     }
 else:
     _MOCK_CUSTOMERS = {}
@@ -157,20 +175,52 @@ def _validate_customer(params: dict) -> dict:
     return {"valid": False, "customer_found": False, "message": "Customer ID not found."}
 
 
+def _digits(value) -> str:
+    return "".join(c for c in str(value or "") if c.isdigit())
+
+
+def _normalise_dob(value) -> str:
+    """
+    Reduce a date of birth to DDMMYYYY so spoken, typed and ISO forms compare
+    equal: "09/09/1982", "9-9-1982", "09091982" and "1982-09-09" all match.
+    Returns "" when the value is not a recognisable date.
+    """
+    text = str(value or "").strip()
+    parts = [p for p in text.replace("-", "/").replace(".", "/").replace(" ", "/").split("/") if p]
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        if len(parts[0]) == 4:                                  # YYYY/MM/DD
+            parts = [parts[2], parts[1], parts[0]]
+        day, month, year = parts
+        if len(year) == 4:
+            return f"{int(day):02d}{int(month):02d}{year}"
+    digits = _digits(text)
+    return digits if len(digits) == 8 else ""
+
+
 def _cross_validate(params: dict) -> dict:
+    """
+    validate_customer_auth: verifies customer ID, date of birth and the last 4
+    digits of the mobile number. Both answers must match.
+
+    ARIA uses this in two places: to authenticate an unauthenticated caller,
+    and as the payment step-up that lifts a level 3 caller to level 4. The
+    answer never says which of the two details was wrong.
+
+    The date of birth is accepted as `dob` (the name in the tool schema) or
+    `date_of_birth`, in any common format.
+    """
     if not _MOCK_DATA:
         return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
 
-    """Verifies customer ID, date of birth, and last 4 digits of mobile number."""
     cid = str(params.get("customer_id", "")).strip()
-    dob = str(params.get("date_of_birth", "")).strip()
-    mobile4 = str(params.get("mobile_last_four", "")).strip()
+    dob = _normalise_dob(params.get("dob") or params.get("date_of_birth"))
+    mobile4 = _digits(params.get("mobile_last_four"))[-4:]
 
     if cid not in _MOCK_CUSTOMERS:
         return {"verified": False, "reason": "Customer not found."}
 
     cust = _MOCK_CUSTOMERS[cid]
-    dob_ok = cust["dob"] == dob
+    dob_ok = bool(dob) and _normalise_dob(cust["dob"]) == dob
     mobile_ok = cust["mobile_last_four"] == mobile4
 
     if dob_ok and mobile_ok:

@@ -37,6 +37,7 @@ there now, exactly what to paste, and why.
 - [Part E — Publish a New AI Agent Version](#part-e--publish-a-new-ai-agent-version)
 - [Part F — Point the Flow at the New Version](#part-f--point-the-flow-at-the-new-version)
 - [Part G — Test It](#part-g--test-it)
+- [Level 4 — The Payment Step-Up](#level-4--the-payment-step-up)
 - [How to Undo Everything](#how-to-undo-everything)
 - [Common Mistakes](#common-mistakes)
 - [Things Noticed in the Current Prompt](#things-noticed-in-the-current-prompt)
@@ -661,7 +662,7 @@ Use search to confirm each of these. It takes two minutes and catches almost eve
 | `</known_contact_reasons>` | 1 |
 | `Authenticated with a known contact reason` | 2 (Edits 4a and 4b) |
 | `[topContactReason]` | 6 (two in Edit 3, one each in Edits 4a and 4b, two in Edit 7b) |
-| `{{$.Custom.` | **19** — this must not be more than 20, or Connect refuses to save |
+| `{{$.Custom.` | **19** for the contact-reasons change alone; **20** with the level 4 prompt. Never more than 20, or Connect refuses to save |
 | `Meridian` | 0, or 1 if you are still confirming the rewards scheme name (Part C, item 5) |
 
 Then check these by eye:
@@ -748,12 +749,12 @@ Call the **ID&V test harness number**, not the main number. Press `#` after each
 | 1 | James, quick select | `1`, `1` | "…Are you calling about trouble signing in to the mobile app, or is it something else today?" |
 | 2 | Answer **yes** on test 1 | say "yes" | Confirms, then looks into it. Detail appears only now |
 | 3 | Repeat test 1, answer **no, I want my balance** | say it | "No problem…" then helps with the balance. Does **not** mention the mortgage application |
-| 4 | Daniel, quick select (level 2) | `1`, `4` | Asks about "card payments that were declined". Does **not** mention a blocked card: that needs level 3 |
-| 5 | Daniel, verified in the app (level 3) | `2`, `4`, `1`, `6`, `1`, *code*, `2` | Asks about "a block on your debit card". Does not say "fraud" |
+| 4 | Daniel, quick select (level 3) | `1`, `4` | Asks about "a block on your debit card". Does not say "fraud" |
+| 5 | Daniel at level 2 only: calling from James's phone | `2`, `1`, `1`, `2`, `30051994`, `7734`, *code* | Asks about "card payments that were declined". Does **not** mention a blocked card: that needs level 3 |
 | 6 | Sarah, quick select | `1`, `2` | **Ordinary greeting.** Her reasons are failed payments and she is flagged for financial difficulty, so ARIA stays silent |
 | 7 | Margaret, quick select | `1`, `3` | A gentle, optional form of the question |
 | 8 | Ethel, quick select | `1`, `5` | Asks about "your card PIN being locked" |
-| 9 | Level 1 only | `2`, `1`, `1`, `1`, `2` | Ordinary unauthenticated greeting. No reason |
+| 9 | Nobody verified: withheld number, wrong details twice | `2`, `7`, `1`, `01011900`, `0000`, `01011900`, `0000` | Ordinary unauthenticated greeting. No reason |
 | 10 | Call the **main** number directly | | Ordinary greeting. No reason, even though your number is recognised |
 
 Tests 9 and 10 matter as much as the others. They prove a reason is **not** shared with someone who
@@ -772,6 +773,117 @@ The test reasons for every customer are in `_STUB_CONTACT_REASONS` in
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
 
 ---
+
+## Level 4 — The Payment Step-Up
+
+This is a second, later change to the prompt. It makes ARIA aware of the level of assurance the
+ID&V flow reached, and adds a payment step-up that ARIA runs itself.
+
+| Level | Reached by | Allows |
+|---|---|---|
+| 3 | The ID&V harness, on every contact | Everything ARIA can do **except** a payment |
+| 4 | ARIA, in conversation, only when a payment is asked for | That one payment |
+
+**The complete prompt with this change is
+[prompts/aria-orchestration-prompt-v15.yaml](prompts/aria-orchestration-prompt-v15.yaml).** It is
+your live version 14 plus the six edits below. Paste the whole file over the prompt in Connect; it
+is easier and safer than making the edits one by one.
+
+| # | Where | What changes |
+|---|---|---|
+| 1 | `## Agent Identity` | "You cannot make payments" becomes "a payment request is handled only through the Level 4 payment step-up" |
+| 2 | `## Session Context` | One line describing `loa` |
+| 3 | Inside `<customer_context>` | `- Level of Assurance …: {{$.Custom.loa}}`. This is the **20th** custom variable: the prompt is now at Connect's limit and no more can be added without removing one |
+| 4 | Directly under `## Authentication Gate` | A new `<assurance_levels>` block: what each level allows, and the ten-step payment step-up |
+| 5 | `## Security Guardrails` | Four bullets: level 4 only on `verified: true`; no payment below level 3; never claim a payment was made; never say level numbers |
+| 6 | `<response_examples>` | Four examples covering the payment conversation |
+
+### What ARIA does when asked to make a payment
+
+1. Checks the customer is at level 3. If not, it offers the app or a colleague and asks no questions.
+2. Asks who to pay and how much, and reads both back.
+3. Asks once: "has anyone asked you to move this money, or told you what to say to us today?" A
+   "yes" or a hesitant answer stops everything and goes to the fraud team.
+4. Says it needs one more security check, then asks for the date of birth and the last four digits
+   of the registered mobile, one at a time.
+5. Calls the `validate_customer_auth` tool. **Only `verified: true` from the tool makes it level
+   4.** Nothing the customer says can replace that.
+6. Confirms the payee and amount once more.
+7. Has no tool that moves money today, so it hands the verified request to a colleague with a
+   summary beginning "Level 4 payment step-up passed." It does not say the payment was made.
+
+Level 4 covers that single payment. A second payment needs the step-up again. Two wrong attempts
+refuse the payment for the call, without saying which answer was wrong. On chat the step-up is not
+offered: ARIA suggests the app or a call.
+
+### Lambda change this depends on
+
+`scripts/lambdas/mcp_tools/aria_auth_handler.py` (the function behind `validate_customer_auth`):
+
+- It now reads the date of birth from `dob`, the name the tool schema actually sends. Before, it
+  read `date_of_birth`, so a correct answer could never match.
+- It accepts the date in any common form ("09/09/1982", "9 September 1982" once the model converts
+  it, "1982-09-09", "09091982") instead of needing one exact string.
+- It knows all five test customers, not two.
+
+**Deploying it needs care. Read this before running anything.**
+
+The live Lambda, `aria-banking-mcp-auth-prod`, was last deployed on 10 April 2026. On 24 May the
+repository file gained a safety switch: it returns an error unless the Lambda has the environment
+variable `MOCK_DATA=true`. The live Lambda does not have that variable (it only has `ARIA_DOMAIN`
+and `ARIA_ENV`), because it predates the switch.
+
+So if you deploy the new code and do nothing else, `validate_customer_auth` returns *"No data
+source configured"* on every call, and ARIA can neither authenticate an unauthenticated caller nor
+complete a payment step-up.
+
+Do both of these, in this order:
+
+1. Set the variable first. It is harmless to the code that is running now:
+
+   ```bash
+   aws lambda update-function-configuration --function-name aria-banking-mcp-auth-prod \
+       --region eu-west-2 \
+       --environment 'Variables={ARIA_DOMAIN=<current value>,ARIA_ENV=<current value>,MOCK_DATA=true}'
+   ```
+
+   Read the two current values from the Lambda console (**Configuration → Environment variables**)
+   and keep them. This command replaces the whole set, so anything you leave out is removed.
+
+2. Then deploy the code:
+
+   ```bash
+   ./scripts/deploy_mcp_gateway.sh update-lambdas --env prod --region eu-west-2
+   ```
+
+> **`update-lambdas` redeploys all ten tool Lambdas, not only the auth one.** Two other handler
+> files have the same safety switch: `aria_account_handler.py` (balances, transactions) and
+> `aria_customer_handler.py` (customer details). If their Lambdas also
+> predate it, they will start returning the same error. Check each one's environment variables
+> first, or deploy only the auth Lambda by hand: zip `aria_auth_handler.py` as `handler.py` and
+> upload it to `aria-banking-mcp-auth-prod`.
+
+**This Lambda also serves ARIA's existing check for unauthenticated callers**, so the fix changes
+that path too: answers that could not match before can now match.
+
+### Flow changes
+
+**None are required.** ARIA does the step-up with tools inside the conversation, and the hand-over
+to a colleague uses the existing *Escalate* branch of `conversation bot flow`.
+
+As with any prompt change you must publish the prompt, publish a new agent version, and move the
+flow's two agent references to it ([Parts D to F](#part-d--save-and-publish-the-prompt)).
+
+### Things to know
+
+- **`LoA` on the contact record stays 3.** ARIA cannot write contact attributes, so level 4 exists
+  only in the conversation and in the escalation summary.
+- **The prompt names tools ARIA does not have.** Version 14 refers to `pii_detect_and_redact`,
+  `pii_vault_store`, `cross_validate_session_identity`, `escalate_to_human_agent` and
+  `request_channel_transfer`. None is among the agent's 21 configured tools. This is not new and was
+  not changed, but it means those instructions cannot be followed as written.
+- **Size.** The prompt grows from about 71,000 to about 78,000 characters. If Connect refuses to
+  save it, shorten the `<knowledge_base_retrieval>` block.
 
 ## How to Undo Everything
 

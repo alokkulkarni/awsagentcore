@@ -433,7 +433,7 @@ question, or treats it as silence.
 **What it is**: Speaks text (or sends it as a chat message).
 
 **Why you need it**: Before transferring, the harness tells you what it is handing over, for
-example *"handing over to ARIA as Margaret, level 2, method test quick select"*. You hear the
+example *"handing over to ARIA as Margaret, level 3, method test quick select"*. You hear the
 outcome without opening the contact record.
 
 > Official docs: [Play prompt](https://docs.aws.amazon.com/connect/latest/adminguide/play.html)

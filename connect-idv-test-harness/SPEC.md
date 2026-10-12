@@ -73,7 +73,7 @@ again), `handoff` (play, transfer to the main flow) or `end` (play, disconnect).
 | Considered | Outcome |
 |---|---|
 | One flow block per question and branch | Rejected. Around 80 blocks to build by hand, and flow logic cannot be unit-tested. |
-| **Lambda state machine + 13-block loop** | **Chosen.** The whole dialogue is Python with 34 unit tests. The flow is small enough to build by hand. |
+| **Lambda state machine + 13-block loop** | **Chosen.** The whole dialogue is Python, covered by unit tests. The flow is small enough to build by hand. |
 | Lex bot for the dialogue | Rejected. Adds a bot to build and train for what is a keypad-driven test tool. |
 
 The Lambda is stateless. Conversation state travels in `idvState`, a signed string the flow stores
@@ -93,68 +93,76 @@ decides". The code keeps the same three roles in three files.
 | `idv_tokens.py` | HMAC signing helpers (standard library only) | No |
 | `idv_test_data.py` | Imports customers from the injector; adds DOB, security number, app and line data | No |
 
-There is one deliberate exception: **quick select** sets LoA2 with no receipt. It exists to meet the
+There is one deliberate exception: **quick select** sets LoA3 with no receipt. It exists to meet the
 first goal, and it is labelled `idvMethod=test_quick_select` with reason `TEST_QUICK_SELECT_BYPASS`.
 
 ## 5. Level of assurance and policy
 
-| Level | Evidence in the harness | Allows |
-|---|---|---|
-| LoA0 Anonymous | Nothing, several CLI matches, no CLI match, or a high-risk line | General information |
-| LoA1 Identified | One CLI match on a low-risk line, or a resolved claimed identity | Protective actions |
-| LoA2 Verified | One of: OTP, KBA, chat session token, app dial code from another phone | Balance |
-| LoA3 Strongly verified | Push with number matching; app call token; in-app step-up; SMS OTP + KBA on own phone; dial code from the registered mobile | Address change, new payee |
-
-| Intent | Keypad | Required | Notes |
+| Level | Evidence | Granted by | Allows |
 |---|---|---|---|
-| `general_info` | 1 | LoA0 | |
-| `freeze_card` | 2 | LoA1 | Protective. Allowed for an identified caller even on a high-risk line |
-| `report_lost_stolen` | 3 | LoA1 | Protective. Removes the phone from push targets for the contact |
-| `balance` | 4 | LoA2 | Raised to LoA3 on a high-risk line |
-| `change_contact_details` | 5 | LoA3 | Obligation `NOTIFY_OLD_CHANNEL_24H` |
-| `new_payee_payment` | 6 | LoA3 | Obligation `SCAM_WARNING` |
+| LoA0 Anonymous | Nothing, several CLI matches, no CLI match, or a high-risk line | Harness | General information |
+| LoA1 Identified | One CLI match on a low-risk line, or a resolved claimed identity | Harness | Nothing personal. ARIA treats it as unauthenticated |
+| LoA2 Verified | One of: OTP, KBA, chat session token, app dial code from another phone | Harness | Account, card and mortgage information; card blocks. No payments |
+| LoA3 Strongly verified | Push with number matching; app call token; in-app step-up; SMS OTP + KBA on own phone; dial code from the registered mobile | Harness | Everything ARIA can do except a payment |
+| LoA4 Payment | LoA3 **plus** a knowledge check at the moment of paying, validated by a tool | **ARIA, in the main flow** | Making one payment |
+
+**The harness targets LoA3 on every contact** (`idv_policy.TARGET_LOA`). It does not ask what the
+customer wants. If LoA3 cannot be reached it hands over at the level achieved and ARIA limits what
+it offers. Earlier versions asked for an intent first and verified only as far as that intent
+needed; that menu has been removed.
+
+**LoA4 is never granted by the harness.** `accept_receipt` caps every receipt at 3, and a unit test
+asserts it. LoA4 belongs to ARIA: on a payment request from an LoA3 customer it confirms payee and
+amount, asks a scam-check question, then calls `validate_customer_auth` (date of birth and last four
+of the registered mobile). Only `verified: true` from that tool makes the customer LoA4, for that
+one payment. The design's rule still holds: the agent runs the dialogue, a deterministic tool
+decides.
 
 Rules enforced in `idv_policy.py`:
 
-- Risk can raise the level needed and never lowers it.
 - High risk removes SMS OTP, email OTP and KBA. Push is accepted only from a device bound before the
-  SIM swap. `HOLD_72H` is attached to address and payee changes.
+  SIM swap. Reaching LoA3 on a high-risk line attaches obligation `HOLD_72H`.
 - A borrowed phone never receives the OTP. It goes to the claimed customer's email. Push is offered
   only if their app is on a second device.
 - Email OTP + KBA stays at LoA2. SMS OTP + KBA on the caller's own registered phone reaches LoA3.
-- Push is offered once. OTP and KBA allow two attempts each. Then the intent is refused.
 - The dialogue asks only for a factor that would raise the level. After an emailed code (LoA2) the
-  security-number question is skipped, because email OTP + KBA is still LoA2. The source document's
-  Dialogue 2 asks both; the harness does not.
+  security-number question is skipped, because email OTP + KBA is still LoA2.
+- Push is offered once. OTP and KBA allow two attempts each.
 - A receipt is rejected if its signature is wrong, it has expired, it was used before, or it is bound
   to another contact or customer.
 
-Two readings of the source document needed a decision, and both are easy to change:
+Three choices that are easy to change:
 
-- The document's ladder says "OTP plus KBA where no app" is LoA3, while Dialogue 1 uses OTP + KBA
-  after a push timeout for a customer who has the app. The harness follows the dialogue: what matters
-  is whether the OTP went to the phone on the call (SMS, LoA3) or elsewhere (email, LoA2).
-- Option C says high-risk changes are held for 72 hours, while Dialogue 3 carries straight on to the
-  scam warning. The harness does both: PERMIT with obligation `HOLD_72H`, then the scam warning.
+- **Level before intent.** The source document asks what the customer wants first and verifies only
+  as far as needed. This build verifies to LoA3 first, by request. It costs customers with simple
+  questions an unnecessary check, and gains a simpler flow and a single hand-off point.
+- **LoA4 is a knowledge check.** Date of birth and mobile digits are weaker than the push that earned
+  LoA3. They add a different kind of factor at the moment of payment, and they are the only step-up
+  ARIA's current tools support. A transaction-bound app approval (amount and payee shown in the app)
+  would be the stronger design and needs a new tool.
+- **LoA4 lives in the conversation.** ARIA cannot write contact attributes, so `LoA` on the contact
+  stays 3. The only durable record is the `conversationSummary` on escalation, which begins
+  "Level 4 payment step-up passed."
 
 ## 6. Coverage of the design document
 
 | Option | How the harness exercises it |
 |---|---|
 | A. CLI identifies, push verifies | Line = a customer's mobile. Ownership question, push with a two-digit match number, fallback to SMS OTP + KBA |
-| B. Borrowed or shared phone | Answer "no" to ownership, or pick the shared landline or withheld line. Claimed identity by date of birth + card last four. OTP by email |
+| B. Borrowed or shared phone | Answer "no" to ownership, or pick the shared number or withheld line. Claimed identity by date of birth + card last four. OTP by email |
 | C. Network and risk signals | Daniel's line (SIM swap two days ago, divert on), or condition 2 on any line. Signals change which factors are offered |
 | D. App-to-call handoff | `idvCallToken` contact attribute (in-app call), or mode 3 with a six-digit dial code (PSTN handoff) |
-| E. Authenticated chat | `idvSessionToken` gives LoA2. `idvStepUpToken` bound to the intent gives LoA3. No token gives LoA0. KBA is never asked |
-| F. Agentic ID&V with guardrails | The orchestrator cannot set LoA. Intent option 7 simulates third-party pressure and gets the mandate wording, not an exception |
+| E. Authenticated chat | `idvSessionToken` gives LoA2. `idvStepUpToken` gives LoA3. No token gives LoA0. KBA is never asked |
+| F. Agentic ID&V with guardrails | The orchestrator cannot set LoA. Receipts claiming LoA4 are capped at 3 |
 
-Conversation rules from the document that the unit tests assert: the greeting is fixed and identical
-for every caller; no name is spoken before a receipt is accepted; failures never say which factor
-failed; the SIM swap, divert and risk score are never spoken.
+Conversation rules from the document that the unit tests assert: no name is spoken before a receipt
+is accepted; failures never say which factor failed; the SIM swap, divert and risk score are never
+spoken.
 
-**Not covered:** the "call me" variant of Option D (it needs an outbound call), the Cognito
-*Authenticate Customer* block for web chat, and Bedrock Guardrails screening of free speech. The
-harness is keypad-driven, so there is no free text to screen.
+**Removed with the intent menu:** the harness no longer simulates protective actions at LoA1
+(freeze card), a phone reported stolen, or third-party pressure. Those conversations now happen
+with ARIA. **Not covered:** the "call me" variant of Option D, the Cognito *Authenticate Customer*
+block, and Bedrock Guardrails screening of free speech.
 
 ## 7. Contracts
 
@@ -166,7 +174,7 @@ harness is keypad-driven, so there is no free text to screen.
 | Block parameter | `input` | `$.StoredCustomerInput`, or the literal `Timeout` |
 | Contact attribute | `idvState` | Signed state from the previous turn |
 | Contact attribute | `idvTestCustomerId` | Quick-select without the menu |
-| Contact attribute | `idvCallToken`, `idvSessionToken`, `idvStepUpToken`, `idvIntent` | Options D and E |
+| Contact attribute | `idvCallToken`, `idvSessionToken`, `idvStepUpToken` | Options D and E |
 
 Attributes are also read with the hosted widget's `HostedWidget-` prefix.
 
@@ -181,12 +189,12 @@ is copied to a contact attribute after each turn.
 | `idvState` | Signed state | The Lambda, next turn |
 | `customerId` | `CUST-00x`, or **empty below LoA2** | Injector |
 | `authStatus` | `authenticated` at LoA2+, else `unauthenticated` | Injector, main flow |
-| `LoA` | `0` to `3` | Injector (as `loa`), contact record |
+| `LoA` | `0` to `3`. Never `4` | Injector (as `loa`), ARIA's prompt, contact record |
 | `idvMethod` | `push`, `kba+otp_sms`, `app_handoff`, `test_quick_select`, ... | Injector |
 | `cliRelationship` | `MATCH` / `MISMATCH` / `NONE` | Injector |
 | `riskScore`, `reasonCodes` | `0` to `100`; comma-separated codes | Injector |
 | `idvStatus` | `verified` / `identified` / `anonymous` | Injector (switches off its phone fallback) |
-| `idvIntent`, `idvDecision`, `idvObligations`, `idvSummary` | Last intent, `PERMIT` / `STEP_UP` / `DENY`, obligations, one-line summary | Contact record |
+| `idvIntent`, `idvDecision`, `idvObligations`, `idvSummary` | Always `servicing`; `PERMIT` (LoA3 reached) / `DENY` / `STEP_UP`; obligations; one-line summary | Contact record |
 
 `customerId` is withheld below LoA2 on purpose. The design calls this disclosure tied to level: the
 AI agent cannot read out a name it never received. The harness never sets `entry`, because
@@ -252,7 +260,7 @@ Observed while reading the instance. Nothing here was changed.
 
 | Check | Result |
 |---|---|
-| Unit tests (`python3 -m unittest discover -s connect-idv-test-harness/tests`) | 34 pass |
+| Unit tests (`python3 -m unittest discover -s connect-idv-test-harness/tests`) | 55 pass |
 | Flow JSON structural validation | Pass, no placeholders |
 | Deploy script | `bash -n` syntax check only. Not run |
 | Flow imported into Connect | **Not done** |

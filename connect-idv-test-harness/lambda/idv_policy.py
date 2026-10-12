@@ -14,10 +14,12 @@ Level of assurance (LoA) ladder
     1  Identified        CLI match or claimed identity, low risk; protective actions
     2  Verified          one strong factor; balances and existing-payee payments
     3  Strongly verified device-bound push, app handoff, or SMS OTP + KBA on own phone
+    4  Payment           level 3 plus a payment step-up. NOT granted here: ARIA does
+                         it in the main conversational flow, only when a payment is asked for
 
-Three rules from the design document are enforced here, not in the dialogue:
-    * Intent sets the level needed.
-    * Risk can only RAISE the level needed, never lower it.
+The harness aims for level 3 on every contact. Two rules are enforced here,
+not in the dialogue:
+    * Risk removes weak factors; it never makes a level easier to reach.
     * Assurance only changes when a signed receipt is accepted.
 """
 
@@ -27,22 +29,19 @@ import idv_verifiers as verifiers
 
 LOA_ANONYMOUS, LOA_IDENTIFIED, LOA_VERIFIED, LOA_STRONG = 0, 1, 2, 3
 
-# Intent -> minimum LoA. Calibrate with Fraud and Risk before any real use.
-INTENT_REQUIRED_LOA: dict[str, int] = {
-    "general_info":           LOA_ANONYMOUS,
-    "freeze_card":            LOA_IDENTIFIED,
-    "report_lost_stolen":     LOA_IDENTIFIED,
-    "balance":                LOA_VERIFIED,
-    "change_contact_details": LOA_STRONG,
-    "new_payee_payment":      LOA_STRONG,
+# Level 4 exists but is never granted here. It is reached only inside the main
+# conversational flow, when ARIA runs a payment step-up on top of level 3.
+LOA_PAYMENT = 4
+
+# The level the harness tries to reach on every contact, whatever the customer
+# wants. The customer is not asked what they want first: that is ARIA's job.
+TARGET_LOA = LOA_STRONG
+
+# What each level is for. Calibrate with Fraud and Risk before any real use.
+REQUIRED_LOA: dict[str, int] = {
+    "servicing": LOA_STRONG,   # everything ARIA does except moving money
+    "payment":   LOA_PAYMENT,  # making a payment: level 3 plus ARIA's step-up
 }
-
-# Intents that only ever protect the customer. Allowed at LoA1 even on a
-# high-risk line, because blocking them would help the fraudster.
-PROTECTIVE_INTENTS = {"freeze_card", "report_lost_stolen"}
-
-# Changes that are held for a cooling-off period when the line is high risk.
-HIGH_RISK_HELD_INTENTS = {"change_contact_details", "new_payee_payment"}
 
 MAX_ATTEMPTS_PER_FACTOR = 2   # wrong OTP / KBA entries before the factor is dead
 
@@ -76,49 +75,22 @@ def baseline_loa(candidate_count: int, risk: str) -> tuple[int, list[str]]:
     return LOA_ANONYMOUS, ["CLI_NO_MATCH"]
 
 
-def required_loa(intent: str, risk: str) -> tuple[int, list[str]]:
-    """The level this intent needs. Risk can raise it, never lower it."""
-    required = INTENT_REQUIRED_LOA.get(intent, LOA_STRONG)
-    reasons: list[str] = []
-    if risk == "HIGH" and intent not in PROTECTIVE_INTENTS and LOA_IDENTIFIED < required < LOA_STRONG:
-        required = LOA_STRONG
-        reasons.append("RISK_RAISED_REQUIREMENT")
-    return required, reasons
-
-
-def evaluate(intent: str, loa: int, risk: str, identified: bool = False) -> dict:
+def evaluate(loa: int, risk: str, target: int = TARGET_LOA) -> dict:
     """
-    PERMIT, STEP_UP or DENY for this intent at the current level.
-
-    `identified` means a single candidate customer has been established (by a
-    confirmed CLI match or a resolved claimed identity), not that they are verified.
+    PERMIT when the target level has been reached, otherwise STEP_UP.
 
     Returns decision, required, reasons and obligations. Obligations are the
-    conditions attached to a PERMIT (for example a cooling-off hold).
+    conditions attached to a PERMIT. On a high-risk line, reaching level 3 is
+    still allowed (only a pre-swap device can get there) but sensitive changes
+    must be held for a cooling-off period.
     """
-    required, reasons = required_loa(intent, risk)
-    if intent not in INTENT_REQUIRED_LOA:
-        return {"decision": "DENY", "required": required,
-                "reasons": reasons + ["UNKNOWN_INTENT"], "obligations": []}
-    if intent in PROTECTIVE_INTENTS and identified:
-        # Freezing a card can only protect the customer, so it is allowed for an
-        # identified caller even when a high-risk line has pulled CLI down to LoA0.
-        return {"decision": "PERMIT", "required": required,
-                "reasons": reasons + ["PROTECTIVE_ACTION"], "obligations": []}
-    if loa < required:
-        return {"decision": "STEP_UP", "required": required,
-                "reasons": reasons + ["STEP_UP_REQUIRED"], "obligations": []}
-
-    obligations: list[str] = []
-    if intent == "change_contact_details":
-        obligations.append("NOTIFY_OLD_CHANNEL_24H")
-    if intent == "new_payee_payment":
-        obligations.append("SCAM_WARNING")
-    if risk == "HIGH" and intent in HIGH_RISK_HELD_INTENTS:
+    if loa < target:
+        return {"decision": "STEP_UP", "required": target, "reasons": ["STEP_UP_REQUIRED"], "obligations": []}
+    reasons, obligations = ["PERMIT"], []
+    if risk == "HIGH":
         obligations.append("HOLD_72H")
-        reasons.append("COOLING_OFF_72H")
-    return {"decision": "PERMIT", "required": required,
-            "reasons": reasons + ["PERMIT"], "obligations": obligations}
+        reasons.insert(0, "COOLING_OFF_72H")
+    return {"decision": "PERMIT", "required": target, "reasons": reasons, "obligations": obligations}
 
 
 def allowed_methods(ctx: dict) -> list[str]:

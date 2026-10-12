@@ -112,23 +112,23 @@ class BothInjectorsAgree(unittest.TestCase):
 class EndToEndThroughTheHarness(base.SessionInjectorHandoff):
     """Harness verifies the caller, the main flow's injector then discloses by level."""
 
-    def journey(self, customer, *keys):
-        call = base.Call()
-        call.full_journey(base.line_key(customer))
-        call.press(*keys)
-        call.press(call.spoken_code(), "2")
-        return self.invoke(call.attributes, cli="+447911000000")
-
-    def test_push_verified_customer_gets_their_reasons(self):
-        result = self.journey(DANIEL, base.PAYEE, base.YES)          # LoA3 by pre-swap push
+    def test_level_3_customer_gets_their_reasons_including_the_fraud_block(self):
+        call = base.Call(cli="+447911000000")
+        call.full_journey(base.line_key(DANIEL))
+        call.press(base.YES)
+        call.press(call.spoken_code())                               # LoA3 by pre-swap push
+        result = self.invoke(call.attributes, cli="+447911000000")
         self.assertEqual(result["topContactReason"], "a block on your debit card")
         self.assertEqual(self.injected["hasKnownContactReason"], "true")
         self.assertIn("blocked yesterday", self.injected["contactReasonSummary"])
 
-    def test_quick_select_gets_loa2_reasons_only(self):
-        call = base.Call()
-        call.press("1", base.line_key(DANIEL))
-        result = self.invoke(call.attributes)
+    def test_level_2_customer_does_not_get_the_fraud_block(self):
+        call = base.Call(cli="+447911000000")
+        call.full_journey(base.line_key(JAMES))                      # Daniel on James's phone
+        call.press(base.NO, *base.CLAIM[DANIEL])
+        call.press(call.spoken_code())                               # email code only: LoA2
+        self.assertEqual(call.attributes["LoA"], "2")
+        result = self.invoke(call.attributes, cli="+447911000000")
         self.assertEqual(result["topContactReason"], "card payments that were declined")
         self.assertNotIn("CARD_BLOCKED_FRAUD", self.injected["contactReasons"])
 

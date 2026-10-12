@@ -70,10 +70,15 @@ The document splits "who is this?" into three separate questions. The harness ke
 | 0 | Anonymous | Nothing known | General information |
 | 1 | Identified | We have a candidate, but no proof | Protective actions, such as freezing a card |
 | 2 | Verified | One proof: a one-time code, or a security question | Balances |
-| 3 | Strongly verified | Approval in the bank app, or two proofs on your own phone | Changing an address, paying a new payee |
+| 3 | Strongly verified | Approval in the bank app, or two proofs on your own phone | Everything ARIA can do, except a payment |
+| 4 | Payment | Level 3, **plus** an extra security check at the moment of paying | Making a payment |
 
-What the caller *wants* decides the level they *need*. Asking for opening hours needs nothing.
-Changing an address needs level 3.
+**The harness aims for level 3 on every call.** It does not ask what you want first. You arrive at
+ARIA already strongly verified, and ARIA takes it from there.
+
+**Level 4 is not done by the harness.** It is needed only to make a payment, and ARIA does it inside
+the conversation: when you ask to pay someone, ARIA asks two more security questions and checks the
+answers with a tool. Level 4 lasts for that one payment only.
 
 ### What is a receipt?
 
@@ -156,7 +161,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON if your IDs differ |
 | [scripts/deploy_idv_test_harness.sh](scripts/deploy_idv_test_harness.sh) | Creates the Lambda. **You** run it |
 | [scripts/mint_test_token.py](scripts/mint_test_token.py) | Makes test tokens for Options D and E |
-| [tests/](tests/) | 51 unit tests: each ID&V option, the guardrails, and contact-reason disclosure |
+| [tests/](tests/) | 55 unit tests: each ID&V option, the guardrails, contact-reason disclosure and the payment step-up tool |
 
 One file outside this folder also changed:
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
@@ -197,7 +202,7 @@ From the repository root:
 python3 -m unittest discover -s connect-idv-test-harness/tests -v
 ```
 
-You should see `Ran 51 tests` and `OK`. Two log lines that look like errors are expected: they come
+You should see `Ran 55 tests` and `OK`. Two log lines that look like errors are expected: they come
 from the tests that check the kill switch and the tampered-state protection.
 
 > **What just happened?** Each test pretends to be Amazon Connect. It invokes the Lambda code with
@@ -423,54 +428,49 @@ Call the test number. After each entry press **#**.
 |---|---|
 | "Test harness: press 1 to quick-select a test customer..." | `1` `#` |
 | "Test harness: choose the test customer. Press 1 for James. Press 2 for Sarah..." | `3` `#` |
-| "Test harness: handing over to ARIA as Margaret, level 2, method test quick select." | nothing |
+| "Test harness: handing over to ARIA as Margaret, level 3, method test quick select." | nothing |
 | ARIA greets Margaret | talk to ARIA as normal |
 
-You are now Margaret Okonkwo in the main flow, although you called from your own phone.
+You are now Margaret Okonkwo in the main flow, at level 3, although you called from your own phone.
 
 ### First-call checklist
 
-These three things can only be confirmed on a live call, so check them now.
-
 1. **ARIA used the right name.** If it used a different customer, see
    [Troubleshooting](#aria-greets-the-wrong-customer).
-2. **The menus are understandable.** They are long. If Amy reads them too fast, slow her down in
-   block 2, or shorten the wording in `aria_idv_test_harness.py`.
+2. **The menus are understandable.** If Amy reads them too fast, slow her down in block 2, or
+   shorten the wording in `aria_idv_test_harness.py`.
 3. **The contact record shows the result.** In the Connect admin website open
    **Analytics and optimization → Contact search**, open your call, and look at **Attributes**. You
-   should see `customerId = CUST-003`, `LoA = 2`, `idvMethod = test_quick_select`.
+   should see `customerId = CUST-003`, `LoA = 3`, `idvMethod = test_quick_select`.
 
 ---
 
 ## Part H — Test Every Option (A to F)
 
-Every full journey starts with three set-up menus, then the real dialogue begins.
+A full journey has three set-up menus. Then the harness goes straight into identification and
+verification and keeps going until it reaches **level 3** or runs out of allowed checks. It never
+asks what you want: that is ARIA's conversation.
 
 | Menu | Question | Keys |
 |---|---|---|
 | 1. Mode | What kind of test? | `1` quick select · `2` full journey · `3` app dial code |
-| 2. Line | Which number is this call arriving from? | `1`–`5` a customer's registered mobile (James, Sarah, Margaret, Daniel, Ethel) · `6` landline shared by two customers · `7` withheld · `8` unknown international · `0` your real number |
+| 2. Line | Which number is this call arriving from? | `1`–`5` a customer's registered mobile (James, Sarah, Margaret, Daniel, Ethel) · `6` number shared by two customers · `7` withheld · `8` unknown international · `0` your real number |
 | 3. Conditions | Anything unusual? | `1` customer's default · `2` high-risk line (recent SIM swap) · `3` bank app unreachable · `4` both |
 
 Menu 2 is what lets one handset play every scenario: it replaces your real number with a pretend one.
 
-Then the fixed greeting plays, and you choose what you want:
+**How a journey ends.** There are only two endings, and both hand you to ARIA:
 
-| Key | Request | Level needed |
+| Ending | You hear | ARIA receives |
 |---|---|---|
-| `1` | General information | 0 |
-| `2` | Freeze my card | 1 |
-| `3` | My phone has been stolen, stop my card | 1 |
-| `4` | Check my balance | 2 |
-| `5` | Change my address | 3 |
-| `6` | Add a new payee and send money | 3 |
-| `7` | "I'm calling for someone else, skip security" | (a pressure test, not a request) |
+| Level 3 reached | "Thanks, James, that's confirmed. I'll connect you now." | The customer, `LoA = 3` |
+| Level 3 not reached | "I wasn't able to fully confirm it's you, so some services won't be available on this call." | Whatever level was reached. Below level 2, no customer at all |
 
 In the tables below, *code* means the number the harness reads out. Press `#` after every entry.
 
 ### Option A — Your own phone, verified in the app
 
-James calls from his own mobile and wants to change his address.
+James calls from his own mobile.
 
 | Step | Key | What happens |
 |---|---|---|
@@ -478,49 +478,48 @@ James calls from his own mobile and wants to change his address.
 | Line | `1` | Call arrives from James's mobile |
 | Conditions | `1` | Default |
 | | | *Silently:* number looked up, one candidate found, risk low. Level 1. Nothing about James is spoken |
-| Greeting | `5` | "I need to change my address" → needs level 3 |
 | Ownership | `1` | "Is this call about the account linked to the number you're calling from?" Yes |
 | Push | *code* | "I've sent a notification to your app. Choose 25..." Keying the same number means you picked it in the app and approved with your fingerprint |
-| | | "Thanks, James, that's confirmed." **Level 3, method push.** The name is used for the first time |
-| Next | `2` | Connect to ARIA |
+| | | "Thanks, James, that's confirmed." **Level 3, method push.** The name is used for the first time, and you are handed to ARIA |
 
 **Why read out a number?** If the app only showed "Approve?", a customer might tap yes on a request
 a fraudster triggered. Having to pick the number the agent just said ties the approval to this call.
 
-**Try the failure paths:**
+**Try the failure paths** at the push prompt:
 
-| At the push prompt | Result |
+| You do | Result |
 |---|---|
-| Wait 10 seconds | "I haven't seen that come through." Falls back to a texted code, then the 2nd and 5th digits of the security number. Both correct → level 3 |
+| Wait 10 seconds | "I haven't seen that come through." A code is texted (level 2), then the 2nd and 5th digits of the security number are asked. Both correct → level 3 |
 | Key `0` | Declined. Same fallback |
-| Wrong code twice, then wrong security digits twice | "I wasn't able to confirm it's you..." The message never says which check failed |
+| Then get the code wrong twice and the digits wrong twice | Handed to ARIA unverified. The message never says which check failed |
+
+**A customer with no app.** Line `5` (Ethel): there is no push. She gets the texted code, then the
+security digits `57`, and reaches level 3 that way.
 
 ### Option B — Someone else's phone
 
-Sarah's phone is flat. She calls from James's phone and wants her balance.
+Sarah's phone is flat. She calls from James's phone.
 
 | Step | Key | What happens |
 |---|---|---|
 | Mode, line, conditions | `2`, `1`, `1` | Call arrives from **James's** mobile |
-| Greeting | `4` | Balance → needs level 2 |
 | Ownership | `2` | **No.** James is dropped as the candidate. Nothing about him is used again. `cliRelationship = MISMATCH` |
-| Date of birth | `22071990` | Sarah's |
+| Date of birth | `14031990` | Sarah's |
 | Card | `3317` | Last four digits of Sarah's card. Sarah becomes the candidate |
 | Code | *code* | "I've sent a code to the **email address** we hold for you." Not a text: the phone on this call is not hers |
-| | | "Thanks, Sarah..." **Level 2, method otp_email** |
+| | | Handed to ARIA as Sarah at **level 2**, with "some services won't be available" |
 
 **The key point:** verification always goes to the *claimed* customer's own channels, never to the
-phone on the line. That is the whole answer to the borrowed-phone problem.
-
-**More Option B cases:**
+phone on the line. Sarah stops at level 2 because an emailed code is one proof, her app is on the
+phone that is flat, and a security question on top of an emailed code is still level 2. At level 2
+ARIA will give her account information but will not take a payment.
 
 | Scenario | Keys | Result |
 |---|---|---|
-| Sarah asks to change her address instead | `2`,`1`,`1`,`5`,`2`,`22071990`,`3317`,*code* | Refused. An emailed code is only level 2. Borrowed phone plus no second device cannot reach level 3 |
-| Margaret, whose app is also on a tablet | `2`,`2`,`1`,`5`,`2`,`09111958`,`6612`,*code* | Push to the tablet. Level 3 from a borrowed phone |
-| Shared family landline | `2`,`6`,`1`,`4` | Two customers match, so no ownership question. Straight to date of birth |
-| Withheld number | `2`,`7`,`1`,`4` | No match. Straight to date of birth |
-| Stolen phone | `2`,`1`,`1`,`3`,`2`,`22071990`,`3317` | Cards frozen at level 1, no verification. Then `1`,`5`: the stolen phone is **not** sent a push |
+| Margaret, whose app is also on a tablet | `2`,`2`,`1`,`2`,`09111958`,`6612`,*code* | Push to the tablet. **Level 3** from a borrowed phone |
+| A number shared by two customers | `2`,`6`,`1`,`14031990`,`3317`,*code* | Two customers match, so there is no ownership question: straight to date of birth. Sarah is on the number, so `cliRelationship = MATCH` and the push goes to her app. Level 3 |
+| Withheld number | `2`,`7`,`1` then a claim | No match. Straight to date of birth |
+| Details that match nobody | `2`,`7`,`1`,`01011900`,`0000`, and again | "Let's try once more", then handed to ARIA anonymous at level 0 |
 
 ### Option C — Network and risk signals
 
@@ -530,10 +529,9 @@ how account takeover often starts.
 | Step | Key | What happens |
 |---|---|---|
 | Mode, line, conditions | `2`, `4`, `1` | Daniel's mobile. Risk score 95, **HIGH**. The number is worth level 0 |
-| Greeting | `6` | New payee → level 3 |
 | Ownership | `1` | Yes |
 | Push | *code* | "For your security, I need to confirm this through your app." Texted codes and security questions are **not offered at all** |
-| | | Level 3. "Before we add the payee: has anyone asked you to move money or told you what to say?" The change is also held for review (`HOLD_72H`) |
+| | | **Level 3**, with `idvObligations = HOLD_72H`: sensitive changes should be held for review |
 
 **The key point:** risk does not add more questions. It **removes the weak ones**. A texted code is
 worthless when the SIM may be in a fraudster's hand.
@@ -542,9 +540,8 @@ Notice what is never said: the words SIM, swap, divert or risk. Naming them woul
 
 | Scenario | Keys | Result |
 |---|---|---|
-| High risk and no usable app | `2`,`4`,`3`,`6`,`1` | Refused immediately. Reason `FRAUD_CASE_RAISED` |
-| High risk, but only freezing a card | `2`,`1`,`2`,`2`,`1` | Allowed. Freezing can only protect the customer |
-| Someone pushing to skip security | at the greeting press `7` | "I can only make changes with the account holder. ... I can explain how to set up a third-party authority." |
+| High risk and no usable app | `2`,`4`,`3`,`1` | Nothing can be offered. Handed over at level 0 with reason `FRAUD_CASE_RAISED` |
+| Any customer, forced high risk | `2`,`5`,`2`,`1` | Ethel has no app and the text code is removed, so level 0 |
 
 ### Option D — Calling from inside the app
 
@@ -566,8 +563,8 @@ python3 connect-idv-test-harness/scripts/mint_test_token.py dial-code CUST-001
 
 | Keys | Result |
 |---|---|
-| `3`, `1`, `1`, *the six digits* | Call from James's own mobile with James's code. "Hi James, thanks for calling from the app. You're already verified." **Level 3** |
-| `3`, `2`, `1`, *the six digits* | Same code, but the call arrives from Sarah's mobile. **Level 2** only. The code is real but the phone is not his |
+| `3`, `1`, `1`, *the six digits* | Call from James's own mobile with James's code. **Level 3** immediately, no questions |
+| `3`, `2`, `1`, *the six digits* | Same code, but the call arrives from Sarah's mobile. The code is real but the phone is not his, so it is worth **level 2** and the harness asks for a push to reach level 3 |
 
 **In-app call (WebRTC).** The bank's server would start the call and attach a one-time token. To
 simulate it, make a token and pass it as the `idvCallToken` contact attribute when the contact is
@@ -577,7 +574,7 @@ created:
 python3 connect-idv-test-harness/scripts/mint_test_token.py call CUST-001
 ```
 
-The harness skips all three set-up menus and opens with "Hi James, thanks for calling from the app."
+The harness skips every menu and hands straight over at level 3.
 
 > The third variant in the document, **"call me"** (the bank rings the registered number), needs an
 > outbound call and is not covered by this harness.
@@ -585,8 +582,7 @@ The harness skips all three set-up menus and opens with "Hi James, thanks for ca
 ### Option F — What the agent can and cannot do
 
 Option F is not a separate path. It is the rule that the conversation layer orchestrates but never
-decides. You have already seen it working in every test above. The unit tests in
-`OptionF_Guardrails` prove the parts you cannot see on a call:
+decides. The unit tests in `OptionF_Guardrails` prove the parts you cannot see on a call:
 
 | Attempt | Result |
 |---|---|
@@ -595,6 +591,31 @@ decides. You have already seen it working in every test above. The unit tests in
 | A receipt from another call or for another customer | Rejected |
 | A texted-code receipt on a high-risk line | Rejected |
 | Conversation state edited to say "level 3" | Discarded. The harness starts again at level 0 |
+| Any receipt claiming level 4 | Capped at 3. The harness cannot grant level 4 |
+
+### Level 4 — Making a payment (done by ARIA)
+
+This is tested in the conversation with ARIA, after the harness has handed over at level 3. It needs
+the level-aware prompt and the updated auth tool: see
+[ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md#level-4--the-payment-step-up).
+
+1. Reach ARIA at level 3 (quick select is fine: `1`, `1` for James).
+2. Say: "I'd like to make a payment."
+3. ARIA asks who to pay and how much, reads it back, then asks whether anyone told you to move the money.
+4. ARIA says it needs one more security check, and asks for the **date of birth** and the **last
+   four digits of the registered mobile**. The answers are in the test customer table below.
+5. ARIA checks them with a tool. Only a "verified" result makes it level 4.
+6. ARIA has no tool that moves money today, so it hands the verified request to a colleague and
+   does **not** say the payment was made.
+
+| Try | Expected |
+|---|---|
+| Correct answers | "I've completed the security checks. I'll pass you to a colleague who can make the payment." |
+| Wrong answer once, then correct | One retry is allowed |
+| Wrong twice | Payment refused for this call. ARIA never says which answer was wrong. Other requests still work |
+| Answer "yes" to "has anyone asked you to move this money?" | ARIA stops and transfers to the fraud team |
+| Ask for a payment after arriving at level 2 (Option B, Sarah) | Refused: the app or a colleague is offered. No security questions |
+| Ask for your balance | Answered at level 3 with no extra questions |
 
 ---
 
@@ -607,15 +628,14 @@ and security questions are never asked.
 | Attribute you set | Meaning |
 |---|---|
 | `idvSessionToken` | The customer is logged in. Gives level 2 |
-| `idvIntent` | What they want, for example `balance` or `new_payee_payment` |
-| `idvStepUpToken` | They approved **this one request** with their fingerprint in the app. Gives level 3 |
-| `idvTestCustomerId` | Quick select, for example `CUST-004` |
+| `idvStepUpToken` | They also approved with their fingerprint in the app. Gives level 3 |
+| `idvTestCustomerId` | Quick select at level 3, for example `CUST-004` |
 
 Make the tokens:
 
 ```bash
 python3 connect-idv-test-harness/scripts/mint_test_token.py session CUST-002
-python3 connect-idv-test-harness/scripts/mint_test_token.py sca CUST-002 --intent new_payee_payment
+python3 connect-idv-test-harness/scripts/mint_test_token.py sca CUST-002
 ```
 
 Start a chat with attributes. This creates a real chat contact in your instance. Replace
@@ -627,18 +647,19 @@ aws connect start-chat-contact --region eu-west-2 \
     --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
     --contact-flow-id <FLOW_ID> \
     --participant-details DisplayName=Tester \
-    --attributes idvSessionToken='<session token>',idvIntent=new_payee_payment
+    --attributes idvSessionToken='<session token>',idvStepUpToken='<sca token>'
 ```
 
 Then open the contact in **Contact search** and read its attributes.
 
 | Attributes sent | Expected result |
 |---|---|
-| Session token, `idvIntent=balance` | `LoA=2`, `idvDecision=PERMIT`, `customerId=CUST-002` |
-| Session token, `idvIntent=new_payee_payment` | `LoA=2`, `idvDecision=STEP_UP`. Logged in is not enough to pay someone new |
-| Session token + step-up token for the same intent | `LoA=3`, `idvDecision=PERMIT` |
-| Session token + step-up token for a **different** intent or customer | `LoA=2`. The approval is tied to one request |
+| Session token only | `LoA=2`, `idvDecision=STEP_UP`, `customerId=CUST-002` |
+| Session token + step-up token for the same customer | `LoA=3`, `idvDecision=PERMIT` |
+| Session token + a step-up token for a **different** customer | `LoA=2`, reason `STEP_UP_TOKEN_INVALID` |
 | No token | `LoA=0`, `customerId` empty, reason `NO_KBA_OVER_CHAT` |
+
+Payments cannot be stepped up to level 4 in chat. ARIA offers the app or a call instead.
 
 > To watch the conversation instead of reading attributes, use your existing chat widget or
 > [connect-chat-test](../connect-chat-test/) and add the same attributes there. Attributes set by
@@ -651,13 +672,28 @@ Then open the contact in **Contact search** and read its attributes.
 Names, cards and phone numbers come from `session_injector_qconnect.py`. Dates of birth and security
 numbers are test-only additions in `idv_test_data.py`. **All of it is fictional.**
 
+**For the harness** (keyed on the phone):
+
 | Line key | Customer | ID | Date of birth | Card last four | Security digits 2 and 5 | App | Notes |
 |---|---|---|---|---|---|---|---|
-| `1` | James Hartley | CUST-001 | `14031985` | `4821` or `2291` | `81` | Yes, plus tablet | Low risk |
-| `2` | Sarah Chen | CUST-002 | `22071990` | `3317` | `01` | Yes, phone only | Low risk |
+| `1` | James Hartley | CUST-001 | `09091982` | `4821` or `2291` | `81` | Yes, plus tablet | Low risk |
+| `2` | Sarah Chen | CUST-002 | `14031990` | `3317` | `01` | Yes, phone only | Low risk |
 | `3` | Margaret Okonkwo | CUST-003 | `09111958` | `6612` | `60` | Yes, plus tablet | Low risk |
 | `4` | Daniel Walsh | CUST-004 | `30051994` | `7734` | `14` | Yes, phone only | **SIM swap 2 days ago, divert on** |
 | `5` | Ethel Parsons | CUST-005 | `03021941` | `1155` | `57` | **No app** | Low risk |
+
+**For ARIA's payment step-up** (spoken to ARIA). The dates of birth are the same as above.
+
+| Customer | Date of birth to say | Last four of registered mobile |
+|---|---|---|
+| James | 9 September 1982 | `9252` |
+| Sarah | 14 March 1990 | `4471` |
+| Margaret | 9 November 1958 | `0002` |
+| Daniel | 30 May 1994 | `0003` |
+| Ethel | 3 February 1941 | `0004` |
+
+These live in `scripts/lambdas/mcp_tools/aria_auth_handler.py`. A unit test checks the dates of
+birth match the harness.
 
 **Adding a customer.** Add them to `_STUB_CUSTOMERS` and `_PHONE_TO_CUSTOMER` in the injector, then
 redeploy both Lambdas. They appear in the harness menus automatically with a default date of birth
@@ -673,15 +709,15 @@ Set by the harness after every turn. Find them on the contact record.
 |---|---|---|
 | `customerId` | `CUST-001` | Who the caller is. **Empty below level 2** so nothing about a mere candidate can leak |
 | `authStatus` | `authenticated` | `authenticated` at level 2 and above |
-| `LoA` | `3` | Level of assurance, 0 to 3 |
+| `LoA` | `3` | Level of assurance the harness reached, 0 to 3. Level 4 is never set here: ARIA reaches it in conversation |
 | `idvMethod` | `push`, `kba+otp_sms`, `otp_email`, `app_handoff`, `test_quick_select` | How they were verified |
 | `cliRelationship` | `MATCH` | `MATCH` caller owns the line · `MISMATCH` borrowed phone · `NONE` number matched nobody |
 | `riskScore` | `95` | 0 to 100. 50 or more is high risk |
 | `reasonCodes` | `CLI_MATCH,RECEIPT_ACCEPTED_PUSH,PERMIT` | Why each decision was made |
 | `idvStatus` | `verified` | `verified`, `identified` or `anonymous` |
-| `idvIntent` | `change_contact_details` | The last request |
-| `idvDecision` | `PERMIT` | `PERMIT`, `STEP_UP` or `DENY` |
-| `idvObligations` | `NOTIFY_OLD_CHANNEL_24H` | Conditions attached to a PERMIT |
+| `idvIntent` | `servicing` | Always `servicing`: the harness aims for level 3 on every contact |
+| `idvDecision` | `PERMIT` | `PERMIT` level 3 reached · `DENY` not reached · `STEP_UP` chat session still at level 2 |
+| `idvObligations` | `HOLD_72H` | Set on a high-risk line: sensitive changes should be held for review |
 | `idvSummary` | `customer=CUST-001 LoA=3 method=push ...` | One line for quick reading |
 | `idvState` | (long signed text) | The harness's working memory. Ignore it |
 
@@ -696,17 +732,13 @@ Set by the harness after every turn. Find them on the contact record.
 | `SIM_SWAP_RECENT`, `CALL_FORWARDING_ACTIVE`, `INTERNATIONAL_ORIGIN`, `CLI_WITHHELD` | Network signals |
 | `CLI_CANDIDATE_DROPPED` | Caller said the account is not the phone owner's |
 | `CLAIMED_IDENTITY_RESOLVED` / `_NOT_RESOLVED` | Date of birth and card did or did not match one customer |
-| `STEP_UP_REQUIRED` | The request needs a higher level |
-| `RISK_RAISED_REQUIREMENT` | High risk raised the level needed |
+| `STEP_UP_REQUIRED` | Level 3 has not been reached yet |
 | `RECEIPT_ACCEPTED_<METHOD>` | The rules engine accepted a verification |
 | `PUSH_DECLINED` / `PUSH_EXPIRED`, `OTP_FAILED`, `KBA_FAILED` | A verification failed |
-| `STEP_UP_EXHAUSTED` | No allowed method is left |
+| `STEP_UP_EXHAUSTED` | No allowed method is left; handed to ARIA below level 3 |
 | `FRAUD_CASE_RAISED` | High risk and verification failed |
-| `PROTECTIVE_ACTION` | Allowed because it can only protect the customer |
 | `COOLING_OFF_72H` | High-risk change held for review |
-| `THIRD_PARTY_CLAIM` | Caller said they act for someone else |
-| `DEVICE_REPORTED_STOLEN` | Phone removed from push targets |
-| `TEST_QUICK_SELECT_BYPASS` | Quick select was used. No verification happened |
+| `TEST_QUICK_SELECT_BYPASS` | Quick select was used. No verification happened; level 3 was simply assigned |
 | `PREAUTH_TOKEN_INVALID`, `DIAL_CODE_INVALID`, `STEP_UP_TOKEN_INVALID` | A token or code was wrong or expired |
 | `UNAUTHENTICATED_CHAT`, `NO_KBA_OVER_CHAT` | Chat without a session token |
 | `HARNESS_DISABLED`, `HARNESS_SECRET_MISSING`, `HARNESS_ERROR` | The Lambda refused to run or failed |
@@ -784,7 +816,7 @@ The Lambda could not read its saved state, so it started again.
 - **Quick select chose one customer, ARIA greets another.** Check the contact's attributes. If
   `customerId` is correct there, the main flow or its injector is the place to look. If it is wrong
   or missing, check block 4.
-- **You failed verification on purpose, but ARIA greets you by name.** Your real phone number is in
+- **You failed every check on purpose, but ARIA greets you by name.** Your real phone number is in
   the injector's table and the injector has not been redeployed. Complete Part F.
 
 ### ARIA does not greet anyone by name after a successful verification

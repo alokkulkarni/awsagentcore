@@ -26,7 +26,9 @@ normalise_phone = injector._normalise_phone
 # ---------------------------------------------------------------------------
 # ID&V profiles — keyed by the injector's customer IDs
 # ---------------------------------------------------------------------------
-# dob                    DDMMYYYY, keyed on the phone keypad for claimed identity
+# dob                    DDMMYYYY, keyed on the phone keypad for claimed identity.
+#                        Kept identical to scripts/lambdas/mcp_tools/aria_auth_handler.py,
+#                        which ARIA uses for its payment step-up (a unit test compares them).
 # security_number        6 digits; KBA asks for the 2nd and 5th
 # app_enrolled           customer has the bank app with a device-bound key
 # app_on_second_device   app also on a tablet (reachable when the phone is not)
@@ -36,12 +38,12 @@ normalise_phone = injector._normalise_phone
 # tenure_days            how long the number has been with this subscriber
 IDV_TEST_PROFILES: dict[str, dict] = {
     "CUST-001": {
-        "dob": "14031985", "security_number": "482916",
+        "dob": "09091982", "security_number": "482916",
         "app_enrolled": True, "app_on_second_device": True, "device_bound_days_ago": 400,
         "sim_swap_days_ago": None, "call_forwarding": False, "tenure_days": 2100,
     },
     "CUST-002": {
-        "dob": "22071990", "security_number": "305718",
+        "dob": "14031990", "security_number": "305718",
         "app_enrolled": True, "app_on_second_device": False, "device_bound_days_ago": 250,
         "sim_swap_days_ago": None, "call_forwarding": False, "tenure_days": 900,
     },

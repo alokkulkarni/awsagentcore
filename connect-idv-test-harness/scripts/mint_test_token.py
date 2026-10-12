@@ -21,8 +21,8 @@ Usage:
     # Option E — authenticated chat: set as the idvSessionToken contact attribute
     python3 mint_test_token.py session CUST-002
 
-    # Option E — in-chat step-up bound to one request: set as idvStepUpToken
-    python3 mint_test_token.py sca CUST-002 --intent new_payee_payment
+    # Option E — in-app approval that lifts the chat to level 3: set as idvStepUpToken
+    python3 mint_test_token.py sca CUST-002
 """
 
 import argparse
@@ -40,15 +40,13 @@ def main() -> None:
     parser.add_argument("kind", choices=["call", "session", "sca", "dial-code"])
     parser.add_argument("customer_id", help="for example CUST-001")
     parser.add_argument("--loa", type=int, default=None, help="level carried by the token (call: 3, session: 2)")
-    parser.add_argument("--intent", default="", help="required for sca, for example new_payee_payment")
+    parser.add_argument("--intent", default="servicing", help=argparse.SUPPRESS)
     parser.add_argument("--ttl", type=int, default=300, help="seconds until the token expires (default 300)")
     args = parser.parse_args()
 
     secret = os.environ.get("IDV_TEST_SIGNING_SECRET", "")
     if len(secret) < 16:
         sys.exit("Set IDV_TEST_SIGNING_SECRET to the same value as the Lambda's environment variable.")
-    if args.kind == "sca" and not args.intent:
-        sys.exit("--intent is required for an sca token (the approval is bound to one request).")
 
     if args.kind == "dial-code":
         print(idv_tokens.dial_code_for(args.customer_id, secret))
