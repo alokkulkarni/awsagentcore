@@ -788,8 +788,8 @@ number to pick**, the same check the ID&V harness uses to reach level 3.
 | 3 | The ID&V harness, on every contact | Everything ARIA can do **except** a payment |
 | 4 | ARIA, in conversation, only when a payment is asked for | That one payment |
 
-It has four parts, and they must be done in this order: the Lambda, the gateway, the AI agent's
-tool list, then the prompt.
+It has four parts, and they must be done in this order: the Lambda and the gateway (one script),
+the AI agent's tool list, then the prompt.
 
 ### What ARIA does when asked to make a payment
 
@@ -815,53 +815,35 @@ offered a colleague. No date of birth or mobile digits are asked. It works on vo
 > it calls the checking tool. In production the app reports to the bank directly and ARIA only
 > learns the outcome. Treat this as a way to test the conversation, not as the real control.
 
-### Part 1 — Deploy the auth Lambda
-
-`scripts/lambdas/mcp_tools/aria_auth_handler.py` gains two tools, `send_push_challenge` and
-`verify_push_challenge`. It also fixes the existing `validate_customer_auth` (used for
-unauthenticated callers): it now reads the date of birth from `dob`, the name the tool schema
-sends, accepts common date formats, and knows all five test customers.
-
-**Deploying it needs care. Read this before running anything.**
-
-The live Lambda, `aria-banking-mcp-auth-prod`, was last deployed on 10 April 2026. On 24 May the
-repository file gained a safety switch: it returns an error unless the Lambda has the environment
-variable `MOCK_DATA=true`. The live Lambda does not have that variable (it only has `ARIA_DOMAIN`
-and `ARIA_ENV`), because it predates the switch. If you deploy the new code and do nothing else,
-every auth tool returns *"No data source configured"*.
-
-1. Set the variable first. It is harmless to the code that is running now:
-
-   ```bash
-   aws lambda update-function-configuration --function-name aria-banking-mcp-auth-prod \
-       --region eu-west-2 \
-       --environment 'Variables={ARIA_DOMAIN=<current value>,ARIA_ENV=<current value>,MOCK_DATA=true}'
-   ```
-
-   Read the two current values from the Lambda console (**Configuration → Environment variables**)
-   and keep them. This command replaces the whole set, so anything you leave out is removed.
-
-2. Then deploy the code:
-
-   ```bash
-   ./scripts/deploy_mcp_gateway.sh update-lambdas --env prod --region eu-west-2
-   ```
-
-> **`update-lambdas` redeploys all ten tool Lambdas, not only the auth one.** Two other handler
-> files have the same safety switch: `aria_account_handler.py` (balances, transactions) and
-> `aria_customer_handler.py` (customer details). If their Lambdas also predate it, they will start
-> returning the same error. Check each one's environment variables first, or deploy only the auth
-> Lambda by hand: zip `aria_auth_handler.py` as `handler.py` and upload it to
-> `aria-banking-mcp-auth-prod`.
-
-### Part 2 — Tell the gateway about the two new tools
-
-A tool exists for ARIA only when the MCP gateway lists it. The tool definitions are already added
-to `scripts/deploy_mcp_gateway.sh`. Publish them:
+### Parts 1 and 2 — Deploy the Lambda and update the gateway (one script)
 
 ```bash
-./scripts/deploy_mcp_gateway.sh update-targets --env prod --region eu-west-2
+./connect-idv-test-harness/scripts/deploy_payment_stepup_tools.sh --dry-run   # see what it would do
+./connect-idv-test-harness/scripts/deploy_payment_stepup_tools.sh             # do it
 ```
+
+It needs the AWS CLI only, not boto3, and it stops at the first thing that fails. In order, it:
+
+| Step | What it does | Why |
+|---|---|---|
+| 1 | Sets `MOCK_DATA=true` on the auth, account and customer Lambdas, keeping every variable they already have | Their code returns *"No data source configured"* without it |
+| 2 | Uploads `aria_auth_handler.py` to `aria-banking-mcp-auth-prod` only | Adds `send_push_challenge` and `verify_push_challenge`, and fixes `validate_customer_auth` |
+| 3 | Invokes the Lambda to check a challenge is sent, the right number is approved, a wrong number is rejected, and the existing security check still works | So a broken deploy is caught here, not on a call |
+| 4 | Adds the two tool definitions to the `aria-banking-auth` target on the MCP gateway and waits for it to be ready | A tool exists for ARIA only when the gateway lists it. The target's four existing tools are left exactly as they are |
+
+It is safe to run more than once. Use `--skip-mock-data`, `--skip-code` or `--skip-gateway` to run
+part of it.
+
+> **Why `MOCK_DATA` matters.** The repository handlers gained a safety switch on 24 May 2026: they
+> answer with an error unless the Lambda has `MOCK_DATA=true`. Lambdas deployed before that date
+> had no such switch, so redeploying any of them from the repository without setting the variable
+> breaks its tools. Three handlers have the switch: auth, account and customer. **If you ran
+> `deploy_mcp_gateway.sh update-lambdas` and ARIA can no longer look up customers or balances, this
+> is the cause, and step 1 of this script is the fix.**
+
+> **Why not `deploy_mcp_gateway.sh update-targets`?** It needs boto3, and it rewrites the tool
+> definitions of all ten targets from the script's own copy. This script changes one target and
+> only adds to it.
 
 ### Part 3 — Add the two tools to the AI agent
 
@@ -872,7 +854,8 @@ to `scripts/deploy_mcp_gateway.sh`. Publish them:
 4. Leave their instructions empty: the prompt tells ARIA how to use them.
 5. Do **not** publish yet. Go on to Part 4, then publish once.
 
-If the two tools are not offered in the list, the gateway has not picked them up: recheck Part 2.
+If the two tools are not offered in the list, remove the `aria-banking-mcp-gateway-prod` MCP
+integration from the agent and add it again. Connect caches a gateway's tool list.
 
 ### Part 4 — The prompt
 
