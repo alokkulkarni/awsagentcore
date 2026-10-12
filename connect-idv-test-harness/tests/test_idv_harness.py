@@ -405,35 +405,76 @@ class OptionF_Guardrails(unittest.TestCase):
 
 
 class PaymentStepUpTool(unittest.TestCase):
-    """Level 4 is ARIA's job: it calls validate_customer_auth and trusts only `verified: true`."""
+    """Level 4 is ARIA's job: an app push with number matching, decided by a tool."""
 
-    def validate(self, **params):
-        return auth_tool._cross_validate(params)
+    def send(self, customer=JAMES, payee="Thames Water", amount="250.00"):
+        return auth_tool._send_push_challenge({"customer_id": customer, "payee": payee, "amount": amount})
 
-    def test_both_answers_must_match(self):
-        self.assertTrue(self.validate(customer_id=JAMES, dob="09/09/1982", mobile_last_four="9252")["verified"])
-        self.assertFalse(self.validate(customer_id=JAMES, dob="09/09/1982", mobile_last_four="0000")["verified"])
-        self.assertFalse(self.validate(customer_id=JAMES, dob="01/01/1990", mobile_last_four="9252")["verified"])
-        self.assertFalse(self.validate(customer_id=JAMES, mobile_last_four="9252")["verified"])
-        self.assertFalse(self.validate(customer_id="CUST-999", dob="09/09/1982", mobile_last_four="9252")["verified"])
+    def verify(self, challenge, number, customer=JAMES):
+        return auth_tool._verify_push_challenge(
+            {"customer_id": customer, "challenge_id": challenge["challenge_id"], "selected_number": number})
 
-    def test_failure_does_not_say_which_detail_was_wrong(self):
-        wrong_dob = self.validate(customer_id=JAMES, dob="01/01/1990", mobile_last_four="9252")
-        wrong_mobile = self.validate(customer_id=JAMES, dob="09/09/1982", mobile_last_four="0000")
-        self.assertEqual(wrong_dob, wrong_mobile)
+    def test_correct_number_is_the_only_way_to_verified_true(self):
+        challenge = self.send()
+        self.assertTrue(challenge["sent"])
+        self.assertRegex(challenge["match_number"], r"^[1-9][0-9]$")
+        approved = self.verify(challenge, challenge["match_number"])
+        self.assertEqual((approved["verified"], approved["status"]), (True, "APPROVED"))
 
-    def test_date_of_birth_is_accepted_in_the_forms_a_model_may_send(self):
-        for spoken in ("09/09/1982", "9/9/1982", "09-09-1982", "09091982", "1982-09-09", "09.09.1982"):
-            self.assertTrue(self.validate(customer_id=JAMES, dob=spoken, mobile_last_four="9252")["verified"], spoken)
-        self.assertTrue(self.validate(customer_id=JAMES, date_of_birth="09/09/1982", mobile_last_four="9252")["verified"])
+        wrong = str(10 + (int(challenge["match_number"]) - 9) % 90)
+        self.assertEqual(self.verify(challenge, wrong), {"verified": False, "status": "DECLINED"})
+        self.assertEqual(self.verify(challenge, ""), {"verified": False, "status": "NO_RESPONSE"})
+        self.assertEqual(self.verify(challenge, "0"), {"verified": False, "status": "DECLINED"})
 
-    def test_every_test_customer_can_step_up_and_dates_match_the_harness(self):
+    def test_approval_is_bound_to_the_payment_it_was_raised_for(self):
+        challenge = self.send(payee="Thames Water", amount="250.00")
+        approved = self.verify(challenge, challenge["match_number"])
+        self.assertEqual((approved["payee"], approved["amount"]), ("Thames Water", "250.00"))
+
+    def test_spoken_forms_of_the_number_are_accepted(self):
+        challenge = self.send()
+        number = challenge["match_number"]
+        for spoken in (number, f" {number} ", f"{number[0]} {number[1]}", f"number {number}"):
+            self.assertTrue(self.verify(challenge, spoken)["verified"], spoken)
+
+    def test_challenge_cannot_be_forged_reused_for_another_customer_or_used_late(self):
+        challenge = self.send(JAMES)
+        number = challenge["match_number"]
+        self.assertEqual(self.verify(challenge, number, customer=SARAH)["status"], "INVALID")
+        tampered = dict(challenge, challenge_id=challenge["challenge_id"][:-2] + "xx")
+        self.assertEqual(self.verify(tampered, number)["status"], "INVALID")
+        self.assertEqual(self.verify({"challenge_id": "not-a-token"}, number)["status"], "INVALID")
+
+        real_time = auth_tool.time.time
+        auth_tool.time.time = lambda: real_time() + auth_tool.PUSH_CHALLENGE_TTL_SECONDS + 1
+        try:
+            self.assertEqual(self.verify(challenge, number)["status"], "EXPIRED")
+        finally:
+            auth_tool.time.time = real_time
+
+    def test_each_challenge_has_its_own_number(self):
+        numbers = {self.send()["match_number"] for _ in range(40)}
+        self.assertGreater(len(numbers), 5)
+
+    def test_customer_without_the_app_cannot_be_sent_a_push(self):
+        self.assertEqual(self.send(ETHEL), {"sent": False, "reason": "no_registered_app"})
+        self.assertFalse(self.send("CUST-999")["sent"])
+
+    def test_app_enrolment_matches_the_harness(self):
         for customer in data.customer_ids():
-            record = auth_tool._MOCK_CUSTOMERS[customer]
-            self.assertEqual(auth_tool._normalise_dob(record["dob"]), data.profile_for(customer)["dob"], customer)
+            self.assertEqual(auth_tool._MOCK_CUSTOMERS[customer]["app_enrolled"],
+                             data.profile_for(customer)["app_enrolled"], customer)
+
+    def test_knowledge_check_still_works_for_unauthenticated_callers(self):
+        check = auth_tool._cross_validate
+        self.assertTrue(check({"customer_id": JAMES, "dob": "09/09/1982", "mobile_last_four": "9252"})["verified"])
+        self.assertFalse(check({"customer_id": JAMES, "dob": "09/09/1982", "mobile_last_four": "0000"})["verified"])
+        for spoken in ("9/9/1982", "09091982", "1982-09-09"):
+            self.assertTrue(check({"customer_id": JAMES, "dob": spoken, "mobile_last_four": "9252"})["verified"])
+        for customer in data.customer_ids():
+            self.assertEqual(auth_tool._normalise_dob(auth_tool._MOCK_CUSTOMERS[customer]["dob"]),
+                             data.profile_for(customer)["dob"], customer)
             self.assertEqual(CLAIM[customer][0], data.profile_for(customer)["dob"])
-            self.assertTrue(self.validate(customer_id=customer, dob=record["dob"],
-                                          mobile_last_four=record["mobile_last_four"])["verified"])
 
 
 class SessionInjectorHandoff(unittest.TestCase):

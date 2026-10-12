@@ -71,14 +71,15 @@ The document splits "who is this?" into three separate questions. The harness ke
 | 1 | Identified | We have a candidate, but no proof | Protective actions, such as freezing a card |
 | 2 | Verified | One proof: a one-time code, or a security question | Balances |
 | 3 | Strongly verified | Approval in the bank app, or two proofs on your own phone | Everything ARIA can do, except a payment |
-| 4 | Payment | Level 3, **plus** an extra security check at the moment of paying | Making a payment |
+| 4 | Payment | Level 3, **plus** approving that payment in the bank app | Making a payment |
 
 **The harness aims for level 3 on every call.** It does not ask what you want first. You arrive at
 ARIA already strongly verified, and ARIA takes it from there.
 
 **Level 4 is not done by the harness.** It is needed only to make a payment, and ARIA does it inside
-the conversation: when you ask to pay someone, ARIA asks two more security questions and checks the
-answers with a tool. Level 4 lasts for that one payment only.
+the conversation: when you ask to pay someone, ARIA sends an approval request to your bank app with
+a two-digit number to pick, exactly as the harness does for level 3, and checks the result with a
+tool. Level 4 lasts for that one payment only.
 
 ### What is a receipt?
 
@@ -161,7 +162,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON if your IDs differ |
 | [scripts/deploy_idv_test_harness.sh](scripts/deploy_idv_test_harness.sh) | Creates the Lambda. **You** run it |
 | [scripts/mint_test_token.py](scripts/mint_test_token.py) | Makes test tokens for Options D and E |
-| [tests/](tests/) | 55 unit tests: each ID&V option, the guardrails, contact-reason disclosure and the payment step-up tool |
+| [tests/](tests/) | 59 unit tests: each ID&V option, the guardrails, contact-reason disclosure and the payment step-up tool |
 
 One file outside this folder also changed:
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
@@ -202,7 +203,7 @@ From the repository root:
 python3 -m unittest discover -s connect-idv-test-harness/tests -v
 ```
 
-You should see `Ran 55 tests` and `OK`. Two log lines that look like errors are expected: they come
+You should see `Ran 59 tests` and `OK`. Two log lines that look like errors are expected: they come
 from the tests that check the kill switch and the tampered-state protection.
 
 > **What just happened?** Each test pretends to be Amazon Connect. It invokes the Lambda code with
@@ -596,26 +597,34 @@ decides. The unit tests in `OptionF_Guardrails` prove the parts you cannot see o
 ### Level 4 — Making a payment (done by ARIA)
 
 This is tested in the conversation with ARIA, after the harness has handed over at level 3. It needs
-the level-aware prompt and the updated auth tool: see
+the level-aware prompt and the two app-push tools: see
 [ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md#level-4--the-payment-step-up).
 
 1. Reach ARIA at level 3 (quick select is fine: `1`, `1` for James).
 2. Say: "I'd like to make a payment."
 3. ARIA asks who to pay and how much, reads it back, then asks whether anyone told you to move the money.
-4. ARIA says it needs one more security check, and asks for the **date of birth** and the **last
-   four digits of the registered mobile**. The answers are in the test customer table below.
-5. ARIA checks them with a tool. Only a "verified" result makes it level 4.
-6. ARIA has no tool that moves money today, so it hands the verified request to a colleague and
+4. ARIA says: "I've sent a notification to your app. Open it, choose **four seven**, then confirm
+   with your face or fingerprint. Let me know the number you chose."
+5. **Say the number back** ("four seven"). No notification is really sent, so telling ARIA the
+   number stands in for picking it in the app and approving with your fingerprint.
+6. ARIA passes what you said to a tool. Only an "approved" result from the tool makes it level 4.
+7. ARIA has no tool that moves money today, so it hands the approved request to a colleague and
    does **not** say the payment was made.
 
 | Try | Expected |
 |---|---|
-| Correct answers | "I've completed the security checks. I'll pass you to a colleague who can make the payment." |
-| Wrong answer once, then correct | One retry is allowed |
-| Wrong twice | Payment refused for this call. ARIA never says which answer was wrong. Other requests still work |
-| Answer "yes" to "has anyone asked you to move this money?" | ARIA stops and transfers to the fraud team |
-| Ask for a payment after arriving at level 2 (Option B, Sarah) | Refused: the app or a colleague is offered. No security questions |
-| Ask for your balance | Answered at level 3 with no extra questions |
+| Say the number ARIA read out | "Thank you, that's approved. I'll pass you to a colleague who can make the payment." |
+| Say a different number | Refused straight away: a wrong pick is treated as a decline. ARIA never says which number was expected |
+| Say "nothing came through" | "I haven't seen that come through." One new request with a **new** number. A second failure refuses the payment |
+| Answer "yes" to "has anyone asked you to move this money?" | ARIA stops and transfers to the fraud team. No request is sent |
+| Ask as **Ethel** (quick select `1`, `5`) | She has no app, so no request can be sent. ARIA offers a colleague and asks no security questions |
+| Ask for a payment after arriving at level 2 (Option B, Sarah) | Refused: the app or a colleague is offered. No request is sent |
+| Ask for your balance | Answered at level 3 with no approval needed |
+
+> **One difference from a real app.** In production the app tells the bank directly that you picked
+> the right number; ARIA never hears it from you. Here you say it aloud, so ARIA has already seen
+> the right answer when it calls the tool. The tool still makes the decision, but this is a test
+> stand-in and must not be mistaken for the real control.
 
 ---
 
@@ -659,7 +668,7 @@ Then open the contact in **Contact search** and read its attributes.
 | Session token + a step-up token for a **different** customer | `LoA=2`, reason `STEP_UP_TOKEN_INVALID` |
 | No token | `LoA=0`, `customerId` empty, reason `NO_KBA_OVER_CHAT` |
 
-Payments cannot be stepped up to level 4 in chat. ARIA offers the app or a call instead.
+The payment step-up works in chat as well: ARIA shows the number in the chat and you type it back.
 
 > To watch the conversation instead of reading attributes, use your existing chat widget or
 > [connect-chat-test](../connect-chat-test/) and add the same attributes there. Attributes set by
@@ -682,18 +691,20 @@ numbers are test-only additions in `idv_test_data.py`. **All of it is fictional.
 | `4` | Daniel Walsh | CUST-004 | `30051994` | `7734` | `14` | Yes, phone only | **SIM swap 2 days ago, divert on** |
 | `5` | Ethel Parsons | CUST-005 | `03021941` | `1155` | `57` | **No app** | Low risk |
 
-**For ARIA's payment step-up** (spoken to ARIA). The dates of birth are the same as above.
+**For ARIA.** The payment step-up needs no answers from this table: you repeat the number ARIA
+reads out. Ethel has no app, so she cannot approve a payment. The details below are only for ARIA's
+existing check of an *unauthenticated* caller (date of birth and mobile digits).
 
-| Customer | Date of birth to say | Last four of registered mobile |
-|---|---|---|
-| James | 9 September 1982 | `9252` |
-| Sarah | 14 March 1990 | `4471` |
-| Margaret | 9 November 1958 | `0002` |
-| Daniel | 30 May 1994 | `0003` |
-| Ethel | 3 February 1941 | `0004` |
+| Customer | Date of birth to say | Last four of registered mobile | App for payment approval |
+|---|---|---|---|
+| James | 9 September 1982 | `9252` | Yes |
+| Sarah | 14 March 1990 | `4471` | Yes |
+| Margaret | 9 November 1958 | `0002` | Yes |
+| Daniel | 30 May 1994 | `0003` | Yes |
+| Ethel | 3 February 1941 | `0004` | **No** |
 
-These live in `scripts/lambdas/mcp_tools/aria_auth_handler.py`. A unit test checks the dates of
-birth match the harness.
+These live in `scripts/lambdas/mcp_tools/aria_auth_handler.py`. Unit tests check the dates of birth
+and app enrolment match the harness.
 
 **Adding a customer.** Add them to `_STUB_CUSTOMERS` and `_PHONE_TO_CUSTOMER` in the injector, then
 redeploy both Lambdas. They appear in the harness menus automatically with a default date of birth

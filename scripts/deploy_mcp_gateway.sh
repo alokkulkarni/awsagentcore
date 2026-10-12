@@ -1656,6 +1656,50 @@ DOMAIN_TOOLS = {
             }
         },
         {
+            "name": "send_push_challenge",
+            "description": "Sends an approval request with a two-digit match number to the customer's registered banking app, for one payment. Returns the number to read out and a challenge_id",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID from the session context"
+                    },
+                    "payee": {
+                        "type": "string",
+                        "description": "Who the payment is to, as confirmed by the customer"
+                    },
+                    "amount": {
+                        "type": "string",
+                        "description": "Payment amount, as confirmed by the customer, e.g. 250.00"
+                    }
+                },
+                "required": ["customer_id", "payee", "amount"]
+            }
+        },
+        {
+            "name": "verify_push_challenge",
+            "description": "Checks the outcome of an app approval request. Returns verified true only when the customer approved with the correct match number",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID from the session context"
+                    },
+                    "challenge_id": {
+                        "type": "string",
+                        "description": "The challenge_id returned by send_push_challenge, unchanged"
+                    },
+                    "selected_number": {
+                        "type": "string",
+                        "description": "The two-digit number the customer says they chose in the app. Empty if they chose nothing"
+                    }
+                },
+                "required": ["customer_id", "challenge_id"]
+            }
+        },
+        {
             "name": "cross_validate_session_identity",
             "description": "Checks that the session identity is consistent with the authenticated customer",
             "inputSchema": {

@@ -779,68 +779,56 @@ The test reasons for every customer are in `_STUB_CONTACT_REASONS` in
 
 ## Level 4 — The Payment Step-Up
 
-This is a second, later change to the prompt. It makes ARIA aware of the level of assurance the
-ID&V flow reached, and adds a payment step-up that ARIA runs itself.
+This is a second, later change. It makes ARIA aware of the level of assurance the ID&V flow reached,
+and adds a payment step-up that ARIA runs itself: **an approval in the customer's banking app with a
+number to pick**, the same check the ID&V harness uses to reach level 3.
 
 | Level | Reached by | Allows |
 |---|---|---|
 | 3 | The ID&V harness, on every contact | Everything ARIA can do **except** a payment |
 | 4 | ARIA, in conversation, only when a payment is asked for | That one payment |
 
-**The complete prompt with this change is
-[prompts/aria-orchestration-prompt-v15.yaml](prompts/aria-orchestration-prompt-v15.yaml).** It is
-your live version 14 plus the six edits below. Paste the whole file over the prompt in Connect; it
-is easier and safer than making the edits one by one.
-
-| # | Where | What changes |
-|---|---|---|
-| 1 | `## Agent Identity` | "You cannot make payments" becomes "a payment request is handled only through the Level 4 payment step-up" |
-| 2 | `## Session Context` | One line describing `loa` |
-| 3 | Inside `<customer_context>` | Adds `- Level of Assurance …: {{$.Custom.loa}}` and **removes** `- Prior Contact ID: {{$.Custom.priorContactId}}`. The prompt can hold only 19 custom variables, and `priorContactId` was bound but used by no rule. The count stays at 19 |
-| 4 | Directly under `## Authentication Gate` | A new `<assurance_levels>` block: what each level allows, and the ten-step payment step-up |
-| 5 | `## Security Guardrails` | Four bullets: level 4 only on `verified: true`; no payment below level 3; never claim a payment was made; never say level numbers |
-| 6 | `<response_examples>` | Four examples covering the payment conversation |
+It has four parts, and they must be done in this order: the Lambda, the gateway, the AI agent's
+tool list, then the prompt.
 
 ### What ARIA does when asked to make a payment
 
-1. Checks the customer is at level 3. If not, it offers the app or a colleague and asks no questions.
+1. Checks the customer is at level 3. If not, it offers the app or a colleague.
 2. Asks who to pay and how much, and reads both back.
 3. Asks once: "has anyone asked you to move this money, or told you what to say to us today?" A
    "yes" or a hesitant answer stops everything and goes to the fraud team.
-4. Says it needs one more security check, then asks for the date of birth and the last four digits
-   of the registered mobile, one at a time.
-5. Calls the `validate_customer_auth` tool. **Only `verified: true` from the tool makes it level
-   4.** Nothing the customer says can replace that.
-6. Confirms the payee and amount once more.
-7. Has no tool that moves money today, so it hands the verified request to a colleague with a
-   summary beginning "Level 4 payment step-up passed." It does not say the payment was made.
+4. Calls the tool `send_push_challenge`, which returns a two-digit number.
+5. Says: "I've sent a notification to your app. Open it, choose four seven, then confirm with your
+   face or fingerprint. Let me know the number you chose."
+6. Passes the number the customer says to the tool `verify_push_challenge`. **Only
+   `verified: true` from the tool makes it level 4.**
+7. Has no tool that moves money today, so it hands the approved request to a colleague with a
+   summary beginning "Level 4 payment step-up passed (app approval)." It does not say the payment
+   was made.
 
-Level 4 covers that single payment. A second payment needs the step-up again. Two wrong attempts
-refuse the payment for the call, without saying which answer was wrong. On chat the step-up is not
-offered: ARIA suggests the app or a call.
+Level 4 covers that single payment. "Nothing came through" gets one new request with a new number.
+A wrong number is treated as a decline and refuses the payment. A customer with no app (Ethel) is
+offered a colleague. No date of birth or mobile digits are asked. It works on voice and in chat.
 
-### Lambda change this depends on
+> **This is a simulation of an app approval.** No notification is sent. The customer telling ARIA
+> the number stands in for picking it in the app, which means ARIA has seen the right answer before
+> it calls the checking tool. In production the app reports to the bank directly and ARIA only
+> learns the outcome. Treat this as a way to test the conversation, not as the real control.
 
-`scripts/lambdas/mcp_tools/aria_auth_handler.py` (the function behind `validate_customer_auth`):
+### Part 1 — Deploy the auth Lambda
 
-- It now reads the date of birth from `dob`, the name the tool schema actually sends. Before, it
-  read `date_of_birth`, so a correct answer could never match.
-- It accepts the date in any common form ("09/09/1982", "9 September 1982" once the model converts
-  it, "1982-09-09", "09091982") instead of needing one exact string.
-- It knows all five test customers, not two.
+`scripts/lambdas/mcp_tools/aria_auth_handler.py` gains two tools, `send_push_challenge` and
+`verify_push_challenge`. It also fixes the existing `validate_customer_auth` (used for
+unauthenticated callers): it now reads the date of birth from `dob`, the name the tool schema
+sends, accepts common date formats, and knows all five test customers.
 
 **Deploying it needs care. Read this before running anything.**
 
 The live Lambda, `aria-banking-mcp-auth-prod`, was last deployed on 10 April 2026. On 24 May the
 repository file gained a safety switch: it returns an error unless the Lambda has the environment
 variable `MOCK_DATA=true`. The live Lambda does not have that variable (it only has `ARIA_DOMAIN`
-and `ARIA_ENV`), because it predates the switch.
-
-So if you deploy the new code and do nothing else, `validate_customer_auth` returns *"No data
-source configured"* on every call, and ARIA can neither authenticate an unauthenticated caller nor
-complete a payment step-up.
-
-Do both of these, in this order:
+and `ARIA_ENV`), because it predates the switch. If you deploy the new code and do nothing else,
+every auth tool returns *"No data source configured"*.
 
 1. Set the variable first. It is harmless to the code that is running now:
 
@@ -861,21 +849,57 @@ Do both of these, in this order:
 
 > **`update-lambdas` redeploys all ten tool Lambdas, not only the auth one.** Two other handler
 > files have the same safety switch: `aria_account_handler.py` (balances, transactions) and
-> `aria_customer_handler.py` (customer details). If their Lambdas also
-> predate it, they will start returning the same error. Check each one's environment variables
-> first, or deploy only the auth Lambda by hand: zip `aria_auth_handler.py` as `handler.py` and
-> upload it to `aria-banking-mcp-auth-prod`.
+> `aria_customer_handler.py` (customer details). If their Lambdas also predate it, they will start
+> returning the same error. Check each one's environment variables first, or deploy only the auth
+> Lambda by hand: zip `aria_auth_handler.py` as `handler.py` and upload it to
+> `aria-banking-mcp-auth-prod`.
 
-**This Lambda also serves ARIA's existing check for unauthenticated callers**, so the fix changes
-that path too: answers that could not match before can now match.
+### Part 2 — Tell the gateway about the two new tools
+
+A tool exists for ARIA only when the MCP gateway lists it. The tool definitions are already added
+to `scripts/deploy_mcp_gateway.sh`. Publish them:
+
+```bash
+./scripts/deploy_mcp_gateway.sh update-targets --env prod --region eu-west-2
+```
+
+### Part 3 — Add the two tools to the AI agent
+
+1. Connect admin website → **AI agent designer** → **AI agents** → `my-conversation-agent` → **Edit**.
+2. In the **Tools** section choose **Add tool**.
+3. From the banking auth group (it already provides `initiate_customer_auth` and
+   `validate_customer_auth`) add `send_push_challenge` and `verify_push_challenge`.
+4. Leave their instructions empty: the prompt tells ARIA how to use them.
+5. Do **not** publish yet. Go on to Part 4, then publish once.
+
+If the two tools are not offered in the list, the gateway has not picked them up: recheck Part 2.
+
+### Part 4 — The prompt
+
+The complete prompt is
+[prompts/aria-orchestration-prompt-v15.yaml](prompts/aria-orchestration-prompt-v15.yaml). It is your
+live version 14 plus these edits. Paste the whole file over the prompt in Connect.
+
+| # | Where | What changes |
+|---|---|---|
+| 1 | `## Agent Identity` | "You cannot make payments" becomes "a payment request is handled only through the Level 4 payment step-up" |
+| 2 | `## Session Context` | One line describing `loa`. `priorContactId` removed from the transfer line |
+| 3 | Inside `<customer_context>` | Adds `- Level of Assurance …: {{$.Custom.loa}}` and **removes** `- Prior Contact ID: {{$.Custom.priorContactId}}`. The prompt can hold only 19 custom variables, and `priorContactId` was bound but used by no rule. The count stays at 19 |
+| 4 | Directly under `## Authentication Gate` | A new `<assurance_levels>` block: what each level allows, and the payment step-up by app approval |
+| 5 | `<tool_usage_strategy>` | One line naming the two payment-approval tools |
+| 6 | `## Security Guardrails` | Level 4 only on `verify_push_challenge` returning `verified: true`; never supply the match number itself; never ask security questions for a payment; no payment below level 3; never claim a payment was made; never say level numbers |
+| 7 | `<response_examples>` | Five examples covering the payment conversation |
+
+Then publish the prompt, set the agent to the new prompt version and publish the agent (this also
+publishes the tools from Part 3), and move the flow's two agent references to the new agent version
+([Parts D to F](#part-d--save-and-publish-the-prompt)).
 
 ### Flow changes
 
 **None are required.** ARIA does the step-up with tools inside the conversation, and the hand-over
-to a colleague uses the existing *Escalate* branch of `conversation bot flow`.
-
-As with any prompt change you must publish the prompt, publish a new agent version, and move the
-flow's two agent references to it ([Parts D to F](#part-d--save-and-publish-the-prompt)).
+to a colleague uses the existing *Escalate* branch of `conversation bot flow`. The only flow edit is
+the usual one: the agent version in the first Connect assistant block and in the Lex block's
+`x-amz-lex:q-in-connect:ai-agent-arn` session attribute.
 
 ### Things to know
 
@@ -883,9 +907,9 @@ flow's two agent references to it ([Parts D to F](#part-d--save-and-publish-the-
   only in the conversation and in the escalation summary.
 - **The prompt names tools ARIA does not have.** Version 14 refers to `pii_detect_and_redact`,
   `pii_vault_store`, `cross_validate_session_identity`, `escalate_to_human_agent` and
-  `request_channel_transfer`. None is among the agent's 21 configured tools. This is not new and was
+  `request_channel_transfer`. None is among the agent's configured tools. This is not new and was
   not changed, but it means those instructions cannot be followed as written.
-- **Size.** The prompt grows from about 71,000 to about 78,000 characters. If Connect refuses to
+- **Size.** The prompt grows from about 71,000 to about 80,000 characters. If Connect refuses to
   save it, shorten the `<knowledge_base_retrieval>` block.
 
 ## How to Undo Everything

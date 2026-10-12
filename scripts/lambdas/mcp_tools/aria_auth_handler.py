@@ -5,16 +5,24 @@ Invoked by AgentCore MCP Gateway on behalf of Amazon Connect Agentic Self-Servic
 The toolName field in the event payload determines which operation is performed.
 
 Tools exposed via MCP:
-  - initiate_auth      — begins a customer authentication session
-  - validate_customer  — verifies a customer ID exists in the system
-  - cross_validate     — validates DOB + last 4 mobile digits against records
-  - verify_identity    — confirms identity match before data access
+  - initiate_auth          — begins a customer authentication session
+  - validate_customer      — verifies a customer ID exists in the system
+  - cross_validate         — validates DOB + last 4 mobile digits against records
+  - verify_identity        — confirms identity match before data access
+  - send_push_challenge    — sends a number-matching approval to the customer's app
+  - verify_push_challenge  — checks the outcome of that approval (payment step-up)
 
 Environment variables:
   BANKING_API_URL  — optional; Meridian Bank identity service base URL
 """
 
 from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import time
+import uuid
 
 import json
 import logging
@@ -34,30 +42,35 @@ if _MOCK_DATA:
             "name": "James",
             "dob": "09/09/1982",
             "mobile_last_four": "9252",
+            "app_enrolled": True,
             "status": "active",
         },
         "CUST-002": {
             "name": "Sarah",
             "dob": "14/03/1990",
             "mobile_last_four": "4471",
+            "app_enrolled": True,
             "status": "active",
         },
         "CUST-003": {
             "name": "Margaret",
             "dob": "09/11/1958",
             "mobile_last_four": "0002",
+            "app_enrolled": True,
             "status": "active",
         },
         "CUST-004": {
             "name": "Daniel",
             "dob": "30/05/1994",
             "mobile_last_four": "0003",
+            "app_enrolled": True,
             "status": "active",
         },
         "CUST-005": {
             "name": "Ethel",
             "dob": "03/02/1941",
             "mobile_last_four": "0004",
+            "app_enrolled": False,
             "status": "active",
         },
     }
@@ -143,6 +156,8 @@ def lambda_handler(event: dict, context) -> dict:
         "verify_customer_identity":      _validate_customer,
         "initiate_customer_auth":        _initiate_auth,
         "validate_customer_auth":        _cross_validate,
+        "send_push_challenge":           _send_push_challenge,
+        "verify_push_challenge":         _verify_push_challenge,
         "cross_validate_session_identity": _verify_identity,
     }
 
@@ -235,6 +250,115 @@ def _cross_validate(params: dict) -> dict:
         "verified": False,
         "reason": "Verification details do not match our records.",
     }
+
+
+# ---------------------------------------------------------------------------
+# App push with number matching — the payment step-up (level 3 to level 4)
+# ---------------------------------------------------------------------------
+# SIMULATION. No notification is really sent. In production the customer picks
+# the number in the bank app and approves with a biometric; the app sends a
+# signed assertion straight to the push service, and the AI agent only ever
+# learns the outcome. Here there is no app, so the customer TELLS the agent
+# which number they picked and the agent passes it to verify_push_challenge.
+# That means the agent has seen the right answer, which a real deployment must
+# never allow. The decision is still made here, not by the agent.
+#
+# The challenge is stateless: challenge_id is a signed token carrying the
+# customer, the payment it was raised for and an expiry. Statelessness means a
+# challenge is time-limited but not single-use; production needs a store.
+PUSH_CHALLENGE_TTL_SECONDS = 180
+_PUSH_SECRET = os.environ.get("PUSH_CHALLENGE_SECRET", "aria-mock-push-secret-not-for-production")
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _sign_challenge(payload: dict) -> str:
+    body = _b64(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    sig = hmac.new(_PUSH_SECRET.encode(), body.encode(), hashlib.sha256).digest()
+    return f"{body}.{_b64(sig)}"
+
+
+def _read_challenge(token) -> dict | None:
+    """Payload of a genuinely signed challenge, or None. Never raises."""
+    try:
+        body, sig = str(token or "").split(".", 1)
+        expected = hmac.new(_PUSH_SECRET.encode(), body.encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(_b64(expected), sig):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _match_number(customer_id: str, nonce: str) -> str:
+    """The two-digit number (10 to 99) the customer must pick in the app."""
+    digest = hmac.new(_PUSH_SECRET.encode(), f"{customer_id}|{nonce}".encode(), hashlib.sha256).hexdigest()
+    return str(10 + int(digest, 16) % 90)
+
+
+def _send_push_challenge(params: dict) -> dict:
+    """
+    send_push_challenge: raise an approval request in the customer's app for one
+    payment. Returns the number the agent must read out and a challenge_id to
+    pass to verify_push_challenge.
+    """
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
+    cid = str(params.get("customer_id", "")).strip()
+    cust = _MOCK_CUSTOMERS.get(cid)
+    if cust is None:
+        return {"sent": False, "reason": "Customer not found."}
+    if not cust.get("app_enrolled", False):
+        return {"sent": False, "reason": "no_registered_app"}
+
+    payee = str(params.get("payee", "")).strip()
+    amount = str(params.get("amount", "")).strip()
+    nonce = uuid.uuid4().hex[:12]
+    challenge_id = _sign_challenge({"c": cid, "n": nonce, "p": payee, "a": amount,
+                                    "e": int(time.time()) + PUSH_CHALLENGE_TTL_SECONDS})
+    return {
+        "sent": True,
+        "challenge_id": challenge_id,
+        "match_number": _match_number(cid, nonce),
+        "expires_in_seconds": PUSH_CHALLENGE_TTL_SECONDS,
+        "payee": payee,
+        "amount": amount,
+    }
+
+
+def _verify_push_challenge(params: dict) -> dict:
+    """
+    verify_push_challenge: the outcome of an app approval.
+
+    status APPROVED    the customer picked the right number        verified: true
+           DECLINED    wrong number, or the customer declined
+           NO_RESPONSE no number was given (nothing arrived, or not opened)
+           EXPIRED     the challenge timed out
+           INVALID     the challenge is not genuine or is for another customer
+    Only APPROVED carries verified: true. The payee and amount returned are the
+    ones the challenge was raised for.
+    """
+    if not _MOCK_DATA:
+        return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
+
+    cid = str(params.get("customer_id", "")).strip()
+    payload = _read_challenge(params.get("challenge_id"))
+    if payload is None or payload.get("c") != cid or cid not in _MOCK_CUSTOMERS:
+        return {"verified": False, "status": "INVALID"}
+    if payload.get("e", 0) < time.time():
+        return {"verified": False, "status": "EXPIRED"}
+
+    selected = _digits(params.get("selected_number"))
+    if not selected:
+        return {"verified": False, "status": "NO_RESPONSE"}
+    if hmac.compare_digest(selected, _match_number(cid, payload.get("n", ""))):
+        return {"verified": True, "status": "APPROVED", "customer_id": cid,
+                "payee": payload.get("p", ""), "amount": payload.get("a", "")}
+    return {"verified": False, "status": "DECLINED"}
 
 
 def _verify_identity(params: dict) -> dict:

@@ -104,7 +104,7 @@ first goal, and it is labelled `idvMethod=test_quick_select` with reason `TEST_Q
 | LoA1 Identified | One CLI match on a low-risk line, or a resolved claimed identity | Harness | Nothing personal. ARIA treats it as unauthenticated |
 | LoA2 Verified | One of: OTP, KBA, chat session token, app dial code from another phone | Harness | Account, card and mortgage information; card blocks. No payments |
 | LoA3 Strongly verified | Push with number matching; app call token; in-app step-up; SMS OTP + KBA on own phone; dial code from the registered mobile | Harness | Everything ARIA can do except a payment |
-| LoA4 Payment | LoA3 **plus** a knowledge check at the moment of paying, validated by a tool | **ARIA, in the main flow** | Making one payment |
+| LoA4 Payment | LoA3 **plus** an app approval with number matching for that payment, validated by a tool | **ARIA, in the main flow** | Making one payment |
 
 **The harness targets LoA3 on every contact** (`idv_policy.TARGET_LOA`). It does not ask what the
 customer wants. If LoA3 cannot be reached it hands over at the level achieved and ARIA limits what
@@ -113,9 +113,9 @@ needed; that menu has been removed.
 
 **LoA4 is never granted by the harness.** `accept_receipt` caps every receipt at 3, and a unit test
 asserts it. LoA4 belongs to ARIA: on a payment request from an LoA3 customer it confirms payee and
-amount, asks a scam-check question, then calls `validate_customer_auth` (date of birth and last four
-of the registered mobile). Only `verified: true` from that tool makes the customer LoA4, for that
-one payment. The design's rule still holds: the agent runs the dialogue, a deterministic tool
+amount, asks a scam-check question, calls `send_push_challenge`, reads out the two-digit match number,
+and passes the number the customer reports to `verify_push_challenge`. Only `verified: true` from
+that tool makes the customer LoA4, for that one payment. No knowledge questions are asked. The design's rule still holds: the agent runs the dialogue, a deterministic tool
 decides.
 
 Rules enforced in `idv_policy.py`:
@@ -136,13 +136,15 @@ Three choices that are easy to change:
 - **Level before intent.** The source document asks what the customer wants first and verifies only
   as far as needed. This build verifies to LoA3 first, by request. It costs customers with simple
   questions an unnecessary check, and gains a simpler flow and a single hand-off point.
-- **LoA4 is a knowledge check.** Date of birth and mobile digits are weaker than the push that earned
-  LoA3. They add a different kind of factor at the moment of payment, and they are the only step-up
-  ARIA's current tools support. A transaction-bound app approval (amount and payee shown in the app)
-  would be the stronger design and needs a new tool.
+- **LoA4 is an app approval, simulated.** The step-up mirrors the harness: a push with number
+  matching, bound to the payee and amount. Two things make it a simulation. No notification is
+  sent, so the customer says the number aloud and ARIA relays it; ARIA has therefore seen the right
+  answer before it calls the verifier, which a real deployment must never allow (the app reports to
+  the push service directly). And the challenge is a stateless signed token, so it expires but is
+  not single-use. A customer with no app cannot reach LoA4 and is offered a colleague.
 - **LoA4 lives in the conversation.** ARIA cannot write contact attributes, so `LoA` on the contact
   stays 3. The only durable record is the `conversationSummary` on escalation, which begins
-  "Level 4 payment step-up passed."
+  "Level 4 payment step-up passed (app approval)."
 
 ## 6. Coverage of the design document
 
@@ -260,7 +262,7 @@ Observed while reading the instance. Nothing here was changed.
 
 | Check | Result |
 |---|---|
-| Unit tests (`python3 -m unittest discover -s connect-idv-test-harness/tests`) | 55 pass |
+| Unit tests (`python3 -m unittest discover -s connect-idv-test-harness/tests`) | 59 pass |
 | Flow JSON structural validation | Pass, no placeholders |
 | Deploy script | `bash -n` syntax check only. Not run |
 | Flow imported into Connect | **Not done** |
