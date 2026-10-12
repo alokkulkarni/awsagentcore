@@ -145,6 +145,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 |---|---|
 | [README.md](README.md) | This guide |
 | [SPEC.md](SPEC.md) | The design: decisions, contracts, security, what is simulated |
+| [ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md) | Text to add to ARIA's prompt so it uses known contact reasons, and where |
 | [lambda/aria_idv_test_harness.py](lambda/aria_idv_test_harness.py) | The Lambda entry point. Runs the conversation |
 | [lambda/idv_policy.py](lambda/idv_policy.py) | The rules engine. The only code that can change the level |
 | [lambda/idv_verifiers.py](lambda/idv_verifiers.py) | Simulated checks: number lookup, network signals, push, code, security question |
@@ -155,7 +156,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON if your IDs differ |
 | [scripts/deploy_idv_test_harness.sh](scripts/deploy_idv_test_harness.sh) | Creates the Lambda. **You** run it |
 | [scripts/mint_test_token.py](scripts/mint_test_token.py) | Makes test tokens for Options D and E |
-| [tests/test_idv_harness.py](tests/test_idv_harness.py) | 34 unit tests, one or more per option |
+| [tests/](tests/) | 51 unit tests: each ID&V option, the guardrails, and contact-reason disclosure |
 
 One file outside this folder also changed:
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
@@ -196,7 +197,7 @@ From the repository root:
 python3 -m unittest discover -s connect-idv-test-harness/tests -v
 ```
 
-You should see `Ran 34 tests` and `OK`. Two log lines that look like errors are expected: they come
+You should see `Ran 51 tests` and `OK`. Two log lines that look like errors are expected: they come
 from the tests that check the kill switch and the tampered-state protection.
 
 > **What just happened?** Each test pretends to be Amazon Connect. It invokes the Lambda code with
@@ -388,7 +389,17 @@ The change is small and only affects contacts that came through an ID&V flow:
 - The harness result is passed to ARIA's prompt as `{{$.Custom.loa}}`, `{{$.Custom.idvMethod}}`,
   `{{$.Custom.cliRelationship}}`, `{{$.Custom.riskScore}}` and `{{$.Custom.reasonCodes}}`.
 
+- **Known contact reasons.** The injector now also passes ARIA the reasons the bank already knows a
+  customer may be calling about (a stalled mortgage application, failed payments, a mobile banking
+  problem, a blocked card). Every test customer has at least two. They are released **only** to a
+  caller the harness verified at level 2 or above, and a fraud-related reason only at level 3. A
+  caller recognised by phone number alone gets none.
+
 Calls that go straight to the main flow have no `idvStatus`, so they behave exactly as before.
+
+> **The contact reasons do nothing until ARIA's prompt is updated.** That is a separate manual step:
+> see [ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md) for the exact text and where
+> it goes.
 
 ### How
 

@@ -41,6 +41,16 @@ Context variables (injected when customerId is available):
                          e.g. "You have a current account, a savings account, and a Visa debit card."
     vulnerabilityContext — JSON string of vulnerability flags (SILENT — ARIA never discloses this)
     priorSummary       — Brief summary of the customer's last interaction (from memory store)
+
+Known contact reasons (injected only for a verified caller):
+    hasKnownContactReason    — "true" | "false"
+    topContactReason         — Short label of the most likely reason for the contact
+    topContactReasonCategory — Routing topic of that reason (matches the routing table)
+    contactReasonSummary     — One sentence listing up to three known reasons
+    contactReasons           — JSON list of the same reasons with detail and date
+    These are disclosed only when an upstream ID&V flow has set the `LoA`
+    contact attribute, and only reasons whose minimum level that LoA meets.
+    A caller authenticated by phone number alone receives none.
     productContext     — JSON string of masked account/card references for ARIA's tool calls
 
 HOW this Lambda is invoked
@@ -106,7 +116,7 @@ OFFICIAL AWS REFERENCES
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import boto3
@@ -290,6 +300,150 @@ _STUB_CUSTOMERS: dict[str, dict] = {
         },
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# BEGIN known contact reasons
+# (this block is kept identical in session_injector.py and
+#  session_injector_qconnect.py — a unit test compares the two copies)
+# ---------------------------------------------------------------------------
+# Things the bank already knows that may be why the customer is getting in
+# touch: a stalled mortgage application, repeated failed payments, trouble with
+# mobile banking, a card blocked for suspected fraud. Injected so ARIA can ask
+# "are you calling about ...?" instead of making the customer explain.
+#
+# DISCLOSURE RULE: a known reason is personal data, and some of it (a fraud
+# block) would tip off a fraudster. Reasons are therefore injected ONLY when an
+# upstream ID&V flow has verified the caller and left a level of assurance in
+# the `LoA` contact attribute, and only reasons whose min_loa that level meets.
+# A caller who is "authenticated" by phone number alone gets none.
+#
+# Stub fields:
+#   type            stable code for rules and reporting
+#   label           short phrase ARIA can say after "are you calling about ..."
+#   detail          context for ARIA; not to be read out verbatim
+#   days_ago        how long ago it happened (kept relative so test data never goes stale)
+#   priority        1 = most likely reason; ties broken by most recent
+#   topic_category  matches the proficiency routing table, for escalation
+#   min_loa         lowest level of assurance at which it may be mentioned
+MAX_CONTACT_REASONS = 3
+SESSION_VALUE_MAX_CHARS = 1024   # Q Connect per-value limit for session data
+
+_STUB_CONTACT_REASONS: dict[str, list[dict]] = {
+    "CUST-001": [
+        {"type": "MORTGAGE_APPLICATION_PENDING", "label": "your mortgage application",
+         "detail": "Application started online and paused at the income documents step; payslips have not been uploaded.",
+         "days_ago": 9, "priority": 2, "topic_category": "mortgages", "min_loa": 2},
+        {"type": "MOBILE_APP_LOGIN_FAILED", "label": "trouble signing in to the mobile app",
+         "detail": "Four failed sign-in attempts on the mobile app today, following an app update.",
+         "days_ago": 0, "priority": 1, "topic_category": "general_banking", "min_loa": 2},
+    ],
+    "CUST-002": [
+        {"type": "PAYMENT_FAILED_REPEATED", "label": "a payment that did not go through",
+         "detail": "Three attempts to pay an existing payee were declined in the last 24 hours.",
+         "days_ago": 0, "priority": 1, "topic_category": "current_account", "min_loa": 2},
+        {"type": "DIRECT_DEBIT_RETURNED", "label": "a direct debit that was returned unpaid",
+         "detail": "One direct debit was returned unpaid two days ago.",
+         "days_ago": 2, "priority": 2, "topic_category": "current_account", "min_loa": 2},
+    ],
+    "CUST-003": [
+        {"type": "MOBILE_BANKING_LOCKED", "label": "being locked out of mobile banking",
+         "detail": "Mobile banking access was locked yesterday after repeated incorrect passcode entries.",
+         "days_ago": 1, "priority": 1, "topic_category": "general_banking", "min_loa": 2},
+        {"type": "DOCUMENT_UPLOAD_FAILED", "label": "a document you tried to send us",
+         "detail": "A document upload to the bereavement team failed three days ago and was not received.",
+         "days_ago": 3, "priority": 2, "topic_category": "bereavement", "min_loa": 2},
+    ],
+    "CUST-004": [
+        {"type": "CARD_BLOCKED_FRAUD", "label": "a block on your debit card",
+         "detail": "Debit card ending 7734 was blocked yesterday after two unrecognised online transactions were declined.",
+         "days_ago": 1, "priority": 1, "topic_category": "fraud_security", "min_loa": 3},
+        {"type": "PAYMENT_FAILED_REPEATED", "label": "card payments that were declined",
+         "detail": "Several card payments have been declined since yesterday.",
+         "days_ago": 0, "priority": 2, "topic_category": "debit_card", "min_loa": 2},
+    ],
+    "CUST-005": [
+        {"type": "CARD_PIN_LOCKED", "label": "your card PIN being locked",
+         "detail": "The debit card PIN was locked yesterday after three incorrect attempts at a cash machine.",
+         "days_ago": 1, "priority": 1, "topic_category": "debit_card", "min_loa": 2},
+        {"type": "STATEMENT_REQUEST_PENDING", "label": "a paper statement you asked for",
+         "detail": "A paper statement was requested six days ago and has not been sent yet.",
+         "days_ago": 6, "priority": 2, "topic_category": "current_account", "min_loa": 2},
+    ],
+}
+
+
+def _parse_loa(raw: str) -> int | None:
+    """Level of assurance from the `LoA` contact attribute; None when absent or not a number."""
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _lookup_contact_reasons(customer_id: str) -> list[dict]:
+    """
+    Known reasons this customer may be getting in touch.
+
+    Returns stub data. In production, replace with queries to the systems that
+    hold these events (mortgage origination, payments, digital banking, fraud).
+    """
+    return list(_STUB_CONTACT_REASONS.get(customer_id, []))
+
+
+def _select_contact_reasons(customer_id: str, auth_status: str, loa: int | None) -> list[dict]:
+    """The reasons that may be disclosed at this level, most likely first, capped."""
+    if auth_status != "authenticated" or loa is None:
+        return []
+    allowed = [r for r in _lookup_contact_reasons(customer_id) if r.get("min_loa", 2) <= loa]
+    allowed.sort(key=lambda r: (r.get("priority", 9), r.get("days_ago", 999)))
+    return allowed[:MAX_CONTACT_REASONS]
+
+
+def _build_contact_reason_vars(customer_id: str, auth_status: str, loa: int | None) -> dict[str, str]:
+    """
+    Session variables describing the known contact reasons.
+
+        hasKnownContactReason     "true" | "false"
+        topContactReason          label of the most likely reason
+        topContactReasonCategory  routing topic of the most likely reason
+        contactReasonSummary      one sentence listing the reasons, for the AI prompt
+        contactReasons            JSON list of {type, label, detail, occurredAt, topicCategory}
+
+    Everything except hasKnownContactReason is an empty string when there is
+    nothing to disclose, and empty values are not injected.
+    """
+    reasons = _select_contact_reasons(customer_id, auth_status, loa)
+    if not reasons:
+        return {"hasKnownContactReason": "false", "topContactReason": "", "topContactReasonCategory": "",
+                "contactReasonSummary": "", "contactReasons": ""}
+
+    now = datetime.now(timezone.utc)
+
+    def public(reason: dict) -> dict:
+        occurred = (now - timedelta(days=reason.get("days_ago", 0))).date().isoformat()
+        return {"type": reason["type"], "label": reason["label"], "detail": reason["detail"],
+                "occurredAt": occurred, "topicCategory": reason.get("topic_category", "")}
+
+    # Drop the least likely reason until both values fit Q Connect's limit.
+    kept = list(reasons)
+    while True:
+        as_json = json.dumps([public(r) for r in kept], separators=(",", ":"))
+        summary = "; ".join(f"({i}) {r['label']}: {r['detail']}" for i, r in enumerate(kept, start=1))
+        if len(kept) == 1 or max(len(as_json), len(summary)) <= SESSION_VALUE_MAX_CHARS:
+            break
+        kept.pop()
+
+    return {
+        "hasKnownContactReason": "true",
+        "topContactReason": kept[0]["label"],
+        "topContactReasonCategory": kept[0].get("topic_category", ""),
+        "contactReasonSummary": summary[:SESSION_VALUE_MAX_CHARS],
+        "contactReasons": as_json if len(as_json) <= SESSION_VALUE_MAX_CHARS else "",
+    }
+# ---------------------------------------------------------------------------
+# END known contact reasons
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +823,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
     customer_id: str = flow_attributes.get("customerId", "")
     auth_status: str = flow_attributes.get("authStatus", "unauthenticated")
     locale: str = flow_attributes.get("locale", "en-GB")
+    # Level of assurance left by an upstream ID&V flow; None when no such flow ran.
+    idv_loa: int | None = _parse_loa(flow_attributes.get("LoA", ""))
 
     # If no customerId in attributes, try to identify the caller by phone number.
     # This covers unauthenticated test calls where IVR has not yet set customerId.
@@ -733,11 +889,14 @@ def lambda_handler(event: dict, context: Any) -> dict:
                 "vulnerabilityContext": vulnerability_context,
                 "priorSummary":        prior_summary,
             })
+            reason_vars = _build_contact_reason_vars(customer_id, auth_status, idv_loa)
+            session_vars.update(reason_vars)
 
             logger.info(
                 f"Customer context built: name={preferred_name!r} "
                 f"vulnerability={'yes' if vulnerability_context else 'none'} "
-                f"priorSummary={'yes' if prior_summary else 'none'}"
+                f"priorSummary={'yes' if prior_summary else 'none'} "
+                f"knownContactReason={reason_vars['hasKnownContactReason']} (LoA={idv_loa})"
             )
         else:
             logger.warning(f"Customer ID {customer_id!r} not found in CRM. Injecting base variables only.")
@@ -802,6 +961,12 @@ def lambda_handler(event: dict, context: Any) -> dict:
         "productContext":        session_vars.get("productContext", ""),
         "vulnerabilityContext":  session_vars.get("vulnerabilityContext", ""),
         "priorSummary":          session_vars.get("priorSummary", ""),
+        # Known contact reasons (empty unless an upstream ID&V flow verified the caller)
+        "hasKnownContactReason":    session_vars.get("hasKnownContactReason", "false"),
+        "topContactReason":         session_vars.get("topContactReason", ""),
+        "topContactReasonCategory": session_vars.get("topContactReasonCategory", ""),
+        "contactReasonSummary":     session_vars.get("contactReasonSummary", ""),
+        "contactReasons":           session_vars.get("contactReasons", ""),
         # Core metadata
         "locale":                session_vars.get("locale", locale),
         "dateTime":              session_vars.get("dateTime", ""),
