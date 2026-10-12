@@ -251,12 +251,17 @@ header "Step 4 — MCP gateway target"
 if ! $DO_GATEWAY; then
     warn "Skipped (--skip-gateway)."
 else
+    # List calls are paginated, and the CLI applies --query to each page and
+    # prints one line per page. Collect every match and take the first real ID.
+    first_id() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1 || true; }
+
     GATEWAY_ID=$(aws bedrock-agentcore-control list-gateways --region "$REGION" \
-        --query "items[?name=='${GATEWAY_NAME}'].gatewayId | [0]" --output text)
-    [[ -n "$GATEWAY_ID" && "$GATEWAY_ID" != "None" ]] || die "Gateway not found: ${GATEWAY_NAME}"
+        --query "items[?name=='${GATEWAY_NAME}'].gatewayId" --output text | first_id)
+    [[ -n "$GATEWAY_ID" ]] || die "Gateway not found: ${GATEWAY_NAME}"
     TARGET_ID=$(aws bedrock-agentcore-control list-gateway-targets --gateway-identifier "$GATEWAY_ID" \
-        --region "$REGION" --query "items[?name=='${TARGET_NAME}'].targetId | [0]" --output text)
-    [[ -n "$TARGET_ID" && "$TARGET_ID" != "None" ]] || die "Target not found on the gateway: ${TARGET_NAME}"
+        --region "$REGION" --query "items[?name=='${TARGET_NAME}'].targetId" --output text | first_id)
+    [[ -n "$TARGET_ID" ]] || die "Target not found on the gateway: ${TARGET_NAME}"
+    [[ "$TARGET_ID" =~ ^[0-9a-zA-Z]{10}$ ]] || die "Unexpected target ID from the gateway: '${TARGET_ID}'"
     ok "Gateway ${GATEWAY_ID}, target ${TARGET_ID}"
 
     aws bedrock-agentcore-control get-gateway-target --gateway-identifier "$GATEWAY_ID" \
