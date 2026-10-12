@@ -17,17 +17,30 @@
 # Usage:
 #   ./connect-idv-test-harness/scripts/deploy_idv_test_harness.sh [OPTIONS]
 #
+# With no options it deploys to the "conversationbot" Connect instance in
+# eu-west-2 using the defaults below. Pass an option only to override one.
+#
 # Options:
-#   --instance-id   ID       Connect instance ID (recommended; scopes the invoke permission)
-#   --region        REGION   AWS region (default: eu-west-2)
-#   --account-id    ID       AWS account ID (auto-detected if not set)
-#   --secret        VALUE    Signing secret, 16+ characters (generated if not set)
-#   --bank-name     NAME     Spoken bank name (default: Meridian Bank)
+#   --region        REGION   AWS region                (default: eu-west-2)
+#   --account-id    ID       AWS account ID            (default: 395402194296)
+#   --instance-id   ID       Connect instance ID       (default: f969d4b4-f716-4974-a325-bb7899f2f293)
+#   --function-name NAME     Lambda function name      (default: aria-idv-test-harness)
+#   --role-name     NAME     IAM execution role name   (default: aria-lambda-idv-test-harness-role)
+#   --bank-name     NAME     Spoken bank name          (default: Meridian Bank)
+#   --secret        VALUE    Signing secret, 16+ chars (default: keep the Lambda's existing
+#                            secret; generate one on first deploy)
 #   --dry-run                Print what would be done without deploying
 #   --help                   Show this help text
 #
-# Environment variable equivalents (flags take precedence):
-#   INSTANCE_ID, AWS_REGION, AWS_ACCOUNT_ID, IDV_TEST_SIGNING_SECRET, BANK_NAME
+# Precedence for every value: command-line flag, then environment variable,
+# then the default.
+#
+# Environment variable equivalents:
+#   AWS_REGION, AWS_ACCOUNT_ID, INSTANCE_ID, FUNCTION_NAME, ROLE_NAME,
+#   BANK_NAME, IDV_TEST_SIGNING_SECRET
+#
+# The signing secret has no default in this file on purpose: this repository is
+# public, and a secret committed here would let anyone forge test tokens.
 #
 # Requirements:
 #   - AWS CLI v2 configured with credentials that can manage IAM and Lambda
@@ -47,28 +60,40 @@ ok()    { echo -e "${GREEN}[ OK ] $*${RESET}"; }
 header(){ echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Defaults ───────────────────────────────────────────────────────────────────
-FUNCTION_NAME="aria-idv-test-harness"
-ROLE_NAME="aria-lambda-idv-test-harness-role"
+# The "conversationbot" Amazon Connect instance. Change these three lines to
+# make a different account, region or instance the default.
+DEFAULT_REGION="eu-west-2"
+DEFAULT_ACCOUNT_ID="395402194296"
+DEFAULT_INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
+
+DEFAULT_FUNCTION_NAME="aria-idv-test-harness"
+DEFAULT_ROLE_NAME="aria-lambda-idv-test-harness-role"
+DEFAULT_BANK_NAME="Meridian Bank"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HARNESS_DIR="${SCRIPT_DIR}/../lambda"
 INJECTOR_FILE="${SCRIPT_DIR}/../../scripts/lambdas/session_injector_qconnect.py"
 HANDLER_NAME="aria_idv_test_harness.handler"
 DRY_RUN=false
 
-REGION="${AWS_REGION:-eu-west-2}"
-ACCOUNT_ID="${AWS_ACCOUNT_ID:-}"
-INSTANCE_ID="${INSTANCE_ID:-}"
+REGION="${AWS_REGION:-$DEFAULT_REGION}"
+ACCOUNT_ID="${AWS_ACCOUNT_ID:-$DEFAULT_ACCOUNT_ID}"
+INSTANCE_ID="${INSTANCE_ID:-$DEFAULT_INSTANCE_ID}"
+FUNCTION_NAME="${FUNCTION_NAME:-$DEFAULT_FUNCTION_NAME}"
+ROLE_NAME="${ROLE_NAME:-$DEFAULT_ROLE_NAME}"
+BANK_NAME="${BANK_NAME:-$DEFAULT_BANK_NAME}"
 SECRET="${IDV_TEST_SIGNING_SECRET:-}"
-BANK_NAME="${BANK_NAME:-Meridian Bank}"
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --instance-id)  INSTANCE_ID="$2"; shift 2 ;;
-        --region)       REGION="$2";      shift 2 ;;
-        --account-id)   ACCOUNT_ID="$2";  shift 2 ;;
-        --secret)       SECRET="$2";      shift 2 ;;
-        --bank-name)    BANK_NAME="$2";   shift 2 ;;
+        --region)        REGION="$2";        shift 2 ;;
+        --account-id)    ACCOUNT_ID="$2";    shift 2 ;;
+        --instance-id)   INSTANCE_ID="$2";   shift 2 ;;
+        --function-name) FUNCTION_NAME="$2"; shift 2 ;;
+        --role-name)     ROLE_NAME="$2";     shift 2 ;;
+        --bank-name)     BANK_NAME="$2";     shift 2 ;;
+        --secret)        SECRET="$2";        shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
         --help|-h)
             sed -n '/^# Usage:/,/^# Requirements:/p' "$0" | sed 's/^# \?//'
@@ -85,21 +110,40 @@ command -v aws     >/dev/null 2>&1 || die "AWS CLI not found. Install aws-cli v2
 command -v zip     >/dev/null 2>&1 || die "zip not found. Install zip."
 command -v openssl >/dev/null 2>&1 || die "openssl not found."
 
+# ── Confirm the credentials belong to the target account ───────────────────────
+# The account ID has a default, so check it against the credentials in use. This
+# stops the script deploying into whichever account your shell happens to be
+# signed in to.
+step "Checking AWS credentials..."
+CALLER_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) \
+    || die "Could not read AWS credentials. Sign in with the AWS CLI first."
+[[ "$CALLER_ACCOUNT" == "$ACCOUNT_ID" ]] || die \
+    "Your AWS credentials are for account ${CALLER_ACCOUNT}, but the target is ${ACCOUNT_ID}.\n" \
+    "  Sign in to ${ACCOUNT_ID}, or pass --account-id ${CALLER_ACCOUNT} to deploy there instead."
+ok "Signed in to account ${ACCOUNT_ID}"
+
+# ── Signing secret: flag/env, else the Lambda's current one, else a new one ────
+SECRET_SOURCE="supplied"
 if [[ -z "$SECRET" ]]; then
-    SECRET="$(openssl rand -hex 24)"
-    GENERATED_SECRET=true
-else
-    GENERATED_SECRET=false
+    SECRET=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
+        --query "Environment.Variables.IDV_TEST_SIGNING_SECRET" --output text 2>/dev/null || true)
+    if [[ -n "$SECRET" && "$SECRET" != "None" ]]; then
+        SECRET_SOURCE="kept"
+    else
+        SECRET="$(openssl rand -hex 24)"
+        SECRET_SOURCE="generated"
+    fi
 fi
 [[ ${#SECRET} -ge 16 ]] || die "The signing secret must be at least 16 characters."
 
-# ── Auto-detect account ID ─────────────────────────────────────────────────────
-if [[ -z "$ACCOUNT_ID" ]]; then
-    step "Auto-detecting AWS account ID..."
-    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) \
-        || die "Could not detect account ID. Check AWS credentials."
-    ok "Account ID: ${ACCOUNT_ID}"
-fi
+header "Deploying with"
+echo "  Region        : ${REGION}"
+echo "  Account       : ${ACCOUNT_ID}"
+echo "  Instance      : ${INSTANCE_ID:-(none — any Connect instance in the account)}"
+echo "  Function      : ${FUNCTION_NAME}"
+echo "  Role          : ${ROLE_NAME}"
+echo "  Bank name     : ${BANK_NAME}"
+echo "  Secret        : ${SECRET_SOURCE}"
 
 # ── Dry-run mode ───────────────────────────────────────────────────────────────
 if $DRY_RUN; then
@@ -257,13 +301,16 @@ cat <<SUMMARY
   Environment:
     IDV_TEST_HARNESS_ENABLED = true
     BANK_NAME                = ${BANK_NAME}
-    IDV_TEST_SIGNING_SECRET  = $($GENERATED_SECRET && echo "$SECRET" || echo "(the value you supplied)")
+    IDV_TEST_SIGNING_SECRET  = (${SECRET_SOURCE})
 
 SUMMARY
 
-$GENERATED_SECRET && warn "A signing secret was generated. Keep it: mint_test_token.py needs the same value.
+case "$SECRET_SOURCE" in
+    generated) warn "A new signing secret was generated. mint_test_token.py needs the same value:
         export IDV_TEST_SIGNING_SECRET='${SECRET}'
-        Re-running this script without --secret generates a NEW one and invalidates old tokens."
+        Later runs keep this secret unless you pass --secret." ;;
+    kept)      ok "Kept the Lambda's existing signing secret, so tokens you already minted still work." ;;
+esac
 
 cat <<SUMMARY
 
@@ -275,5 +322,6 @@ $(printf "${YELLOW}")Next steps (see connect-idv-test-harness/README.md, Part C 
   4. To switch the harness off without deleting it:
        aws lambda update-function-configuration --function-name ${FUNCTION_NAME} \\
            --region ${REGION} --environment 'Variables={IDV_TEST_HARNESS_ENABLED=false}'
+     (This also clears the secret. Save it first if you want to reuse it with --secret.)
 
 SUMMARY

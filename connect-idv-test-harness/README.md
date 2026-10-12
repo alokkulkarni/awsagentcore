@@ -212,18 +212,37 @@ This step changes your AWS account. It creates one IAM role and one Lambda funct
 ### Step B.1 — See what it would do
 
 ```bash
-./connect-idv-test-harness/scripts/deploy_idv_test_harness.sh \
-    --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
-    --dry-run
+./connect-idv-test-harness/scripts/deploy_idv_test_harness.sh --dry-run
 ```
 
 `--dry-run` prints every command without running it.
 
+The script needs no options. Its defaults are your `conversationbot` instance:
+
+| Setting | Default | Override with |
+|---|---|---|
+| Region | `eu-west-2` | `--region` |
+| Account | `395402194296` | `--account-id` |
+| Connect instance | `f969d4b4-f716-4974-a325-bb7899f2f293` | `--instance-id` |
+| Lambda name | `aria-idv-test-harness` | `--function-name` |
+| Role name | `aria-lambda-idv-test-harness-role` | `--role-name` |
+| Bank name | `Meridian Bank` | `--bank-name` |
+| Signing secret | Keeps the Lambda's current one. Generates one the first time | `--secret` |
+
+Each can also be set as an environment variable (run with `--help` for the names). A flag beats an
+environment variable, which beats the default.
+
+The script first checks that your AWS credentials belong to the target account and stops if they do
+not, so it cannot deploy into the wrong account by accident.
+
+> If you change `--function-name`, the flow JSON still refers to `aria-idv-test-harness`. Edit
+> `HARNESS_FUNCTION` in `flows/build_flow.py` and regenerate, or pick your function by hand in the
+> three Lambda blocks.
+
 ### Step B.2 — Deploy
 
 ```bash
-./connect-idv-test-harness/scripts/deploy_idv_test_harness.sh \
-    --instance-id f969d4b4-f716-4974-a325-bb7899f2f293
+./connect-idv-test-harness/scripts/deploy_idv_test_harness.sh
 ```
 
 The script:
@@ -246,8 +265,8 @@ export IDV_TEST_SIGNING_SECRET='3f9a...'
 Copy it somewhere safe. You need it in Parts H and I to make test tokens. If you lose it, read it
 back from the Lambda console under **Configuration → Environment variables**.
 
-> **Re-running the script without `--secret` creates a new secret.** To keep the old one, pass it:
-> `--secret '3f9a...'`.
+> **Re-running the script keeps the same secret**, so tokens you have already made keep working.
+> To change it deliberately, pass a new one: `--secret '<16 or more characters>'`.
 
 ### Step B.4 — Check it
 
@@ -766,7 +785,8 @@ below 2 the harness withholds it by design.
 
 - Codes and tokens expire after about five minutes. Make a fresh one.
 - `IDV_TEST_SIGNING_SECRET` on your laptop must equal the Lambda's value exactly.
-- Rerunning the deploy script without `--secret` changes the Lambda's secret.
+- The secret changes only if you pass `--secret`, or after you have paused the harness (pausing
+  clears it).
 
 ### Chat reaches ARIA but as an anonymous customer
 
