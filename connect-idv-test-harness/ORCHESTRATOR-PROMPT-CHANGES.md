@@ -180,7 +180,7 @@ would get two "I can see…" statements in one greeting.
 ```
   Opening — authenticated voice customer with a known contact reason:
   <message>
-  Hello [preferredName], welcome back to Meridian Bank. Are you calling about [topContactReason], or is it something else today?
+  Hello [preferredName], welcome back to Nationwide Building Society. Are you calling about [topContactReason], or is it something else today?
   </message>
   <thinking>
   Has Known Contact Reason is true. Offering the most likely reason as a question. Giving no detail until the customer confirms. Checking vulnerabilityContext silently.
@@ -204,7 +204,7 @@ would get two "I can see…" statements in one greeting.
 
   Opening — authenticated chat customer with a known contact reason:
   <message>
-  Hi [preferredName], welcome to Meridian Bank chat. I'm ARIA. Is this about [topContactReason], or something else?
+  Hi [preferredName], welcome to Nationwide Building Society chat. I'm ARIA. Is this about [topContactReason], or something else?
   </message>
 ```
 
@@ -270,9 +270,19 @@ All test reasons are listed in `_STUB_CONTACT_REASONS` in
 
 These are outside this change, but you will see them while editing.
 
-1. **Two bank names.** The identity section and the greetings say "Nationwide Building Society",
-   while the farewells and some examples say "Meridian Bank". The examples above use "Meridian
-   Bank". Use whichever you intend, consistently.
+1. **Seven leftover "Nationwide Building Society" references.** The bank is Nationwide Building Society, and
+   the identity section and greetings already say so. Version 13 still says "Nationwide Building Society" (or
+   "Meridian Points") on these lines. Change them while you are editing:
+
+   | Line (about) | Where |
+   |---|---|
+   | 74, 75 | Voice and chat farewells in `## PII Handling` |
+   | 175 | Statements guidance in `## Query Handling` |
+   | 250, 279, 342 | Knowledge base description in `<knowledge_base_retrieval>` ("Meridian Points" on 279 is a product name: check what the real one is) |
+   | 659 | Callback closing line in `## Callback Handling` |
+   | 703 | First example in `<response_examples>` |
+
+   The quickest way is to search the prompt for `Meridian`.
 2. **ARIA runs its own identity check.** For an unauthenticated session the prompt asks for date of
    birth and the last four digits of the mobile number. A caller the harness left unverified will
    therefore be asked security questions again by ARIA. That is correct behaviour today, but it

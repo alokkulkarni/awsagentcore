@@ -129,7 +129,7 @@ class OptionA_OwnPhonePush(unittest.TestCase):
     def test_push_with_number_matching_reaches_loa3(self):
         call = Call()
         reply = call.full_journey(line_key(JAMES))
-        self.assertIn("Thanks for calling Meridian Bank", reply["prompt"])
+        self.assertIn("Thanks for calling Nationwide Building Society", reply["prompt"])
         self.assertNotIn("James", reply["prompt"], "no name before verification")
         self.assertEqual(reply["LoA"], "1")
         self.assertEqual(reply["customerId"], "", "candidate is never released below LoA2")
@@ -137,7 +137,7 @@ class OptionA_OwnPhonePush(unittest.TestCase):
         reply = call.press(ADDRESS)
         self.assertIn("account linked to the number you're calling from", reply["prompt"])
         reply = call.press(YES)
-        self.assertIn("notification to your Meridian Bank app", reply["prompt"])
+        self.assertIn("notification to your Nationwide Building Society app", reply["prompt"])
         reply = call.press(call.spoken_code())
         self.assertIn("Thanks, James, that's confirmed", reply["prompt"])
         self.assertEqual((reply["LoA"], reply["idvMethod"], reply["cliRelationship"]), ("3", "push", "MATCH"))
@@ -212,7 +212,7 @@ class OptionB_BorrowedPhone(unittest.TestCase):
         call = Call()
         call.full_journey(line_key(SARAH))     # Margaret calls from Sarah's phone
         call.press(ADDRESS, NO, "09111958", "6612")
-        self.assertIn("notification to your Meridian Bank app", call.reply["prompt"])
+        self.assertIn("notification to your Nationwide Building Society app", call.reply["prompt"])
         reply = call.press(call.spoken_code())
         self.assertEqual((reply["LoA"], reply["cliRelationship"]), ("3", "MISMATCH"))
 
@@ -253,7 +253,7 @@ class OptionC_NetworkSignals(unittest.TestCase):
         self.assertIn("SIM_SWAP_RECENT", reply["reasonCodes"])
         call.press(PAYEE, YES)
         prompt = call.reply["prompt"]
-        self.assertIn("I need to confirm this through your Meridian Bank app", prompt)
+        self.assertIn("I need to confirm this through your Nationwide Building Society app", prompt)
         for secret_signal in ("SIM", "swap", "divert", "risk"):
             self.assertNotIn(secret_signal, prompt.split("Test harness:")[0])
         reply = call.press(call.spoken_code())

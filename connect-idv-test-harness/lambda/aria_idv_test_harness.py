@@ -68,7 +68,7 @@ Required:
     IDV_TEST_HARNESS_ENABLED   must be "true" or the Lambda refuses to run
     IDV_TEST_SIGNING_SECRET    16+ characters; signs receipts, tokens and state
 Optional:
-    BANK_NAME                  spoken bank name (default "Meridian Bank")
+    BANK_NAME                  spoken bank name (default "Nationwide Building Society")
     LOG_LEVEL                  default INFO
     ASSISTANT_ID               only needed so the imported injector module loads
                                the same way it does in its own Lambda; unused here
@@ -90,7 +90,7 @@ import idv_verifiers as verifiers
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
-BANK_NAME: str = os.environ.get("BANK_NAME", "Meridian Bank")
+BANK_NAME: str = os.environ.get("BANK_NAME", "Nationwide Building Society")
 MAX_INVALID_INPUTS = 2
 MAX_CLAIM_ATTEMPTS = 2
 

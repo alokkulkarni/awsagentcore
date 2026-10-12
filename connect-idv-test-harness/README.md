@@ -227,7 +227,7 @@ The script needs no options. Its defaults are your `conversationbot` instance:
 | Connect instance | `f969d4b4-f716-4974-a325-bb7899f2f293` | `--instance-id` |
 | Lambda name | `aria-idv-test-harness` | `--function-name` |
 | Role name | `aria-lambda-idv-test-harness-role` | `--role-name` |
-| Bank name | `Meridian Bank` | `--bank-name` |
+| Bank name | `Nationwide Building Society` | `--bank-name` |
 | Signing secret | Keeps the Lambda's current one. Generates one the first time | `--secret` |
 
 Each can also be set as an environment variable (run with `--help` for the names). A flag beats an

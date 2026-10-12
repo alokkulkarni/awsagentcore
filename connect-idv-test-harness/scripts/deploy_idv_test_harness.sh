@@ -26,7 +26,7 @@
 #   --instance-id   ID       Connect instance ID       (default: f969d4b4-f716-4974-a325-bb7899f2f293)
 #   --function-name NAME     Lambda function name      (default: aria-idv-test-harness)
 #   --role-name     NAME     IAM execution role name   (default: aria-lambda-idv-test-harness-role)
-#   --bank-name     NAME     Spoken bank name          (default: Meridian Bank)
+#   --bank-name     NAME     Spoken bank name          (default: Nationwide Building Society)
 #   --secret        VALUE    Signing secret, 16+ chars (default: keep the Lambda's existing
 #                            secret; generate one on first deploy)
 #   --dry-run                Print what would be done without deploying
@@ -68,7 +68,7 @@ DEFAULT_INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
 
 DEFAULT_FUNCTION_NAME="aria-idv-test-harness"
 DEFAULT_ROLE_NAME="aria-lambda-idv-test-harness-role"
-DEFAULT_BANK_NAME="Meridian Bank"
+DEFAULT_BANK_NAME="Nationwide Building Society"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HARNESS_DIR="${SCRIPT_DIR}/../lambda"
