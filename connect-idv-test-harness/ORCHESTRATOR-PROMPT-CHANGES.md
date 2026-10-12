@@ -63,10 +63,10 @@ Just before ARIA reads the prompt, Amazon Connect replaces that placeholder with
 as `James`. The values come from the **session injector** Lambda.
 
 > **The single most important idea in this guide:** ARIA can only see a value if the prompt contains
-> its placeholder. The injector now sends five new values about contact reasons. Until you add their
+> its placeholder. The injector now sends new values about contact reasons. Until you add their
 > placeholders to the prompt, ARIA never sees them, and nothing changes.
 
-### The five new values
+### The four new values
 
 | Placeholder | Example value | Meaning |
 |---|---|---|
@@ -74,9 +74,13 @@ as `James`. The values come from the **session injector** Lambda.
 | `{{$.Custom.topContactReason}}` | `your mortgage application` | A short phrase for the most likely reason |
 | `{{$.Custom.topContactReasonCategory}}` | `mortgages` | Which team deals with it |
 | `{{$.Custom.contactReasonSummary}}` | `(1) your mortgage application: Application started online and paused at the income documents step...` | Up to three reasons with background detail |
-| `{{$.Custom.contactReasons}}` | (the same as structured data) | For ARIA's reasoning |
 
-There is a sixth, `{{$.Custom.loa}}`: the level of assurance (0 to 3) the ID&V test harness reached.
+> **Connect allows at most 20 custom variables in one prompt.** Your prompt already uses 15, so
+> there is room for five more. This guide adds **four**, which leaves one spare. The injector also
+> provides two further values that are deliberately **not** added, because no rule needs them:
+> `contactReasons` (the same reasons as structured data, which duplicates `contactReasonSummary`)
+> and `loa` (the level of assurance the ID&V harness reached). If you try to add a 21st variable,
+> saving fails with *"Number of custom variables may not exceed 20"*.
 
 ### Who decides whether a reason may be mentioned?
 
@@ -220,21 +224,19 @@ Voice channel: customerPhone (inbound caller ID)
 **What is there now:** a short list, under the heading `## Session Context (injected as custom
 variables)`, describing each group of values the injector provides. This is its last line.
 
-**What to do:** add two new lines directly **after** that line.
+**What to do:** add one new line directly **after** that line.
 
 **Paste this:**
 
 ```
-  Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary, contactReasons
-  ID&V result (only when an upstream ID&V flow ran): loa
+  Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary
 ```
 
 **Afterwards it should look like this:**
 
 ```
   Voice channel: customerPhone (inbound caller ID)
-  Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary, contactReasons
-  ID&V result (only when an upstream ID&V flow ran): loa
+  Known contact reasons (only for a caller verified by an upstream ID&V flow, empty otherwise): hasKnownContactReason, topContactReason, topContactReasonCategory, contactReasonSummary
 
   <customer_context>
 ```
@@ -256,7 +258,7 @@ tells ARIA they are legitimate and when to expect them to be empty.
 has a label, a colon, and a `{{$.Custom...}}` placeholder. The very next line is
 `</customer_context>`.
 
-**What to do:** add six new lines **after** the Customer Phone line and **before**
+**What to do:** add four new lines **after** the Customer Phone line and **before**
 `</customer_context>`.
 
 **Paste this:**
@@ -266,8 +268,6 @@ has a label, a colon, and a `{{$.Custom...}}` placeholder. The very next line is
   - Most Likely Contact Reason: {{$.Custom.topContactReason}}
   - Most Likely Reason Category: {{$.Custom.topContactReasonCategory}}
   - Known Contact Reasons (CONTEXT ONLY — never read out verbatim): {{$.Custom.contactReasonSummary}}
-  - Known Contact Reasons (structured JSON): {{$.Custom.contactReasons}}
-  - Level of Assurance (0–3, empty if no ID&V flow ran): {{$.Custom.loa}}
 ```
 
 **Afterwards it should look like this:**
@@ -279,8 +279,6 @@ has a label, a colon, and a `{{$.Custom...}}` placeholder. The very next line is
   - Most Likely Contact Reason: {{$.Custom.topContactReason}}
   - Most Likely Reason Category: {{$.Custom.topContactReasonCategory}}
   - Known Contact Reasons (CONTEXT ONLY — never read out verbatim): {{$.Custom.contactReasonSummary}}
-  - Known Contact Reasons (structured JSON): {{$.Custom.contactReasons}}
-  - Level of Assurance (0–3, empty if no ID&V flow ran): {{$.Custom.loa}}
   </customer_context>
 ```
 
@@ -663,6 +661,7 @@ Use search to confirm each of these. It takes two minutes and catches almost eve
 | `</known_contact_reasons>` | 1 |
 | `Authenticated with a known contact reason` | 2 (Edits 4a and 4b) |
 | `[topContactReason]` | 6 (two in Edit 3, one each in Edits 4a and 4b, two in Edit 7b) |
+| `{{$.Custom.` | **19** — this must not be more than 20, or Connect refuses to save |
 | `Meridian` | 0, or 1 if you are still confirming the rewards scheme name (Part C, item 5) |
 
 Then check these by eye:
@@ -791,9 +790,10 @@ switched on again later the same way.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Connect will not save: *"Number of custom variables may not exceed 20"* | More than 20 different `{{$.Custom...}}` placeholders | Remove one you do not need. This guide's edits total 19 |
 | Connect will not save the prompt | A pasted line starts at the left edge instead of two spaces in | Find the line (often the first or last of a pasted block) and add two spaces at its start |
 | The prompt saves, but ARIA stops responding or behaves erratically | The line `messages:` near the end was indented, or a line before it lost its indentation | `messages:` must start at the left edge. Everything between `system: \|` and `messages:` must be indented |
-| ARIA greets normally for every customer | A placeholder is misspelt, so the value is empty | Compare each of the six lines from Edit 2 with this guide, letter by letter |
+| ARIA greets normally for every customer | A placeholder is misspelt, so the value is empty | Compare each of the four lines from Edit 2 with this guide, letter by letter |
 | ARIA greets normally for every customer, and the placeholders are right | Part E or Part F was missed | Check the agent uses prompt 14, and the flow uses agent 22 in **both** places |
 | ARIA says the literal words "top contact reason" | The square-bracket shorthand was changed, or Edit 2 is missing | Restore `[topContactReason]` in Edits 3, 4 and 7b, and check Edit 2 |
 | ARIA lists two or three reasons | Rule 2 of Edit 3 was altered or lost | Re-paste the block from Edit 3 |
@@ -812,8 +812,9 @@ These are outside this change. They are listed so you are not surprised by them 
 1. **ARIA runs its own identity check.** For an unauthenticated session the prompt tells ARIA to ask
    for date of birth and the last four digits of the mobile number. A caller the ID&V harness left
    unverified will therefore be asked security questions again by ARIA. That is correct today, but
-   it means two separate ID&V implementations exist. Edit 2 gives ARIA the level of assurance
-   (`loa`), so a later change could make ARIA rely on it.
+   it means two separate ID&V implementations exist. The injector already provides the level of
+   assurance as `loa`; a later change could bind it in the prompt (one variable slot is spare) and
+   make ARIA rely on it.
 2. **Category names differ between places.** The escalation list in this prompt uses `mortgage`.
    Your routing table was recently changed to `mortgages`. One of them will not match at escalation
    time. This exists today and is independent of contact reasons.
