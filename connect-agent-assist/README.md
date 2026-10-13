@@ -418,7 +418,16 @@ So the arrival briefing goes in the **screen pop**, which is yours to design. It
 | **Product details** | The assistant, from a look-up of the product the contact is about | About twenty seconds after the transfer |
 | **Related guidance** | The assistant, from your knowledge base | About twenty seconds after the transfer |
 
-The assistant's three lines are written in the background while the customer waits in the queue.
+### How it works
+
+1. When the contact is transferred, the Lambda asks the assistant the opening question on the
+   agent's behalf and returns at once. The assistant works on it while the customer is in the queue.
+2. When the agent accepts, the screen-pop flow calls the same Lambda (parameter `operation` =
+   `get_briefing`). It reads the assistant's answer from the session and returns the five lines.
+3. **Refresh briefing** calls it again, for when the agent accepted before the assistant finished.
+
+Nothing is stored on the contact. The screen pop runs under its own contact ID, so it cannot rely on
+attributes set on the original contact after it opened. Both share the assistant session.
 
 ### Steps
 
@@ -428,29 +437,36 @@ The assistant's three lines are written in the background while the customer wai
    the file as your way back.
 3. In the same flow, click the arrow next to **Save** → **Import**, and select
    `connect-agent-assist/flows/aria-agent-screen-pop-flow.json`. This replaces the flow's blocks.
-4. **Save**, then **Publish**.
+4. Check the **AWS Lambda function** block shows `aria-agent-assist-injector` with no warning.
+5. **Save**, then **Publish**.
 
-Nothing changes in `ARIA agent assist`: the Lambda starts the briefing itself.
+Nothing changes in `ARIA agent assist`.
 
 ### What the agent sees
 
-The usual handoff summary with the five lines under it, and two buttons: **Refresh briefing** and
-**Got it**. If the agent accepted within about twenty seconds of the transfer, the assistant's three
-lines say they are still being prepared; **Refresh briefing** shows them once they are ready.
+The usual handoff summary with the five lines under it, and three controls:
+
+- **Refresh briefing** fetches the lines again and shows the view again.
+- **Got it** closes the screen pop.
+- **Close** also closes it. It is a second way out that does not depend on reading which button
+  was pressed.
 
 ### How to check it worked
 
 | Where to look | What you should see |
 |---|---|
-| Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "started"` on the contact's line, then `"status": "briefing_ready"` about twenty seconds later |
-| **Contact search → your contact → Attributes** | `assistBriefFirst`, `assistBriefVerification`, `assistBriefReasons`, `assistBriefProduct`, `assistBriefGuidance` |
-| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks; the new flow switches logging on |
+| Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "requested"` on the contact's line, then `"status": "briefing_read"` each time the screen pop opens or refreshes, with `"ready": "true"` once the assistant has answered |
+| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks. `CheckButton` shows the button name it compared |
 
-> **Why five separate lines.** An earlier version showed the whole briefing in a second view behind
-> a button. On a live contact, pressing the button closed the screen pop. Each line is now one
-> contact attribute holding one line of plain text, the same way the existing **Summary** line
-> works. If **Refresh briefing** closes the screen pop instead of refreshing it, say so: the flow
-> now logs, so the cause can be read.
+> **What went wrong before, read from the logs.** The button check compared `$.Views.Action`, which
+> only ever says `ActionSelected`, so every button ended the flow. The button's name is in
+> `$.Views.ViewResultData.actionName`, which the flow now uses. That name was not confirmed against
+> AWS documentation, so the flow is built to fail safe: only an exact **Got it** closes the screen
+> pop, and anything else refreshes. If **Got it** refreshes instead of closing, use **Close** and
+> say so; the log will show the real value.
+>
+> Separately, the briefing once showed the assistant's progress note ("Getting James's mortgage
+> details together now") instead of its answer. Only a formatted answer is accepted now.
 
 To switch the briefing off without touching a flow, set the Lambda's `BRIEFING_ENABLED` to `false`.
 The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda.

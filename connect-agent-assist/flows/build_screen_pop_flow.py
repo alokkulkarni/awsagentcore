@@ -6,14 +6,14 @@ Generates flows/aria-agent-screen-pop-flow.json: the agent's screen pop, with
 the assistant's arrival briefing added to the flow that is live today.
 
 The two views the live flow already shows (the ARIA handoff summary, and the
-mortgage application view) keep everything they had. Each gains five lines,
-read from contact attributes that aria-agent-assist-injector fills in: what to
-do first, the verification position, the likely reasons, the product details
-and the related guidance. Each attribute holds one line of plain text, the same
-way the existing "Summary" line works.
+mortgage application view) keep everything they had. Each gains five lines:
+what to do first, the verification position, the likely reasons, the product
+details and the related guidance.
 
-"Refresh briefing" shows the view again, which re-reads the attributes, for the
-case where the agent accepted before the assistant had finished writing.
+The flow fetches those lines by calling aria-agent-assist-injector with
+operation = "get_briefing" before it shows the view. "Refresh briefing" calls
+it again, for the case where the agent accepted before the assistant had
+finished writing. "Got it" ends the flow.
 
 This script only writes a local file. It never calls AWS.
 
@@ -29,26 +29,30 @@ FLOW_DESCRIPTION = "Agent screen pop: ARIA handoff summary and the assistant's a
 DETAIL_VIEW = "arn:aws:connect:eu-west-2:aws:view/detail:1"   # AWS-managed "Detail" view
 REFRESH_ACTION, DONE_ACTION = "Refresh briefing", "Got it"
 
-# Label on screen -> contact attribute written by aria-agent-assist-injector.
+REGION, ACCOUNT_ID = "eu-west-2", "395402194296"
+INJECTOR_FUNCTION = "aria-agent-assist-injector"
+
+# Label on screen -> key returned by aria-agent-assist-injector (operation get_briefing).
 BRIEFING_ITEMS = [
-    ("Do first", "assistBriefFirst"),
-    ("Verification", "assistBriefVerification"),
-    ("Likely reasons", "assistBriefReasons"),
-    ("Product details", "assistBriefProduct"),
-    ("Related guidance", "assistBriefGuidance"),
+    ("Do first", "first"),
+    ("Verification", "verification"),
+    ("Likely reasons", "reasons"),
+    ("Product details", "product"),
+    ("Related guidance", "guidance"),
 ]
 
 
 def build() -> dict:
-    briefing = {"Items": [{"Label": label, "Value": f"$.Attributes.{attribute}"}
-                          for label, attribute in BRIEFING_ITEMS]}
+    briefing = {"Items": [{"Label": label, "Value": f"$.External.{key}"} for label, key in BRIEFING_ITEMS]}
 
     def view(identifier: str, view_data: dict) -> dict:
         return {
             "Identifier": identifier,
             "Type": "ShowView",
             "Parameters": {"ViewResource": {"Id": DETAIL_VIEW}, "InvocationTimeLimitSeconds": "600",
-                           "ViewData": {**view_data, "Actions": [REFRESH_ACTION, DONE_ACTION]}},
+                           "ViewData": {**view_data, "Actions": [REFRESH_ACTION, DONE_ACTION],
+                                        # A second, separate way out: "Back" is its own branch.
+                                        "Back": {"Label": "Close"}}},
             "Transitions": {
                 "NextAction": "End",
                 "Conditions": [
@@ -77,8 +81,22 @@ def build() -> dict:
             "Identifier": "EnableLogging",
             "Type": "UpdateFlowLoggingBehavior",
             "Parameters": {"FlowLoggingBehavior": "Enabled"},
-            "Transitions": {"NextAction": "CheckTopic"},
+            "Transitions": {"NextAction": "GetBriefing"},
         }, 200, 200),
+        ({
+            # Fetches the five briefing lines. Runs again on every refresh.
+            "Identifier": "GetBriefing",
+            "Type": "InvokeLambdaFunction",
+            "Parameters": {
+                "LambdaFunctionARN": f"arn:aws:lambda:{REGION}:{ACCOUNT_ID}:function:{INJECTOR_FUNCTION}",
+                "InvocationTimeLimitSeconds": "8",
+                "InvocationType": "SYNCHRONOUS",
+                "LambdaInvocationAttributes": {"operation": "get_briefing"},
+                "ResponseValidation": {"ResponseType": "STRING_MAP"},
+            },
+            "Transitions": {"NextAction": "CheckTopic",
+                            "Errors": [{"NextAction": "CheckTopic", "ErrorType": "NoMatchingError"}]},
+        }, 320, 380),
         (choose("CheckTopic", "$.Attributes.topicCategory", "mortgage_application",
                 "MortgageApplicationView", "HandoffView"), 440, 200),
         (view("HandoffView", {
@@ -108,8 +126,10 @@ def build() -> dict:
                 briefing,
             ],
         }), 700, 60),
-        # "Refresh briefing" shows the same view again, which re-reads the attributes.
-        (choose("CheckButton", "$.Views.Action", REFRESH_ACTION, "CheckTopic", "End"), 960, 200),
+        # Which button was pressed. "$.Views.Action" only says that a button was
+        # pressed ("ActionSelected"); the button's name is in the view's output.
+        # Anything but "Got it" fetches the briefing again and re-shows the view.
+        (choose("CheckButton", "$.Views.ViewResultData.actionName", DONE_ACTION, "End", "GetBriefing"), 960, 200),
         ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 1220, 200),
     ]
 

@@ -156,8 +156,7 @@ else
     $DRY_RUN || sleep 15
 fi
 
-# Read one instance's contacts and set one attribute on them; read and write one
-# assistant's sessions; start this same function in the background. Nothing else.
+# Read one instance's contacts; read and write one assistant's sessions. Nothing else.
 cat > "${BUILD_DIR}/policy.json" <<POLICY
 {
   "Version": "2012-10-17",
@@ -167,18 +166,6 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Effect": "Allow",
       "Action": "connect:DescribeContact",
       "Resource": ["${INSTANCE_ARN}", "${INSTANCE_ARN}/contact/*"]
-    },
-    {
-      "Sid": "StoreTheBriefingOnTheContact",
-      "Effect": "Allow",
-      "Action": "connect:UpdateContactAttributes",
-      "Resource": "${INSTANCE_ARN}/contact/*"
-    },
-    {
-      "Sid": "StartItsOwnBackgroundRun",
-      "Effect": "Allow",
-      "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}"
     },
     {
       "Sid": "SetTheAgentAndWriteContextOnTheSession",
@@ -235,14 +222,14 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
     step "Updating Lambda configuration..."
     run aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
-        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 60 \
+        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 15 \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 else
     step "Creating new Lambda..."
     run aws lambda create-function --function-name "$FUNCTION_NAME" --region "$REGION" \
         --runtime python3.12 --role "$ROLE_ARN" --handler "$HANDLER_NAME" \
-        --zip-file "fileb://${ZIP_PATH}" --timeout 60 --environment "file://${BUILD_DIR}/env.json" \
+        --zip-file "fileb://${ZIP_PATH}" --timeout 15 --environment "file://${BUILD_DIR}/env.json" \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
 fi

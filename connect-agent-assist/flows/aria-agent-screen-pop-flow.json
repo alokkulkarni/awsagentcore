@@ -13,6 +13,12 @@
           "y": 200
         }
       },
+      "GetBriefing": {
+        "position": {
+          "x": 320,
+          "y": 380
+        }
+      },
       "CheckTopic": {
         "position": {
           "x": 440,
@@ -58,7 +64,31 @@
         "FlowLoggingBehavior": "Enabled"
       },
       "Transitions": {
-        "NextAction": "CheckTopic"
+        "NextAction": "GetBriefing"
+      }
+    },
+    {
+      "Identifier": "GetBriefing",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-agent-assist-injector",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "get_briefing"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "CheckTopic",
+        "Errors": [
+          {
+            "NextAction": "CheckTopic",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
       }
     },
     {
@@ -119,23 +149,23 @@
               "Items": [
                 {
                   "Label": "Do first",
-                  "Value": "$.Attributes.assistBriefFirst"
+                  "Value": "$.External.first"
                 },
                 {
                   "Label": "Verification",
-                  "Value": "$.Attributes.assistBriefVerification"
+                  "Value": "$.External.verification"
                 },
                 {
                   "Label": "Likely reasons",
-                  "Value": "$.Attributes.assistBriefReasons"
+                  "Value": "$.External.reasons"
                 },
                 {
                   "Label": "Product details",
-                  "Value": "$.Attributes.assistBriefProduct"
+                  "Value": "$.External.product"
                 },
                 {
                   "Label": "Related guidance",
-                  "Value": "$.Attributes.assistBriefGuidance"
+                  "Value": "$.External.guidance"
                 }
               ]
             }
@@ -143,7 +173,10 @@
           "Actions": [
             "Refresh briefing",
             "Got it"
-          ]
+          ],
+          "Back": {
+            "Label": "Close"
+          }
         }
       },
       "Transitions": {
@@ -231,23 +264,23 @@
               "Items": [
                 {
                   "Label": "Do first",
-                  "Value": "$.Attributes.assistBriefFirst"
+                  "Value": "$.External.first"
                 },
                 {
                   "Label": "Verification",
-                  "Value": "$.Attributes.assistBriefVerification"
+                  "Value": "$.External.verification"
                 },
                 {
                   "Label": "Likely reasons",
-                  "Value": "$.Attributes.assistBriefReasons"
+                  "Value": "$.External.reasons"
                 },
                 {
                   "Label": "Product details",
-                  "Value": "$.Attributes.assistBriefProduct"
+                  "Value": "$.External.product"
                 },
                 {
                   "Label": "Related guidance",
-                  "Value": "$.Attributes.assistBriefGuidance"
+                  "Value": "$.External.guidance"
                 }
               ]
             }
@@ -255,7 +288,10 @@
           "Actions": [
             "Refresh briefing",
             "Got it"
-          ]
+          ],
+          "Back": {
+            "Label": "Close"
+          }
         }
       },
       "Transitions": {
@@ -300,24 +336,24 @@
       "Identifier": "CheckButton",
       "Type": "Compare",
       "Parameters": {
-        "ComparisonValue": "$.Views.Action"
+        "ComparisonValue": "$.Views.ViewResultData.actionName"
       },
       "Transitions": {
-        "NextAction": "End",
+        "NextAction": "GetBriefing",
         "Conditions": [
           {
-            "NextAction": "CheckTopic",
+            "NextAction": "End",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
-                "Refresh briefing"
+                "Got it"
               ]
             }
           }
         ],
         "Errors": [
           {
-            "NextAction": "End",
+            "NextAction": "GetBriefing",
             "ErrorType": "NoMatchingCondition"
           }
         ]

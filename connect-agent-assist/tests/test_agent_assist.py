@@ -79,20 +79,15 @@ class Harness(unittest.TestCase):
                 self.session_updates.append(kwargs)
 
             def send_message(_, **kwargs):
+                if self.update_error:
+                    raise self.update_error
                 self.messages.append(kwargs)
                 return {"requestMessageId": "request-1"}
 
             def list_messages(_, **kwargs):
                 return {"messages": list(reversed(self.history))}   # newest first, as the service returns
-
-        class Connect:
-            def update_contact_attributes(_, **kwargs):
-                self.attribute_updates.append(kwargs)
-        self.messages, self.history, self.attribute_updates, self.workers = [], [], [], []
-        assist.BRIEFING_POLL_SECONDS, assist.BRIEFING_WAIT_SECONDS = 0, 5
-        assist._start_briefing_worker = lambda context, *args: self.workers.append(args) or True
+        self.messages, self.history = [], []
         injector._get_qconnect = lambda: QConnect()
-        injector._get_connect = lambda: Connect()
 
     def invoke(self, attributes, channel="VOICE", parameters=None):
         return assist.handler({"Details": {"Parameters": parameters or {}, "ContactData": {
@@ -263,46 +258,58 @@ class NeverBlocksTheCustomer(Harness):
         result = self.invoke({"customerId": JAMES})
         self.assertEqual((result["assistAgent"], self.session_updates), ("not_configured", []))
 
-    def test_briefing_starts_only_once_the_session_has_the_assist_agent(self):
-        started = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
-        self.assertEqual(started["briefing"], "started")
-        ((instance, contact, session, known),) = self.workers
-        self.assertEqual((instance, contact, session), ("abc", "contact-1", SESSION))
-        self.assertIn("mobile app", known["reasons"])
-        self.assertTrue(known["verification"])
-        self.workers.clear()
-        self.assertEqual(self.invoke({"customerId": JAMES})["briefing"], "not_started")   # no agent passed
-        self.update_error = RuntimeError("AccessDenied")
-        self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})           # agent not switched
-        self.assertEqual(self.workers, [])
-
-    def test_background_run_stores_the_assistants_answer_on_the_contact(self):
-        self.history = [
-            {"messageId": "old", "participant": "BOT", "timestamp": 1, "value": {"text": {"value": "<b>ARIA</b>"}}},
-            {"messageId": "request-1", "participant": "CUSTOMER", "timestamp": 5, "value": {"text": {"value": "q"}}},
-            {"messageId": "lead", "participant": "BOT", "timestamp": 6,
-             "value": {"text": {"value": "Here&#39;s your brief. "}}},
-            {"messageId": "tool", "participant": "BOT", "timestamp": 7, "value": {"toolUse": {}}},
-            {"messageId": "answer", "participant": "BOT", "timestamp": 8, "value": {"text": {"value": ANSWER}}},
-        ]
-        result = assist.handler({"operation": "prepare_briefing", "instanceId": "abc", "contactId": "contact-1",
-                                 "sessionArn": SESSION,
-                                 "known": {"verification": "Verified by one check.", "reasons": "(1) app"}}, None)
-        self.assertEqual(result, {"status": "done"})
+    def test_briefing_is_requested_only_once_the_session_has_the_assist_agent(self):
+        requested = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
+        self.assertEqual(requested["briefing"], "requested")
         (message,) = self.messages
+        self.assertEqual(message["sessionId"], "assist-session")
         self.assertEqual(message["orchestratorUseCase"], "Connect.AgentAssistance")
         self.assertEqual(message["clientToken"], "arrival-briefing-contact-1")
-        pending, final = [a["Attributes"] for a in self.attribute_updates]
-        # What the Lambda already knows is on screen before the assistant answers.
-        self.assertEqual((pending["assistBriefVerification"], pending["assistBriefReasons"]),
-                         ("Verified by one check.", "(1) app"))
-        self.assertIn("still preparing", pending["assistBriefFirst"])
-        self.assertEqual(final["assistBriefFirst"], "Confirm what James wants to borrow.")
-        self.assertEqual(final["assistBriefProduct"], "Balance: £210,500; Rate: 4.25% fixed")
-        self.assertEqual(final["assistBriefGuidance"], "Subject to affordability.")
-        self.assertEqual(final["assistBriefVerification"], "Verified by one check.")
-        for value in final.values():
-            self.assertNotIn("\n", value.replace(final["assistBriefing"], ""))
+        self.assertEqual(message["message"]["value"]["text"]["value"], assist.ARRIVAL_BRIEFING_REQUEST)
+        self.messages.clear()
+        self.assertEqual(self.invoke({"customerId": JAMES})["briefing"], "not_requested")   # no agent passed
+        self.update_error = RuntimeError("AccessDenied")
+        self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})             # agent not switched
+        self.assertEqual(self.messages, [])
+
+    def asked(self, *replies):
+        """A session where the briefing was requested and the assistant has sent these replies."""
+        self.history = [
+            {"participant": "BOT", "timestamp": 1, "value": {"text": {"value": "<b>ARIA said this earlier</b>"}}},
+            {"participant": "CUSTOMER", "timestamp": 5, "value": {"text": {"value": assist.ARRIVAL_BRIEFING_REQUEST}}},
+            {"participant": "BOT", "timestamp": 6, "value": {"toolUse": {}}},
+        ] + [{"participant": "BOT", "timestamp": 7 + n, "value": {"text": {"value": reply}}}
+             for n, reply in enumerate(replies)]
+
+    def test_screen_pop_gets_the_finished_briefing(self):
+        assist.CLI_MATCH_LOA = 3
+        self.asked("Getting James&#39;s mortgage details together now. ", "Here&#39;s your brief. ", ANSWER)
+        lines = self.invoke({"customerId": JAMES, "authStatus": "authenticated"},
+                            parameters={"operation": "get_briefing"})
+        assist.CLI_MATCH_LOA = None
+        self.assertEqual(lines["first"], "Confirm what James wants to borrow.")
+        self.assertEqual(lines["product"], "Balance: £210,500; Rate: 4.25% fixed")
+        self.assertEqual(lines["guidance"], "Subject to affordability.")
+        self.assertTrue(lines["verification"].startswith("Verified by one check"))
+        self.assertIn("mobile app", lines["reasons"])
+        self.assertEqual(lines["ready"], "true")
+        self.assertTrue(all(isinstance(v, str) and "\n" not in v for v in lines.values()))
+        self.assertEqual((self.injected, self.messages, self.session_updates), ({}, [], []), "read-only")
+
+    def test_progress_notes_are_not_mistaken_for_the_briefing(self):
+        # Seen live: two plain progress notes arrived first and one was shown as the briefing.
+        self.asked("Getting James&#39;s mortgage details together now. ", "Here&#39;s your brief. ")
+        lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+        self.assertEqual(lines["ready"], "false")
+        for key in ("first", "product", "guidance"):
+            self.assertIn("still preparing", lines[key])
+        self.assertIn("mobile app", lines["reasons"])       # what the Lambda knows is there regardless
+
+    def test_screen_pop_still_gets_lines_when_the_session_cannot_be_read(self):
+        injector._resolve_wisdom_session_id = lambda *a: (_ for _ in ()).throw(RuntimeError("AccessDenied"))
+        lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+        self.assertEqual(lines["ready"], "false")
+        self.assertIn("could not prepare", lines["first"])
 
     def test_real_answer_shapes_are_split_into_fields(self):
         # The shape the assistant used on a live contact: one bold headline, then labelled bullets.
@@ -326,18 +333,6 @@ class NeverBlocksTheCustomer(Harness):
         assist.CLI_MATCH_LOA = None
         self.invoke({"customerId": JAMES, "authStatus": "authenticated"})
         self.assertIn("No identity check has been recorded", self.data["verification"])
-
-    def test_background_run_reports_when_the_assistant_does_not_answer(self):
-        assist.BRIEFING_WAIT_SECONDS = 0.01
-        self.history = [{"messageId": "request-1", "participant": "CUSTOMER", "timestamp": 5,
-                         "value": {"text": {"value": "q"}}}]
-        assist.handler({"operation": "prepare_briefing", "instanceId": "abc",
-                        "contactId": "contact-1", "sessionArn": SESSION}, None)
-        self.assertIn("could not prepare", self.attribute_updates[-1]["Attributes"]["assistBriefFirst"])
-
-    def test_retired_brief_operation_does_nothing(self):
-        self.assertEqual(self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})["status"], "ignored")
-        self.assertEqual((self.injected, self.messages, self.workers), ({}, [], []))
 
     def test_missing_assistant_session_is_reported_not_raised(self):
         self.session_arn = ""            # ran before the Connect assistant block
@@ -393,15 +388,25 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
         passed = self.actions["InjectContext"]["Parameters"]["LambdaInvocationAttributes"]
         self.assertEqual(passed, {"assistAgentArn": pinned["AgentAssistanceAgentVersionArn"]})
 
-    def test_screen_pop_shows_the_attributes_the_lambda_writes(self):
+    def test_screen_pop_shows_the_lines_the_lambda_returns(self):
         pop = json.loads((FOLDER / "flows" / "aria-agent-screen-pop-flow.json").read_text())
-        for action in pop["Actions"]:
-            if action["Type"] != "ShowView":
-                continue
-            shown = {item["Value"] for section in action["Parameters"]["ViewData"]["Sections"]
-                     for item in section.get("Items", [])}
-            for attribute in assist.BRIEFING_FIELDS.values():
-                self.assertIn(f"$.Attributes.{attribute}", shown, action["Identifier"])
+        blocks = {a["Identifier"]: a for a in pop["Actions"]}
+        self.assertEqual(blocks["GetBriefing"]["Parameters"]["LambdaInvocationAttributes"],
+                         {"operation": "get_briefing"})
+        real, assist._briefing_answer = assist._briefing_answer, lambda session_id: ""
+        try:
+            returned = set(assist.get_briefing("s/x", {}, "voice")) - {"ready"}
+        finally:
+            assist._briefing_answer = real
+        for name in ("HandoffView", "MortgageApplicationView"):
+            shown = {item["Value"] for section in blocks[name]["Parameters"]["ViewData"]["Sections"]
+                     for item in section.get("Items", []) if item["Value"].startswith("$.External.")}
+            self.assertEqual(shown, {f"$.External.{key}" for key in returned})
+        # Only "Got it" ends the flow; any other button fetches the briefing again.
+        button = blocks["CheckButton"]
+        self.assertEqual(button["Parameters"]["ComparisonValue"], "$.Views.ViewResultData.actionName")
+        self.assertEqual(button["Transitions"]["NextAction"], "GetBriefing")
+        self.assertEqual(button["Transitions"]["Conditions"][0]["Condition"]["Operands"], ["Got it"])
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.
