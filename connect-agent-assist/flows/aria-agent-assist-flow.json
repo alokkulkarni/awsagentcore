@@ -35,13 +35,30 @@
         "position": {
           "x": 920,
           "y": 40
-        }
+        },
+        "children": [
+          "SetAssistantSession"
+        ],
+        "fragments": {
+          "SetContactData": "SetAssistantSession"
+        },
+        "parameters": {
+          "OrchestrationAIAgentConfiguration": {
+            "AgentAssistanceAgentVersionArn": {
+              "useAIAgentDropdown": true,
+              "aiAgentName": "my-agent-assistant-agent"
+            }
+          }
+        },
+        "useAIAgentDropdown": true,
+        "aiAgentName": "my-agent-assistant-agent"
       },
       "SetAssistantSession": {
         "position": {
-          "x": 1160,
+          "x": 920,
           "y": 40
-        }
+        },
+        "dynamicParams": []
       },
       "InjectContext": {
         "position": {
@@ -225,7 +242,7 @@
       "Parameters": {
         "WisdomAssistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15",
         "OrchestrationAIAgentConfiguration": {
-          "AgentAssistanceAgentVersionArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:3"
+          "AgentAssistanceAgentVersionArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:4"
         }
       },
       "Transitions": {

@@ -243,6 +243,16 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
             self.assertIn(f"<{tag}>", self.prompt)
             self.assertIn(f"</{tag}>", self.prompt)
 
+    def test_session_step_is_part_of_the_connect_assistant_block(self):
+        # The designer saves "Connect assistant" with the session step as a
+        # hidden part. Imported as a separate block it turns into an empty
+        # "Set contact attributes" block that Connect will not save.
+        meta = self.flow["Metadata"]["ActionMetadata"]
+        self.assertEqual(meta["ConnectAssistant"]["fragments"], {"SetContactData": "SetAssistantSession"})
+        self.assertEqual(meta["ConnectAssistant"]["children"], ["SetAssistantSession"])
+        self.assertEqual(meta["SetAssistantSession"]["position"], meta["ConnectAssistant"]["position"])
+        self.assertEqual(self.actions["SetAssistantSession"]["Type"], "UpdateContactData")
+
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.
         # Measured as Connect sees it: without the two-space YAML indent.

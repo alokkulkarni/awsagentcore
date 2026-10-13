@@ -269,7 +269,7 @@ Nothing has changed for agents yet. The handover flow still pins version 3.
 
 ## Part D — Create the Agent Assist Flow
 
-The flow pins an exact agent version. If the version from Step C.3 is not 3, regenerate the JSON
+The flow file pins agent version 4. If the version from Step C.3 is different, regenerate the JSON
 first:
 
 ```bash
@@ -290,9 +290,14 @@ Then choose one method.
    - **Set event flow** shows `ARIA-Agent-Screen-Pop-Flow`
 6. **Save**, then **Publish**.
 
+> **If you see an empty "Set contact attributes" block after Connect assistant, and Connect will not
+> save:** you imported an older copy of the JSON. Delete that empty block and connect **Connect
+> assistant** → **Success** straight to the **AWS Lambda function** block. Nothing needs adding to
+> it: the Connect assistant block already records the session.
+
 ### Method 2 — Build it block by block
 
-Create a new inbound flow and add these 12 blocks. The **Name** column is the label used in the JSON.
+Create a new inbound flow and add these 11 blocks (row 6 is not a block you add). The **Name** column is the label used in the JSON.
 
 > Screen labels were written from the AWS documentation and the flow JSON, not by clicking through
 > your console, so a label may differ slightly. The block types and values are what matter.
@@ -303,8 +308,8 @@ Create a new inbound flow and add these 12 blocks. The **Name** column is the la
 | 2 | CheckChannel | Check contact attributes | Namespace **System**, key **Channel**. One condition: *Equals* `CHAT` | `CHAT` → 4. No match → 3 |
 | 3 | VoiceAnalytics | Set recording and analytics behavior | Channel **Voice**. Recording on for agent and customer. Analytics **on**, language *English (UK)*, **Real-time and post-call**. Sentiment on | Success and Error → 5 |
 | 4 | ChatAnalytics | Set recording and analytics behavior | Channel **Chat**. Analytics **on**, language *English (UK)*. Sentiment on | Success and Error → 5 |
-| 5 | ConnectAssistant | Connect assistant | Your assistant domain. Under the AI agent setting choose `my-agent-assistant-agent` and the version from Step C.3 | Success → 6. Error → 8 |
-| 6 | SetAssistantSession | Set contact data | Set the **assistant session ARN**, dynamically: namespace **Assistant** (or *Wisdom*), key **Session ARN** | Success → 7. Error → 8 |
+| 5 | ConnectAssistant | Connect assistant | Your assistant domain. Under the AI agent setting choose `my-agent-assistant-agent` and the version from Step C.3 | Success → 7. Error → 8 |
+| 6 | SetAssistantSession | *(none: part of block 5)* | Nothing to add. **Connect assistant** records the session on the contact itself; the designer does not show this as a block | |
 | 7 | InjectContext | AWS Lambda function | Function `aria-agent-assist-injector`. Timeout **8**. Response validation **STRING_MAP**. No parameters | Success and Error → 8 |
 | 8 | SetAgentScreen | Set event flow | Event **Default flow for agent UI**, flow `ARIA-Agent-Screen-Pop-Flow` | Success and Error → 9 |
 | 9 | SetQueue | Set working queue | Set dynamically: namespace **User defined**, key `ariaQueueId` | Success and Error → 10 |
@@ -317,7 +322,7 @@ Disconnect. If analytics, the assistant or the Lambda fails, the customer must s
 Only a failure to queue ends the contact.
 
 **Order matters for blocks 5, 6 and 7.** The Lambda finds the session to write to by asking Connect
-for the contact's current assistant session. Blocks 5 and 6 create and record it. If block 7 runs
+for the contact's current assistant session. Block 5 creates and records it. If block 7 runs
 first, there is nothing to write to.
 
 **Save**, then **Publish**.
@@ -493,9 +498,10 @@ contact.
 Attaches your assistant to the contact and chooses which AI agent runs. This starts a new session,
 separate from ARIA's.
 
-### Set contact data
+### Set contact data (inside Connect assistant)
 Records that new session on the contact. The agent workspace and the Lambda both find the session
-through the contact.
+through the contact. You never add this yourself: the designer builds it into the **Connect
+assistant** block, which is why the flow file has 12 steps but the designer shows 11 blocks.
 
 ### AWS Lambda function
 Runs `aria-agent-assist-injector`, which writes the briefing into the session.

@@ -23,8 +23,9 @@ REGION = "eu-west-2"
 ACCOUNT_ID = "395402194296"
 INSTANCE_ID = "f969d4b4-f716-4974-a325-bb7899f2f293"
 ASSISTANT_ID = "e6991ed4-e11c-4194-8d20-13889a36bd15"
-ASSIST_AGENT_ID = "26ca6380-17fe-4828-bc53-537e1154ecbb"      # my-agent-assistant-agent
-ASSIST_AGENT_VERSION = "3"
+ASSIST_AGENT_ID = "26ca6380-17fe-4828-bc53-537e1154ecbb"
+ASSIST_AGENT_NAME = "my-agent-assistant-agent"
+ASSIST_AGENT_VERSION = "4"
 SCREEN_POP_FLOW_ID = "4b85d55a-3d5d-4ff8-88b1-33034272e86d"   # ARIA-Agent-Screen-Pop-Flow
 INJECTOR_FUNCTION = "aria-agent-assist-injector"
 
@@ -104,11 +105,14 @@ def build(region, account_id, instance_id, assistant_id, agent_id, agent_version
             "Transitions": {"NextAction": "SetAssistantSession", "Errors": on_error("SetAgentScreen")},
         }, 920, 40),
         ({
+            # Not a block of its own in the designer. "Connect assistant" owns it
+            # as a hidden part (see the metadata below), which is how the
+            # designer itself saves that block. Same position as its parent.
             "Identifier": "SetAssistantSession",
             "Type": "UpdateContactData",
             "Parameters": {"WisdomSessionArn": "$.Wisdom.SessionArn"},
             "Transitions": {"NextAction": "InjectContext", "Errors": on_error("SetAgentScreen")},
-        }, 1160, 40),
+        }, 920, 40),
         ({
             "Identifier": "InjectContext",
             "Type": "InvokeLambdaFunction",
@@ -155,12 +159,26 @@ def build(region, account_id, instance_id, assistant_id, agent_id, agent_version
          2360, 240),
     ]
 
+    action_metadata = {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out}
+    # The designer draws "Connect assistant" and the step that records the
+    # session as ONE block. Without this, import shows the second step as a
+    # separate, empty "Set contact attributes" block that will not save.
+    action_metadata["ConnectAssistant"].update({
+        "children": ["SetAssistantSession"],
+        "fragments": {"SetContactData": "SetAssistantSession"},
+        "parameters": {"OrchestrationAIAgentConfiguration": {"AgentAssistanceAgentVersionArn": {
+            "useAIAgentDropdown": True, "aiAgentName": ASSIST_AGENT_NAME}}},
+        "useAIAgentDropdown": True,
+        "aiAgentName": ASSIST_AGENT_NAME,
+    })
+    action_metadata["SetAssistantSession"]["dynamicParams"] = []
+
     return {
         "Version": "2019-10-30",
         "StartAction": "EnableLogging",
         "Metadata": {
             "entryPointPosition": {"x": 40, "y": 40},
-            "ActionMetadata": {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out},
+            "ActionMetadata": action_metadata,
             "Annotations": [],
             "name": FLOW_NAME,
             "description": FLOW_DESCRIPTION,
@@ -187,7 +205,7 @@ def main() -> None:
     flow = build(args.region, args.account_id, args.instance_id, args.assistant_id, args.assist_agent_id,
                  args.assist_agent_version, args.screen_pop_flow_id)
     Path(args.output).write_text(json.dumps(flow, indent=2) + "\n")
-    print(f"Wrote {args.output} ({len(flow['Actions'])} blocks, assist agent version {args.assist_agent_version})")
+    print(f"Wrote {args.output} ({len(flow['Actions']) - 1} blocks, assist agent version {args.assist_agent_version})")
 
 
 if __name__ == "__main__":
