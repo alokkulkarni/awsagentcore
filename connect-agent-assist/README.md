@@ -420,6 +420,10 @@ So the arrival briefing goes in the **screen pop**, which is yours to design. It
 | **Product details** | The assistant, from a look-up of the product the contact is about | About twenty seconds after the transfer |
 | **Related guidance** | The assistant, from your knowledge base | About twenty seconds after the transfer |
 
+Each is a bold heading with one line or a short bullet list under it, with the key figures in
+bold, so it can be skim-read on a call. A view has a fixed number of lines, so the lists are fixed
+too: two likely reasons, three product details, two guidance points. A spare line shows a dash.
+
 ### How it works
 
 1. When the contact is transferred, the Lambda asks the assistant the opening question on the

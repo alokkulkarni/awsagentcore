@@ -297,10 +297,13 @@ class NeverBlocksTheCustomer(Harness):
                             parameters={"operation": "get_briefing"})
         assist.CLI_MATCH_LOA = None
         self.assertEqual(lines["first"], "Confirm what James wants to borrow.")
-        self.assertEqual(lines["product"], "Balance: £210,500; Rate: 4.25% fixed")
-        self.assertEqual(lines["guidance"], "Subject to affordability.")
-        self.assertTrue(lines["verification"].startswith("Verified by one check"))
-        self.assertIn("mobile app", lines["reasons"])
+        # Bullets keep the assistant's bold; a view has a fixed number of lines, so spare ones show a dash.
+        self.assertEqual([lines["product1"], lines["product2"], lines["product3"]],
+                         ["Balance: **£210,500**", "Rate: **4.25% fixed**", "—"])
+        self.assertEqual([lines["guidance1"], lines["guidance2"]], ["Subject to affordability.", "—"])
+        self.assertTrue(lines["verification"].startswith("**Level 3, one check**"))
+        self.assertIn("**Your own check first:** payments", lines["verification"])
+        self.assertTrue(lines["reason1"].startswith("**Trouble signing in to the mobile app:**"))
         self.assertEqual(lines["ready"], "true")
         self.assertTrue(all(isinstance(v, str) and "\n" not in v for v in lines.values()))
         self.assertEqual((self.injected, self.messages, self.session_updates), ({}, [], []), "read-only")
@@ -310,26 +313,39 @@ class NeverBlocksTheCustomer(Harness):
         self.asked("Getting James&#39;s mortgage details together now. ", "Here&#39;s your brief. ")
         lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
         self.assertEqual(lines["ready"], "false")
-        for key in ("first", "product", "guidance"):
-            self.assertIn("still preparing", lines[key])
-        self.assertIn("mobile app", lines["reasons"])       # what the Lambda knows is there regardless
+        for key in ("first", "product1", "guidance1"):
+            self.assertIn("Still being prepared", lines[key])
+        self.assertIn("mobile app", lines["reason1"])       # what the Lambda knows is there regardless
 
     def test_screen_pop_still_gets_lines_when_the_session_cannot_be_read(self):
         injector._resolve_wisdom_session_id = lambda *a: (_ for _ in ()).throw(RuntimeError("AccessDenied"))
         lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
         self.assertEqual(lines["ready"], "false")
-        self.assertIn("could not prepare", lines["first"])
+        self.assertIn("Not available", lines["first"])
+        self.assertEqual(set(lines), set(assist.get_briefing(SESSION, {}, "voice")), "same lines either way")
 
-    def test_real_answer_shapes_are_split_into_fields(self):
-        # The shape the assistant used on a live contact: one bold headline, then labelled bullets.
-        fields = assist.briefing_fields(
+    def test_answer_shapes_are_split_into_bullets(self):
+        # The fast briefing agent's format: a sentence, then two bullet lists.
+        self.assertEqual(assist.briefing_fields(
+            "**What to do first:** Ask how much he wants to **borrow**.\n"
+            "**Product details:**\n- **£210,500** outstanding\n- **Rate:** 4.25% fixed\n- **18 years** left\n\n"
+            "**Related guidance:**\n- Check **affordability** and \"LTV\"\n- Rate can differ"),
+            {"first": ["Ask how much he wants to **borrow**."],
+             "product": ["**£210,500** outstanding", "**Rate:** 4.25% fixed", "**18 years** left"],
+             "guidance": ["Check **affordability** and 'LTV'", "Rate can differ"]})
+        # The agent-assist agent's looser format, seen on a live contact.
+        self.assertEqual(assist.briefing_fields(
             "**What to do first: check what James wants.**\n"
             "- **Customer intent:** Speak to an adviser.\n"
-            "- **James's mortgage:** Balance **£210,500**, \"fixed\" rate.\n"
-            "- **Related guidance:** Overpayments up to 10% are fee-free.\n\nJames is on the line now.")
-        self.assertEqual(fields, {"first": "check what James wants.",
-                                  "product": "Balance £210,500, 'fixed' rate.",
-                                  "guidance": "Overpayments up to 10% are fee-free.; James is on the line now."})
+            "- **James's mortgage:** Balance **£210,500**.\n"
+            "- **Related guidance:** Overpayments up to 10% are fee-free.\n\nJames is on the line now."),
+            {"first": ["check what James wants.", "**Customer intent:** Speak to an adviser."],
+             "product": ["Balance **£210,500**."],
+             "guidance": ["Overpayments up to 10% are fee-free.", "James is on the line now."]})
+
+    def test_lists_are_fitted_to_the_lines_the_view_has(self):
+        self.assertEqual(assist._slots("p", ["a", "b", "c", "d"], 3, "none"), {"p1": "a", "p2": "b", "p3": "c · d"})
+        self.assertEqual(assist._slots("p", [], 2, "none"), {"p1": "none", "p2": "—"})
 
     def test_direct_call_is_passed_at_the_level_aria_gave_it(self):
         # No ID&V flow ran. ARIA's injector recognised the number and told ARIA Level 3.
@@ -419,9 +435,9 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
         finally:
             assist._briefing_answer = real
         for name in ("HandoffView", "MortgageApplicationView"):
-            shown = {item["Value"] for section in blocks[name]["Parameters"]["ViewData"]["Sections"]
-                     for item in section.get("Items", []) if item["Value"].startswith("$.External.")}
-            self.assertEqual(shown, {f"$.External.{key}" for key in returned})
+            templates = " ".join(section.get("TemplateString", "")
+                                 for section in blocks[name]["Parameters"]["ViewData"]["Sections"])
+            self.assertEqual(set(re.findall(r"\$\.External\.([A-Za-z0-9]+)", templates)), returned)
         # The button refreshes; the Back link ends the flow. No block has to read which button it was.
         for name in ("HandoffView", "MortgageApplicationView"):
             data, branches = blocks[name]["Parameters"]["ViewData"], blocks[name]["Transitions"]["Conditions"]

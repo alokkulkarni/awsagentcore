@@ -6,9 +6,10 @@ Generates flows/aria-agent-screen-pop-flow.json: the agent's screen pop, with
 the assistant's arrival briefing added to the flow that is live today.
 
 The two views the live flow already shows (the ARIA handoff summary, and the
-mortgage application view) keep everything they had. Each gains five lines:
-what to do first, the verification position, the likely reasons, the product
-details and the related guidance.
+mortgage application view) keep everything they had. Each gains five short
+sections with bold headings and bullet points: what to do first, the
+verification position, the likely reasons, the product details and the related
+guidance.
 
 The flow fetches those lines by calling aria-agent-assist-injector with
 operation = "get_briefing" before it shows the view. "Refresh briefing" calls
@@ -32,18 +33,22 @@ REFRESH_ACTION, DONE_ACTION = "Refresh briefing", "Got it"
 REGION, ACCOUNT_ID = "eu-west-2", "395402194296"
 INJECTOR_FUNCTION = "aria-agent-assist-injector"
 
-# Label on screen -> key returned by aria-agent-assist-injector (operation get_briefing).
-BRIEFING_ITEMS = [
-    ("Do first", "first"),
-    ("Verification", "verification"),
-    ("Likely reasons", "reasons"),
-    ("Product details", "product"),
-    ("Related guidance", "guidance"),
+# The briefing, as Markdown the view renders: a bold heading, then one line or
+# a short bullet list. Every "$.External.<key>" is one line of text returned by
+# aria-agent-assist-injector (operation get_briefing). The line breaks and the
+# bullets are fixed here, in the flow, because a view cannot be relied on to
+# lay out line breaks that arrive inside a value.
+BRIEFING_SECTIONS = [
+    "**Do first**\n\n$.External.first",
+    "**Verification**\n\n$.External.verification",
+    "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2",
+    "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3",
+    "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2",
 ]
 
 
 def build() -> dict:
-    briefing = {"Items": [{"Label": label, "Value": f"$.External.{key}"} for label, key in BRIEFING_ITEMS]}
+    briefing = [{"TemplateString": section} for section in BRIEFING_SECTIONS]
 
     def view(identifier: str, view_data: dict) -> dict:
         return {
@@ -110,7 +115,7 @@ def build() -> dict:
                     {"Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason"},
                     {"Label": "Summary", "Value": "$.Attributes.ariaSummary"},
                 ]},
-                briefing,
+                *briefing,
             ],
         }), 700, 320),
         (view("MortgageApplicationView", {
@@ -126,7 +131,7 @@ def build() -> dict:
                 {"TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"},
                 {"TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"},
                 {"TemplateString": "$.Attributes.ariaSummary"},
-                briefing,
+                *briefing,
             ],
         }), 700, 60),
         ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 960, 200),

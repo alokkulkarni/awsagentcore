@@ -140,28 +140,19 @@
               ]
             },
             {
-              "Items": [
-                {
-                  "Label": "Do first",
-                  "Value": "$.External.first"
-                },
-                {
-                  "Label": "Verification",
-                  "Value": "$.External.verification"
-                },
-                {
-                  "Label": "Likely reasons",
-                  "Value": "$.External.reasons"
-                },
-                {
-                  "Label": "Product details",
-                  "Value": "$.External.product"
-                },
-                {
-                  "Label": "Related guidance",
-                  "Value": "$.External.guidance"
-                }
-              ]
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
             }
           ],
           "Actions": [
@@ -254,28 +245,19 @@
               "TemplateString": "$.Attributes.ariaSummary"
             },
             {
-              "Items": [
-                {
-                  "Label": "Do first",
-                  "Value": "$.External.first"
-                },
-                {
-                  "Label": "Verification",
-                  "Value": "$.External.verification"
-                },
-                {
-                  "Label": "Likely reasons",
-                  "Value": "$.External.reasons"
-                },
-                {
-                  "Label": "Product details",
-                  "Value": "$.External.product"
-                },
-                {
-                  "Label": "Related guidance",
-                  "Value": "$.External.guidance"
-                }
-              ]
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
             }
           ],
           "Actions": [

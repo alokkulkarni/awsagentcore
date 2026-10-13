@@ -101,8 +101,8 @@ shown in the agent's screen pop, in two steps:
        agent-assist agent does, which takes about twenty seconds.
     2. The screen-pop flow calls this Lambda with the parameter
        operation = "get_briefing". It reads the assistant's answer from the
-       session and returns five lines for the view: first, verification,
-       reasons, product, guidance. Pressing "Refresh briefing" calls it again.
+       session and returns the lines the view shows: first, verification,
+       reason1-2, product1-3, guidance1-2. "Refresh briefing" calls it again.
 
 Nothing is stored on the contact. The screen pop runs under its own contact ID,
 so it could not rely on attributes set on the original contact after it opened;
@@ -157,14 +157,18 @@ CLI_MATCH_LOA: int | None = injector._parse_loa(os.environ.get("CLI_MATCH_LOA", 
 # the agent's screen pop fetches through this Lambda.
 BRIEFING_ENABLED: bool = os.environ.get("BRIEFING_ENABLED", "true").lower() != "false"
 BRIEFING_AI_AGENT_ARN: str = os.environ.get("BRIEFING_AI_AGENT_ARN", "")
-BRIEFING_FIELD_MAX_CHARS = 900
-BRIEFING_PENDING_TEXT = "The assistant is still preparing this. Press Refresh briefing in a few seconds."
-BRIEFING_FAILED_TEXT = "The assistant could not prepare this. Ask it in the Connect assistant panel."
+BRIEFING_FIELD_MAX_CHARS = 400
+# How many bullet lines the screen pop's view has for each list.
+BRIEFING_SLOTS = {"reason": 2, "product": 3, "guidance": 2}
+BRIEFING_EMPTY_SLOT = "—"
+BRIEFING_PENDING_TEXT = "*Still being prepared. Press Refresh briefing in a few seconds.*"
+BRIEFING_FAILED_TEXT = "*Not available. Ask in the Connect assistant panel.*"
 ARRIVAL_BRIEFING_REQUEST = (
     "I am about to take this contact and nobody has spoken to the customer yet. Brief me before I speak. "
     "Look up the details of the product the customer is contacting us about, and look up our guidance "
-    "for that topic. Answer under exactly these three headings: What to do first; Product details; "
-    "Related guidance. I am the bank's adviser on this contact: under Related guidance tell me what "
+    "for that topic. Answer under exactly these three headings: What to do first (one sentence); "
+    "Product details (three short bullets); Related guidance (two short bullets). Put the key figure "
+    "or action in each in bold. I am the bank's adviser on this contact: under Related guidance tell me what "
     "the guidance means I should do or explain, and do not tell me the customer should call the bank, "
     "visit a branch or speak to an adviser."
 )
@@ -218,6 +222,43 @@ def describe_verification(loa: int | None, method: str) -> str:
     return "Not verified. Verify identity before discussing the account."
 
 
+def verification_headline(loa: int | None, method: str) -> str:
+    """
+    The verification position as one line an agent can take in at a glance on
+    the screen pop. Says the same as describe_verification, in fewer words.
+    """
+    how = _METHOD_WORDS.get(method, method.replace("_", " ")) if method else ""
+    if method == "cli_match" and loa is not None and loa >= 2:
+        return (f"**Level {loa}, one check** (phone number recognised by ARIA). **OK:** account information. "
+                "**Your own check first:** payments, changes of details.")
+    if method == "cli_match" or loa is None or loa < 2:
+        return "**Not verified.** **Verify identity first**, before discussing the account."
+    if loa >= 3:
+        return f"**Strongly verified** by {how or 'the ID&V flow'}. **No further check needed** for servicing."
+    return (f"**Level 2, one check** ({how or 'the ID&V flow'}). **OK:** account information. "
+            "**Your own check first:** payments, changes of details.")
+
+
+def contact_reason_bullets(customer_id: str) -> list[str]:
+    """The known reasons as bullet points for the screen pop, most likely first."""
+    reasons = injector._lookup_contact_reasons(customer_id) if customer_id else []
+    reasons.sort(key=lambda r: (r.get("priority", 9), r.get("days_ago", 999)))
+    return [f"**{reason['label'][:1].upper()}{reason['label'][1:]}:** {reason['detail']}"
+            + (" *(sensitive: confirm identity before raising)*" if reason.get("min_loa", 2) >= 3 else "")
+            for reason in reasons[:MAX_REASONS]]
+
+
+def resolve_verification(attrs: dict) -> tuple[int | None, str]:
+    """The level and method to describe, from flow-set contact attributes only."""
+    method = str(attrs.get("idvMethod") or "")
+    loa = injector._parse_loa(str(attrs.get("LoA") or attrs.get("loa") or ""))
+    if loa is None and not method and attrs.get("authStatus") == "authenticated" and CLI_MATCH_LOA is not None:
+        # A direct call: no ID&V flow ran. ARIA's injector recognised the phone
+        # number and told ARIA this level, so the agent is told the same.
+        loa, method = CLI_MATCH_LOA, "cli_match"
+    return loa, method
+
+
 def describe_contact_reasons(customer_id: str) -> str:
     """Every known reason for the customer, most likely first, for a member of staff."""
     reasons = injector._lookup_contact_reasons(customer_id)
@@ -243,12 +284,7 @@ def build_context(attrs: dict, channel: str) -> dict[str, str]:
         return ""
 
     customer_id = attr("customerId")
-    method = attr("idvMethod")
-    loa = injector._parse_loa(attr("LoA", "loa"))
-    if loa is None and not method and attr("authStatus") == "authenticated" and CLI_MATCH_LOA is not None:
-        # A direct call: no ID&V flow ran. ARIA's injector recognised the phone
-        # number and told ARIA this level, so the agent is told the same.
-        loa, method = CLI_MATCH_LOA, "cli_match"
+    loa, method = resolve_verification(attrs)
     summary = attr("ariaSummary", "conversationSummary")
 
     context = {
@@ -344,30 +380,53 @@ def briefing_to_markdown(answer: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def briefing_fields(markdown: str) -> dict[str, str]:
+def briefing_fields(markdown: str) -> dict[str, list[str]]:
     """
-    Split the assistant's answer into the parts the screen pop shows, each as
-    one line of plain text. Keys: "first", "product", "guidance".
+    Split the assistant's answer into the parts the screen pop shows. Keys:
+    "first", "product", "guidance". Each value is a list of bullet points, one
+    line each, with the assistant's **bold** kept so the view can show it.
     """
-    parts: list[list[str]] = []          # [label, text]
-    for line in markdown.split("\n"):
-        labelled = re.match(r"^(?:- )?\*\*(.+?)\*\*:?\s*(.*)$", line.strip())
-        if labelled:
-            label, text = labelled.group(1).rstrip(":"), labelled.group(2)
-            if not text and ":" in label:        # the whole line was bold: "**Label: text**"
-                label, text = (piece.strip() for piece in label.split(":", 1))
-            parts.append([label, text])
-        elif parts and line.strip():
-            parts[-1][1] += ("; " if parts[-1][1] else "") + line.strip().lstrip("- ")
-    fields: dict[str, str] = {}
-    for label, text in parts:
-        key = next((key for key, words in (("first", ("first",)), ("guidance", ("guidance",)),
-                                           ("product", ("product", "detail", "mortgage", "account", "card")))
-                    if any(word in label.lower() for word in words)), "")
-        text = re.sub(r"\s+", " ", text.replace("*", "").replace('"', "'")).strip(" ;")
-        if key and text and key not in fields:
-            fields[key] = text[:BRIEFING_FIELD_MAX_CHARS]
+    def key_for(label: str) -> str:
+        return next((key for key, words in (("first", ("first",)), ("guidance", ("guidance",)),
+                                            ("product", ("product", "detail", "mortgage", "account", "card")))
+                     if any(word in label.lower() for word in words)), "")
+
+    parts: list[tuple[str, list[str]]] = []          # (key, bullets)
+    for line in (line.strip() for line in markdown.split("\n")):
+        if not line:
+            continue
+        bullet = line[2:] if line.startswith("- ") else line
+        heading = re.match(r"^\*\*([^*]+?)\*\*(:?)\s*(.*)$", bullet)
+        label = heading.group(1) if heading and (heading.group(2) or ":" in heading.group(1)) else ""
+        key = key_for(label.split(":", 1)[0]) if label else ""
+        # A bold lead-in only starts a new part when it names one we show and
+        # is not the part we are already in. "- **Rate:** 4.25%" stays a bullet.
+        if key and not (parts and parts[-1][0] == key):
+            text = heading.group(3) or (label.split(":", 1)[1].strip() if ":" in label.rstrip(":") else "")
+            parts.append((key, [text] if text else []))
+        elif parts:
+            parts[-1][1].append(bullet)
+    fields: dict[str, list[str]] = {}
+    for key, bullets in parts:
+        bullets = [re.sub(r"\s+", " ", bullet.replace('"', "'")).strip(" ;")[:BRIEFING_FIELD_MAX_CHARS]
+                   for bullet in bullets]
+        bullets = [bullet for bullet in bullets if bullet]
+        if bullets and key not in fields:
+            fields[key] = bullets
     return fields
+
+
+def _slots(name: str, bullets: list[str], count: int, when_empty: str) -> dict[str, str]:
+    """
+    Fit a list of bullets into the fixed lines the view has for them: name1,
+    name2, ... A view cannot grow or shrink a list, so extra bullets share the
+    last line and unused lines show a dash.
+    """
+    bullets = list(bullets) or [when_empty]
+    if len(bullets) > count:
+        bullets = bullets[:count - 1] + [" · ".join(bullets[count - 1:])]
+    bullets += [BRIEFING_EMPTY_SLOT] * (count - len(bullets))
+    return {f"{name}{number}": bullet for number, bullet in enumerate(bullets, start=1)}
 
 
 def _briefing_answer(session_id: str) -> str:
@@ -417,20 +476,32 @@ def request_arrival_briefing(session_arn: str, contact_id: str, briefing_agent: 
 
 def get_briefing(session_arn: str, attrs: dict, channel: str) -> dict[str, str]:
     """
-    The five lines the agent's screen pop shows. Called by the screen-pop flow
-    when the agent accepts, and again each time they press "Refresh briefing".
+    What the agent's screen pop shows, as the fixed set of lines its view has.
+    Called by the screen-pop flow when the agent accepts, and again each time
+    they press "Refresh briefing".
 
     Verification and likely reasons come from this Lambda, so they are always
-    there and always the bank's own wording. The other three are the
-    assistant's answer, read from the session, or a "still preparing" line.
+    there and always the bank's own wording. The rest is the assistant's
+    answer, read from the session, or a "still preparing" line.
     """
-    context = build_context(attrs, channel)
+    customer_id = str(attrs.get("customerId") or "")
     found = briefing_fields(briefing_to_markdown(_briefing_answer(session_arn.split("/")[-1])))
-    lines = {key: found.get(key) or BRIEFING_PENDING_TEXT for key in ("first", "product", "guidance")}
-    lines["verification"] = context.get("verification") or "Not recorded."
-    lines["reasons"] = context.get("knownContactReasons") or "None recorded."
-    lines["ready"] = "true" if found else "false"
+    lines = {
+        "first": " ".join(found.get("first", [])) or BRIEFING_PENDING_TEXT,
+        "verification": verification_headline(*resolve_verification(attrs)),
+        **_slots("reason", contact_reason_bullets(customer_id), BRIEFING_SLOTS["reason"], "None recorded."),
+        **_slots("product", found.get("product", []), BRIEFING_SLOTS["product"], BRIEFING_PENDING_TEXT),
+        **_slots("guidance", found.get("guidance", []), BRIEFING_SLOTS["guidance"], BRIEFING_PENDING_TEXT),
+        "ready": "true" if found else "false",
+    }
     return lines
+
+
+def _briefing_unavailable() -> dict[str, str]:
+    """The same set of lines, for when the session could not be read at all."""
+    return {"first": BRIEFING_FAILED_TEXT, "verification": BRIEFING_FAILED_TEXT, "ready": "false",
+            **{key: value for name, count in BRIEFING_SLOTS.items()
+               for key, value in _slots(name, [], count, BRIEFING_FAILED_TEXT).items()}}
 
 
 def handler(event: dict, context: Any) -> dict:
@@ -467,8 +538,7 @@ def handler(event: dict, context: Any) -> dict:
             lines = get_briefing(session_arn, contact.get("Attributes") or {}, channel)
         except Exception:
             logger.exception("Could not read the briefing for contact %s", contact_id)
-            lines = {key: BRIEFING_FAILED_TEXT for key in ("first", "verification", "reasons", "product", "guidance")}
-            lines["ready"] = "false"
+            lines = _briefing_unavailable()
         logger.info(json.dumps({"contactId": contact_id, "status": "briefing_read", "ready": lines["ready"]}))
         return lines
 
