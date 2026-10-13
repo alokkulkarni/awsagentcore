@@ -21,12 +21,15 @@
 #   --instance-id   ID       Connect instance ID (optional; derived from events if not set)
 #   --memory-table  NAME     DynamoDB table for prior session summaries (optional)
 #   --crm-endpoint  URL      CRM API endpoint (optional; stub data used if not set)
+#   --cli-match-loa LEVEL    Level of assurance for a caller recognised by phone number
+#                            alone, with no ID&V flow. Default 3. Use "none" so a phone
+#                            match earns no level (no contact reasons, no payments)
 #   --dry-run                Print what would be done without deploying
 #   --help                   Show this help text
 #
 # Environment variable equivalents (flags take precedence):
 #   ASSISTANT_ID, AWS_REGION, AWS_ACCOUNT_ID, INSTANCE_ID,
-#   MEMORY_TABLE_NAME, CRM_API_ENDPOINT
+#   MEMORY_TABLE_NAME, CRM_API_ENDPOINT, CLI_MATCH_LOA
 #
 # Requirements:
 #   - AWS CLI v2 configured with credentials that can manage IAM, Lambda,
@@ -59,6 +62,7 @@ ASSISTANT_ID="${ASSISTANT_ID:-}"
 INSTANCE_ID="${INSTANCE_ID:-}"
 MEMORY_TABLE_NAME="${MEMORY_TABLE_NAME:-}"
 CRM_API_ENDPOINT="${CRM_API_ENDPOINT:-}"
+CLI_MATCH_LOA="${CLI_MATCH_LOA-3}"
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -69,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --instance-id)   INSTANCE_ID="$2";  shift 2 ;;
         --memory-table)  MEMORY_TABLE_NAME="$2"; shift 2 ;;
         --crm-endpoint)  CRM_API_ENDPOINT="$2";  shift 2 ;;
+        --cli-match-loa) CLI_MATCH_LOA="$2";     shift 2 ;;
         --dry-run)       DRY_RUN=true; shift ;;
         --help|-h)
             sed -n '/^# Usage:/,/^# Requirements:/p' "$0" | sed 's/^# \?//'
@@ -194,6 +199,10 @@ _VARS="{\"ASSISTANT_ID\":\"${ASSISTANT_ID}\""
 [[ -n "$INSTANCE_ID"        ]] && _VARS="${_VARS},\"INSTANCE_ID\":\"${INSTANCE_ID}\""
 [[ -n "$MEMORY_TABLE_NAME"  ]] && _VARS="${_VARS},\"MEMORY_TABLE_NAME\":\"${MEMORY_TABLE_NAME}\""
 [[ -n "$CRM_API_ENDPOINT"   ]] && _VARS="${_VARS},\"CRM_API_ENDPOINT\":\"${CRM_API_ENDPOINT}\""
+# Always written, so an empty value survives a redeploy: "none" means no level.
+[[ "$CLI_MATCH_LOA" == "none" ]] && CLI_MATCH_LOA=""
+[[ -z "$CLI_MATCH_LOA" || "$CLI_MATCH_LOA" =~ ^[0-3]$ ]] || die "--cli-match-loa must be 0, 1, 2, 3 or none."
+_VARS="${_VARS},\"CLI_MATCH_LOA\":\"${CLI_MATCH_LOA}\""
 _VARS="${_VARS}}"
 ENV_JSON="{\"Variables\":${_VARS}}"
 
@@ -202,6 +211,7 @@ echo "  AWS_REGION      = ${REGION} (injected by Lambda runtime — not set as e
 [[ -n "$INSTANCE_ID"       ]] && echo "  INSTANCE_ID     = ${INSTANCE_ID}"
 [[ -n "$MEMORY_TABLE_NAME" ]] && echo "  MEMORY_TABLE    = ${MEMORY_TABLE_NAME}"
 [[ -n "$CRM_API_ENDPOINT"  ]] && echo "  CRM_ENDPOINT    = ${CRM_API_ENDPOINT}"
+echo "  CLI_MATCH_LOA   = ${CLI_MATCH_LOA:-(none — a phone match earns no level)}"
 
 # =============================================================================
 # Step 3 — Package Lambda

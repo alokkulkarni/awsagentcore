@@ -758,9 +758,10 @@ Call the **ID&V test harness number**, not the main number. Press `#` after each
 | 7 | Margaret, quick select | `1`, `3` | A gentle, optional form of the question |
 | 8 | Ethel, quick select | `1`, `5` | Asks about "your card PIN being locked" |
 | 9 | Nobody verified: withheld number, wrong details twice | `2`, `7`, `1`, `01011900`, `0000`, `01011900`, `0000` | Ordinary unauthenticated greeting. No reason |
-| 10 | Call the **main** number directly | | Ordinary greeting. No reason, even though your number is recognised |
+| 10 | Call the **main** number directly from a recognised number | | The same question as test 1: the injector treats a phone match as level 3 by default |
+| 11 | Repeat test 10 after redeploying the injector with `--cli-match-loa none` | | Ordinary greeting. No reason, and a payment request is declined |
 
-Tests 9 and 10 matter as much as the others. They prove a reason is **not** shared with someone who
+Tests 9 and 11 matter as much as the others. They prove a reason is **not** shared with someone who
 was not properly verified.
 
 **If a test does not behave as expected**, open the contact in **Analytics and optimization →

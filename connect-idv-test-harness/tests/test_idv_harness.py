@@ -509,9 +509,33 @@ class SessionInjectorHandoff(unittest.TestCase):
         self.assertEqual((result["customerId"], result["authStatus"]), ("", "unauthenticated"))
         self.assertNotIn("preferredName", self.injected)
 
-    def test_contacts_without_idv_behave_exactly_as_before(self):
-        result = self.invoke({})
+    def test_direct_call_recognised_by_phone_is_treated_as_level_3(self):
+        result = self.invoke({})               # James's real number, no ID&V flow
         self.assertEqual((result["customerId"], result["authStatus"]), (JAMES, "authenticated"))
+        self.assertEqual((self.injected["loa"], self.injected["idvMethod"]), ("3", "cli_match"))
+        self.assertEqual(result["loa"], "3")
+
+    def test_phone_match_can_be_configured_to_earn_no_level(self):
+        injector.CLI_MATCH_LOA = ""
+        try:
+            result = self.invoke({})
+        finally:
+            injector.CLI_MATCH_LOA = "3"
+        self.assertEqual((result["customerId"], result["authStatus"]), (JAMES, "authenticated"))
+        self.assertNotIn("loa", self.injected)
+        self.assertEqual(result["hasKnownContactReason"], "false")
+
+    def test_upstream_idv_result_is_never_overridden_by_the_phone_match(self):
+        call = Call(cli="+447765309252")
+        call.full_journey(line_key(JAMES))
+        call.press(NO, *CLAIM[SARAH])          # Sarah on James's phone: email code, level 2
+        call.press(call.spoken_code())
+        result = self.invoke(call.attributes)
+        self.assertEqual((result["customerId"], self.injected["loa"]), (SARAH, "2"))
+
+    def test_unrecognised_number_gets_no_level(self):
+        result = self.invoke({}, cli="+447911000000")
+        self.assertEqual((result["customerId"], result["authStatus"]), ("", "unauthenticated"))
         self.assertNotIn("loa", self.injected)
 
 

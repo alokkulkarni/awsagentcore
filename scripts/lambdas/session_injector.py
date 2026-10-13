@@ -50,7 +50,9 @@ Known contact reasons (injected only for a verified caller):
     contactReasons           — JSON list of the same reasons with detail and date
     These are disclosed only when an upstream ID&V flow has set the `LoA`
     contact attribute, and only reasons whose minimum level that LoA meets.
-    A caller authenticated by phone number alone receives none.
+    A caller recognised by phone number alone, with no ID&V flow, is given the
+    level in CLI_MATCH_LOA (default "3"). Set CLI_MATCH_LOA="" so a phone match
+    earns no level and therefore no contact reasons.
     productContext     — JSON string of masked account/card references for ARIA's tool calls
 
 HOW this Lambda is invoked
@@ -145,6 +147,14 @@ AWS_REGION: str = os.environ.get("AWS_REGION", "eu-west-2")
 CRM_API_ENDPOINT: str = os.environ.get("CRM_API_ENDPOINT", "")  # Empty = use stub data
 MEMORY_TABLE_NAME: str = os.environ.get("MEMORY_TABLE_NAME", "")  # Empty = skip prior summary
 TRANSCRIPT_TABLE_NAME: str = os.environ.get("TRANSCRIPT_TABLE_NAME", "aria-transcript-store")  # Cross-channel transcripts
+
+# Level of assurance given to a caller who is recognised by phone number alone,
+# on a contact that did NOT come through an ID&V flow. "3" makes a direct call
+# behave like one that passed ID&V: known contact reasons are offered and a
+# payment can be stepped up in the app. Set to "" to give a phone match no level
+# at all (no contact reasons, no payments), which is the stricter reading of
+# "a phone number is a claim about a line, not proof about a person".
+CLI_MATCH_LOA: str = os.environ.get("CLI_MATCH_LOA", "3").strip()
 
 # ---------------------------------------------------------------------------
 # AWS clients — initialised once per Lambda container lifecycle
@@ -316,7 +326,8 @@ _STUB_CUSTOMERS: dict[str, dict] = {
 # block) would tip off a fraudster. Reasons are therefore injected ONLY when an
 # upstream ID&V flow has verified the caller and left a level of assurance in
 # the `LoA` contact attribute, and only reasons whose min_loa that level meets.
-# A caller who is "authenticated" by phone number alone gets none.
+# With no ID&V flow, a phone-number match is given the level in CLI_MATCH_LOA
+# (see the handler). Set that to "" and a phone match alone gets none.
 #
 # Stub fields:
 #   type            stable code for rules and reporting
@@ -834,6 +845,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
         if resolved:
             customer_id = resolved
             auth_status = "authenticated"   # phone-based lookup counts as light auth
+            # No ID&V flow ran. Treat the phone match as the configured level.
+            if CLI_MATCH_LOA and idv_loa is None:
+                idv_loa = _parse_loa(CLI_MATCH_LOA)
             logger.info("Resolved customerId=%r from phone=%s", customer_id, _mask_phone(caller_phone))
         else:
             logger.info("Caller phone %s has no mapped customerId — unauthenticated session", _mask_phone(caller_phone))
@@ -868,6 +882,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
         "instanceId": instance_id,
         "locale":     locale,
     }
+    if idv_loa is not None:
+        session_vars["loa"] = str(idv_loa)
 
     # ----------------------------------------------------------------
     # 3. Enrich with customer context (when customerId is available)
@@ -967,6 +983,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
         "topContactReasonCategory": session_vars.get("topContactReasonCategory", ""),
         "contactReasonSummary":     session_vars.get("contactReasonSummary", ""),
         "contactReasons":           session_vars.get("contactReasons", ""),
+        "loa":                      session_vars.get("loa", ""),
         # Core metadata
         "locale":                session_vars.get("locale", locale),
         "dateTime":              session_vars.get("dateTime", ""),

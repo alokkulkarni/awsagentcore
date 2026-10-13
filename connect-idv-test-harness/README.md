@@ -162,7 +162,7 @@ enough to build by hand (13 blocks) and lets the logic be tested on a laptop.
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON if your IDs differ |
 | [scripts/deploy_idv_test_harness.sh](scripts/deploy_idv_test_harness.sh) | Creates the Lambda. **You** run it |
 | [scripts/mint_test_token.py](scripts/mint_test_token.py) | Makes test tokens for Options D and E |
-| [tests/](tests/) | 59 unit tests: each ID&V option, the guardrails, contact-reason disclosure and the payment step-up tool |
+| [tests/](tests/) | 67 unit tests: each ID&V option, the guardrails, contact-reason disclosure and the payment step-up tool |
 
 One file outside this folder also changed:
 [scripts/lambdas/session_injector_qconnect.py](../scripts/lambdas/session_injector_qconnect.py).
@@ -203,7 +203,7 @@ From the repository root:
 python3 -m unittest discover -s connect-idv-test-harness/tests -v
 ```
 
-You should see `Ran 59 tests` and `OK`. Two log lines that look like errors are expected: they come
+You should see `Ran 67 tests` and `OK`. Two log lines that look like errors are expected: they come
 from the tests that check the kill switch and the tampered-state protection.
 
 > **What just happened?** Each test pretends to be Amazon Connect. It invokes the Lambda code with
@@ -401,7 +401,15 @@ The change is small and only affects contacts that came through an ID&V flow:
   caller the harness verified at level 2 or above, and a fraud-related reason only at level 3. A
   caller recognised by phone number alone gets none.
 
-Calls that go straight to the main flow have no `idvStatus`, so they behave exactly as before.
+- **Direct calls behave like harness calls.** If you call the main number directly and your phone
+  number is in the injector's table, the injector treats you as level 3 (`idvMethod = cli_match`).
+  ARIA then offers the known contact reason and can step a payment up in the app, exactly as it
+  does after the harness.
+
+> **This trusts the phone number.** It is convenient for testing, and it is the opposite of the
+> design document's rule that a number is a claim about a line, not proof of a person. To switch it
+> off, redeploy the injector with `--cli-match-loa none`: a direct call is then still recognised
+> and greeted by name, but gets no contact reasons and cannot make a payment.
 
 > **The contact reasons do nothing until ARIA's prompt is updated.** That is a separate manual step:
 > see [ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md) for the exact text and where
