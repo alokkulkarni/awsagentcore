@@ -1,0 +1,354 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "EnableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "EnableLogging": {
+        "position": {
+          "x": 200,
+          "y": 40
+        }
+      },
+      "CheckChannel": {
+        "position": {
+          "x": 440,
+          "y": 40
+        }
+      },
+      "VoiceAnalytics": {
+        "position": {
+          "x": 680,
+          "y": -80
+        }
+      },
+      "ChatAnalytics": {
+        "position": {
+          "x": 680,
+          "y": 160
+        }
+      },
+      "ConnectAssistant": {
+        "position": {
+          "x": 920,
+          "y": 40
+        }
+      },
+      "SetAssistantSession": {
+        "position": {
+          "x": 1160,
+          "y": 40
+        }
+      },
+      "InjectContext": {
+        "position": {
+          "x": 1400,
+          "y": 40
+        }
+      },
+      "SetAgentScreen": {
+        "position": {
+          "x": 1640,
+          "y": 40
+        }
+      },
+      "SetQueue": {
+        "position": {
+          "x": 1880,
+          "y": 40
+        }
+      },
+      "TransferToQueue": {
+        "position": {
+          "x": 2120,
+          "y": 40
+        }
+      },
+      "QueueProblem": {
+        "position": {
+          "x": 2120,
+          "y": 240
+        }
+      },
+      "Disconnect": {
+        "position": {
+          "x": 2360,
+          "y": 240
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "ARIA agent assist",
+    "description": "Switches on agent assist for a contact (analytics, assistant, handover context), then queues it for a human agent. Used by ARIA human handover.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "EnableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "CheckChannel"
+      }
+    },
+    {
+      "Identifier": "CheckChannel",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Channel"
+      },
+      "Transitions": {
+        "NextAction": "VoiceAnalytics",
+        "Conditions": [
+          {
+            "NextAction": "ChatAnalytics",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "CHAT"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "VoiceAnalytics",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "VoiceAnalytics",
+      "Type": "UpdateContactRecordingAndAnalyticsBehavior",
+      "Parameters": {
+        "VoiceBehavior": {
+          "VoiceRecordingBehavior": {
+            "RecordedParticipants": [
+              "Agent",
+              "Customer"
+            ],
+            "IVRRecordingBehavior": "Enabled"
+          },
+          "VoiceAnalyticsBehavior": {
+            "Enabled": "True",
+            "AnalyticsLanguage": "en-GB",
+            "AnalyticsModes": [
+              "RealTime",
+              "AutomatedInteraction"
+            ],
+            "ConversationalAnalyticsRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "SentimentConfiguration": {
+              "Enabled": "True"
+            },
+            "SummaryConfiguration": {
+              "SummaryModes": [
+                "PostContact",
+                "AutomatedInteraction"
+              ]
+            }
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "ConnectAssistant",
+        "Errors": [
+          {
+            "NextAction": "ConnectAssistant",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "ConnectAssistant",
+            "ErrorType": "ChannelMismatch"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ChatAnalytics",
+      "Type": "UpdateContactRecordingAndAnalyticsBehavior",
+      "Parameters": {
+        "ChatBehavior": {
+          "ChatAnalyticsBehavior": {
+            "Enabled": "True",
+            "AnalyticsLanguage": "en-GB",
+            "AnalyticsModes": [
+              "ContactLens"
+            ],
+            "ConversationalAnalyticsRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "InFlightChatRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "SentimentConfiguration": {
+              "Enabled": "True"
+            },
+            "SummaryConfiguration": {
+              "SummaryModes": [
+                "PostContact",
+                "AutomatedInteraction"
+              ]
+            }
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "ConnectAssistant",
+        "Errors": [
+          {
+            "NextAction": "ConnectAssistant",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "ConnectAssistant",
+            "ErrorType": "ChannelMismatch"
+          },
+          {
+            "NextAction": "ConnectAssistant",
+            "ErrorType": "InFlightRedactionConfigurationFailed"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ConnectAssistant",
+      "Type": "CreateWisdomSession",
+      "Parameters": {
+        "WisdomAssistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15",
+        "OrchestrationAIAgentConfiguration": {
+          "AgentAssistanceAgentVersionArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:3"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SetAssistantSession",
+        "Errors": [
+          {
+            "NextAction": "SetAgentScreen",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetAssistantSession",
+      "Type": "UpdateContactData",
+      "Parameters": {
+        "WisdomSessionArn": "$.Wisdom.SessionArn"
+      },
+      "Transitions": {
+        "NextAction": "InjectContext",
+        "Errors": [
+          {
+            "NextAction": "SetAgentScreen",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "InjectContext",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-agent-assist-injector",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SetAgentScreen",
+        "Errors": [
+          {
+            "NextAction": "SetAgentScreen",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetAgentScreen",
+      "Type": "UpdateContactEventHooks",
+      "Parameters": {
+        "EventHooks": {
+          "DefaultAgentUI": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/4b85d55a-3d5d-4ff8-88b1-33034272e86d"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SetQueue",
+        "Errors": [
+          {
+            "NextAction": "SetQueue",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetQueue",
+      "Type": "UpdateContactTargetQueue",
+      "Parameters": {
+        "QueueId": "$.Attributes.ariaQueueId"
+      },
+      "Transitions": {
+        "NextAction": "TransferToQueue",
+        "Errors": [
+          {
+            "NextAction": "TransferToQueue",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "TransferToQueue",
+      "Type": "TransferContactToQueue",
+      "Parameters": {},
+      "Transitions": {
+        "NextAction": "QueueProblem",
+        "Errors": [
+          {
+            "NextAction": "QueueProblem",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "QueueProblem",
+            "ErrorType": "QueueAtCapacity"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "QueueProblem",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "SkipWhenDTMFBufferEnabled": "false",
+        "Text": "I'm sorry, I wasn't able to connect you to a colleague just now. Please try again shortly."
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}
