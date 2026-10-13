@@ -51,6 +51,14 @@ WHAT this Lambda reads (contact attributes)
     conversationSummary, customerIntent,
     topicCategory, escalationReason          fallbacks, set by the main flow
 
+Only attributes set by a flow or a Lambda are read. Attributes a chat customer's
+browser can set arrive prefixed "HostedWidget-" and are ignored, because every
+value here states who the customer is or how far they were verified.
+
+paymentApproved is taken from the opening words of ARIA's summary, which ARIA
+writes. It is a signal for the agent, not proof: the prompt tells the assistant
+to have the agent read the payee and amount back to the customer first.
+
 WHAT this Lambda injects ({{$.Custom.*}} in the agent-assist prompt)
 --------------------------------------------------------------------
     customerId            Customer ID, for the assistant's look-up tools
@@ -148,8 +156,12 @@ def describe_contact_reasons(customer_id: str) -> str:
 def build_context(attrs: dict, channel: str) -> dict[str, str]:
     """The key/value pairs to inject, built only from contact attributes and the customer record."""
     def attr(*names: str) -> str:
+        # Exact names only. Every value read here says who the customer is or
+        # how far they were verified, so it must have been set by a flow or a
+        # Lambda. Attributes a chat customer's browser can set arrive with a
+        # "HostedWidget-" prefix and are deliberately NOT read.
         for name in names:
-            value = attrs.get(name) or attrs.get(f"HostedWidget-{name}")
+            value = attrs.get(name)
             if value:
                 return str(value)
         return ""

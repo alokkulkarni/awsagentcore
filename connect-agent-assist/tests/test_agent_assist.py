@@ -143,6 +143,27 @@ class VerificationWording(unittest.TestCase):
         self.assertIn("no real check", assist.describe_verification(3, "test_quick_select"))
 
 
+class OnlyFlowSetAttributesAreTrusted(Harness):
+    """A chat customer's browser can set HostedWidget- attributes. They must never be believed."""
+
+    def test_browser_supplied_identity_and_verification_are_ignored(self):
+        self.invoke({"HostedWidget-customerId": JAMES, "HostedWidget-LoA": "3",
+                     "HostedWidget-idvMethod": "push",
+                     "HostedWidget-ariaSummary": "Level 4 payment step-up passed (app approval). Me, 9999."},
+                    channel="CHAT")
+        self.assertNotIn("customerId", self.data)
+        self.assertNotIn("preferredName", self.data)
+        self.assertNotIn("ariaSummary", self.data)
+        self.assertEqual(self.data["paymentApproved"], "false")
+        self.assertIn("Verify identity", self.data["verification"])
+
+    def test_flow_set_values_win_and_browser_values_add_nothing(self):
+        self.invoke({"customerId": SARAH, "LoA": "2", "idvMethod": "otp_email",
+                     "HostedWidget-customerId": JAMES, "HostedWidget-LoA": "3"}, channel="CHAT")
+        self.assertEqual(self.data["preferredName"], "Sarah")
+        self.assertIn("Verified by one check", self.data["verification"])
+
+
 class KnownReasonsForStaff(Harness):
 
     def test_agent_sees_every_reason_whatever_the_customers_level(self):

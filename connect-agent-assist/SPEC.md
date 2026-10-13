@@ -95,8 +95,8 @@ that no pre-queue error leads to a disconnect.
 
 No block parameters. Read from contact attributes: `customerId`, `LoA` (or `loa`), `idvMethod`,
 `ariaSummary`, `ariaCustomerIntent`, `ariaTopicCategory`, `ariaEscalationReason`, and as fallbacks
-`conversationSummary`, `customerIntent`, `topicCategory`, `escalationReason`. Hosted-widget
-`HostedWidget-` prefixes are honoured.
+`conversationSummary`, `customerIntent`, `topicCategory`, `escalationReason`. Exact names only:
+`HostedWidget-` prefixed attributes, which a browser can set, are ignored.
 
 ### 5.2 Session data written
 
@@ -124,6 +124,13 @@ Remove Connect assistant, Set contact data, Set event flow and Transfer to queue
   authenticate customers or raise payment approvals are not added.
 - **Verification is stated, never upgraded.** A phone-number match is described as not verified
   whatever level accompanies it. A unit test asserts this.
+- **Only flow-set attributes are read.** The Lambda ignores `HostedWidget-` prefixed attributes,
+  which a chat customer's browser can set, so a customer cannot supply their own identity,
+  verification level or handover summary. A unit test asserts this.
+- **`paymentApproved` is a signal, not proof.** It is read from the opening words of ARIA's summary,
+  which ARIA writes. A customer who manipulated ARIA into writing those words would produce a false
+  signal. The prompt therefore has the agent read the payee and amount back to the customer before
+  paying. A server-side record of the approval, keyed by contact, would be the robust fix.
 - **Staff-only data.** Vulnerability flags and all known contact reasons are passed to the assistant.
   The prompt tells it not to print the raw flags and to mark what must not be said to the customer.
   This relies on the prompt, and on the agent.
@@ -134,7 +141,7 @@ Remove Connect assistant, Set contact data, Set event flow and Transfer to queue
 
 | Check | Result |
 |---|---|
-| Unit tests (`python3 -m unittest discover -s connect-agent-assist/tests`) | 23 pass |
+| Unit tests (`python3 -m unittest discover -s connect-agent-assist/tests`) | 25 pass |
 | Flow JSON structural validation | Pass, no placeholders |
 | Prompt structure (indentation, variables match the Lambda) | Checked by script |
 | Deploy script | Syntax check only. Not run |

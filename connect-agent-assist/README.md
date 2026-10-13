@@ -133,7 +133,7 @@ Any other route to a human can use the same flow later.
 | [flows/build_flow.py](flows/build_flow.py) | Regenerates the flow JSON, for example for a new agent version |
 | [prompts/agent-assist-prompt-v3.yaml](prompts/agent-assist-prompt-v3.yaml) | The complete prompt to paste into Connect |
 | [scripts/deploy_agent_assist.sh](scripts/deploy_agent_assist.sh) | Creates the Lambda. **You** run it |
-| [tests/test_agent_assist.py](tests/test_agent_assist.py) | 23 unit tests |
+| [tests/test_agent_assist.py](tests/test_agent_assist.py) | 25 unit tests |
 
 ---
 
@@ -170,7 +170,7 @@ From the repository root:
 python3 -m unittest discover -s connect-agent-assist/tests -v
 ```
 
-You should see `Ran 23 tests` and `OK`. A few lines that look like errors are expected: they come
+You should see `Ran 25 tests` and `OK`. A few lines that look like errors are expected: they come
 from tests that check the Lambda fails safely.
 
 ---
@@ -401,8 +401,8 @@ and offers the related guidance.
    number ARIA reads out.
 2. Agent: accept the contact.
 
-**Expected.** The assistant's suggestion is to make that payment, names the payee and amount, and
-says the customer must not be asked to approve it again.
+**Expected.** The assistant's suggestion is to make that payment, names the payee and amount, says
+to read both back to the customer first, and says the customer must not be asked to approve it again.
 
 ### Test 3 — A customer who was not verified
 
