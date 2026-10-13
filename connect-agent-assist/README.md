@@ -219,8 +219,13 @@ Three changes to `my-agent-assistant-agent`, then one publish.
    edge with no spaces.
 6. **Save**, then **Publish**. Note the new version number (it should be 3).
 
-The prompt is your existing one with two additions. [PROMPT-CHANGES.md](PROMPT-CHANGES.md) explains
-them. Its response rules are untouched.
+The prompt is your existing one with two additions, and four airline-only passages removed to stay
+inside Connect's size limit. [PROMPT-CHANGES.md](PROMPT-CHANGES.md) explains both. Its response
+protocol is untouched.
+
+> **If Connect says "System length must not exceed 100000 characters":** the prompt has grown past
+> the limit. The file as supplied is 98,610 characters. Check you pasted it once, not twice, and
+> that nothing was added.
 
 > **If Connect says "Number of custom variables may not exceed 20":** this prompt uses 12, so it
 > should not. If it does, tell whoever maintains this folder which error you got.

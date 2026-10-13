@@ -245,8 +245,9 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.
-        # The whole indented block is measured, which is the stricter reading.
-        system = self.prompt[len("system: |\n"):self.prompt.index("\nmessages:")]
+        # Measured as Connect sees it: without the two-space YAML indent.
+        block = self.prompt[len("system: |\n"):self.prompt.index("\nmessages:")]
+        system = "\n".join(line[2:] for line in block.split("\n"))
         self.assertLess(len(system), 100_000)
 
     def test_injector_runs_after_the_assistant_session_exists(self):
