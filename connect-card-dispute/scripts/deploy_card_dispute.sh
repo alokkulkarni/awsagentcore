@@ -136,7 +136,8 @@ echo "  Account   : ${ACCOUNT_ID}"
 echo "  Function  : ${FUNCTION_NAME}"
 echo "  Table     : ${TABLE_NAME}"
 echo "  Gateway   : ${GATEWAY_NAME} $($DO_GATEWAY || echo '(skipped)')"
-echo "  Merchant disputes go to: ${MERCHANT_TOPIC:-the card's own topic}"
+# No apostrophe may appear inside a ${VAR:-default}: bash would read it as opening a quoted string.
+echo "  Merchant disputes go to: ${MERCHANT_TOPIC:-the topic of the card itself}"
 
 # =============================================================================
 # Step 1 — Table
