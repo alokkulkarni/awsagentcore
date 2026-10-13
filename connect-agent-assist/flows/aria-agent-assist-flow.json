@@ -278,6 +278,9 @@
         "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-agent-assist-injector",
         "InvocationTimeLimitSeconds": "8",
         "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "assistAgentArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:4"
+        },
         "ResponseValidation": {
           "ResponseType": "STRING_MAP"
         }

@@ -120,6 +120,10 @@ def build(region, account_id, instance_id, assistant_id, agent_id, agent_version
                 "LambdaFunctionARN": f"arn:aws:lambda:{region}:{account_id}:function:{INJECTOR_FUNCTION}",
                 "InvocationTimeLimitSeconds": "8",
                 "InvocationType": "SYNCHRONOUS",
+                # The Lambda switches the session to this agent. "Connect
+                # assistant" above cannot: the bot flow already created the
+                # contact's session, with ARIA as its agent.
+                "LambdaInvocationAttributes": {"assistAgentArn": agent_arn},
                 "ResponseValidation": {"ResponseType": "STRING_MAP"},
             },
             "Transitions": {"NextAction": "SetAgentScreen", "Errors": on_error("SetAgentScreen")},

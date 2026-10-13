@@ -167,9 +167,9 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Resource": ["${INSTANCE_ARN}", "${INSTANCE_ARN}/contact/*"]
     },
     {
-      "Sid": "WriteContextToTheAssistSession",
+      "Sid": "SetTheAgentAndWriteContextOnTheSession",
       "Effect": "Allow",
-      "Action": ["wisdom:UpdateSessionData", "qconnect:UpdateSessionData"],
+      "Action": ["wisdom:UpdateSession", "wisdom:UpdateSessionData", "qconnect:UpdateSession", "qconnect:UpdateSessionData"],
       "Resource": [
         "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:assistant/${ASSISTANT_ID}",
         "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*"

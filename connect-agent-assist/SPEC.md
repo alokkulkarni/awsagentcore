@@ -47,9 +47,9 @@ Read from the instance on 13 October 2026.
 flowchart LR
     H[ARIA human handover<br/>routing only] -->|Transfer to flow<br/>ariaQueueId + aria* attributes| F[ARIA agent assist]
     F --> AN[Analytics on]
-    AN --> CA[Connect assistant<br/>new session]
+    AN --> CA[Connect assistant<br/>same session as ARIA]
     CA --> L[aria-agent-assist-injector]
-    L -->|UpdateSessionData| S[(assist session)]
+    L -->|UpdateSession: switch to the assist agent<br/>UpdateSessionData: briefing| S[(the contact's one session)]
     D[(session_injector_qconnect.py<br/>customers, reasons)] -.imported.-> L
     L --> Q[Screen pop hook<br/>→ queue]
     S --> P[Prompt v3<br/>handover_context]

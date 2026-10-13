@@ -62,15 +62,21 @@ analytics** is switched on for the contact:
 - **Calls:** real-time analytics must be on. Without it the assistant stays silent on calls.
 - **Chats:** chat analytics must be on.
 
-### A session, and why the assistant starts cold
+### A session, and why the Lambda has two jobs
 
-Each AI agent works inside a **session**: its private notebook for one contact. ARIA has one
-session; the agent's assistant gets a different, new one. That separation is what keeps the two from
-mixing, but it also means the assistant knows nothing ARIA learned.
+An AI agent works inside a **session**: a notebook for one contact. A contact has **one session for
+its whole life**. The bot flow creates it and names ARIA as the AI agent that drives it.
 
-The fix is a small Lambda that writes a briefing into the assistant's session: who the customer is,
-how they were verified, ARIA's summary, and what the bank already knows about why they may be
-calling.
+That causes two problems when a human takes over:
+
+1. **The session still belongs to ARIA.** Adding a second **Connect assistant** block does not
+   change that: Connect hands back the same session with the same agent. The human agent's panel
+   would be driven by ARIA's customer-facing agent, and stays silent.
+2. **The assistant has no briefing** written for a member of staff.
+
+The small Lambda in this folder fixes both. It switches the session to the agent-assist AI agent,
+then writes the briefing: who the customer is, how they were verified, ARIA's summary, and what the
+bank already knows about why they may be calling.
 
 ### Why the assistant is told more than ARIA
 
@@ -310,7 +316,7 @@ Create a new inbound flow and add these 11 blocks (row 6 is not a block you add)
 | 4 | ChatAnalytics | Set recording and analytics behavior | Channel **Chat**. Analytics **on**, language *English (UK)*. Sentiment on | Success and Error → 5 |
 | 5 | ConnectAssistant | Connect assistant | Your assistant domain. Under the AI agent setting choose `my-agent-assistant-agent` and the version from Step C.3 | Success → 7. Error → 8 |
 | 6 | SetAssistantSession | *(none: part of block 5)* | Nothing to add. **Connect assistant** records the session on the contact itself; the designer does not show this as a block | |
-| 7 | InjectContext | AWS Lambda function | Function `aria-agent-assist-injector`. Timeout **8**. Response validation **STRING_MAP**. No parameters | Success and Error → 8 |
+| 7 | InjectContext | AWS Lambda function | Function `aria-agent-assist-injector`. Timeout **8**. Response validation **STRING_MAP**. One parameter: key `assistAgentArn`, value the full ARN of the agent version from Step C.3 (see below) | Success and Error → 8 |
 | 8 | SetAgentScreen | Set event flow | Event **Default flow for agent UI**, flow `ARIA-Agent-Screen-Pop-Flow` | Success and Error → 9 |
 | 9 | SetQueue | Set working queue | Set dynamically: namespace **User defined**, key `ariaQueueId` | Success and Error → 10 |
 | 10 | TransferToQueue | Transfer to queue | | At capacity and Error → 11 |
@@ -320,6 +326,17 @@ Create a new inbound flow and add these 11 blocks (row 6 is not a block you add)
 **The rule behind the arrows.** Blocks 3 to 9 send their **Error** branch onward, never to
 Disconnect. If analytics, the assistant or the Lambda fails, the customer must still reach a person.
 Only a failure to queue ends the contact.
+
+**The Lambda parameter in block 7.** Add a parameter with **Set manually**, key `assistAgentArn`,
+and this value, changing the last number to your agent version:
+
+```
+arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:4
+```
+
+The Lambda switches the contact's session to that agent. Without it the panel shows a greeting and
+nothing else. When you publish a new agent version later, change the number here **and** in the
+Connect assistant block.
 
 **Order matters for blocks 5, 6 and 7.** The Lambda finds the session to write to by asking Connect
 for the contact's current assistant session. Block 5 creates and records it. If block 7 runs
@@ -495,11 +512,12 @@ contacts coming from ARIA this block repeats it. It is here so the flow works wh
 contact.
 
 ### Connect assistant
-Attaches your assistant to the contact and chooses which AI agent runs. This starts a new session,
-separate from ARIA's.
+Attaches your assistant to the contact. For a contact that came from ARIA the session already
+exists, so this block returns that same session and does not change its AI agent. The Lambda does
+that.
 
 ### Set contact data (inside Connect assistant)
-Records that new session on the contact. The agent workspace and the Lambda both find the session
+Records the session on the contact. The agent workspace and the Lambda both find the session
 through the contact. You never add this yourself: the designer builds it into the **Connect
 assistant** block, which is why the flow file has 12 steps but the designer shows 11 blocks.
 
@@ -527,6 +545,16 @@ Used only if the contact cannot be queued.
 - The agent must use the **agent workspace**, not the plain softphone panel.
 - The agent's security profile needs the assistant **View** permission. The `Agent` profile has it.
 - In the flow log, check the **Connect assistant** block took its Success branch.
+
+### The panel shows only "Hi, I will be helping you solve the customer issue today"
+
+The session is still using ARIA's AI agent. Open the injector's log line for the contact:
+
+- `"assistAgent": "set"` means the switch worked; look at the next heading instead.
+- `"assistAgent": "not_configured"` means the **AWS Lambda function** block has no `assistAgentArn`
+  parameter. Add it (Part D, "The Lambda parameter in block 7") and publish.
+- `"assistAgent": "failed"` means the Lambda's role lacks `wisdom:UpdateSession`. Run the deploy
+  script again; it adds the permission.
 
 ### The panel appears but makes no suggestions on a call
 

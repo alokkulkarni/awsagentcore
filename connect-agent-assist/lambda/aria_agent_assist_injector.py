@@ -42,6 +42,18 @@ It MUST run after "Connect assistant" and "Set contact data": it finds the
 session to write to by asking Connect for the contact's current assistant
 session.
 
+WHY this Lambda also chooses the AI agent
+-----------------------------------------
+A contact has ONE assistant session for its whole life. The bot flow creates it
+and sets ARIA as its agent. A later "Connect assistant" block returns that same
+session and does NOT change its agent, so without help the human agent's panel
+is driven by ARIA's customer-facing agent and stays silent.
+
+So this Lambda switches the session to the agent-assist AI agent itself
+(UpdateSession), before writing the briefing. The agent to use is passed by the
+flow as the Lambda parameter "assistAgentArn", so the version is pinned in one
+place: the flow.
+
 WHAT this Lambda reads (contact attributes)
 -------------------------------------------
     customerId, channel                      set by the main flow's injector
@@ -79,12 +91,15 @@ ENVIRONMENT VARIABLES
 Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
-    INSTANCE_ID        Connect instance ID; derived from the event if not set
+    INSTANCE_ID          Connect instance ID; derived from the event if not set
+    ASSIST_AI_AGENT_ARN  Agent-assist AI agent version ARN, used only when the
+                         flow does not pass the "assistAgentArn" parameter
     LOG_LEVEL          Default INFO
 
 IAM PERMISSIONS REQUIRED
 ------------------------
     connect:DescribeContact      on the Connect instance and its contacts
+    wisdom:UpdateSession         on the assistant and its sessions
     wisdom:UpdateSessionData     on the assistant and its sessions
     qconnect:UpdateSessionData   (same resources; the newer action name)
 """
@@ -102,6 +117,10 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 ASSISTANT_ID: str = os.environ.get("ASSISTANT_ID", "")
 SESSION_VALUE_MAX_CHARS = injector.SESSION_VALUE_MAX_CHARS
 MAX_REASONS = injector.MAX_CONTACT_REASONS
+ASSIST_AI_AGENT_ARN: str = os.environ.get("ASSIST_AI_AGENT_ARN", "")
+
+# The use case Connect records for the agent a human agent's panel talks to.
+AGENT_ASSISTANCE_USE_CASE = "Connect.AgentAssistance"
 
 # ARIA starts its escalation summary with this when a payment was approved in
 # the app (see the "Level 4" step-up in ARIA's orchestration prompt).
@@ -196,6 +215,53 @@ def build_context(attrs: dict, channel: str) -> dict[str, str]:
     return {key: value[:SESSION_VALUE_MAX_CHARS] for key, value in context.items()}
 
 
+def _update_session_signed(session_id: str, body: dict) -> None:
+    """
+    UpdateSession as a signed HTTPS request, for a Lambda runtime whose bundled
+    SDK is older than the "orchestratorConfigurationList" parameter.
+    """
+    import urllib.request
+
+    import boto3
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+
+    region = injector.AWS_REGION
+    url = f"https://wisdom.{region}.amazonaws.com/assistants/{ASSISTANT_ID}/sessions/{session_id}"
+    request = AWSRequest(method="POST", url=url, data=json.dumps(body),
+                         headers={"Content-Type": "application/json"})
+    SigV4Auth(boto3.Session().get_credentials(), "wisdom", region).add_auth(request)
+    with urllib.request.urlopen(urllib.request.Request(
+            url, data=request.body.encode(), headers=dict(request.headers), method="POST"), timeout=5):
+        pass
+
+
+def assign_assist_agent(session_arn: str, agent_arn: str) -> bool:
+    """
+    Make the agent-assist AI agent the one that drives this session.
+
+    Returns True when the session was switched. Never raises: a contact whose
+    agent could not be switched must still reach a person.
+    """
+    session_id = session_arn.split("/")[-1]
+    body = {"orchestratorConfigurationList": [
+        {"aiAgentId": agent_arn, "orchestratorUseCase": AGENT_ASSISTANCE_USE_CASE}]}
+    try:
+        try:
+            injector._get_qconnect().update_session(assistantId=ASSISTANT_ID, sessionId=session_id, **body)
+        except Exception as error:
+            if type(error).__name__ != "ParamValidationError":
+                raise
+            logger.info("The runtime's SDK does not know orchestratorConfigurationList. Using a signed request.")
+            _update_session_signed(session_id, body)
+    except Exception:
+        logger.exception("Could not switch session %s to AI agent %s. Check the wisdom:UpdateSession "
+                         "permission on this Lambda's role.", session_id, agent_arn)
+        return False
+    logger.info("Session %s now uses AI agent %s", session_id, agent_arn)
+    return True
+
+
 def handler(event: dict, context: Any) -> dict:
     """
     Entry point. Called by Amazon Connect via the "Invoke AWS Lambda function"
@@ -207,8 +273,12 @@ def handler(event: dict, context: Any) -> dict:
     instance_id: str = os.environ.get("INSTANCE_ID", "") or contact.get("InstanceARN", "").split("instance/")[-1]
     channel = "chat" if (contact.get("Channel") or "VOICE").upper() in ("CHAT", "TASK") else "voice"
 
+    agent_arn: str = ((event.get("Details") or {}).get("Parameters") or {}).get("assistAgentArn") \
+        or ASSIST_AI_AGENT_ARN
+    agent_status = "not_configured"
+
     def reply(status: str, keys: list[str] | None = None) -> dict:
-        return {"status": status, "injectedKeys": ",".join(keys or [])}
+        return {"status": status, "assistAgent": agent_status, "injectedKeys": ",".join(keys or [])}
 
     if not ASSISTANT_ID:
         logger.error("ASSISTANT_ID is not set. Set it to the Q Connect assistant ID.")
@@ -227,6 +297,11 @@ def handler(event: dict, context: Any) -> dict:
             logger.error("No assistant session on contact %s. Place this Lambda after "
                          "'Connect assistant' and 'Set contact data'.", contact_id)
             return reply("error_no_assistant_session")
+        if agent_arn:
+            agent_status = "set" if assign_assist_agent(session_arn, agent_arn) else "failed"
+        else:
+            logger.warning("No agent-assist AI agent was passed (Lambda parameter assistAgentArn). "
+                           "The agent's panel will keep using the session's existing AI agent.")
         injected = injector._inject_session_data(ASSISTANT_ID, session_arn, data)
     except Exception:
         logger.exception("Agent assist context injection failed for contact %s", contact_id)
@@ -234,5 +309,5 @@ def handler(event: dict, context: Any) -> dict:
 
     keys = sorted(key for key, value in data.items() if value)
     logger.info(json.dumps({"contactId": contact_id, "status": "injected" if injected else "partial_failure",
-                            "customerId": data.get("customerId", ""), "keys": keys}))
+                            "assistAgent": agent_status, "customerId": data.get("customerId", ""), "keys": keys}))
     return reply("injected" if injected else "partial_failure", keys)

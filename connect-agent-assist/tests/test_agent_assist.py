@@ -47,6 +47,7 @@ import session_injector_qconnect as injector  # noqa: E402
 
 JAMES, SARAH, DANIEL = "CUST-001", "CUST-002", "CUST-004"
 SESSION = "arn:aws:wisdom:eu-west-2:111122223333:session/assistant/assist-session"
+AGENT = "arn:aws:wisdom:eu-west-2:111122223333:ai-agent/assistant/agent:4"
 
 
 class Harness(unittest.TestCase):
@@ -63,8 +64,17 @@ class Harness(unittest.TestCase):
             return True
         injector._inject_session_data = record
 
-    def invoke(self, attributes, channel="VOICE"):
-        return assist.handler({"Details": {"ContactData": {
+        self.session_updates, self.update_error = [], None
+
+        class QConnect:
+            def update_session(_, **kwargs):
+                if self.update_error:
+                    raise self.update_error
+                self.session_updates.append(kwargs)
+        injector._get_qconnect = lambda: QConnect()
+
+    def invoke(self, attributes, channel="VOICE", parameters=None):
+        return assist.handler({"Details": {"Parameters": parameters or {}, "ContactData": {
             "ContactId": "contact-1", "Channel": channel,
             "InstanceARN": "arn:aws:connect:eu-west-2:111122223333:instance/abc",
             "Attributes": attributes}}}, None)
@@ -204,6 +214,25 @@ class NeverBlocksTheCustomer(Harness):
         self.assertIn("Verify identity", self.data["verification"])
         self.assertNotIn("customerId", self.data)
 
+    def test_session_is_switched_to_the_assist_agent_the_flow_names(self):
+        # The bot flow creates the contact's only session with ARIA as its agent.
+        result = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
+        self.assertEqual(result["assistAgent"], "set")
+        self.assertEqual(self.session_updates, [{
+            "assistantId": "test-assistant", "sessionId": "assist-session",
+            "orchestratorConfigurationList": [
+                {"aiAgentId": AGENT, "orchestratorUseCase": "Connect.AgentAssistance"}]}])
+
+    def test_briefing_is_still_written_when_the_agent_cannot_be_switched(self):
+        self.update_error = RuntimeError("AccessDenied")
+        result = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
+        self.assertEqual((result["status"], result["assistAgent"]), ("injected", "failed"))
+        self.assertEqual(self.data["customerId"], JAMES)
+
+    def test_no_agent_passed_leaves_the_session_alone(self):
+        result = self.invoke({"customerId": JAMES})
+        self.assertEqual((result["assistAgent"], self.session_updates), ("not_configured", []))
+
     def test_missing_assistant_session_is_reported_not_raised(self):
         self.session_arn = ""            # ran before the Connect assistant block
         self.assertEqual(self.invoke({"customerId": JAMES})["status"], "error_no_assistant_session")
@@ -252,6 +281,11 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
         self.assertEqual(meta["ConnectAssistant"]["children"], ["SetAssistantSession"])
         self.assertEqual(meta["SetAssistantSession"]["position"], meta["ConnectAssistant"]["position"])
         self.assertEqual(self.actions["SetAssistantSession"]["Type"], "UpdateContactData")
+
+    def test_flow_passes_the_lambda_the_same_agent_it_pins(self):
+        pinned = self.actions["ConnectAssistant"]["Parameters"]["OrchestrationAIAgentConfiguration"]
+        passed = self.actions["InjectContext"]["Parameters"]["LambdaInvocationAttributes"]
+        self.assertEqual(passed, {"assistAgentArn": pinned["AgentAssistanceAgentVersionArn"]})
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.
