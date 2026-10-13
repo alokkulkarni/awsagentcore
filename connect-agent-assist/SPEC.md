@@ -130,7 +130,7 @@ Remove Connect assistant, Set contact data, Set event flow and Transfer to queue
 - **`paymentApproved` is a signal, not proof.** It is read from the opening words of ARIA's summary,
   which ARIA writes. A customer who manipulated ARIA into writing those words would produce a false
   signal. The prompt therefore has the agent read the payee and amount back to the customer before
-  paying. A server-side record of the approval, keyed by contact, would be the robust fix.
+  paying, and puts verification first: an approved payment never replaces an identity check. A server-side record of the approval, keyed by contact, would be the robust fix.
 - **Staff-only data.** Vulnerability flags and all known contact reasons are passed to the assistant.
   The prompt tells it not to print the raw flags and to mark what must not be said to the customer.
   This relies on the prompt, and on the agent.
