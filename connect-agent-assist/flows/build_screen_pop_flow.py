@@ -13,7 +13,7 @@ details and the related guidance.
 The flow fetches those lines by calling aria-agent-assist-injector with
 operation = "get_briefing" before it shows the view. "Refresh briefing" calls
 it again, for the case where the agent accepted before the assistant had
-finished writing. "Got it" ends the flow.
+finished writing. "Got it" is the view's Back link and ends the flow.
 
 This script only writes a local file. It never calls AWS.
 
@@ -50,13 +50,16 @@ def build() -> dict:
             "Identifier": identifier,
             "Type": "ShowView",
             "Parameters": {"ViewResource": {"Id": DETAIL_VIEW}, "InvocationTimeLimitSeconds": "600",
-                           "ViewData": {**view_data, "Actions": [REFRESH_ACTION, DONE_ACTION],
-                                        # A second, separate way out: "Back" is its own branch.
-                                        "Back": {"Label": "Close"}}},
+                           # One button and one "Back" link, because those are two
+                           # separate branches of the block. Telling two BUTTONS apart
+                           # needs the path $.Views.ViewResultData.actionName, which
+                           # the flow designer's "Check contact attributes" block
+                           # cannot hold: it reports a missing parameter.
+                           "ViewData": {**view_data, "Actions": [REFRESH_ACTION], "Back": {"Label": DONE_ACTION}}},
             "Transitions": {
                 "NextAction": "End",
                 "Conditions": [
-                    {"NextAction": "CheckButton", "Condition": {"Operator": "Equals", "Operands": ["ActionSelected"]}},
+                    {"NextAction": "GetBriefing", "Condition": {"Operator": "Equals", "Operands": ["ActionSelected"]}},
                     {"NextAction": "End", "Condition": {"Operator": "Equals", "Operands": ["Back"]}},
                 ],
                 "Errors": [{"NextAction": "End", "ErrorType": error}
@@ -126,11 +129,7 @@ def build() -> dict:
                 briefing,
             ],
         }), 700, 60),
-        # Which button was pressed. "$.Views.Action" only says that a button was
-        # pressed ("ActionSelected"); the button's name is in the view's output.
-        # Anything but "Got it" fetches the briefing again and re-shows the view.
-        (choose("CheckButton", "$.Views.ViewResultData.actionName", DONE_ACTION, "End", "GetBriefing"), 960, 200),
-        ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 1220, 200),
+        ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 960, 200),
     ]
 
     return {

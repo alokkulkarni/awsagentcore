@@ -444,26 +444,22 @@ Nothing changes in `ARIA agent assist`.
 
 ### What the agent sees
 
-The usual handoff summary with the five lines under it, and three controls:
+The usual handoff summary with the five lines under it, and two controls:
 
-- **Refresh briefing** fetches the lines again and shows the view again.
-- **Got it** closes the screen pop.
-- **Close** also closes it. It is a second way out that does not depend on reading which button
-  was pressed.
+- **Refresh briefing** (a button) fetches the lines again and shows the view again.
+- **Got it** (the view's back link) closes the screen pop.
 
 ### How to check it worked
 
 | Where to look | What you should see |
 |---|---|
 | Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "requested"` on the contact's line, then `"status": "briefing_read"` each time the screen pop opens or refreshes, with `"ready": "true"` once the assistant has answered |
-| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks. `CheckButton` shows the button name it compared |
+| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks |
 
-> **What went wrong before, read from the logs.** The button check compared `$.Views.Action`, which
-> only ever says `ActionSelected`, so every button ended the flow. The button's name is in
-> `$.Views.ViewResultData.actionName`, which the flow now uses. That name was not confirmed against
-> AWS documentation, so the flow is built to fail safe: only an exact **Got it** closes the screen
-> pop, and anything else refreshes. If **Got it** refreshes instead of closing, use **Close** and
-> say so; the log will show the real value.
+> **Why one button and one link.** A view reports a pressed button only as "a button was pressed".
+> Telling two buttons apart needs a deeper path that the designer's **Check contact attributes**
+> block will not accept (it reports a missing parameter). A button and the back link are two
+> separate branches of the **Show view** block, so no check is needed.
 >
 > Separately, the briefing once showed the assistant's progress note ("Getting James's mortgage
 > details together now") instead of its answer. Only a formatted answer is accepted now.

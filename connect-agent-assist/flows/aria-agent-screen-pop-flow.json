@@ -37,15 +37,9 @@
           "y": 60
         }
       },
-      "CheckButton": {
-        "position": {
-          "x": 960,
-          "y": 200
-        }
-      },
       "End": {
         "position": {
-          "x": 1220,
+          "x": 960,
           "y": 200
         }
       }
@@ -171,11 +165,10 @@
             }
           ],
           "Actions": [
-            "Refresh briefing",
-            "Got it"
+            "Refresh briefing"
           ],
           "Back": {
-            "Label": "Close"
+            "Label": "Got it"
           }
         }
       },
@@ -183,7 +176,7 @@
         "NextAction": "End",
         "Conditions": [
           {
-            "NextAction": "CheckButton",
+            "NextAction": "GetBriefing",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -286,11 +279,10 @@
             }
           ],
           "Actions": [
-            "Refresh briefing",
-            "Got it"
+            "Refresh briefing"
           ],
           "Back": {
-            "Label": "Close"
+            "Label": "Got it"
           }
         }
       },
@@ -298,7 +290,7 @@
         "NextAction": "End",
         "Conditions": [
           {
-            "NextAction": "CheckButton",
+            "NextAction": "GetBriefing",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -328,33 +320,6 @@
           {
             "NextAction": "End",
             "ErrorType": "TimeLimitExceeded"
-          }
-        ]
-      }
-    },
-    {
-      "Identifier": "CheckButton",
-      "Type": "Compare",
-      "Parameters": {
-        "ComparisonValue": "$.Views.ViewResultData.actionName"
-      },
-      "Transitions": {
-        "NextAction": "GetBriefing",
-        "Conditions": [
-          {
-            "NextAction": "End",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "Got it"
-              ]
-            }
-          }
-        ],
-        "Errors": [
-          {
-            "NextAction": "GetBriefing",
-            "ErrorType": "NoMatchingCondition"
           }
         ]
       }

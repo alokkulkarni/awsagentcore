@@ -402,11 +402,13 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
             shown = {item["Value"] for section in blocks[name]["Parameters"]["ViewData"]["Sections"]
                      for item in section.get("Items", []) if item["Value"].startswith("$.External.")}
             self.assertEqual(shown, {f"$.External.{key}" for key in returned})
-        # Only "Got it" ends the flow; any other button fetches the briefing again.
-        button = blocks["CheckButton"]
-        self.assertEqual(button["Parameters"]["ComparisonValue"], "$.Views.ViewResultData.actionName")
-        self.assertEqual(button["Transitions"]["NextAction"], "GetBriefing")
-        self.assertEqual(button["Transitions"]["Conditions"][0]["Condition"]["Operands"], ["Got it"])
+        # The button refreshes; the Back link ends the flow. No block has to read which button it was.
+        for name in ("HandoffView", "MortgageApplicationView"):
+            data, branches = blocks[name]["Parameters"]["ViewData"], blocks[name]["Transitions"]["Conditions"]
+            self.assertEqual((data["Actions"], data["Back"]), (["Refresh briefing"], {"Label": "Got it"}))
+            self.assertEqual({c["Condition"]["Operands"][0]: c["NextAction"] for c in branches},
+                             {"ActionSelected": "GetBriefing", "Back": "End"})
+        self.assertNotIn("ViewResultData", json.dumps(pop))
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.
