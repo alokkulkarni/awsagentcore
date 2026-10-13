@@ -308,6 +308,34 @@ class NeverBlocksTheCustomer(Harness):
         self.assertTrue(all(isinstance(v, str) and "\n" not in v for v in lines.values()))
         self.assertEqual((self.injected, self.messages, self.session_updates), ({}, [], []), "read-only")
 
+    def test_screen_pop_includes_an_open_card_dispute_when_that_service_is_deployed(self):
+        asked = []
+        real = assist._invoke_dispute_lambda, assist.DISPUTE_FUNCTION_NAME
+        try:
+            # Not deployed: nothing is asked and the answer is "no dispute".
+            assist.DISPUTE_FUNCTION_NAME = ""
+            assist._invoke_dispute_lambda = lambda payload: asked.append(payload)
+            self.assertEqual(self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})["hasDispute"],
+                             "false")
+            self.assertEqual(asked, [])
+            # Deployed, with an open dispute.
+            assist.DISPUTE_FUNCTION_NAME = "aria-card-dispute"
+            assist._invoke_dispute_lambda = lambda payload: asked.append(payload) or {
+                "hasDispute": "true", "disputeId": "DSP-AB12CD34", "disputeUrl": "https://p/adviser#t",
+                "dispute1": "one", "dispute2": "two", "dispute3": "three", "dispute4": "four", "extra": "ignored"}
+            lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+            self.assertEqual(asked, [{"operation": "screen_pop", "customerId": JAMES}])
+            self.assertEqual((lines["hasDispute"], lines["disputeId"], lines["dispute4"]), ("true", "DSP-AB12CD34", "four"))
+            self.assertNotIn("extra", lines)
+            # Deployed, but it fails: the screen pop still opens, without a dispute.
+            def boom(payload):
+                raise RuntimeError("AccessDenied")
+            assist._invoke_dispute_lambda = boom
+            lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+            self.assertEqual((lines["hasDispute"], lines["dispute1"]), ("false", "—"))
+        finally:
+            assist._invoke_dispute_lambda, assist.DISPUTE_FUNCTION_NAME = real
+
     def test_progress_notes_are_not_mistaken_for_the_briefing(self):
         # Seen live: two plain progress notes arrived first and one was shown as the briefing.
         self.asked("Getting James&#39;s mortgage details together now. ", "Here&#39;s your brief. ")
@@ -434,10 +462,17 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
             returned = set(assist.get_briefing("s/x", {}, "voice")) - {"ready"}
         finally:
             assist._briefing_answer = real
-        for name in ("HandoffView", "MortgageApplicationView"):
-            templates = " ".join(section.get("TemplateString", "")
-                                 for section in blocks[name]["Parameters"]["ViewData"]["Sections"])
-            self.assertEqual(set(re.findall(r"\$\.External\.([A-Za-z0-9]+)", templates)), returned)
+        dispute_keys = set(assist.card_dispute_lines(""))
+        for name, expected in (("HandoffView", returned - dispute_keys), ("MortgageApplicationView", returned - dispute_keys),
+                               ("DisputeView", returned - {"hasDispute"})):
+            used = set(re.findall(r"\$\.External\.([A-Za-z0-9]+)", json.dumps(blocks[name]["Parameters"]["ViewData"])))
+            self.assertEqual(used, expected, name)
+        # The dispute view is chosen only when the Lambda says there is an open dispute.
+        choice = blocks["CheckDispute"]
+        self.assertEqual(choice["Parameters"]["ComparisonValue"], "$.External.hasDispute")
+        self.assertEqual((choice["Transitions"]["Conditions"][0]["Condition"]["Operands"],
+                          choice["Transitions"]["Conditions"][0]["NextAction"], choice["Transitions"]["NextAction"]),
+                         (["true"], "DisputeView", "CheckTopic"))
         # The button refreshes; the Back link ends the flow. No block has to read which button it was.
         for name in ("HandoffView", "MortgageApplicationView"):
             data, branches = blocks[name]["Parameters"]["ViewData"], blocks[name]["Transitions"]["Conditions"]

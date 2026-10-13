@@ -60,6 +60,17 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _storable(value: Any) -> Any:
+    """DynamoDB (through boto3) refuses Python floats. Times are whole seconds; anything else becomes Decimal."""
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _storable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_storable(v) for v in value]
+    return value
+
+
 class DynamoStore:
     """Table: partition key "pk" (string); time-to-live attribute "ttl" (seconds)."""
 
@@ -80,7 +91,7 @@ class DynamoStore:
         return _live(item, self._clock())
 
     def put(self, key: str, item: dict, expect: Any = None) -> bool:
-        record = {**item, "pk": key}
+        record = _storable({**item, "pk": key})
         if "expiresAt" in item:
             record["ttl"] = int(item["expiresAt"])
         # Attribute names go through aliases, so none can clash with a DynamoDB reserved word.

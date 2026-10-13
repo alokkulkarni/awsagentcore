@@ -16,6 +16,10 @@ operation = "get_briefing" before it shows the view. "Refresh briefing" calls
 it again, for the case where the agent accepted before the assistant had
 finished writing. "Got it" is the view's Back link and ends the flow.
 
+A third view, "Card dispute", is shown instead when the customer has an open
+card dispute (connect-card-dispute). It adds the dispute's summary and a link
+that opens the adviser's dispute form.
+
 This script only writes a local file. It never calls AWS.
 
 Usage:
@@ -44,6 +48,20 @@ BRIEFING_SECTIONS = [
     "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2",
     "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3",
     "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2",
+]
+
+
+# Shown only when the customer has an open card dispute (connect-card-dispute).
+DISPUTE_SECTION = ("**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n"
+                   "- $.External.dispute3\n- $.External.dispute4")
+# The link to the adviser's dispute form, two ways, because which of them a
+# view will open has not been proven on a live contact: a link button in the
+# bar at the top, and a link in the text.
+DISPUTE_LINK_SECTION = "[Open the dispute form]($.External.disputeUrl)"
+DISPUTE_BAR = [
+    {"Label": "Dispute reference", "Value": "$.External.disputeId", "Copyable": True},
+    {"Label": "Dispute form", "Value": "Open the dispute form", "LinkType": "external",
+     "Url": "$.External.disputeUrl"},
 ]
 
 
@@ -102,9 +120,24 @@ def build() -> dict:
                 "LambdaInvocationAttributes": {"operation": "get_briefing"},
                 "ResponseValidation": {"ResponseType": "STRING_MAP"},
             },
-            "Transitions": {"NextAction": "CheckTopic",
+            "Transitions": {"NextAction": "CheckDispute",
                             "Errors": [{"NextAction": "CheckTopic", "ErrorType": "NoMatchingError"}]},
         }, 320, 380),
+        (choose("CheckDispute", "$.External.hasDispute", "true", "DisputeView", "CheckTopic"), 440, 560),
+        (view("DisputeView", {
+            "Heading": "Card dispute",
+            "AttributeBar": DISPUTE_BAR,
+            "Sections": [
+                {"TemplateString": DISPUTE_SECTION},
+                {"TemplateString": DISPUTE_LINK_SECTION},
+                {"Items": [
+                    {"Label": "Customer Intent", "Value": "$.Attributes.ariaCustomerIntent"},
+                    {"Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason"},
+                    {"Label": "Summary", "Value": "$.Attributes.ariaSummary"},
+                ]},
+                *briefing,
+            ],
+        }), 700, 560),
         (choose("CheckTopic", "$.Attributes.topicCategory", "mortgage_application",
                 "MortgageApplicationView", "HandoffView"), 440, 200),
         (view("HandoffView", {

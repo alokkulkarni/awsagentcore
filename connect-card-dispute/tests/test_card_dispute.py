@@ -380,6 +380,60 @@ class ThreeWaysIn(Base):
         self.assertIn(started["dispute_id"], written)
 
 
+def _has_float(value):
+    if isinstance(value, float):
+        return True
+    if isinstance(value, dict):
+        return any(_has_float(v) for v in value.values())
+    return isinstance(value, list) and any(_has_float(v) for v in value)
+
+
+class AriaPromptAndTools(unittest.TestCase):
+
+    def setUp(self):
+        sys.path.insert(0, str(FOLDER / "scripts"))
+        import build_aria_prompt
+        self.builder = build_aria_prompt
+        self.block = (FOLDER / "prompts" / "card-disputes-block.txt").read_text()
+        self.live = ("system: |\n  You are ARIA.\n\n  <assurance_levels>\n  Levels.\n  </assurance_levels>\n\n"
+                     "  ## Query Handling\n  {{$.Custom.customerId}}\n\nmessages:\n  - \"{{$.conversationHistory}}\"\n")
+
+    def test_block_goes_after_assurance_levels_indented_like_the_rest(self):
+        built = self.builder.add_disputes(self.live, self.block)
+        self.assertEqual(self.builder.check(built), [])
+        lines = built.split("\n")
+        self.assertEqual(lines[lines.index("  </assurance_levels>") + 2], "  <card_disputes>")
+        self.assertLess(lines.index("  </card_disputes>"), lines.index("  ## Query Handling"))
+        system = lines[1:lines.index("messages:")]
+        self.assertEqual([line for line in system if line and not line.startswith("  ")], [])
+
+    def test_building_twice_does_not_duplicate_the_section(self):
+        once = self.builder.add_disputes(self.live, self.block)
+        self.assertEqual(self.builder.add_disputes(once, self.block), once)
+
+    def test_a_prompt_connect_would_reject_is_reported(self):
+        with self.assertRaises(ValueError):
+            self.builder.add_disputes("system: |\n  no anchor\nmessages:\n", self.block)
+        too_long = self.live.replace("You are ARIA.", "x" * 100_000)
+        self.assertIn("limit", " ".join(self.builder.check(self.builder.add_disputes(too_long, self.block))))
+        many = self.live.replace("{{$.Custom.customerId}}", " ".join("{{$.Custom.v%s}}" % chr(97 + n) for n in range(20)))
+        self.assertIn("custom variables", " ".join(self.builder.check(many)))
+
+    def test_block_adds_no_custom_variables_and_names_only_real_tools_and_values(self):
+        self.assertNotIn("{{", self.block)
+        tools = {tool["name"]: tool for tool in json.loads((FOLDER / "scripts" / "tool_schemas.json").read_text())}
+        self.assertEqual(tuple(tools), entry._TOOLS)
+        for name in tools:
+            if name != "get_card_dispute":
+                self.assertIn(name, self.block)
+        for reason in model.EDITABLE["reason"]:
+            self.assertIn(reason, tools["update_card_dispute"]["inputSchema"]["properties"]["reason"]["description"])
+        for value in ("card_lost_or_stolen", "card_details_used_without_card", "not_recognised", "fraud_security",
+                      "summaryStartsWith", "customer_page"):
+            self.assertIn(value, self.block)
+        self.assertEqual(set(entry._UPDATE_ARGUMENTS) - set(tools["update_card_dispute"]["inputSchema"]["properties"]), set())
+
+
 class FakeTable:
     """The slice of a DynamoDB table DynamoStore uses, with conditional writes."""
     def __init__(self):
@@ -392,6 +446,7 @@ class FakeTable:
     def put_item(self, Item, ConditionExpression=None, ExpressionAttributeNames=None, ExpressionAttributeValues=None):
         for alias in re.findall(r"#\w+", ConditionExpression or ""):
             assert alias in ExpressionAttributeNames, f"{alias} has no name"
+        assert not _has_float(Item), "DynamoDB refuses floats"
         current = self.items.get(Item["pk"])
         values = ExpressionAttributeValues or {}
         if ConditionExpression and "attribute_not_exists" in ConditionExpression:
@@ -424,7 +479,7 @@ class BothStoresBehaveTheSame(unittest.TestCase):
             self.assertTrue(store.put("k", {"version": 1}, expect=ABSENT), f"{name}: an expired item counts as absent")
 
     def test_the_service_works_on_the_dynamodb_store(self):
-        now = [1_800_000_000.0]
+        now = [1_800_000_000.25]          # a real clock is never a whole number
         service = DisputeService(DynamoStore("t", lambda: now[0], table=FakeTable()), lambda: now[0], page_url="https://p")
         dispute_id = service.start_card_dispute(JAMES, AMAZON, "unauthorised")["dispute_id"]
         session = service.create_screen()

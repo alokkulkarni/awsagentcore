@@ -64,6 +64,7 @@ DEFAULT_INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
 DEFAULT_ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"
 DEFAULT_FUNCTION_NAME="aria-agent-assist-injector"
 ARIA_INJECTOR_FUNCTION="aria-session-injector-qconnect"
+DISPUTE_FUNCTION="aria-card-dispute"      # connect-card-dispute; optional
 DEFAULT_ROLE_NAME="aria-lambda-agent-assist-injector-role"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -168,6 +169,12 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Resource": ["${INSTANCE_ARN}", "${INSTANCE_ARN}/contact/*"]
     },
     {
+      "Sid": "AskTheCardDisputeLambdaForTheScreenPop",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${DISPUTE_FUNCTION}"
+    },
+    {
       "Sid": "SetTheAgentAndWriteContextOnTheSession",
       "Effect": "Allow",
       "Action": ["wisdom:UpdateSession", "wisdom:UpdateSessionData", "wisdom:SendMessage", "wisdom:ListMessages", "qconnect:UpdateSession", "qconnect:UpdateSessionData", "qconnect:SendMessage", "qconnect:ListMessages"],
@@ -206,12 +213,21 @@ CLI_MATCH_LOA="$(aws lambda get-function-configuration --function-name "$ARIA_IN
 [[ "$CLI_MATCH_LOA" == "None" ]] && CLI_MATCH_LOA=""
 ok "Level ARIA gives a caller recognised by phone number: ${CLI_MATCH_LOA:-not set}"
 
+# The card dispute service is optional. When it is deployed, the screen pop asks it
+# whether the customer has an open dispute.
+DISPUTE_FUNCTION_NAME=""
+if aws lambda get-function --function-name "$DISPUTE_FUNCTION" --region "$REGION" >/dev/null 2>&1; then
+    DISPUTE_FUNCTION_NAME="$DISPUTE_FUNCTION"
+fi
+ok "Card dispute service: ${DISPUTE_FUNCTION_NAME:-not deployed}"
+
 ASSISTANT_ID="$ASSISTANT_ID" INSTANCE_ID="$INSTANCE_ID" CLI_MATCH_LOA="$CLI_MATCH_LOA" \
-    python3 - > "${BUILD_DIR}/env.json" <<'PY'
+    DISPUTE_FUNCTION_NAME="$DISPUTE_FUNCTION_NAME" python3 - > "${BUILD_DIR}/env.json" <<'PY'
 import json, os
 variables = {"ASSISTANT_ID": os.environ["ASSISTANT_ID"], "INSTANCE_ID": os.environ["INSTANCE_ID"]}
-if os.environ.get("CLI_MATCH_LOA"):
-    variables["CLI_MATCH_LOA"] = os.environ["CLI_MATCH_LOA"]
+for name in ("CLI_MATCH_LOA", "DISPUTE_FUNCTION_NAME"):
+    if os.environ.get(name):
+        variables[name] = os.environ[name]
 print(json.dumps({"Variables": variables}))
 PY
 

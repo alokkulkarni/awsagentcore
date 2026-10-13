@@ -114,6 +114,8 @@ Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
     BRIEFING_ENABLED     "false" switches the arrival briefing off
+    DISPUTE_FUNCTION_NAME  The card dispute Lambda, if deployed. The screen pop
+                         then shows a customer's open dispute and a link to it
     BRIEFING_AI_AGENT_ARN  The fast briefing AI agent's version ARN, used only
                          when the flow does not pass "briefingAgentArn"
     CLI_MATCH_LOA        The level ARIA's injector gives a caller recognised by
@@ -130,6 +132,7 @@ IAM PERMISSIONS REQUIRED
     wisdom:UpdateSession         on the assistant and its sessions
     wisdom:SendMessage           on the assistant and its sessions
     wisdom:ListMessages          on the assistant and its sessions
+    lambda:InvokeFunction        on the card dispute Lambda, when it is deployed
     wisdom:UpdateSessionData     on the assistant and its sessions
     qconnect:UpdateSessionData   (same resources; the newer action name)
 """
@@ -161,6 +164,10 @@ BRIEFING_FIELD_MAX_CHARS = 400
 # How many bullet lines the screen pop's view has for each list.
 BRIEFING_SLOTS = {"reason": 2, "product": 3, "guidance": 2}
 BRIEFING_EMPTY_SLOT = "—"
+# The card dispute Lambda (connect-card-dispute), asked whether the customer has
+# an open dispute. Unset = that feature is not deployed; the screen pop says no.
+DISPUTE_FUNCTION_NAME: str = os.environ.get("DISPUTE_FUNCTION_NAME", "")
+DISPUTE_LINES = 4
 BRIEFING_PENDING_TEXT = "*Still being prepared. Press Refresh briefing in a few seconds.*"
 BRIEFING_FAILED_TEXT = "*Not available. Ask in the Connect assistant panel.*"
 ARRIVAL_BRIEFING_REQUEST = (
@@ -493,13 +500,44 @@ def get_briefing(session_arn: str, attrs: dict, channel: str) -> dict[str, str]:
         **_slots("product", found.get("product", []), BRIEFING_SLOTS["product"], BRIEFING_PENDING_TEXT),
         **_slots("guidance", found.get("guidance", []), BRIEFING_SLOTS["guidance"], BRIEFING_PENDING_TEXT),
         "ready": "true" if found else "false",
+        **card_dispute_lines(customer_id),
     }
     return lines
+
+
+def card_dispute_lines(customer_id: str) -> dict[str, str]:
+    """
+    Whether this customer has an open card dispute, and if so the lines and the
+    adviser link for the screen pop. Asks the card dispute Lambda
+    (connect-card-dispute). Always returns the same keys, as text, and never
+    raises: a screen pop must open whatever happens here.
+    """
+    lines = {"hasDispute": "false", "disputeId": "", "disputeUrl": "",
+             **{f"dispute{number}": BRIEFING_EMPTY_SLOT for number in range(1, DISPUTE_LINES + 1)}}
+    if not (DISPUTE_FUNCTION_NAME and customer_id):
+        return lines
+    try:
+        answer = _invoke_dispute_lambda({"operation": "screen_pop", "customerId": customer_id})
+    except Exception:
+        logger.exception("Could not ask %s about a card dispute. Check the lambda:InvokeFunction "
+                         "permission on this Lambda's role.", DISPUTE_FUNCTION_NAME)
+        return lines
+    if isinstance(answer, dict) and answer.get("hasDispute") == "true":
+        lines.update({key: str(answer[key]) for key in lines if answer.get(key)})
+    return lines
+
+
+def _invoke_dispute_lambda(payload: dict) -> Any:
+    import boto3
+    response = boto3.client("lambda", region_name=injector.AWS_REGION).invoke(
+        FunctionName=DISPUTE_FUNCTION_NAME, InvocationType="RequestResponse", Payload=json.dumps(payload).encode())
+    return json.loads(response["Payload"].read() or b"{}")
 
 
 def _briefing_unavailable() -> dict[str, str]:
     """The same set of lines, for when the session could not be read at all."""
     return {"first": BRIEFING_FAILED_TEXT, "verification": BRIEFING_FAILED_TEXT, "ready": "false",
+            **card_dispute_lines(""),
             **{key: value for name, count in BRIEFING_SLOTS.items()
                for key, value in _slots(name, [], count, BRIEFING_FAILED_TEXT).items()}}
 
