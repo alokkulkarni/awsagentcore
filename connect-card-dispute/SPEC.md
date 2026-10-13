@@ -372,9 +372,17 @@ acknowledges what ARIA was told.
 - If the disputes agent cannot draft a dispute, the reason begins `Card dispute not drafted.` and
   ARIA transfers with what it has.
 
-**D4. Level of assurance is checked in the prompts, not the Lambda.** The Lambda does not know how
-a customer was verified. ARIA hands off only at Level 2 or above, and the disputes agent refuses
-below it. This is the same control Part 1 has.
+**D4. Where the level of assurance is checked.**
+
+- *Route 3: in the Lambda.* `attachToScreen` already reads the contact's own attributes from
+  Connect, so it also requires `authStatus` to be `authenticated` and, where an ID&V flow set a
+  level, Level 2 or above. An unverified caller's page is never attached, whatever the agent is
+  persuaded to try.
+- *Routes 1 and Part 1: in the prompts.* A tool call carries no contact, so the Lambda cannot tell
+  how that customer was verified. ARIA hands off only at Level 2 or above, and the disputes agent
+  refuses below it.
+- A caller recognised by phone number alone counts as authenticated when ARIA's injector is set to
+  treat them so (`CLI_MATCH_LOA`). That is this instance's choice, and it applies to every route.
 
 ## 15. Route 3 changes the page from a view into a form
 

@@ -410,6 +410,24 @@ class ThreeWaysIn(Base):
         status = self.service.screen_status(session["sessionId"])
         self.assertEqual({t["card_last_four"] for t in status["transactions"]}, {"4821", "2291"}, "James's, not Sarah's")
 
+    def test_live_sync_route_attaches_only_a_customer_a_flow_recorded_as_verified(self):
+        # The gate is in the Lambda, read from Connect's own record of the contact, not in the agent's prompt.
+        verified = entry.verified_customer
+        self.assertEqual(verified({"customerId": JAMES, "authStatus": "authenticated"}), JAMES)
+        self.assertEqual(verified({"customerId": JAMES, "authStatus": "authenticated", "LoA": "3"}), JAMES)
+        for attributes in ({"customerId": JAMES}, {"customerId": JAMES, "authStatus": "unauthenticated"},
+                           {"customerId": JAMES, "authStatus": "authenticated", "LoA": "1"},
+                           {"customerId": JAMES, "authStatus": "authenticated", "LoA": "0"},
+                           {"customerId": JAMES, "authStatus": "authenticated", "LoA": "high"},
+                           {"authStatus": "authenticated"}, {}):
+            self.assertEqual(verified(attributes), "", attributes)
+        # And an unverified contact attaches nothing, whatever the agent sends.
+        entry.doors.customer_of_contact = lambda contact: verified({"customerId": JAMES, "authStatus": "unauthenticated"})
+        session = json.loads(entry.lambda_handler(http("POST", "/api/screen"), None)["body"])
+        reply = json.loads(self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": session["code"]})["body"])
+        self.assertEqual((reply["attached"], reply["reason"]), (False, "customer_not_identified"))
+        self.assertEqual(self.service.screen_status(session["sessionId"])["state"], "waiting")
+
     def test_cx_designer_door_always_answers_with_every_field(self):
         for body in ({"operation": "attachToScreen", "contactId": "not-a-contact", "code": "123456"},
                      {"operation": "attachToScreen", "contactId": CONTACT, "code": "000000"},

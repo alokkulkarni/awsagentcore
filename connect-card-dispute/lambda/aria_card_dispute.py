@@ -104,6 +104,26 @@ def _customer_of_contact(contact_id: str) -> str:
     except Exception:
         logger.exception("Could not read the contact. Check the connect:GetContactAttributes permission.")
         return ""
+    return verified_customer(attributes)
+
+
+def verified_customer(attributes: dict) -> str:
+    """
+    The contact's customer, but only if a flow recorded them as verified. This
+    is the assurance gate for the Live Sync route, enforced here and not left to
+    the agent's prompt: an unverified caller's page is never attached, whatever
+    the agent is persuaded to try.
+
+    "Verified" is what the flows record: authStatus "authenticated", and, where
+    an ID&V flow set a level, Level 2 or above. A caller recognised by phone
+    number alone passes when ARIA's injector is configured to treat them as
+    authenticated; that is a decision made for this instance (see SPEC Part 3).
+    """
+    if attributes.get("authStatus") != "authenticated":
+        return ""
+    level = str(attributes.get("LoA") or attributes.get("loa") or "").strip()
+    if level and not (level.isdigit() and int(level) >= 2):
+        return ""
     return str(attributes.get("customerId") or "")
 
 
