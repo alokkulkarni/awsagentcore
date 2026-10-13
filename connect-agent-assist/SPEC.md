@@ -141,9 +141,21 @@ Remove Connect assistant, Set contact data, Set event flow and Transfer to queue
 | Lambda deployed, flow imported, prompt published | **Not done** |
 | Live contact with an agent in the workspace | **Not done** |
 
-## 8. Open questions
+## 8. Known gaps and open questions
 
-Only a live contact can answer these.
+**Known gap: a direct call always looks unverified to the assistant.** The verification level
+reaches the handover as the contact attributes `LoA` and `idvMethod`. Only the ID&V harness sets
+those. The main flow's Set contact attributes block copies sixteen values from its injector and
+neither is among them, so on a direct call the assistant is told no identity check was recorded,
+whatever the injector decided. That is the safe outcome. To change it, add `LoA` (from `$.External.loa`)
+and `idvMethod` to that block in `conversation bot flow`; it is a manual change to the bot flow and
+is deliberately not part of this work.
+
+**Known gap: the mortgage topic does not route.** ARIA emits `topicCategory=mortgage`; the routing
+table key is `mortgages`. The contact is disconnected in `ARIA human handover` before this flow
+runs. This predates agent assist.
+
+Only a live contact can answer these:
 
 1. **When does the first suggestion appear?** The assistant responds to conversation turns. With only
    session data and no utterance yet, it may stay silent until the customer speaks to the agent.

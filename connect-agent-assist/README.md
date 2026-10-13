@@ -376,13 +376,19 @@ Lambda: aria-routing-lookup
 ## Part F — Test It
 
 You need two people, or one person with a phone and a browser: a **caller** and an **agent** logged
-in to the agent workspace, available, and in a routing profile that serves the queue.
+in to the agent workspace, available, and in a routing profile that serves the queue. Tests 1 and 2
+both route as a current-account query, so the agent needs the **Retail Banking** queue.
+
+> **Use a current-account question, not a mortgage one, for these tests.** ARIA labels a mortgage
+> escalation `mortgage`, but the routing table's key is `mortgages`. The routing Lambda finds no
+> queue, and the handover flow disconnects the contact before this new flow ever runs. That is an
+> existing routing mismatch, not an agent-assist fault. Fix it by making the two spellings agree.
 
 ### Test 1 — Handover with a briefing
 
 1. Agent: log in to the agent workspace and set yourself **Available**.
 2. Caller: ring the ID&V test harness number and quick-select James (`1`, `1`).
-3. Caller: ask ARIA about your mortgage, then say "I'd like to speak to someone".
+3. Caller: ask ARIA for your balance, then say "I'd like to speak to someone".
 4. Agent: accept the contact.
 
 **Expected.** The assistant panel is open on the contact. When the customer next speaks, or when you
@@ -405,7 +411,8 @@ says the customer must not be asked to approve it again.
 3. Agent: accept the contact.
 
 **Expected.** The assistant's first suggestion is to verify the customer's identity, because no
-identity check was recorded for the contact.
+identity check was recorded for the contact. This is true for every direct call: the main flow does
+not pass a verification level on to the handover (see SPEC section 8).
 
 ### Test 4 — Chat
 
