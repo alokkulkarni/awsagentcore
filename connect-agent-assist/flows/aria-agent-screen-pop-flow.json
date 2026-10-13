@@ -1,0 +1,367 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "CheckTopic",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 200
+    },
+    "ActionMetadata": {
+      "CheckTopic": {
+        "position": {
+          "x": 200,
+          "y": 200
+        }
+      },
+      "HandoffView": {
+        "position": {
+          "x": 460,
+          "y": 320
+        }
+      },
+      "MortgageApplicationView": {
+        "position": {
+          "x": 460,
+          "y": 60
+        }
+      },
+      "CheckButton": {
+        "position": {
+          "x": 720,
+          "y": 200
+        }
+      },
+      "BriefingView": {
+        "position": {
+          "x": 980,
+          "y": 200
+        }
+      },
+      "CheckBriefingButton": {
+        "position": {
+          "x": 1240,
+          "y": 200
+        }
+      },
+      "End": {
+        "position": {
+          "x": 1500,
+          "y": 200
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "ARIA-Agent-Screen-Pop-Flow",
+    "description": "Agent screen pop: ARIA handoff summary, with the assistant's briefing one click away.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "CheckTopic",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.topicCategory"
+      },
+      "Transitions": {
+        "NextAction": "HandoffView",
+        "Conditions": [
+          {
+            "NextAction": "MortgageApplicationView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_application"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "HandoffView",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "HandoffView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "ARIA Handoff Summary",
+          "Sections": [
+            {
+              "Items": [
+                {
+                  "Label": "Customer Intent",
+                  "Value": "$.Attributes.ariaCustomerIntent"
+                },
+                {
+                  "Label": "Escalation Reason",
+                  "Value": "$.Attributes.ariaEscalationReason"
+                },
+                {
+                  "Label": "Summary",
+                  "Value": "$.Attributes.ariaSummary"
+                }
+              ]
+            }
+          ],
+          "Actions": [
+            "Assistant briefing",
+            "Got it"
+          ]
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "CheckButton",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "MortgageApplicationView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "Mortgage application",
+          "AttributeBar": [
+            {
+              "Label": "Application ID",
+              "Value": "$.Attributes.applicationId",
+              "Copyable": true
+            },
+            {
+              "Label": "Stage reached",
+              "Value": "$.Attributes.stage"
+            },
+            {
+              "Label": "Decision in Principle",
+              "Value": "$.Attributes.dipDecision"
+            },
+            {
+              "Label": "Product selected",
+              "Value": "$.Attributes.productId"
+            },
+            {
+              "Label": "Documents outstanding",
+              "Value": "$.Attributes.docsOutstanding"
+            }
+          ],
+          "Sections": [
+            {
+              "TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"
+            },
+            {
+              "TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"
+            },
+            {
+              "TemplateString": "$.Attributes.ariaSummary"
+            }
+          ],
+          "Actions": [
+            "Assistant briefing",
+            "Got it"
+          ]
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "CheckButton",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckButton",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Views.Action"
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "BriefingView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Assistant briefing"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "BriefingView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "Assistant briefing",
+          "Sections": [
+            {
+              "TemplateString": "$.Attributes.assistBriefing"
+            }
+          ],
+          "Actions": [
+            "Refresh",
+            "Got it"
+          ]
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "CheckBriefingButton",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckBriefingButton",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Views.Action"
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "BriefingView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Refresh"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "End",
+      "Type": "EndFlowExecution",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

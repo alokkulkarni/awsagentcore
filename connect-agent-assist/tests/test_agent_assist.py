@@ -48,6 +48,12 @@ import session_injector_qconnect as injector  # noqa: E402
 JAMES, SARAH, DANIEL = "CUST-001", "CUST-002", "CUST-004"
 SESSION = "arn:aws:wisdom:eu-west-2:111122223333:session/assistant/assist-session"
 AGENT = "arn:aws:wisdom:eu-west-2:111122223333:ai-agent/assistant/agent:4"
+# The assistant's answer as the service stores it: HTML with escaped brackets.
+ANSWER = ("&lt;b&gt;What to do first:&lt;/b&gt; Verify James&#39;s identity.&lt;br&gt;&lt;br&gt;"
+          "&lt;b&gt;Key details:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Balance: &lt;b&gt;£210,500&lt;/b&gt;&lt;/li&gt;"
+          "&lt;li&gt;Rate: &lt;b&gt;4.25% fixed&lt;/b&gt;&lt;/li&gt;&lt;/ul&gt;\n&lt;message_part&gt;\n&lt;text&gt;"
+          "&lt;b&gt;Related guidance:&lt;/b&gt; Subject to affordability.&lt;/text&gt;\n&lt;sources&gt;\n"
+          "&lt;sourceId&gt;s3://bucket/mortgages.txt&lt;/sourceId&gt;\n&lt;/sources&gt;\n&lt;/message_part&gt; ")
 
 
 class Harness(unittest.TestCase):
@@ -73,12 +79,20 @@ class Harness(unittest.TestCase):
                 self.session_updates.append(kwargs)
 
             def send_message(_, **kwargs):
-                if self.update_error:
-                    raise self.update_error
                 self.messages.append(kwargs)
-        self.messages = []
-        assist.BRIEFING_DELAY_SECONDS = 0
+                return {"requestMessageId": "request-1"}
+
+            def list_messages(_, **kwargs):
+                return {"messages": list(reversed(self.history))}   # newest first, as the service returns
+
+        class Connect:
+            def update_contact_attributes(_, **kwargs):
+                self.attribute_updates.append(kwargs)
+        self.messages, self.history, self.attribute_updates, self.workers = [], [], [], []
+        assist.BRIEFING_POLL_SECONDS, assist.BRIEFING_WAIT_SECONDS = 0, 5
+        assist._start_briefing_worker = lambda context, *args: self.workers.append(args) or True
         injector._get_qconnect = lambda: QConnect()
+        injector._get_connect = lambda: Connect()
 
     def invoke(self, attributes, channel="VOICE", parameters=None):
         return assist.handler({"Details": {"Parameters": parameters or {}, "ContactData": {
@@ -240,20 +254,47 @@ class NeverBlocksTheCustomer(Harness):
         result = self.invoke({"customerId": JAMES})
         self.assertEqual((result["assistAgent"], self.session_updates), ("not_configured", []))
 
-    def test_arrival_briefing_asks_the_assistant_on_the_agents_behalf(self):
-        result = self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})
-        self.assertEqual(result["status"], "briefing_requested")
+    def test_briefing_starts_only_once_the_session_has_the_assist_agent(self):
+        started = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
+        self.assertEqual((started["briefing"], self.workers), ("started", [("abc", "contact-1", SESSION)]))
+        self.workers.clear()
+        self.assertEqual(self.invoke({"customerId": JAMES})["briefing"], "not_started")   # no agent passed
+        self.update_error = RuntimeError("AccessDenied")
+        self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})           # agent not switched
+        self.assertEqual(self.workers, [])
+
+    def test_background_run_stores_the_assistants_answer_on_the_contact(self):
+        self.history = [
+            {"messageId": "old", "participant": "BOT", "timestamp": 1, "value": {"text": {"value": "<b>ARIA</b>"}}},
+            {"messageId": "request-1", "participant": "CUSTOMER", "timestamp": 5, "value": {"text": {"value": "q"}}},
+            {"messageId": "lead", "participant": "BOT", "timestamp": 6,
+             "value": {"text": {"value": "Here&#39;s your brief. "}}},
+            {"messageId": "tool", "participant": "BOT", "timestamp": 7, "value": {"toolUse": {}}},
+            {"messageId": "answer", "participant": "BOT", "timestamp": 8, "value": {"text": {"value": ANSWER}}},
+        ]
+        result = assist.handler({"operation": "prepare_briefing", "instanceId": "abc",
+                                 "contactId": "contact-1", "sessionArn": SESSION}, None)
+        self.assertEqual(result, {"status": "done"})
         (message,) = self.messages
-        self.assertEqual(message["sessionId"], "assist-session")
         self.assertEqual(message["orchestratorUseCase"], "Connect.AgentAssistance")
         self.assertEqual(message["clientToken"], "arrival-briefing-contact-1")
-        self.assertIn("Brief me", message["message"]["value"]["text"]["value"])
-        self.assertEqual((self.injected, self.session_updates), ({}, []), "brief must not re-inject")
+        pending, final = [a["Attributes"]["assistBriefing"] for a in self.attribute_updates]
+        self.assertIn("preparing", pending)
+        self.assertEqual(final, "**What to do first:** Verify James's identity.\n\n**Key details:**\n"
+                                "- Balance: **£210,500**\n- Rate: **4.25% fixed**\n\n"
+                                "**Related guidance:** Subject to affordability.")
 
-    def test_arrival_briefing_failure_is_reported_not_raised(self):
-        self.update_error = RuntimeError("AccessDenied")
-        result = self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})
-        self.assertEqual(result["status"], "briefing_failed")
+    def test_background_run_reports_when_the_assistant_does_not_answer(self):
+        assist.BRIEFING_WAIT_SECONDS = 0.01
+        self.history = [{"messageId": "request-1", "participant": "CUSTOMER", "timestamp": 5,
+                         "value": {"text": {"value": "q"}}}]
+        assist.handler({"operation": "prepare_briefing", "instanceId": "abc",
+                        "contactId": "contact-1", "sessionArn": SESSION}, None)
+        self.assertIn("could not prepare", self.attribute_updates[-1]["Attributes"]["assistBriefing"])
+
+    def test_retired_brief_operation_does_nothing(self):
+        self.assertEqual(self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})["status"], "ignored")
+        self.assertEqual((self.injected, self.messages, self.workers), ({}, [], []))
 
     def test_missing_assistant_session_is_reported_not_raised(self):
         self.session_arn = ""            # ran before the Connect assistant block
@@ -308,6 +349,14 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
         pinned = self.actions["ConnectAssistant"]["Parameters"]["OrchestrationAIAgentConfiguration"]
         passed = self.actions["InjectContext"]["Parameters"]["LambdaInvocationAttributes"]
         self.assertEqual(passed, {"assistAgentArn": pinned["AgentAssistanceAgentVersionArn"]})
+
+    def test_screen_pop_shows_the_attribute_the_lambda_writes(self):
+        pop = json.loads((FOLDER / "flows" / "aria-agent-screen-pop-flow.json").read_text())
+        views = {a["Identifier"]: a["Parameters"]["ViewData"] for a in pop["Actions"] if a["Type"] == "ShowView"}
+        self.assertEqual(views["BriefingView"]["Sections"],
+                         [{"TemplateString": f"$.Attributes.{assist.BRIEFING_ATTRIBUTE}"}])
+        for name in ("HandoffView", "MortgageApplicationView"):
+            self.assertIn("Assistant briefing", views[name]["Actions"])
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.

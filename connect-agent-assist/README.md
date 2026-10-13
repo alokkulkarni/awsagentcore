@@ -400,37 +400,57 @@ Lambda: aria-routing-lookup
 
 ---
 
-## Part G — Brief the Agent Automatically on Arrival
+## Part G — Brief the Agent on Arrival, Without Typing
 
-Left alone, the assistant speaks only after the customer has said something to the agent, or the
-agent has typed a question. This part makes it brief the agent the moment they accept the contact:
-what to do first, what ARIA did, the product the customer is contacting about, the likely reasons,
-and the related guidance. The agent types nothing.
+**What the Connect assistant panel can and cannot do.** It shows two things: an answer to a question
+the agent types, and a suggestion the agent clicks once the customer has said what they want. It
+does not speak when a contact arrives, and it does not display an answer to a question something
+else asked. That was tested on a live contact: the assistant wrote a full briefing, and the panel
+showed none of it.
 
-It works by having the screen-pop flow ask the assistant the first question on the agent's behalf.
+So the arrival briefing goes in the **screen pop**, which is yours to design:
 
-1. Run the deploy script again. It updates the Lambda and adds the `wisdom:SendMessage` permission.
-2. Open the flow `ARIA-Agent-Screen-Pop-Flow`. Click the arrow next to **Save** → **Export flow**
-   and keep the file as your way back.
-3. Add an **AWS Lambda function** block:
-   - Function: `aria-agent-assist-injector`
-   - Function input parameter, **Set manually**: key `operation`, value `brief`
-   - Execution mode: **Asynchronous** if the block offers it. Otherwise leave it synchronous with a
-     timeout of **8** seconds; the screen pop then appears about two seconds later.
-4. Connect the flow's **Entry** to this new block.
-5. Connect the new block's **Success** and **Error** branches to the **Check contact attributes**
-   block that used to be first.
-6. **Save**, then **Publish**.
+1. While the customer waits in the queue, the Lambda asks the assistant for a briefing in the
+   background: what to do first, what ARIA did, how the customer was verified, the details of the
+   product they are contacting about, the likely reasons, and the related guidance.
+2. The assistant looks those up and writes its answer. This takes about twenty seconds.
+3. The Lambda stores the answer on the contact as the attribute `assistBriefing`.
+4. The screen pop has a new **Assistant briefing** button that shows it.
 
-**How to check it worked.** In the log group `/aws/lambda/aria-agent-assist-injector`, look for
-`Arrival briefing requested for contact …` at the time the agent accepted.
+### Steps
 
-> **Not yet proven on a live contact.** The request reaches the assistant and the assistant answers
-> it. Whether the agent's panel displays an answer to a question it did not send itself is the part
-> only your test can show. If the log line is there and the panel stays empty, say so.
+1. Run the deploy script again. It updates the Lambda, raises its timeout to 60 seconds and adds
+   three permissions (read the assistant's messages, set a contact attribute, start its own
+   background run).
+2. Open `ARIA-Agent-Screen-Pop-Flow`. Click the arrow next to **Save** → **Export flow** and keep
+   the file as your way back.
+3. In the same flow, click the arrow next to **Save** → **Import**, and select
+   `connect-agent-assist/flows/aria-agent-screen-pop-flow.json`. This replaces the flow's blocks.
+   It also removes the Lambda block an earlier version of this guide asked you to add.
+4. **Save**, then **Publish**.
 
-The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda. The wait before asking is
-the Lambda's `BRIEFING_DELAY_SECONDS` setting (default 2).
+Nothing changes in `ARIA agent assist`: the Lambda starts the briefing itself.
+
+### What the agent sees
+
+The usual handoff summary, with two buttons: **Assistant briefing** and **Got it**. Pressing
+**Assistant briefing** opens the briefing. If the agent accepted within about twenty seconds of the
+transfer, the briefing may still be being written; the view says so, and **Refresh** shows it once
+it is ready.
+
+### How to check it worked
+
+| Where to look | What you should see |
+|---|---|
+| Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "started"` on the contact's line, then `"status": "briefing_ready"` about twenty seconds later |
+| **Contact search → your contact → Attributes** | `assistBriefing` holding the text |
+
+> **Two things only your test can show.** Whether **Refresh** picks up an attribute that was set
+> after the screen pop opened, and whether the view lays out the bullet points as a list. If
+> either is wrong, say so; both have a fallback.
+
+To switch the briefing off without touching a flow, set the Lambda's `BRIEFING_ENABLED` to `false`.
+The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda.
 
 ---
 
