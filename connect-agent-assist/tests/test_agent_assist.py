@@ -243,6 +243,12 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
             self.assertIn(f"<{tag}>", self.prompt)
             self.assertIn(f"</{tag}>", self.prompt)
 
+    def test_prompt_system_text_fits_the_connect_limit(self):
+        # Connect rejects a prompt whose system text is over 100,000 characters.
+        # The whole indented block is measured, which is the stricter reading.
+        system = self.prompt[len("system: |\n"):self.prompt.index("\nmessages:")]
+        self.assertLess(len(system), 100_000)
+
     def test_injector_runs_after_the_assistant_session_exists(self):
         order, step = [], self.flow["StartAction"]
         while step and step not in order:

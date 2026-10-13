@@ -6,7 +6,7 @@ What was added to `agent-assistance-promnpt` to produce
 | | |
 |---|---|
 | Starting point | Version 2, read from the instance on 13 October 2026 (645 lines, about 97,000 characters) |
-| Result | 691 lines, about 102,500 characters, 12 custom variables |
+| Result | 681 lines, 12 custom variables, system text 98,610 characters (the limit is 100,000) |
 | Status | **Not applied.** Paste it in by following [README Part C](README.md#part-c--update-the-agent-assist-ai-agent) |
 
 The existing prompt is a carefully built one. It has a strict response protocol (an opening
@@ -67,7 +67,14 @@ static instructions.
   agent-facing text, but they are written in the same register ("look-up", "guidance") so the
   assistant does not copy a banned word into a message.
 - **Custom variable limit.** ARIA's prompt was rejected at 20 custom variables. This prompt uses 12.
-- **Size.** About 5,600 characters are added to a 97,000-character prompt.
+- **Size.** Connect rejects a prompt whose system text is over 100,000 characters
+  ("System length must not exceed 100000 characters"). Version 2 already used about 95,700, so the
+  additions had to be paid for. The handover instructions were tightened to about 3,400 characters,
+  and four passages that only apply to an airline assistant that changes bookings were removed from
+  `<constraints_and_record_fidelity>`: the "copy the record" rule, the "cabin change" rule, and the
+  worked examples under "a declined action stays declined" and "a limit is scoped to the action".
+  This assistant only reads, so it never creates a replacement booking or prices a cabin change.
+  A unit test fails if the system text reaches the limit again.
 - **Not tested on a live contact.** The structure was checked by script: the first line is
   `system: |`, every line before `messages:` is indented, and the prompt binds exactly the twelve
   values the Lambda writes. How the assistant behaves with it needs the tests in
