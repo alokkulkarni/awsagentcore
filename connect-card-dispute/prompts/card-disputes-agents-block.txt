@@ -1,0 +1,17 @@
+<card_disputes>
+A customer may want to dispute a card transaction: a payment on their debit or credit card that they did not make, or one they made that went wrong. You do not draft the dispute yourself. A specialist does, and the customer must not notice any join.
+
+Use this when the customer wants to dispute, challenge, query or claim back a card payment, or says they do not recognise a card payment. The customer must be authenticated and at Level 2 or above. If not, follow <assurance_levels> first.
+
+1. Ask once: "Do you have our card dispute page open on a screen? If so, read me the six-digit code it shows." Skip this question if they have already said they have no screen.
+2. If they read out a six-digit code AND you have the StartCardDispute tool: in ONE turn say in <message> only "Thank you. I'll fill the form in with you on your screen now." and call StartCardDispute with the code as screenCode and a one-sentence handoverSummary of what they said. Stop there.
+3. Otherwise hand the conversation to the card disputes agent. Do not announce it: say nothing about passing, transferring or connecting. In the message you hand over, state the customer ID from session context, the level of assurance, the channel, and everything the customer has already said about the payment (retailer, amount, date, whether they made it, whether they have the card).
+4. When the conversation comes back to you with a reason that begins "Card dispute":
+   - Do NOT greet, recap or ask anything. The customer has already been told a colleague is next.
+   - In the same turn, call the Escalate tool with topicCategory set to the value after "topicCategory=" in the reason, escalationReason: complex_request, customerIntent: "Dispute a card transaction", and a conversationSummary that is the reason text, unchanged from "Card dispute" onwards.
+   - Say nothing in <message> unless you must; if you must, say only "One moment."
+   Do NOT say goodbye. Do NOT use the Complete tool. Do NOT wait for another reply before calling Escalate.
+5. If it comes back saying the customer asked about something else, help with that request as normal. Mention the dispute only if they do.
+
+Never draft, describe the outcome of, or promise anything about a dispute yourself. No money is being moved, so the payment step-up and its scam question do not apply.
+</card_disputes>

@@ -410,7 +410,7 @@ class AriaPromptAndTools(unittest.TestCase):
         sys.path.insert(0, str(FOLDER / "scripts"))
         import build_aria_prompt
         self.builder = build_aria_prompt
-        self.block = (FOLDER / "prompts" / "card-disputes-block.txt").read_text()
+        self.block = self.builder.BLOCK_FILES["direct"].read_text()
         self.live = ("system: |\n  You are ARIA.\n\n  <assurance_levels>\n  Levels.\n  </assurance_levels>\n\n"
                      "  ## Query Handling\n  {{$.Custom.customerId}}\n\nmessages:\n  - \"{{$.conversationHistory}}\"\n")
 
@@ -448,6 +448,91 @@ class AriaPromptAndTools(unittest.TestCase):
                       "summaryStartsWith", "customer_page"):
             self.assertIn(value, self.block)
         self.assertEqual(set(entry._UPDATE_ARGUMENTS) - set(tools["update_card_dispute"]["inputSchema"]["properties"]), set())
+
+
+class DisputesCollaborator(unittest.TestCase):
+    """SPEC Part 3, route 1: the change the attach script makes to ARIA's AI agent."""
+
+    DISPUTES = "11111111-2222-3333-4444-555555555555"
+
+    def setUp(self):
+        sys.path.insert(0, str(FOLDER / "scripts"))
+        import collaborator_config
+        self.config = collaborator_config
+        self.aria = {"orchestrationAIAgentConfiguration": {
+            "orchestrationAIPromptId": "prompt:18", "locale": "en_GB", "connectInstanceArn": "arn:instance",
+            "orchestrationAIGuardrailId": "guard:1",
+            "toolConfigurations": [{"toolName": "Escalate"}, {"toolName": "Complete"}, {"toolName": "Retrieve"}]}}
+
+    def collaborators(self, configuration):
+        return configuration["orchestrationAIAgentConfiguration"].get("multiAgentConfigurations", [])
+
+    def test_adds_one_handoff_collaborator_and_changes_nothing_else(self):
+        after, changed = self.config.apply(self.aria, self.DISPUTES)
+        self.assertTrue(changed)
+        (entry,) = self.collaborators(after)
+        handoff = entry["handoffAgentConfiguration"]
+        self.assertEqual((handoff["agentTarget"], handoff["immediateHandoff"]), ({"aiAgentId": self.DISPUTES}, False))
+        rest = dict(after["orchestrationAIAgentConfiguration"])
+        del rest["multiAgentConfigurations"]
+        self.assertEqual(rest, self.aria["orchestrationAIAgentConfiguration"], "prompt, tools, guardrail, locale untouched")
+        self.assertNotIn("multiAgentConfigurations", self.aria["orchestrationAIAgentConfiguration"], "input not mutated")
+
+    def test_running_twice_changes_nothing_the_second_time(self):
+        once, _ = self.config.apply(self.aria, self.DISPUTES)
+        twice, changed = self.config.apply(once, self.DISPUTES)
+        self.assertEqual((twice, changed), (once, False))
+
+    def test_other_collaborators_are_kept_and_ours_is_replaced_or_removed(self):
+        other = {"delegateAgentConfiguration": {"agentTarget": {"aiAgentId": "other"},
+                                                "instruction": {"instruction": "Score a transaction."}}}
+        self.aria["orchestrationAIAgentConfiguration"]["multiAgentConfigurations"] = [other]
+        added, _ = self.config.apply(self.aria, self.DISPUTES)
+        moved, changed = self.config.apply(added, "99999999-2222-3333-4444-555555555555")   # the agent was recreated
+        self.assertTrue(changed)
+        self.assertEqual(self.config.describe(self.collaborators(moved)),
+                         ["delegate -> other", "handoff -> 99999999-2222-3333-4444-555555555555"])
+        removed, changed = self.config.apply(moved, remove=True)
+        self.assertEqual((self.collaborators(removed), changed), ([other], True))
+
+    def test_refuses_what_connect_would_refuse(self):
+        with self.assertRaises(ValueError):
+            self.config.apply({"selfServiceAIAgentConfiguration": {}}, self.DISPUTES)
+        self.aria["orchestrationAIAgentConfiguration"]["multiAgentConfigurations"] = [
+            {"delegateAgentConfiguration": {"agentTarget": {"aiAgentId": f"a{n}"}, "instruction": {"instruction": "x"}}}
+            for n in range(5)]
+        with self.assertRaises(ValueError):
+            self.config.apply(self.aria, self.DISPUTES)
+
+    def test_a_collaborator_that_talks_to_the_customer_must_be_able_to_hand_back(self):
+        ready = {"name": "d", "type": "ORCHESTRATION", "configuration": {"orchestrationAIAgentConfiguration": {
+            "toolConfigurations": [{"toolName": "Complete"}, {"toolName": "Escalate"}]}}}
+        self.assertEqual(self.config.check_collaborator(ready), [])
+        ready["configuration"]["orchestrationAIAgentConfiguration"]["toolConfigurations"].pop()
+        self.assertIn("no Escalate tool", self.config.check_collaborator(ready)[0])
+        self.assertIn("not an Orchestration", self.config.check_collaborator({"name": "x", "type": "SELF_SERVICE"})[0])
+
+    def test_instruction_carries_the_contract_both_prompts_rely_on(self):
+        instruction = self.config.INSTRUCTION
+        for needed in ("Level 2", "customer ID", "Do not announce", "'Card dispute'", "six-digit code"):
+            self.assertIn(needed, instruction)
+
+    def test_disputes_agent_prompt_keeps_the_join_invisible_and_hands_back_in_the_agreed_form(self):
+        prompt = (FOLDER / "prompts" / "disputes-agent-prompt-v1.yaml").read_text()
+        self.assertTrue(prompt.startswith("system: |\n"))
+        lines = prompt.split("\n")
+        self.assertEqual([l for l in lines[1:lines.index("messages:")] if l and not l.startswith("  ")], [])
+        self.assertLessEqual(len(set(re.findall(r"\{\{\$\.Custom\.([A-Za-z]+)\}\}", prompt))), 19)
+        for needed in ("You are ARIA", "Never greet", "Card dispute <dispute_id> drafted. topicCategory=<handover.topicCategory>.",
+                       "Card dispute not drafted.", "Level 2 or above", "{{$.toolConfigurationList}}"):
+            self.assertIn(needed, prompt)
+        for tool in entry._TOOLS:
+            if tool != "get_card_dispute":
+                self.assertIn(tool, prompt)
+        aria = (FOLDER / "prompts" / "card-disputes-agents-block.txt").read_text()
+        for needed in ('begins "Card dispute"', 'after "topicCategory="', "Do NOT greet", "StartCardDispute", "screenCode"):
+            self.assertIn(needed, aria)
+        self.assertNotIn("{{", aria)
 
 
 class FakeTable:

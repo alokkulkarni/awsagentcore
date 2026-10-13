@@ -1,2 +1,4 @@
 # Built from the live prompt by scripts/build_aria_prompt.py; not kept in the repository.
 prompts/aria-orchestration-prompt-with-disputes.yaml
+# ARIA's AI agent as it was before attach_disputes_collaborator.sh changed it.
+backups/
