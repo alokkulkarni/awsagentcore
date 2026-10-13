@@ -34,7 +34,8 @@ FLOW_DESCRIPTION = ("Switches on agent assist for a contact (analytics, assistan
                     "then queues it for a human agent. Used by ARIA human handover.")
 
 
-def build(region, account_id, instance_id, assistant_id, agent_id, agent_version, screen_pop_flow_id) -> dict:
+def build(region, account_id, instance_id, assistant_id, agent_id, agent_version, screen_pop_flow_id,
+          briefing_agent_arn="") -> dict:
     instance_arn = f"arn:aws:connect:{region}:{account_id}:instance/{instance_id}"
     assistant_arn = f"arn:aws:wisdom:{region}:{account_id}:assistant/{assistant_id}"
     agent_arn = f"arn:aws:wisdom:{region}:{account_id}:ai-agent/{assistant_id}/{agent_id}:{agent_version}"
@@ -123,7 +124,8 @@ def build(region, account_id, instance_id, assistant_id, agent_id, agent_version
                 # The Lambda switches the session to this agent. "Connect
                 # assistant" above cannot: the bot flow already created the
                 # contact's session, with ARIA as its agent.
-                "LambdaInvocationAttributes": {"assistAgentArn": agent_arn},
+                "LambdaInvocationAttributes": {"assistAgentArn": agent_arn, **(
+                    {"briefingAgentArn": briefing_agent_arn} if briefing_agent_arn else {})},
                 "ResponseValidation": {"ResponseType": "STRING_MAP"},
             },
             "Transitions": {"NextAction": "SetAgentScreen", "Errors": on_error("SetAgentScreen")},
@@ -203,11 +205,14 @@ def main() -> None:
     parser.add_argument("--assist-agent-version", default=ASSIST_AGENT_VERSION,
                         help="Published version of the agent-assistance AI agent to pin (default: %(default)s)")
     parser.add_argument("--screen-pop-flow-id", default=SCREEN_POP_FLOW_ID)
+    parser.add_argument("--briefing-agent-arn", default="",
+                        help="Version ARN of the fast briefing AI agent (ends in :<version>). Omit to let the "
+                             "agent-assistance agent write the arrival briefing, which is slower")
     parser.add_argument("--output", default=str(Path(__file__).parent / "aria-agent-assist-flow.json"))
     args = parser.parse_args()
 
     flow = build(args.region, args.account_id, args.instance_id, args.assistant_id, args.assist_agent_id,
-                 args.assist_agent_version, args.screen_pop_flow_id)
+                 args.assist_agent_version, args.screen_pop_flow_id, args.briefing_agent_arn)
     Path(args.output).write_text(json.dumps(flow, indent=2) + "\n")
     print(f"Wrote {args.output} ({len(flow['Actions']) - 1} blocks, assist agent version {args.assist_agent_version})")
 

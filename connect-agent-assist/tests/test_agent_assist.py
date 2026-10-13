@@ -272,6 +272,15 @@ class NeverBlocksTheCustomer(Harness):
         self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})             # agent not switched
         self.assertEqual(self.messages, [])
 
+    def test_briefing_goes_to_the_fast_agent_when_the_flow_names_one(self):
+        fast = "arn:aws:wisdom:eu-west-2:111122223333:ai-agent/assistant/briefing:1"
+        result = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT, "briefingAgentArn": fast})
+        self.assertEqual(result["briefing"], "requested_fast")
+        self.assertEqual(self.messages[0]["aiAgentId"], fast)
+        self.messages.clear()
+        self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
+        self.assertNotIn("aiAgentId", self.messages[0])
+
     def asked(self, *replies):
         """A session where the briefing was requested and the assistant has sent these replies."""
         self.history = [
@@ -386,7 +395,18 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
     def test_flow_passes_the_lambda_the_same_agent_it_pins(self):
         pinned = self.actions["ConnectAssistant"]["Parameters"]["OrchestrationAIAgentConfiguration"]
         passed = self.actions["InjectContext"]["Parameters"]["LambdaInvocationAttributes"]
-        self.assertEqual(passed, {"assistAgentArn": pinned["AgentAssistanceAgentVersionArn"]})
+        self.assertEqual(passed["assistAgentArn"], pinned["AgentAssistanceAgentVersionArn"])
+        self.assertLessEqual(set(passed), {"assistAgentArn", "briefingAgentArn"})
+
+    def test_briefing_prompt_uses_only_what_the_lambda_injects_and_the_format_it_parses(self):
+        prompt = (FOLDER / "prompts" / "agent-briefing-prompt-v1.yaml").read_text()
+        bound = set(re.findall(r"\{\{\$\.Custom\.([A-Za-z]+)\}\}", prompt))
+        self.assertLessEqual(bound, set(assist.build_context({"customerId": SARAH, "ariaSummary": "s"}, "voice")))
+        shape = re.search(r"<message>(.*)</message>", prompt).group(1)
+        self.assertEqual(sorted(assist.briefing_fields(assist.briefing_to_markdown(shape))),
+                         ["first", "guidance", "product"])
+        self.assertIn(shape[:10], shape)
+        self.assertTrue(prompt.startswith("system: |\n") and "\nmessages:\n" in prompt)
 
     def test_screen_pop_shows_the_lines_the_lambda_returns(self):
         pop = json.loads((FOLDER / "flows" / "aria-agent-screen-pop-flow.json").read_text())

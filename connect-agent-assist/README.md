@@ -23,6 +23,8 @@ It is kept **separate from the bot flow**. Nothing in `conversation bot flow` ch
 - [Part C — Update the Agent-Assist AI Agent](#part-c--update-the-agent-assist-ai-agent)
 - [Part D — Create the Agent Assist Flow](#part-d--create-the-agent-assist-flow)
 - [Part E — Point the Handover Flow at It](#part-e--point-the-handover-flow-at-it)
+- [Part G — Brief the Agent on Arrival](#part-g--brief-the-agent-on-arrival-without-typing)
+- [Part H — Make the Briefing Faster](#part-h--make-the-briefing-faster-with-a-dedicated-briefing-agent)
 - [Part F — Test It](#part-f--test-it)
 - [Reference: What the Assistant Is Told](#reference-what-the-assistant-is-told)
 - [Understanding Every Block You Used](#understanding-every-block-you-used)
@@ -466,6 +468,72 @@ The usual handoff summary with the five lines under it, and two controls:
 
 To switch the briefing off without touching a flow, set the Lambda's `BRIEFING_ENABLED` to `false`.
 The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda.
+
+---
+
+## Part H — Make the Briefing Faster with a Dedicated Briefing Agent
+
+**Why it is slow.** Measured on a live contact, the briefing took 22 seconds: 7 for the model to
+read its instructions and choose its look-ups, under 1 for the look-ups, and 14 to write. The
+agent-assist prompt is about 29,000 tokens and runs on a large model, and both model turns pay
+for that.
+
+**The fix.** A second AI agent that only writes the arrival briefing: a prompt of a few hundred
+words, on the fast Haiku model, with a fixed three-line answer. The Lambda sends the opening
+question to that agent instead. The agent in the Connect assistant panel is unchanged.
+
+Expect a few seconds instead of twenty. That figure is an estimate until you test it.
+
+### Step H.1 — Create the briefing prompt
+
+1. Connect admin website → **AI agent designer** → **AI prompts** → **Create AI prompt**.
+2. Type: **Orchestration**. Name: `agent-briefing-prompt`.
+3. Model: **Claude Haiku 4.5** (the newest Haiku in the list).
+4. Replace the whole text with the contents of
+   [prompts/agent-briefing-prompt-v1.yaml](prompts/agent-briefing-prompt-v1.yaml).
+5. **Save**, then **Publish**.
+
+### Step H.2 — Create the briefing agent
+
+1. **AI agent designer** → **AI agents** → **Create AI agent**.
+2. Type: **Orchestration**. Name: `my-agent-briefing-agent`. Locale: English (UK).
+3. Prompt: `agent-briefing-prompt`, the version you just published.
+4. Add these five tools and no others. Fewer tools means less for the model to read:
+
+| Tool | Used for |
+|---|---|
+| `Retrieve` | The related guidance, from your knowledge base |
+| `aria_banking_mortgage___get_mortgage_details` | A mortgage contact |
+| `aria_banking_account___get_account_balance` | An account or payment contact |
+| `aria_banking_debit_card___get_debit_card_details` | A debit card contact |
+| `aria_banking_credit_card___get_credit_card_details` | A credit card contact |
+
+5. **Save**, then **Publish**. On the agent's page, copy its **ARN** and note the **version**.
+
+### Step H.3 — Tell the flow to use it
+
+Open `ARIA agent assist`, click the **AWS Lambda function** block, and add a second parameter:
+
+- **Key:** `briefingAgentArn` (set manually)
+- **Value:** the agent's ARN followed by a colon and the version, for example
+  `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/<agent-id>:1`
+
+**Save**, then **Publish**. Run the deploy script once so the Lambda has the matching code.
+
+### How to check it worked
+
+| Where to look | What you should see |
+|---|---|
+| Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "requested_fast"` on the contact's line. Plain `"requested"` means the parameter was not passed |
+| The screen pop | The three assistant lines filled in a few seconds after the transfer |
+
+**To go back**, delete the `briefingAgentArn` parameter and publish. The agent-assist agent writes
+the briefing again, slowly.
+
+> **Not yet proven on a live contact.** Two things to watch: whether Connect accepts a question
+> addressed to an agent other than the one set on the session, and whether Haiku follows the
+> three-line format. If the three lines stay on "still preparing", say so and I will read the
+> session to see which it was.
 
 ---
 

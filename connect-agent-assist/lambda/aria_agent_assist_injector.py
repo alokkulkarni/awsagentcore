@@ -94,9 +94,11 @@ cannot do that: it shows only answers to questions typed into it, and
 suggestions the agent clicks after the customer has spoken. So the briefing is
 shown in the agent's screen pop, in two steps:
 
-    1. After writing the session data, this Lambda asks the assistant the
-       opening question (SendMessage) and returns at once. The assistant works
-       on it while the customer is in the queue. It needs about twenty seconds.
+    1. After writing the session data, this Lambda asks the opening question
+       (SendMessage) and returns at once. The answer is written while the
+       customer is in the queue. If the flow passes the Lambda parameter
+       "briefingAgentArn", a small, fast AI agent answers. Otherwise the
+       agent-assist agent does, which takes about twenty seconds.
     2. The screen-pop flow calls this Lambda with the parameter
        operation = "get_briefing". It reads the assistant's answer from the
        session and returns five lines for the view: first, verification,
@@ -112,6 +114,8 @@ Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
     BRIEFING_ENABLED     "false" switches the arrival briefing off
+    BRIEFING_AI_AGENT_ARN  The fast briefing AI agent's version ARN, used only
+                         when the flow does not pass "briefingAgentArn"
     CLI_MATCH_LOA        The level ARIA's injector gives a caller recognised by
                          phone number alone. Copied from that Lambda by the
                          deploy script, so the agent is told what ARIA was told
@@ -152,6 +156,7 @@ CLI_MATCH_LOA: int | None = injector._parse_loa(os.environ.get("CLI_MATCH_LOA", 
 # The arrival briefing: the assistant's answer to one opening question, which
 # the agent's screen pop fetches through this Lambda.
 BRIEFING_ENABLED: bool = os.environ.get("BRIEFING_ENABLED", "true").lower() != "false"
+BRIEFING_AI_AGENT_ARN: str = os.environ.get("BRIEFING_AI_AGENT_ARN", "")
 BRIEFING_FIELD_MAX_CHARS = 900
 BRIEFING_PENDING_TEXT = "The assistant is still preparing this. Press Refresh briefing in a few seconds."
 BRIEFING_FAILED_TEXT = "The assistant could not prepare this. Ask it in the Connect assistant panel."
@@ -383,19 +388,26 @@ def _briefing_answer(session_id: str) -> str:
     return max(answers, key=len) if answers else ""
 
 
-def request_arrival_briefing(session_arn: str, contact_id: str) -> bool:
+def request_arrival_briefing(session_arn: str, contact_id: str, briefing_agent: str = "") -> bool:
     """
     Ask the assistant, on the agent's behalf, for a briefing. Called as soon as
     the session has the right agent and data, while the customer is still in the
-    queue, because the assistant needs about twenty seconds to look things up
-    and write. Returns at once; get_briefing collects the answer. Never raises.
+    queue, because the assistant needs time to look things up and write.
+    Returns at once; get_briefing collects the answer. Never raises.
+
+    `briefing_agent` names a small, fast AI agent to answer this one question
+    (see prompts/agent-briefing-prompt-v1.yaml). Without it the session's own
+    agent-assist agent answers, which takes about twenty seconds: its prompt is
+    very long and it runs on a larger model.
     """
     session_id = session_arn.split("/")[-1]
-    try:
-        _call_assistant("send_message", session_id, f"{session_id}/message", {
-            "type": "TEXT", "message": {"value": {"text": {"value": ARRIVAL_BRIEFING_REQUEST}}},
+    body = {"type": "TEXT", "message": {"value": {"text": {"value": ARRIVAL_BRIEFING_REQUEST}}},
             "orchestratorUseCase": AGENT_ASSISTANCE_USE_CASE,
-            "clientToken": f"arrival-briefing-{contact_id}"})   # one briefing per contact
+            "clientToken": f"arrival-briefing-{contact_id}"}   # one briefing per contact
+    if briefing_agent:
+        body["aiAgentId"] = briefing_agent
+    try:
+        _call_assistant("send_message", session_id, f"{session_id}/message", body)
     except Exception:
         logger.exception("Could not request the arrival briefing for session %s. Check the "
                          "wisdom:SendMessage permission on this Lambda's role.", session_id)
@@ -478,7 +490,9 @@ def handler(event: dict, context: Any) -> dict:
         injected = injector._inject_session_data(ASSISTANT_ID, session_arn, data)
         # Only once the session has the right agent and the briefing data.
         if agent_status == "set" and injected and BRIEFING_ENABLED:
-            briefing_status = "requested" if request_arrival_briefing(session_arn, contact_id) else "failed"
+            briefing_agent = parameters.get("briefingAgentArn") or BRIEFING_AI_AGENT_ARN
+            asked = request_arrival_briefing(session_arn, contact_id, briefing_agent)
+            briefing_status = ("requested_fast" if briefing_agent else "requested") if asked else "failed"
     except Exception:
         logger.exception("Agent assist context injection failed for contact %s", contact_id)
         return reply("error_exception")
