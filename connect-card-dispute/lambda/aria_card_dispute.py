@@ -22,6 +22,12 @@ ENVIRONMENT VARIABLES
     PUBLIC_BASE_URL         The HTTP API's address, used to build page links
     MERCHANT_DISPUTE_TOPIC  Topic to route "problem with a payment I made" disputes
                             to. Unset = the card's own topic (debit_card / credit_card)
+    CONNECT_INSTANCE_ID     Connect instance. Needed by the Live Sync route to find
+                            out which customer a contact belongs to
+    ACXD_KEY_SECRET_ID      Secrets Manager secret holding the CX designer door's key.
+                            Unset = that door answers "not configured"
+    TOUCHPOINT_SECRET_ID    Secrets Manager secret holding {"deploymentKey", "apiKey"}
+                            for Live Sync. Unset = the page is a view only
     LOG_LEVEL               Default INFO
 
 LOGGING
@@ -52,6 +58,61 @@ service = DisputeService(_store, time.time, page_url=os.environ.get("PUBLIC_BASE
 
 _TOOLS = ("list_card_transactions", "start_card_dispute", "update_card_dispute", "get_card_dispute",
           "attach_dispute_screen")
+
+_secret_cache: dict[str, tuple[float, str]] = {}
+SECRET_CACHE_SECONDS = 300
+
+
+def _secret(secret_id: str) -> str:
+    """
+    A secret's value, read by this Lambda with its own role at run time and kept
+    for five minutes, so a busy page does not call Secrets Manager every time.
+    Never logged, and never returned except to the one check that needs it.
+    """
+    if not secret_id:
+        return ""
+    kept = _secret_cache.get(secret_id)
+    if kept and kept[0] > time.time():
+        return kept[1]
+    try:
+        import boto3
+        value = boto3.client("secretsmanager").get_secret_value(SecretId=secret_id).get("SecretString", "")
+    except Exception:
+        logger.exception("Could not read a secret. Check the secretsmanager:GetSecretValue permission.")
+        value = ""
+    _secret_cache[secret_id] = (time.time() + SECRET_CACHE_SECONDS, value)
+    return value
+
+
+def _touchpoint_keys() -> dict:
+    try:
+        keys = json.loads(_secret(os.environ.get("TOUCHPOINT_SECRET_ID", "")) or "{}")
+    except ValueError:
+        return {}
+    return keys if isinstance(keys, dict) else {}
+
+
+def _customer_of_contact(contact_id: str) -> str:
+    """The customerId attribute Connect holds for a contact. A flow set it; the agent and the customer cannot."""
+    instance_id = os.environ.get("CONNECT_INSTANCE_ID", "")
+    if not instance_id:
+        return ""
+    try:
+        import boto3
+        attributes = boto3.client("connect").get_contact_attributes(
+            InstanceId=instance_id, InitialContactId=contact_id).get("Attributes", {})
+    except Exception:
+        logger.exception("Could not read the contact. Check the connect:GetContactAttributes permission.")
+        return ""
+    return str(attributes.get("customerId") or "")
+
+
+doors = dispute_web.Doors(
+    acxd_key=lambda: _secret(os.environ.get("ACXD_KEY_SECRET_ID", "")).strip(),
+    touchpoint_keys=_touchpoint_keys,
+    customer_of_contact=_customer_of_contact,
+    region=os.environ.get("AWS_REGION", "eu-west-2"),
+)
 
 # Tool argument (as ARIA sends it) -> field on the record.
 _UPDATE_ARGUMENTS = {
@@ -119,7 +180,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
 
     # 1. Web. Checked first: see the note at the top of this file.
     if isinstance(event.get("requestContext"), dict) and "http" in event["requestContext"]:
-        return dispute_web.handle(event, service)
+        return dispute_web.handle(event, service, doors)
 
     # 2. Internal: the agent-assist Lambda asking for the screen pop. This path
     #    hands out an adviser link, which can confirm and submit, so a TOOL call

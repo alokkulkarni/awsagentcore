@@ -119,34 +119,43 @@ class DisputeService:
             raise DisputeError("no_transactions", "No card transactions found for this customer.", 404)
         return {"transactions": transactions}
 
-    def start_card_dispute(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
-        transaction = model.find_transaction(customer_id, transaction_id)          # rule R5
+    def _transaction_fields(self, customer_id: str, transaction_id: str) -> dict:
+        """The transaction's details from the bank's own record, never from a caller (rule R5)."""
+        transaction = model.find_transaction(customer_id, transaction_id)
         if not transaction:
             raise DisputeError("transaction_not_found", "That transaction is not on this customer's cards. "
                                "Use a transaction_id from list_card_transactions.", 404)
-        fields = model.check_fields({"disputeType": dispute_type})
+        return {"cardType": transaction["card_type"], "cardLastFour": transaction["card_last_four"],
+                "transactionId": transaction["transaction_id"], "transactionDate": transaction["date"],
+                "merchant": transaction["merchant"], "amount": transaction["amount"],
+                "currency": transaction["currency"]}
+
+    def _create(self, customer_id: str, transaction_id: str, who: str, fields: dict) -> dict:
+        """A new draft for one transaction, or the customer's existing draft for it."""
+        details = self._transaction_fields(customer_id, transaction_id)
         index = self.store.get(f"cust#{customer_id}") or {"version": 0, "disputeIds": []}
         for dispute_id in index["disputeIds"]:
             existing = self.store.get(f"dispute#{dispute_id}")
             if existing and existing["status"] == model.DRAFT and existing["transactionId"] == transaction_id:
-                return self._reply(existing)
+                return existing
         dispute_id = "DSP-" + "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
         now = self._now_text()
         dispute = {
             "disputeId": dispute_id, "customerId": customer_id, "status": model.DRAFT, "version": 1,
-            "createdAt": now, "updatedAt": now,
-            "cardType": transaction["card_type"], "cardLastFour": transaction["card_last_four"],
-            "transactionId": transaction["transaction_id"], "transactionDate": transaction["date"],
-            "merchant": transaction["merchant"], "amount": transaction["amount"], "currency": transaction["currency"],
-            "disputeType": fields["disputeType"], "filledBy": {"transaction": "aria", "disputeType": "aria"},
-            "history": [{"at": now, "by": "aria", "action": "started", "fields": ["transaction", "disputeType"]}],
+            "createdAt": now, "updatedAt": now, **details, **fields,
+            "filledBy": {"transaction": who, **{name: who for name in fields}},
+            "history": [{"at": now, "by": who, "action": "started", "fields": ["transaction", *fields]}],
         }
         if not self.store.put(f"dispute#{dispute_id}", dispute, expect=ABSENT):
             raise DisputeError("busy", "Could not create the dispute. Try again.", 409)
         seen = int(index["version"])
         index = {"version": seen + 1, "disputeIds": index["disputeIds"][-19:] + [dispute_id]}
         self.store.put(f"cust#{customer_id}", index, expect=seen if seen else None)
-        return self._reply(dispute)
+        return dispute
+
+    def start_card_dispute(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
+        fields = model.check_fields({"disputeType": dispute_type})
+        return self._reply(self._create(customer_id, transaction_id, "aria", fields))
 
     def update_card_dispute(self, customer_id: str, dispute_id: str, fields: dict) -> dict:
         self._owned(customer_id, dispute_id)
@@ -172,7 +181,7 @@ class DisputeService:
         digits = "".join(ch for ch in str(code) if ch.isdigit())
         waiting = self.store.get(f"code#{digits}") if len(digits) == 6 else None
         screen = self.store.get(waiting["screen"]) if waiting else None
-        if not screen or screen.get("disputeId"):
+        if not screen or screen.get("disputeId") or screen.get("contactId"):
             def count(d: dict) -> list[str]:
                 d["wrongCodes"] = int(d.get("wrongCodes", 0)) + 1
                 return ["wrongCodes"]
@@ -190,6 +199,85 @@ class DisputeService:
             return ["screenAttached"]
         self._change(dispute_id, "aria", "screen_attached", mark)
         return {"attached": True, "dispute_id": dispute_id}
+
+    # ── the Live Sync route: a contact attaches to a page, and the page saves the form ──
+
+    def attach_contact_screen(self, contact_id: str, customer_id: str, code: str) -> dict:
+        """
+        Attach a phone contact to the page showing `code` (SPEC section 15, rule R7).
+        `customer_id` is what Connect says about that contact, looked up by the
+        caller of this method; it never comes from the agent or the customer.
+        Always answers with the same fields, because the CX designer rejects a
+        reply that lacks one.
+        """
+        reply = {"attached": False, "locked": False, "reason": ""}
+        if not contact_id or not customer_id:
+            return {**reply, "reason": "customer_not_identified"}
+        wrong_key = f"wrong#{contact_id}"
+        wrong = self.store.get(wrong_key) or {"count": 0}
+        if int(wrong["count"]) >= MAX_WRONG_CODES:
+            return {**reply, "locked": True, "reason": "too_many_wrong_codes"}
+        digits = "".join(ch for ch in str(code) if ch.isdigit())
+        waiting = self.store.get(f"code#{digits}") if len(digits) == 6 else None
+        if waiting and waiting.get("usedBy") == contact_id:
+            return {**reply, "attached": True}                    # the same call asking again
+        screen = self.store.get(waiting["screen"]) if waiting and waiting.get("screen") else None
+        if not screen or screen.get("disputeId") or screen.get("contactId"):
+            count = int(wrong["count"]) + 1
+            self.store.put(wrong_key, {"count": count, "expiresAt": self.clock() + 24 * 60 * 60})
+            return {**reply, "locked": count >= MAX_WRONG_CODES, "reason": "code_not_recognised"}
+        seen = int(screen["version"])
+        claimed = {**screen, "version": seen + 1, "contactId": contact_id, "customerId": customer_id,
+                   "expiresAt": self.clock() + SCREEN_SECONDS}
+        if not self.store.put(waiting["screen"], claimed, expect=seen):
+            return {**reply, "reason": "code_not_recognised"}
+        self.store.put(f"code#{digits}", {"screen": "", "usedBy": contact_id, "expiresAt": waiting["expiresAt"]})
+        return {**reply, "attached": True}
+
+    def page_save(self, session_id: str, fields: dict) -> dict:
+        """
+        Save the form as it stands on the customer's page (rules R8 to R10). The
+        first save that names a transaction creates the dispute. Empty values
+        are "not answered yet" and are skipped.
+        """
+        key = f"screen#{_hash(session_id)}" if session_id else ""
+        screen = self.store.get(key) if key else None
+        if not screen or not screen.get("contactId"):
+            raise DisputeError("not_attached", "This page is not attached to a call.", 403)       # R8
+        if not isinstance(fields, dict):
+            raise DisputeError("bad_request", "The request was not understood.", 400)
+        answered = {name: value for name, value in fields.items() if value not in ("", None)}
+        transaction_id = answered.pop("transactionId", "")
+        if not isinstance(transaction_id, str):
+            raise ValueError("transactionId must be text")
+        clean = model.check_fields(answered)                                                        # R9
+        customer_id = screen["customerId"]
+
+        dispute = self.store.get(f"dispute#{screen['disputeId']}") if screen.get("disputeId") else None
+        if not dispute:
+            if not transaction_id:
+                return self.screen_status(session_id)             # nothing to keep until a payment is chosen
+            dispute = self._create(customer_id, transaction_id, "page", clean)
+            self.store.put(key, {**screen, "version": int(screen["version"]) + 1, "disputeId": dispute["disputeId"]},
+                           expect=int(screen["version"]))
+        details = self._transaction_fields(customer_id, transaction_id) if transaction_id else {}
+
+        def mutate(d: dict) -> list[str]:
+            if d["status"] != model.DRAFT:                                                          # R8
+                raise DisputeError("with_adviser", "An adviser now has this dispute. They will make any changes.", 409)
+            changed = self._apply(d, clean, "page")                                                 # R10
+            if details and d["transactionId"] != details["transactionId"]:
+                d.update(details)
+                d.setdefault("filledBy", {})["transaction"] = "page"
+                changed.append("transaction")
+                if d.get("customerConfirmation"):
+                    d["customerConfirmation"] = None
+            if not d.get("screenAttached"):
+                d["screenAttached"] = True
+                changed.append("screenAttached")
+            return changed
+        self._change(dispute["disputeId"], "page", "saved", mutate)
+        return self.screen_status(session_id)
 
     # ── the customer page ──────────────────────────────────────────────────────
 
@@ -213,12 +301,23 @@ class DisputeService:
         screen, dispute = self._screen_dispute(session_id)
         if not screen:
             return {"state": "expired"}
+        form = {}
+        if screen.get("contactId"):
+            # The Live Sync route: the page is a form. It needs the contact to bind
+            # Live Sync to, and the customer's own transactions to choose from.
+            form = {"contactId": screen["contactId"],
+                    "transactions": model.card_transactions(screen["customerId"]),
+                    "choices": {"disputeType": model.TYPE_WORDS, "reason": model.REASONS,
+                                "narrativeMaxChars": model.NARRATIVE_MAX_CHARS},
+                    "editable": not dispute or dispute["status"] == model.DRAFT}
         if not dispute:
+            if form:
+                return {"state": "form", "dispute": None, "canConfirm": False, **form}
             return {"state": "waiting", "code": screen["code"],
                     "expiresInSeconds": max(0, int(screen["expiresAt"] - self.clock()))}
         shown = model.view(dispute)
         can_confirm = dispute["status"] == model.WITH_ADVISER and not shown["missing"] and not shown["customerConfirmed"]
-        return {"state": "attached", "dispute": shown, "canConfirm": can_confirm}
+        return {"state": "form" if form else "attached", "dispute": shown, "canConfirm": can_confirm, **form}
 
     def customer_confirm(self, session_id: str) -> dict:
         _, dispute = self._screen_dispute(session_id)

@@ -13,7 +13,7 @@ export const $ = (id) => document.getElementById(id);
 export const show = (id, visible) => { $(id).hidden = !visible; };
 export const text = (id, value) => { $(id).textContent = value; };
 
-const WHO = { aria: 'Assistant', adviser: 'Adviser' };
+const WHO = { aria: 'Assistant', adviser: 'Adviser', page: 'On your screen' };
 const yesNo = (v) => ({ yes: 'Yes', no: 'No' }[v] ?? '');
 const money = (d) => (d.amount ? `£${d.amount}` : '');
 

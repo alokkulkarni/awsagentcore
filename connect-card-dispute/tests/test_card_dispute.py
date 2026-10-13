@@ -282,11 +282,166 @@ def http(method, path, body=None):
             "body": json.dumps(body) if body is not None else None}
 
 
+CONTACT = "0a1b2c3d-1111-2222-3333-444455556666"
+
+
+class LiveSyncRoute(Base):
+    """SPEC Part 3, route 3: a contact attaches to the page, and the page saves the form (rules R7 to R10)."""
+
+    def attached(self, customer=JAMES, contact=CONTACT):
+        session = self.service.create_screen()
+        reply = self.service.attach_contact_screen(contact, customer, session["code"])
+        self.assertEqual(reply, {"attached": True, "locked": False, "reason": ""})
+        return session["sessionId"]
+
+    def test_attaching_a_contact_turns_the_page_into_a_form_with_that_customers_payments(self):
+        status = self.service.screen_status(self.attached())
+        self.assertEqual((status["state"], status["dispute"], status["editable"], status["contactId"]),
+                         ("form", None, True, CONTACT))
+        self.assertEqual({t["card_last_four"] for t in status["transactions"]}, {"4821", "2291"})
+        self.assertIn("unauthorised", status["choices"]["reason"])
+
+    def test_first_save_naming_a_payment_creates_the_dispute_and_later_saves_fill_it(self):
+        session = self.attached()
+        nothing = self.service.page_save(session, {"narrative": "Not me.", "transactionId": ""})
+        self.assertIsNone(nothing["dispute"], "no payment chosen yet: nothing to keep")
+        saved = self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised",
+                                                 "reason": "", "narrative": ""})["dispute"]
+        self.assertEqual((saved["merchant"], saved["status"], saved["filledBy"]["disputeType"]),
+                         ("AMAZON.CO.UK", "draft", "page"))                                    # R10
+        done = self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised",
+                                                "reason": "not_recognised", "cardInPossession": "yes",
+                                                "narrative": "I never ordered this."})
+        self.assertEqual((done["dispute"]["missing"], done["dispute"]["disputeId"]), ([], saved["disputeId"]))
+        self.assertEqual(self.service.screen_pop(JAMES)["disputeId"], saved["disputeId"], "the adviser will see it")
+        self.assertIn("watching the form", self.service.screen_pop(JAMES)["dispute4"])
+
+    def test_a_page_can_only_choose_one_of_that_customers_own_payments(self):         # R5, R7
+        session = self.attached(customer=SARAH)
+        self.refused("transaction_not_found", self.service.page_save, session, {"transactionId": AMAZON})
+
+    def test_a_page_can_never_confirm_or_submit(self):                                # R9
+        session = self.attached()
+        self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised"})
+        for fields in ({"customerConfirmation": "yes"}, {"status": "submitted"}, {"cardBlocked": "definitely"}):
+            with self.assertRaises(ValueError):
+                self.service.page_save(session, fields)
+        self.assertEqual(self.service.screen_status(session)["dispute"]["status"], "draft")
+
+    def test_once_an_adviser_has_it_the_page_is_read_only_and_can_confirm(self):       # R8
+        session = self.attached()
+        self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised",
+                                         "reason": "not_recognised", "cardInPossession": "yes", "narrative": "No."})
+        token = self.service.screen_pop(JAMES)["disputeUrl"].split("#")[1]
+        self.service.adviser_open(token)
+        self.refused("with_adviser", self.service.page_save, session, {"narrative": "changed my mind"})
+        status = self.service.screen_status(session)
+        self.assertEqual((status["editable"], status["canConfirm"]), (False, True))
+        self.service.customer_confirm(session)
+        self.assertEqual(self.service.adviser_submit(token)["dispute"]["status"], "submitted")
+
+    def test_a_page_that_no_contact_attached_cannot_save(self):                        # R8
+        waiting = self.service.create_screen()["sessionId"]
+        self.refused("not_attached", self.service.page_save, waiting, {"transactionId": AMAZON})
+        self.refused("not_attached", self.service.page_save, "made-up", {"transactionId": AMAZON})
+        # A page showing ARIA's dispute (Part 1) is a view, not a form.
+        dispute_id = self.draft()
+        viewer = self.service.create_screen()
+        self.service.attach_dispute_screen(JAMES, dispute_id, viewer["code"])
+        self.refused("not_attached", self.service.page_save, viewer["sessionId"], {"narrative": "x"})
+
+    def test_wrong_codes_lock_that_contact_and_the_same_call_asking_again_is_fine(self):
+        session = self.service.create_screen()
+        for _ in range(4):
+            self.assertEqual(self.service.attach_contact_screen(CONTACT, JAMES, "000000")["reason"], "code_not_recognised")
+        self.assertTrue(self.service.attach_contact_screen(CONTACT, JAMES, "000000")["locked"])
+        self.assertEqual(self.service.attach_contact_screen(CONTACT, JAMES, session["code"]),
+                         {"attached": False, "locked": True, "reason": "too_many_wrong_codes"})
+        other = "9a1b2c3d-1111-2222-3333-444455556666"
+        self.assertTrue(self.service.attach_contact_screen(other, JAMES, session["code"])["attached"])
+        self.assertTrue(self.service.attach_contact_screen(other, JAMES, session["code"])["attached"], "asked twice")
+        third = "7a1b2c3d-1111-2222-3333-444455556666"
+        self.assertFalse(self.service.attach_contact_screen(third, SARAH, session["code"])["attached"], "already taken")
+
+    def test_no_customer_on_the_contact_attaches_nothing(self):                        # R7
+        session = self.service.create_screen()
+        self.assertEqual(self.service.attach_contact_screen(CONTACT, "", session["code"])["reason"],
+                         "customer_not_identified")
+        self.assertEqual(self.service.screen_status(session["sessionId"])["state"], "waiting")
+
+    def test_a_page_attached_to_a_call_cannot_be_taken_over_by_a_tool(self):
+        session = self.service.create_screen()
+        self.service.attach_contact_screen(CONTACT, JAMES, session["code"])
+        self.refused("code_not_recognised", self.service.attach_dispute_screen, JAMES, self.draft(), session["code"])
+
+
 class ThreeWaysIn(Base):
 
     def setUp(self):
         super().setUp()
         entry.service = self.service
+        self.asked_connect = []
+        entry.doors = dispute_web.Doors(
+            acxd_key=lambda: "the-key", touchpoint_keys=lambda: {"deploymentKey": "dk", "apiKey": "ak"},
+            customer_of_contact=lambda contact: self.asked_connect.append(contact) or JAMES, region="eu-west-2")
+
+    def acxd(self, body, key="the-key"):
+        return entry.lambda_handler({**http("POST", "/acxd/ops", body), "headers": {"x-api-key": key}}, None)
+
+    def test_cx_designer_door_needs_the_key_and_offers_one_operation(self):
+        session = json.loads(entry.lambda_handler(http("POST", "/api/screen"), None)["body"])
+        ask = {"operation": "attachToScreen", "contactId": CONTACT, "code": session["code"]}
+        self.assertEqual(self.acxd(ask, key="wrong")["statusCode"], 401)
+        self.assertEqual(self.acxd(ask, key="")["statusCode"], 401)
+        for operation in ("screen_pop", "adviser_submit", "start_card_dispute", "getDispute"):
+            self.assertEqual(self.acxd({**ask, "operation": operation})["statusCode"], 403, operation)
+        self.assertEqual(self.service.screen_status(session["sessionId"])["state"], "waiting", "nothing attached yet")
+        reply = self.acxd(ask)
+        self.assertEqual((reply["statusCode"], json.loads(reply["body"])), (200, {"attached": True, "locked": False, "reason": ""}))
+        entry.doors.acxd_key = lambda: ""
+        self.assertEqual(self.acxd(ask)["statusCode"], 503)
+
+    def test_cx_designer_door_takes_the_customer_from_connect_never_from_the_request(self):      # R7
+        session = json.loads(entry.lambda_handler(http("POST", "/api/screen"), None)["body"])
+        self.acxd({"operation": "attachToScreen", "contactId": CONTACT.upper(), "code": session["code"],
+                   "customerId": SARAH, "customer_id": SARAH})
+        self.assertEqual(self.asked_connect, [CONTACT])
+        status = self.service.screen_status(session["sessionId"])
+        self.assertEqual({t["card_last_four"] for t in status["transactions"]}, {"4821", "2291"}, "James's, not Sarah's")
+
+    def test_cx_designer_door_always_answers_with_every_field(self):
+        for body in ({"operation": "attachToScreen", "contactId": "not-a-contact", "code": "123456"},
+                     {"operation": "attachToScreen", "contactId": CONTACT, "code": "000000"},
+                     {"operation": "attachToScreen", "contactId": CONTACT}):
+            reply = self.acxd(body)
+            self.assertEqual((reply["statusCode"], set(json.loads(reply["body"]))), (200, {"attached", "locked", "reason"}))
+
+    def test_page_can_save_over_http_and_gets_live_sync_settings(self):
+        session = json.loads(entry.lambda_handler(http("POST", "/api/screen"), None)["body"])
+        self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": session["code"]})
+        saved = entry.lambda_handler(http("POST", "/api/screen/save", {
+            "sessionId": session["sessionId"], "fields": {"transactionId": AMAZON, "disputeType": "merchant"}}), None)
+        self.assertEqual(json.loads(saved["body"])["dispute"]["disputeTypeWords"], "Problem with a payment the customer made")
+        refused = entry.lambda_handler(http("POST", "/api/screen/save", {"sessionId": "nope", "fields": {}}), None)
+        self.assertEqual(refused["statusCode"], 403)
+        config = json.loads(entry.lambda_handler(http("GET", "/api/config"), None)["body"])
+        self.assertEqual(config, {"configured": True, "region": "eu-west-2", "deploymentKey": "dk", "apiKey": "ak"})
+        entry.doors.touchpoint_keys = lambda: {}
+        self.assertEqual(json.loads(entry.lambda_handler(http("GET", "/api/config"), None)["body"]),
+                         {"configured": False, "region": "eu-west-2"})
+
+    def test_only_the_customer_page_may_run_the_live_sync_library(self):
+        customer = entry.lambda_handler(http("GET", "/"), None)["headers"]["content-security-policy"]
+        adviser = entry.lambda_handler(http("GET", "/adviser"), None)["headers"]["content-security-policy"]
+        self.assertIn("nlu.acxd.connect.eu-west-2.amazonaws.com", customer)
+        self.assertNotIn("acxd", adviser)
+        self.assertNotIn("unsafe-inline", adviser)
+        for policy in (customer, adviser):
+            self.assertIn("frame-ancestors 'none'", policy)
+            self.assertNotIn("'unsafe-eval'", policy.replace("'wasm-unsafe-eval'", ""))
+        for path in ("/vendor/../aria_card_dispute.js", "/vendor/touchpoint-1.0.1/../../customer.js",
+                     "/vendor/missing.js", "/vendor/a/b/c.js", "/vendor/x.html"):
+            self.assertEqual(entry.lambda_handler(http("GET", path), None)["statusCode"], 404, path)
 
     def tool(self, name, **args):
         return entry.lambda_handler(args, Context(f"aria-banking-dispute___{name}"))
@@ -389,9 +544,11 @@ class ThreeWaysIn(Base):
             pop = entry.lambda_handler({"operation": "screen_pop", "customerId": JAMES}, None)
             entry.lambda_handler(http("POST", "/api/adviser/open", {"token": pop["disputeUrl"].split("#")[1]}), None)
             self.tool("get_card_dispute", customer_id=JAMES, dispute_id="\nINJECTED line")
+            self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": "135790"}, key="GUESSED-KEY")
+            self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": "135790"})
         written = "\n".join(logs.output)
         for private in ("PRIVATE-NARRATIVE", "AMAZON", "89.99", session["code"], session["sessionId"],
-                        pop["disputeUrl"].split("#")[1], "INJECTED"):
+                        pop["disputeUrl"].split("#")[1], "INJECTED", "GUESSED-KEY", "the-key", "135790"):
             self.assertNotIn(private, written)
         self.assertIn(started["dispute_id"], written)
 
