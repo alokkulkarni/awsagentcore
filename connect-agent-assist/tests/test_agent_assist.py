@@ -71,6 +71,13 @@ class Harness(unittest.TestCase):
                 if self.update_error:
                     raise self.update_error
                 self.session_updates.append(kwargs)
+
+            def send_message(_, **kwargs):
+                if self.update_error:
+                    raise self.update_error
+                self.messages.append(kwargs)
+        self.messages = []
+        assist.BRIEFING_DELAY_SECONDS = 0
         injector._get_qconnect = lambda: QConnect()
 
     def invoke(self, attributes, channel="VOICE", parameters=None):
@@ -232,6 +239,21 @@ class NeverBlocksTheCustomer(Harness):
     def test_no_agent_passed_leaves_the_session_alone(self):
         result = self.invoke({"customerId": JAMES})
         self.assertEqual((result["assistAgent"], self.session_updates), ("not_configured", []))
+
+    def test_arrival_briefing_asks_the_assistant_on_the_agents_behalf(self):
+        result = self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})
+        self.assertEqual(result["status"], "briefing_requested")
+        (message,) = self.messages
+        self.assertEqual(message["sessionId"], "assist-session")
+        self.assertEqual(message["orchestratorUseCase"], "Connect.AgentAssistance")
+        self.assertEqual(message["clientToken"], "arrival-briefing-contact-1")
+        self.assertIn("Brief me", message["message"]["value"]["text"]["value"])
+        self.assertEqual((self.injected, self.session_updates), ({}, []), "brief must not re-inject")
+
+    def test_arrival_briefing_failure_is_reported_not_raised(self):
+        self.update_error = RuntimeError("AccessDenied")
+        result = self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})
+        self.assertEqual(result["status"], "briefing_failed")
 
     def test_missing_assistant_session_is_reported_not_raised(self):
         self.session_arn = ""            # ran before the Connect assistant block

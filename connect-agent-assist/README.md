@@ -400,6 +400,40 @@ Lambda: aria-routing-lookup
 
 ---
 
+## Part G — Brief the Agent Automatically on Arrival
+
+Left alone, the assistant speaks only after the customer has said something to the agent, or the
+agent has typed a question. This part makes it brief the agent the moment they accept the contact:
+what to do first, what ARIA did, the product the customer is contacting about, the likely reasons,
+and the related guidance. The agent types nothing.
+
+It works by having the screen-pop flow ask the assistant the first question on the agent's behalf.
+
+1. Run the deploy script again. It updates the Lambda and adds the `wisdom:SendMessage` permission.
+2. Open the flow `ARIA-Agent-Screen-Pop-Flow`. Click the arrow next to **Save** → **Export flow**
+   and keep the file as your way back.
+3. Add an **AWS Lambda function** block:
+   - Function: `aria-agent-assist-injector`
+   - Function input parameter, **Set manually**: key `operation`, value `brief`
+   - Execution mode: **Asynchronous** if the block offers it. Otherwise leave it synchronous with a
+     timeout of **8** seconds; the screen pop then appears about two seconds later.
+4. Connect the flow's **Entry** to this new block.
+5. Connect the new block's **Success** and **Error** branches to the **Check contact attributes**
+   block that used to be first.
+6. **Save**, then **Publish**.
+
+**How to check it worked.** In the log group `/aws/lambda/aria-agent-assist-injector`, look for
+`Arrival briefing requested for contact …` at the time the agent accepted.
+
+> **Not yet proven on a live contact.** The request reaches the assistant and the assistant answers
+> it. Whether the agent's panel displays an answer to a question it did not send itself is the part
+> only your test can show. If the log line is there and the panel stays empty, say so.
+
+The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda. The wait before asking is
+the Lambda's `BRIEFING_DELAY_SECONDS` setting (default 2).
+
+---
+
 ## Part F — Test It
 
 You need two people, or one person with a phone and a browser: a **caller** and an **agent** logged

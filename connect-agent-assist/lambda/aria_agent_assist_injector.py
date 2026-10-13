@@ -86,11 +86,20 @@ WHAT this Lambda injects ({{$.Custom.*}} in the agent-assist prompt)
     knownContactReasons   What the bank already knows may be behind the contact
     channel               "voice" | "chat"
 
+THE ARRIVAL BRIEFING (a second way this Lambda is called)
+--------------------------------------------------------
+The agent's screen-pop flow calls this Lambda with the parameter
+operation = "brief" when the agent accepts the contact. It then asks the
+assistant for a briefing on the agent's behalf (SendMessage), so the agent does
+not have to type anything and does not have to wait for the customer to speak.
+
 ENVIRONMENT VARIABLES
 ---------------------
 Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
+    BRIEFING_DELAY_SECONDS  Seconds to wait before asking for the arrival
+                         briefing, so the agent's panel is open. Default 2
     INSTANCE_ID          Connect instance ID; derived from the event if not set
     ASSIST_AI_AGENT_ARN  Agent-assist AI agent version ARN, used only when the
                          flow does not pass the "assistAgentArn" parameter
@@ -100,6 +109,7 @@ IAM PERMISSIONS REQUIRED
 ------------------------
     connect:DescribeContact      on the Connect instance and its contacts
     wisdom:UpdateSession         on the assistant and its sessions
+    wisdom:SendMessage           on the assistant and its sessions
     wisdom:UpdateSessionData     on the assistant and its sessions
     qconnect:UpdateSessionData   (same resources; the newer action name)
 """
@@ -107,6 +117,7 @@ IAM PERMISSIONS REQUIRED
 import json
 import logging
 import os
+import time
 from typing import Any
 
 import session_injector_qconnect as injector
@@ -118,6 +129,17 @@ ASSISTANT_ID: str = os.environ.get("ASSISTANT_ID", "")
 SESSION_VALUE_MAX_CHARS = injector.SESSION_VALUE_MAX_CHARS
 MAX_REASONS = injector.MAX_CONTACT_REASONS
 ASSIST_AI_AGENT_ARN: str = os.environ.get("ASSIST_AI_AGENT_ARN", "")
+
+BRIEFING_DELAY_SECONDS: float = float(os.environ.get("BRIEFING_DELAY_SECONDS", "2"))
+
+# Sent to the assistant as the agent's first question when they accept a contact.
+ARRIVAL_BRIEFING_REQUEST = (
+    "I have just accepted this contact and nobody has spoken yet. Brief me before I speak. "
+    "Look up the details of the product the customer is contacting us about, and look up our "
+    "guidance for that topic. Then tell me: what to do first; what ARIA already did; how the "
+    "customer was verified and what that allows; the key details of that product; the likely "
+    "reasons for the contact; and the related guidance I can open."
+)
 
 # The use case Connect records for the agent a human agent's panel talks to.
 AGENT_ASSISTANCE_USE_CASE = "Connect.AgentAssistance"
@@ -215,10 +237,10 @@ def build_context(attrs: dict, channel: str) -> dict[str, str]:
     return {key: value[:SESSION_VALUE_MAX_CHARS] for key, value in context.items()}
 
 
-def _update_session_signed(session_id: str, body: dict) -> None:
+def _signed_post(path: str, body: dict) -> None:
     """
-    UpdateSession as a signed HTTPS request, for a Lambda runtime whose bundled
-    SDK is older than the "orchestratorConfigurationList" parameter.
+    A signed HTTPS call to the assistant service, for a Lambda runtime whose
+    bundled SDK is older than the parameter being sent.
     """
     import urllib.request
 
@@ -227,13 +249,24 @@ def _update_session_signed(session_id: str, body: dict) -> None:
     from botocore.awsrequest import AWSRequest
 
     region = injector.AWS_REGION
-    url = f"https://wisdom.{region}.amazonaws.com/assistants/{ASSISTANT_ID}/sessions/{session_id}"
+    url = f"https://wisdom.{region}.amazonaws.com/assistants/{ASSISTANT_ID}/sessions/{path}"
     request = AWSRequest(method="POST", url=url, data=json.dumps(body),
                          headers={"Content-Type": "application/json"})
     SigV4Auth(boto3.Session().get_credentials(), "wisdom", region).add_auth(request)
     with urllib.request.urlopen(urllib.request.Request(
             url, data=request.body.encode(), headers=dict(request.headers), method="POST"), timeout=5):
         pass
+
+
+def _call_assistant(method: str, session_id: str, path: str, body: dict) -> None:
+    """Call the SDK method, falling back to a signed request when the SDK is too old for the body."""
+    try:
+        getattr(injector._get_qconnect(), method)(assistantId=ASSISTANT_ID, sessionId=session_id, **body)
+    except Exception as error:
+        if type(error).__name__ != "ParamValidationError":
+            raise
+        logger.info("The runtime's SDK does not accept this %s request. Using a signed request.", method)
+        _signed_post(path, body)
 
 
 def assign_assist_agent(session_arn: str, agent_arn: str) -> bool:
@@ -247,18 +280,40 @@ def assign_assist_agent(session_arn: str, agent_arn: str) -> bool:
     body = {"orchestratorConfigurationList": [
         {"aiAgentId": agent_arn, "orchestratorUseCase": AGENT_ASSISTANCE_USE_CASE}]}
     try:
-        try:
-            injector._get_qconnect().update_session(assistantId=ASSISTANT_ID, sessionId=session_id, **body)
-        except Exception as error:
-            if type(error).__name__ != "ParamValidationError":
-                raise
-            logger.info("The runtime's SDK does not know orchestratorConfigurationList. Using a signed request.")
-            _update_session_signed(session_id, body)
+        _call_assistant("update_session", session_id, session_id, body)
     except Exception:
         logger.exception("Could not switch session %s to AI agent %s. Check the wisdom:UpdateSession "
                          "permission on this Lambda's role.", session_id, agent_arn)
         return False
     logger.info("Session %s now uses AI agent %s", session_id, agent_arn)
+    return True
+
+
+def request_arrival_briefing(session_arn: str, contact_id: str) -> bool:
+    """
+    Ask the assistant for a briefing on the agent's behalf, the moment the agent
+    accepts the contact.
+
+    Left alone, the assistant only speaks once the customer has said something
+    to the agent, or the agent has typed a question. This sends that first
+    question for them, so the briefing, the product details and the related
+    guidance are on screen before anyone speaks. Never raises.
+    """
+    session_id = session_arn.split("/")[-1]
+    body = {"type": "TEXT", "message": {"value": {"text": {"value": ARRIVAL_BRIEFING_REQUEST}}},
+            "orchestratorUseCase": AGENT_ASSISTANCE_USE_CASE,
+            # The same token for the same contact, so a repeated screen pop
+            # cannot ask twice.
+            "clientToken": f"arrival-briefing-{contact_id}"}
+    try:
+        if BRIEFING_DELAY_SECONDS:
+            time.sleep(BRIEFING_DELAY_SECONDS)   # give the agent's panel time to open
+        _call_assistant("send_message", session_id, f"{session_id}/message", body)
+    except Exception:
+        logger.exception("Could not request the arrival briefing for session %s. Check the "
+                         "wisdom:SendMessage permission on this Lambda's role.", session_id)
+        return False
+    logger.info("Arrival briefing requested for contact %s", contact_id)
     return True
 
 
@@ -273,8 +328,8 @@ def handler(event: dict, context: Any) -> dict:
     instance_id: str = os.environ.get("INSTANCE_ID", "") or contact.get("InstanceARN", "").split("instance/")[-1]
     channel = "chat" if (contact.get("Channel") or "VOICE").upper() in ("CHAT", "TASK") else "voice"
 
-    agent_arn: str = ((event.get("Details") or {}).get("Parameters") or {}).get("assistAgentArn") \
-        or ASSIST_AI_AGENT_ARN
+    parameters: dict = (event.get("Details") or {}).get("Parameters") or {}
+    agent_arn: str = parameters.get("assistAgentArn") or ASSIST_AI_AGENT_ARN
     agent_status = "not_configured"
 
     def reply(status: str, keys: list[str] | None = None) -> dict:
@@ -286,6 +341,19 @@ def handler(event: dict, context: Any) -> dict:
     if not contact_id:
         logger.error("ContactId is missing from the event.")
         return reply("error_missing_contact_id")
+
+    if parameters.get("operation") == "brief":
+        # Called from the agent's screen-pop flow, when the agent accepts.
+        try:
+            session_arn = injector._resolve_wisdom_session_id(instance_id, contact_id)
+            if session_arn == contact_id:
+                logger.error("No assistant session on contact %s. No briefing requested.", contact_id)
+                return reply("error_no_assistant_session")
+            asked = request_arrival_briefing(session_arn, contact_id)
+        except Exception:
+            logger.exception("Arrival briefing failed for contact %s", contact_id)
+            return reply("error_exception")
+        return reply("briefing_requested" if asked else "briefing_failed")
 
     try:
         data = build_context(contact.get("Attributes") or {}, channel)

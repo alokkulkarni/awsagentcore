@@ -169,10 +169,11 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
     {
       "Sid": "SetTheAgentAndWriteContextOnTheSession",
       "Effect": "Allow",
-      "Action": ["wisdom:UpdateSession", "wisdom:UpdateSessionData", "qconnect:UpdateSession", "qconnect:UpdateSessionData"],
+      "Action": ["wisdom:UpdateSession", "wisdom:UpdateSessionData", "wisdom:SendMessage", "qconnect:UpdateSession", "qconnect:UpdateSessionData", "qconnect:SendMessage"],
       "Resource": [
         "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:assistant/${ASSISTANT_ID}",
-        "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*"
+        "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*",
+        "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:message/${ASSISTANT_ID}/*"
       ]
     }
   ]
@@ -209,14 +210,14 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
     step "Updating Lambda configuration..."
     run aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
-        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 8 \
+        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 15 \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 else
     step "Creating new Lambda..."
     run aws lambda create-function --function-name "$FUNCTION_NAME" --region "$REGION" \
         --runtime python3.12 --role "$ROLE_ARN" --handler "$HANDLER_NAME" \
-        --zip-file "fileb://${ZIP_PATH}" --timeout 8 --environment "file://${BUILD_DIR}/env.json" \
+        --zip-file "fileb://${ZIP_PATH}" --timeout 15 --environment "file://${BUILD_DIR}/env.json" \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
 fi
