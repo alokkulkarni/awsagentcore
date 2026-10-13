@@ -8,7 +8,8 @@
 # YOU run this script. It makes changes in your AWS account:
 #   1. DynamoDB table for disputes (created once, then left alone)
 #   2. IAM role for the Lambda: read and write that one table, nothing else
-#   3. Lambda aria-card-dispute (code and settings)
+#   3. Lambda aria-card-dispute (code and settings), and a key in Secrets
+#      Manager that the CX designer agent's tool must present (Live Sync route)
 #   4. HTTP API in front of the Lambda, for the two web pages
 #   5. Gateway target aria-banking-dispute on the existing MCP gateway, with the
 #      five tools, and permission for the gateway to call the Lambda
@@ -29,6 +30,7 @@
 #   --region          REGION  AWS region                  (default: eu-west-2)
 #   --account-id      ID      AWS account ID              (default: 395402194296)
 #   --env             ENV     Gateway environment suffix  (default: prod)
+#   --instance-id     ID      Connect instance ID         (default: f969d4b4-f716-4974-a325-bb7899f2f293)
 #   --merchant-topic  TOPIC   Route "problem with a payment I made" disputes to
 #                             this topic, e.g. fraud_security. Default: the
 #                             card's own topic (debit_card / credit_card)
@@ -42,6 +44,7 @@
 # Requirements:
 #   - AWS CLI v2.27 or later (needs the bedrock-agentcore-control commands)
 #   - python3 (standard library only), zip and curl on PATH
+#   - npm, only for the Live Sync route (it fetches Amazon's Touchpoint library)
 # =============================================================================
 
 set -euo pipefail
@@ -60,6 +63,7 @@ REGION="${AWS_REGION:-eu-west-2}"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
 ENV_NAME="${ARIA_ENV:-prod}"
 MERCHANT_TOPIC=""
+INSTANCE_ID="${INSTANCE_ID:-f969d4b4-f716-4974-a325-bb7899f2f293}"
 DO_GATEWAY=true
 DRY_RUN=false
 
@@ -69,6 +73,9 @@ TABLE_NAME="aria-card-disputes"
 API_NAME="aria-card-dispute-pages"
 TARGET_NAME="aria-banking-dispute"
 HANDLER_NAME="aria_card_dispute.lambda_handler"
+ACXD_KEY_SECRET="aria-card-dispute/acxd-key"        # made by this script
+TOUCHPOINT_SECRET="aria-card-dispute/touchpoint"    # made by you, once you have the keys (README Part J)
+TOUCHPOINT_VERSION="1.0.1"                          # pinned; the version the mortgage page runs
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LAMBDA_DIR="${SCRIPT_DIR}/../lambda"
@@ -80,6 +87,7 @@ while [[ $# -gt 0 ]]; do
         --region)         REGION="$2";         shift 2 ;;
         --account-id)     ACCOUNT_ID="$2";     shift 2 ;;
         --env)            ENV_NAME="$2";       shift 2 ;;
+        --instance-id)    INSTANCE_ID="$2";    shift 2 ;;
         --merchant-topic) MERCHANT_TOPIC="$2"; shift 2 ;;
         --skip-gateway)   DO_GATEWAY=false; shift ;;
         --dry-run)        DRY_RUN=true; shift ;;
@@ -103,6 +111,7 @@ for source in "$LAMBDA_DIR"/*.py; do
     python3 -m py_compile "$source" || die "$(basename "$source") does not compile."
 done
 [[ "$MERCHANT_TOPIC" =~ ^[a-z_]*$ ]] || die "--merchant-topic must be lower-case letters and underscores."
+[[ "$INSTANCE_ID" =~ ^[0-9a-f-]{36}$ ]] || die "--instance-id is not a Connect instance ID."
 
 step "Checking AWS credentials..."
 CALLER_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) \
@@ -136,7 +145,8 @@ echo "  Account   : ${ACCOUNT_ID}"
 echo "  Function  : ${FUNCTION_NAME}"
 echo "  Table     : ${TABLE_NAME}"
 echo "  Gateway   : ${GATEWAY_NAME} $($DO_GATEWAY || echo '(skipped)')"
-echo "  Merchant disputes go to: ${MERCHANT_TOPIC:-the card's own topic}"
+# No apostrophe may appear inside a ${VAR:-default}: bash would read it as opening a quoted string.
+echo "  Merchant disputes go to: ${MERCHANT_TOPIC:-the topic of the card itself}"
 
 # =============================================================================
 # Step 1 — Table
@@ -195,6 +205,21 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Effect": "Allow",
       "Action": ["dynamodb:GetItem", "dynamodb:PutItem"],
       "Resource": "${TABLE_ARN}"
+    },
+    {
+      "Sid": "LiveSyncRouteFindTheCustomerOfAContact",
+      "Effect": "Allow",
+      "Action": "connect:GetContactAttributes",
+      "Resource": "arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}/contact/*"
+    },
+    {
+      "Sid": "LiveSyncRouteReadItsOwnTwoSecrets",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": [
+        "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:${ACXD_KEY_SECRET}-??????",
+        "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:${TOUCHPOINT_SECRET}-??????"
+      ]
     }
   ]
 }
@@ -210,24 +235,70 @@ header "Step 3 — Lambda: ${FUNCTION_NAME}"
 
 mkdir -p "${BUILD_DIR}/package/web"
 cp "$LAMBDA_DIR"/*.py "${BUILD_DIR}/package/"
-cp "$WEB_DIR"/* "${BUILD_DIR}/package/web/"
+cp "$WEB_DIR"/*.html "$WEB_DIR"/*.js "$WEB_DIR"/*.css "${BUILD_DIR}/package/web/"
+
+# The Live Sync route needs Amazon's Touchpoint library on the customer page. It
+# is fetched from npm at a pinned version and served by the Lambda. Without it the
+# page still works as a form the customer fills in by hand.
+if command -v npm >/dev/null 2>&1; then
+    step "Fetching the Touchpoint library ${TOUCHPOINT_VERSION}..."
+    mkdir -p "${BUILD_DIR}/touchpoint" "${BUILD_DIR}/package/web/vendor/touchpoint-${TOUCHPOINT_VERSION}"
+    if (cd "${BUILD_DIR}/touchpoint" && npm init -y >/dev/null 2>&1 \
+            && npm install --no-save --silent "@amazon-connect-touchpoint/web@${TOUCHPOINT_VERSION}" >/dev/null 2>&1); then
+        cp "${BUILD_DIR}/touchpoint/node_modules/@amazon-connect-touchpoint/web/lib/"*.js \
+            "${BUILD_DIR}/package/web/vendor/touchpoint-${TOUCHPOINT_VERSION}/"
+        ok "Touchpoint library added to the package."
+    else
+        warn "Could not fetch the Touchpoint library. Live Sync will be off; everything else works."
+    fi
+else
+    warn "npm not found, so the Touchpoint library was not added. Live Sync will be off; everything else works."
+fi
 (cd "${BUILD_DIR}/package" && zip -qr "$ZIP_PATH" .)
-ok "Package ready: $(cd "${BUILD_DIR}/package" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')"
+ok "Package ready: $(cd "${BUILD_DIR}/package" && find . -type f | wc -l | tr -d ' ') files"
 
 # Writes the Lambda's settings file. PUBLIC_BASE_URL is empty until step 4 knows it.
 write_env() {
-    TABLE_NAME="$TABLE_NAME" PUBLIC_BASE_URL="$1" MERCHANT_TOPIC="$MERCHANT_TOPIC" python3 - > "${BUILD_DIR}/env.json" <<'PY'
+    TABLE_NAME="$TABLE_NAME" PUBLIC_BASE_URL="$1" MERCHANT_TOPIC="$MERCHANT_TOPIC" INSTANCE_ID="$INSTANCE_ID" \
+    ACXD_KEY_SECRET="$ACXD_KEY_SECRET" TOUCHPOINT_SECRET="$TOUCHPOINT_SECRET_IN_USE" \
+        python3 - > "${BUILD_DIR}/env.json" <<'PY'
 import json, os
-variables = {"DISPUTE_TABLE_NAME": os.environ["TABLE_NAME"]}
-for name, key in (("PUBLIC_BASE_URL", "PUBLIC_BASE_URL"), ("MERCHANT_TOPIC", "MERCHANT_DISPUTE_TOPIC")):
+variables = {"DISPUTE_TABLE_NAME": os.environ["TABLE_NAME"], "CONNECT_INSTANCE_ID": os.environ["INSTANCE_ID"],
+             "ACXD_KEY_SECRET_ID": os.environ["ACXD_KEY_SECRET"]}
+for name, key in (("PUBLIC_BASE_URL", "PUBLIC_BASE_URL"), ("MERCHANT_TOPIC", "MERCHANT_DISPUTE_TOPIC"),
+                  ("TOUCHPOINT_SECRET", "TOUCHPOINT_SECRET_ID")):
     if os.environ.get(name):
         variables[key] = os.environ[name]
 print(json.dumps({"Variables": variables}))
 PY
 }
+
+# The key the CX designer agent's tool must present (Live Sync route). Made once,
+# by this script, straight into Secrets Manager. The script never reads it back.
+if aws secretsmanager describe-secret --secret-id "$ACXD_KEY_SECRET" --region "$REGION" >/dev/null 2>&1; then
+    ok "CX designer key already exists: ${ACXD_KEY_SECRET} (kept as it is)"
+else
+    step "Creating the CX designer key..."
+    (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' > "${BUILD_DIR}/acxd-key")
+    run aws secretsmanager create-secret --name "$ACXD_KEY_SECRET" --region "$REGION" \
+        --description "Key the CX designer card-dispute agent presents to aria-card-dispute" \
+        --secret-string "file://${BUILD_DIR}/acxd-key" --query "Name" --output text > /dev/null
+    rm -f "${BUILD_DIR}/acxd-key"
+    ok "CX designer key created: ${ACXD_KEY_SECRET}"
+fi
+
+# The Live Sync keys for the page come from your CX designer application, so only
+# you can create this secret (README Part J). Until it exists the page is a plain form.
+TOUCHPOINT_SECRET_IN_USE=""
+if aws secretsmanager describe-secret --secret-id "$TOUCHPOINT_SECRET" --region "$REGION" >/dev/null 2>&1; then
+    TOUCHPOINT_SECRET_IN_USE="$TOUCHPOINT_SECRET"
+    ok "Live Sync keys found: ${TOUCHPOINT_SECRET}"
+else
+    warn "No Live Sync keys yet (${TOUCHPOINT_SECRET}). The page works as a form; Live Sync stays off until you add them."
+fi
 apply_env() {
     run aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
-        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 10 \
+        --environment "file://${BUILD_DIR}/env.json" --handler "$HANDLER_NAME" --timeout 10 --memory-size 512 \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
 }
@@ -242,7 +313,7 @@ else
     step "Creating new Lambda..."
     run aws lambda create-function --function-name "$FUNCTION_NAME" --region "$REGION" \
         --runtime python3.12 --role "$ROLE_ARN" --handler "$HANDLER_NAME" \
-        --zip-file "fileb://${ZIP_PATH}" --timeout 10 --environment "file://${BUILD_DIR}/env.json" \
+        --zip-file "fileb://${ZIP_PATH}" --timeout 10 --memory-size 512 --environment "file://${BUILD_DIR}/env.json" \
         --query "FunctionName" --output text > /dev/null
     $DRY_RUN || aws lambda wait function-active --function-name "$FUNCTION_NAME" --region "$REGION"
 fi
@@ -405,6 +476,11 @@ cat <<SUMMARY
   Customer page : ${PAGE_URL}/
   Lambda        : ${FUNCTION_NAME}
   Table         : ${TABLE_NAME}
+
+  For the Live Sync route (README Part J):
+    CX designer tool address : ${PAGE_URL}/acxd/ops
+    Its key                  : Secrets Manager secret ${ACXD_KEY_SECRET}
+    Live Sync keys           : ${TOUCHPOINT_SECRET_IN_USE:-not set yet; create secret ${TOUCHPOINT_SECRET} and run this again}
 
 $(printf "${YELLOW}")What is left, in this order (details in connect-card-dispute/README.md):$(printf "${RESET}")
 

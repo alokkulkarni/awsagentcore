@@ -1,0 +1,318 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "CardDisputeAssistant",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 100
+    },
+    "ActionMetadata": {
+      "CardDisputeAssistant": {
+        "position": {
+          "x": 280,
+          "y": 100
+        },
+        "parameters": {
+          "AgentConfiguration": {
+            "ContextVariables": {
+              "entry": {
+                "displayName": "entry",
+                "useDynamic": true
+              },
+              "contactId": {
+                "displayName": "contactId",
+                "useDynamic": true
+              },
+              "firstName": {
+                "displayName": "firstName",
+                "useDynamic": true
+              },
+              "verification": {
+                "displayName": "verification",
+                "useDynamic": true
+              },
+              "handoverSummary": {
+                "displayName": "handoverSummary",
+                "useDynamic": true
+              },
+              "screenCode": {
+                "displayName": "screenCode",
+                "useDynamic": true
+              }
+            }
+          },
+          "IdleChatTimeoutSeconds": {
+            "unit": 60
+          }
+        }
+      },
+      "CheckTopic": {
+        "position": {
+          "x": 560,
+          "y": 20
+        }
+      },
+      "Escalated": {
+        "position": {
+          "x": 840,
+          "y": -60
+        },
+        "parameters": {
+          "Attributes": {
+            "topicCategory": {
+              "useDynamic": true
+            },
+            "escalationReason": {
+              "useDynamic": true
+            },
+            "conversationSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "topicCategory",
+          "escalationReason",
+          "conversationSummary"
+        ]
+      },
+      "EscalatedTopicUnknown": {
+        "position": {
+          "x": 840,
+          "y": 120
+        },
+        "parameters": {
+          "Attributes": {
+            "escalationReason": {
+              "useDynamic": true
+            },
+            "conversationSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "escalationReason",
+          "conversationSummary"
+        ]
+      },
+      "AssistantUnavailable": {
+        "position": {
+          "x": 840,
+          "y": 300
+        },
+        "dynamicParams": []
+      },
+      "ToHumanHandover": {
+        "position": {
+          "x": 1120,
+          "y": 100
+        }
+      },
+      "Disconnect": {
+        "position": {
+          "x": 1400,
+          "y": 100
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "Card dispute Live Sync handover",
+    "description": "Hands a caller from ARIA to the CX designer card dispute assistant, which fills the dispute form on the customer's screen, then to an adviser.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "CardDisputeAssistant",
+      "Type": "ConnectParticipantWithAgenticCX",
+      "Parameters": {
+        "AgentConfiguration": {
+          "WorkspaceId": "55c49fa0-22f3-4dd3-823d-e353f4aee139",
+          "ContextVariables": {
+            "entry": "$.Attributes.entry",
+            "contactId": "$.ContactId",
+            "firstName": "$.Attributes.preferredName",
+            "verification": "$.Attributes.authStatus",
+            "handoverSummary": "$.Attributes.handoverSummary",
+            "screenCode": "$.Attributes.screenCode"
+          },
+          "ApplicationId": "CHOOSE-IN-THE-BLOCK",
+          "Alias": "CHOOSE-IN-THE-BLOCK"
+        },
+        "SpeechRecognitionConfiguration": {
+          "SpeechRecognitionEngine": "AMAZON_AGENTIC_VOICE"
+        },
+        "AudioFillerConfiguration": {
+          "Enabled": true,
+          "AudioType": "TYPING_QUIET_QWERTY",
+          "StartDelayInMilliseconds": 2500,
+          "MinimumPlayDurationInMilliseconds": 3000,
+          "ResponseDeliveryDelayInMilliseconds": 500
+        },
+        "IdleChatTimeoutSeconds": 600
+      },
+      "Transitions": {
+        "NextAction": "AssistantUnavailable",
+        "Conditions": [
+          {
+            "NextAction": "CheckTopic",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Escalation"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "AssistantUnavailable",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "AssistantUnavailable",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "InputTimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckTopic",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.AgenticCX.ContextVariables.topicCategory"
+      },
+      "Transitions": {
+        "NextAction": "EscalatedTopicUnknown",
+        "Conditions": [
+          {
+            "NextAction": "Escalated",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "fraud_security"
+              ]
+            }
+          },
+          {
+            "NextAction": "Escalated",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "debit_card"
+              ]
+            }
+          },
+          {
+            "NextAction": "Escalated",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "credit_card"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "EscalatedTopicUnknown",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Escalated",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "$.AgenticCX.ContextVariables.topicCategory",
+          "customerIntent": "Dispute a card transaction",
+          "escalationReason": "$.AgenticCX.ContextVariables.escalationReason",
+          "conversationSummary": "$.AgenticCX.ContextVariables.summary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToHumanHandover",
+        "Errors": [
+          {
+            "NextAction": "ToHumanHandover",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "EscalatedTopicUnknown",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "fraud_security",
+          "customerIntent": "Dispute a card transaction",
+          "escalationReason": "$.AgenticCX.ContextVariables.escalationReason",
+          "conversationSummary": "$.AgenticCX.ContextVariables.summary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToHumanHandover",
+        "Errors": [
+          {
+            "NextAction": "ToHumanHandover",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "AssistantUnavailable",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "fraud_security",
+          "customerIntent": "Dispute a card transaction",
+          "escalationReason": "card_dispute_assistant_error",
+          "conversationSummary": "Card dispute not drafted. The on-screen assistant was not available."
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToHumanHandover",
+        "Errors": [
+          {
+            "NextAction": "ToHumanHandover",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ToHumanHandover",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

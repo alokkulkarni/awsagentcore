@@ -9,7 +9,7 @@ This guide assumes you have not done this before. Follow the parts in order.
 > **Read [SPEC.md](SPEC.md) section 0 first** if you expected this to work like the mortgage Live
 > Sync page. It looks similar to the customer, but it is built differently, and the spec says why.
 
-> **Nothing here has been tried on a live contact yet.** The code has 40 unit tests. The first real
+> **Nothing here has been tried on a live contact yet.** The code has unit tests only. The first real
 > call is the test of everything else. Each part says what to check.
 
 ## Table of Contents
@@ -24,6 +24,8 @@ This guide assumes you have not done this before. Follow the parts in order.
 - [Part E — Give the agent-assist agents the read-only tool](#part-e--give-the-agent-assist-agents-the-read-only-tool)
 - [Part F — Import the new screen pop](#part-f--import-the-new-screen-pop)
 - [Part G — Test it](#part-g--test-it)
+- [Part H — Route 1: a disputes agent that takes over from ARIA](#part-h--route-1-a-disputes-agent-that-takes-over-from-aria)
+- [Part J — Route 3: the form fills in on the customer's screen (Live Sync)](#part-j--route-3-the-form-fills-in-on-the-customers-screen-live-sync)
 - [Troubleshooting](#troubleshooting)
 - [How to undo it](#how-to-undo-it)
 
@@ -59,7 +61,9 @@ view with a summary and a link, **Open the dispute form**. The link works for 60
 
 | Path | What it is |
 |---|---|
-| [SPEC.md](SPEC.md) | The design, the rules the code enforces, and the known gaps |
+| [SPEC.md](SPEC.md) | The design, the rules the code enforces, and the known gaps. Part 3 covers the two routes in Parts H and J |
+| [acxd/](acxd/) | Everything to paste into the CX designer for the Live Sync route (Part J) |
+| [flows/](flows/) | The hand-over flow for the Live Sync route |
 | [lambda/](lambda/) | The Lambda. `dispute_service.py` holds every rule |
 | [web/](web/) | The customer page and the adviser page |
 | [scripts/deploy_card_dispute.sh](scripts/deploy_card_dispute.sh) | Deploys everything in AWS that this feature needs |
@@ -260,6 +264,214 @@ confirmed these details to me on this contact", then submit.
 | `/aws/lambda/aria-card-dispute` | One line per tool call or page request: the operation, the outcome and the dispute reference. Never the content |
 | `/aws/lambda/aria-agent-assist-injector` | `briefing_read` each time a screen pop opens |
 | `/aws/connect/conversationalbot` | Which blocks each flow ran |
+
+---
+
+## Part H — Route 1: a disputes agent that takes over from ARIA
+
+Parts C and D put the whole dispute procedure inside ARIA. This part moves it into a second AI
+agent, which makes ARIA's prompt shorter and its tool list smaller. Do Parts A to G first and get
+one dispute through on a live call; then switch to this.
+
+**What the customer hears:** no difference. The disputes agent speaks as ARIA, in the same voice,
+and neither agent announces the hand-off. Confirming that on a real call is step H.6.
+
+**Before you start:** your Connect instance must be on the **Connect Customer** tier. If it is not,
+step H.4 fails with a message saying so, and nothing changes.
+
+### H.1 Create the disputes agent's prompt
+
+1. **AI agent designer** → **AI prompts** → **Create AI prompt**. Type **Orchestration**. Name
+   `card-disputes-agent-prompt`. Model: the same as ARIA's (Claude Sonnet 4.5).
+2. Paste the whole of [prompts/disputes-agent-prompt-v1.yaml](prompts/disputes-agent-prompt-v1.yaml).
+3. **Save**, then **Publish**.
+
+### H.2 Create the disputes agent
+
+1. **AI agents** → **Create AI agent**. Type **Orchestration**. Name `card-disputes-agent`.
+   Locale English (UK). Prompt: the version from H.1.
+2. Add these tools, and no others:
+
+| Tool | Why |
+|---|---|
+| The five `aria_banking_dispute___…` tools | To draft the dispute |
+| `aria_banking_debit_card___block_debit_card`, `aria_banking_credit_card___block_credit_card` | To block the card when asked |
+| `Escalate` | To give the conversation back to ARIA when the dispute is drafted |
+| `Complete` | To give it back when the customer changes the subject |
+
+   `Escalate` and `Complete` are required: without them the agent cannot hand the conversation back,
+   and the script in H.4 refuses to attach it.
+3. **Save**, then **Publish**. Copy the agent's **ID**: the last part of its ARN, shown on its page.
+
+### H.3 Give ARIA its shorter dispute section
+
+```bash
+python3 connect-card-dispute/scripts/build_aria_prompt.py --mode agents
+```
+
+Paste the file it writes into `ARIA-Banking-Ochestration-Prompt`, **Save** and **Publish**, as in
+Part D step 2. Then in `my-conversation-agent`:
+
+1. Choose the new prompt version.
+2. **Remove** the five `aria_banking_dispute___…` tools. The disputes agent has them now.
+3. **Save**. Do not publish from the console: the script in H.4 publishes.
+
+### H.4 Attach the disputes agent to ARIA
+
+There is no console screen for this, so it is a script:
+
+```bash
+./connect-card-dispute/scripts/attach_disputes_collaborator.sh --collaborator-agent-id <ID from H.2>
+```
+
+Add `--dry-run` first to see the change. The script reads ARIA as it is, saves a copy in
+`connect-card-dispute/backups/`, adds the disputes agent as a collaborator, and publishes a new
+version of ARIA. It prints the version number.
+
+### H.5 Point the bot flow at the new ARIA version
+
+The script prints these steps with the right number. They are the same three places as Part D
+step 4: both **Connect assistant** blocks and the Lex block's `x-amz-lex:q-in-connect:ai-agent-arn`.
+
+### H.6 Test
+
+Ring ARIA and ask to dispute a card payment. Say you have no screen to hand.
+
+| Check | What you should find |
+|---|---|
+| The voice | The same throughout. No "I'm passing you to…" until the dispute is drafted |
+| The questions | ARIA does not ask twice for something you already said |
+| The end | One line about a colleague, then the transfer. No goodbye, no second greeting |
+| The screen pop | The same **Card dispute** view as before |
+
+If the customer's ID or verification level did not reach the disputes agent, it hands straight back
+without drafting anything and the adviser's summary begins "Card dispute not drafted". Say so if
+that happens: it means the collaborator does not receive ARIA's session values, and the fix is in
+the prompts.
+
+**To undo:** point the bot flow back at the previous ARIA version. To remove the collaborator
+altogether, run the script with `--remove`.
+
+---
+
+## Part J — Route 3: the form fills in on the customer's screen (Live Sync)
+
+When the customer has the card dispute page open and reads its code to ARIA, the call is handed to
+a CX designer assistant that fills the form on their screen as they talk. This is the same
+technology as your mortgage application. It is optional, and it is the largest piece to set up.
+
+**What you need already working:** Parts A to G, and the mortgage Live Sync application, because
+this reuses its workspace and you will recognise every screen.
+
+### J.1 Deploy
+
+```bash
+./connect-card-dispute/scripts/deploy_card_dispute.sh
+```
+
+Run it again even if you ran it before. It now also needs `npm` (it fetches Amazon's Touchpoint
+library for the page), creates a key for the CX designer in Secrets Manager, and prints a new
+section:
+
+```
+For the Live Sync route (README Part J):
+  CX designer tool address : https://…/acxd/ops
+  Its key                  : Secrets Manager secret aria-card-dispute/acxd-key
+```
+
+### J.2 Build the assistant in the CX designer
+
+Follow [acxd/live-sync-node.md](acxd/live-sync-node.md) from top to bottom. It lists every value:
+nine context variables, one Secret, one Data request, a hand-off flow, the main flow's prompt and
+exits. Build, test and deploy the application, and note its **deployment key** and **API key**.
+
+### J.3 Give the page its Live Sync keys
+
+1. AWS console → **Secrets Manager** → **Store a new secret** → **Other type of secret**.
+2. Two key/value rows: `deploymentKey` and `apiKey`, with the values from J.2.
+3. Name it exactly `aria-card-dispute/touchpoint`. Create it.
+4. Run the deploy script once more. It should now say `Live Sync keys found`.
+
+### J.4 Import the hand-over flow
+
+```bash
+python3 connect-card-dispute/flows/build_livesync_handover_flow.py --application-id <id> --alias <alias>
+```
+
+Leave the two options off if you do not know them; you then choose the application in the block.
+
+1. **Routing** → **Flows** → **Create flow** (inbound) → **Import** →
+   `connect-card-dispute/flows/card-dispute-livesync-handover-flow.json`.
+2. Name it `Card dispute Live Sync handover`.
+3. Open the **Agentic CX** block and check it shows your workspace, the `Card dispute` application
+   and its environment, and six context variables.
+4. **Save**, then **Publish**.
+
+### J.5 Give ARIA the hand-over tool
+
+1. `my-conversation-agent` → **Edit** → **Add tool** → **Create new AI Tool**.
+2. Name `StartCardDispute`, exactly. Type **Return to Control**.
+3. Input schema: paste
+   [acxd/connect-ai-agent/StartCardDispute.schema.json](acxd/connect-ai-agent/StartCardDispute.schema.json).
+4. Instructions:
+   ```
+   Use only when the customer wants to dispute a card payment AND has read out the 6-digit code
+   shown on the card dispute page. Pass that code as screenCode, digits only.
+   ```
+5. Example:
+   ```
+   <message>Thank you. I'll fill the form in with you on your screen now.</message>
+   ```
+6. **Save**. ARIA's prompt from Part H step 3 (`--mode agents`) already tells it when to use this.
+7. Publish ARIA. If you use route 1 as well, publish by running the attach script again instead,
+   so the collaborator is kept.
+
+### J.6 Add one branch to the bot flow
+
+In `conversation bot flow`, find the **Check contact attributes** block that tests
+`$.Lex.SessionAttributes.Tool`. It already has a branch for `StartMortgageApplication`.
+
+1. Add a condition: **Equals** `StartCardDispute`.
+2. Add a **Set contact attributes** block, and connect the new branch to it. Three attributes:
+
+| Destination key | Value |
+|---|---|
+| `handoverSummary` | Set dynamically: namespace **Lex**, session attribute `handoverSummary` |
+| `screenCode` | Set dynamically: namespace **Lex**, session attribute `screenCode` |
+| `entry` | Set manually: `phone` |
+
+3. Add a **Transfer to flow** block choosing `Card dispute Live Sync handover`. Connect the Set
+   contact attributes block's Success **and** Error to it, and its own Error to the flow's existing
+   Disconnect.
+4. Point the flow at ARIA's new version (the same three places as before), **Save**, **Publish**.
+
+The mortgage branch next to it is built the same way; copy its shape.
+
+### J.7 Test
+
+| Step | Who | Do | Expect |
+|---|---|---|---|
+| 1 | Customer | Open the customer page | A six-digit code |
+| 2 | Customer | Ring ARIA: "I want to dispute a card payment" | ARIA asks whether the dispute page is open |
+| 3 | Customer | Read the code | "I'll fill the form in with you on your screen now" |
+| 4 | Customer | Watch the page | It changes to a form. "Connected to your call." |
+| 5 | Customer | Say which payment, and that you did not make it | The dropdowns fill in on screen as you speak |
+| 6 | Customer | Type something into "what happened" yourself | It is kept; the assistant carries on |
+| 7 | Customer | Agree when it reads the dispute back | Hand-off to a colleague |
+| 8 | Adviser | Accept | The **Card dispute** screen pop, with the link to the adviser form |
+| 9 | Adviser | Change a field | The customer's page becomes read-only and shows the change |
+
+### If route 3 misbehaves
+
+| What you see | Likely cause |
+|---|---|
+| The page stays on the code | `attachToScreen` did not succeed. In `/aws/lambda/aria-card-dispute`, look for `route=/acxd/ops`: `unauthorised` is a wrong key in the CX designer Secret; `customer_not_identified` means the contact has no `customerId` attribute |
+| The form appears but nothing fills in | Live Sync did not start. The page says so under the form. Check J.3, and that the deploy script said the Touchpoint library was added |
+| It fills the wrong payment | The assistant chose by retailer name. Ask it for the amount or date |
+| The contact drops at the hand-off | The assistant's topic was not one the routing table has. The flow falls back to `fraud_security`; check that row exists |
+
+This route copies the pattern of the mortgage page, which needed many fixes on live calls. Expect
+to find some here too, and tell me what the page and the Lambda log show.
 
 ---
 

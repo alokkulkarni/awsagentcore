@@ -692,6 +692,70 @@ class DisputesCollaborator(unittest.TestCase):
         self.assertNotIn("{{", aria)
 
 
+class LiveSyncConfiguration(unittest.TestCase):
+    """SPEC Part 3, route 3: what is pasted into the CX designer and imported into Connect agrees with the code."""
+
+    def setUp(self):
+        self.node = (FOLDER / "acxd" / "live-sync-node.md").read_text()
+        self.flow = json.loads((FOLDER / "flows" / "card-dispute-livesync-handover-flow.json").read_text())
+        self.blocks = {a["Identifier"]: a for a in self.flow["Actions"]}
+
+    def declared(self, set_by_connect):
+        rows = re.findall(r"^\| `(\w+)` \| String \| (On|Off) \|", self.node, re.M)
+        return {name for name, frontend in rows if (frontend == "On") == set_by_connect}
+
+    def test_flow_passes_only_declared_context_variables_and_at_most_ten(self):
+        passed = self.blocks["CardDisputeAssistant"]["Parameters"]["AgentConfiguration"]["ContextVariables"]
+        self.assertEqual(set(passed), self.declared(set_by_connect=True))
+        self.assertLessEqual(len(passed), 10)
+        self.assertEqual(passed["contactId"], "$.ContactId")
+        self.assertNotIn("customerId", passed, "the service finds the customer from the contact itself (R7)")
+
+    def test_flow_reads_back_only_what_the_assistant_sets(self):
+        read = set(re.findall(r"\$\.AgenticCX\.ContextVariables\.(\w+)", json.dumps(self.flow)))
+        self.assertEqual(read, self.declared(set_by_connect=False))
+        for name in read:
+            self.assertRegex(self.node, rf"\| `{name}` \| `", f"{name} is set on the Escalate node")
+
+    def test_every_way_out_of_the_assistant_reaches_a_person_with_a_topic(self):
+        start = self.blocks["CardDisputeAssistant"]["Transitions"]
+        self.assertEqual(start["Conditions"][0]["NextAction"], "CheckTopic")
+        for name in ("Escalated", "EscalatedTopicUnknown", "AssistantUnavailable"):
+            block = self.blocks[name]
+            self.assertTrue(block["Parameters"]["Attributes"]["topicCategory"])
+            self.assertEqual(block["Transitions"]["NextAction"], "ToHumanHandover")
+        self.assertEqual(self.blocks["EscalatedTopicUnknown"]["Parameters"]["Attributes"]["topicCategory"], "fraud_security")
+        topics = [c["Condition"]["Operands"][0] for c in self.blocks["CheckTopic"]["Transitions"]["Conditions"]]
+        self.assertEqual(topics, ["fraud_security", "debit_card", "credit_card"])
+        self.assertIn("fraud_security, debit_card, credit_card", self.node)
+
+    def test_the_one_data_request_matches_the_door_it_calls(self):
+        sample = json.loads(re.search(r"Request sample \| `(\{.*?\})`", self.node).group(1))
+        self.assertEqual(set(sample), {"operation", "contactId", "code"})
+        self.assertRegex(sample["contactId"], dispute_web.CONTACT_ID)
+        response = json.loads(re.search(r"Response sample \| `(\{.*?\})`", self.node).group(1))
+        self.assertEqual(set(response), set(dispute_web.ACXD_REPLY))
+        self.assertEqual(re.findall(r"\| Data request \| `(\w+)`", self.node), ["attachToScreen"])
+
+    def test_nothing_the_assistant_has_can_confirm_or_submit(self):
+        self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
+        self.assertIn("Never submit, confirm or accept a dispute", self.node)
+        self.assertNotIn("Task complete |", self.node.split("### 3d.")[1].split("Also connect")[0])
+
+    def test_prompt_variables_are_all_declared(self):
+        prompt = self.node.split("### 3a. Agent prompt")[1].split("```")[1]
+        used = set(re.findall(r"\{(\w+)\}", prompt))
+        self.assertLessEqual(used, self.declared(True) | self.declared(False))
+
+    def test_arias_hand_over_tool_and_prompt_agree(self):
+        schema = json.loads((FOLDER / "acxd" / "connect-ai-agent" / "StartCardDispute.schema.json").read_text())
+        self.assertEqual(schema["required"], ["handoverSummary", "screenCode"])
+        self.assertEqual(schema["properties"]["screenCode"]["pattern"], "^\\d{6}$")
+        aria = (FOLDER / "prompts" / "card-disputes-agents-block.txt").read_text()
+        for name in schema["properties"]:
+            self.assertIn(name, aria)
+
+
 class FakeTable:
     """The slice of a DynamoDB table DynamoStore uses, with conditional writes."""
     def __init__(self):

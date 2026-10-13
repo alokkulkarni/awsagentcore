@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "handoverSummary": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "What the customer said about the payment they want to dispute, in one sentence: the retailer, roughly how much, and whether they made the payment. No card numbers."
+    },
+    "screenCode": {
+      "type": "string",
+      "pattern": "^\\d{6}$",
+      "description": "The 6-digit code the customer read from the card dispute page on their screen. Digits only."
+    }
+  },
+  "required": ["handoverSummary", "screenCode"]
+}
