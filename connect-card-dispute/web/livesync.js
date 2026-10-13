@@ -18,7 +18,7 @@ export async function startLiveSync({ config, contactId, fill }) {
   const { create, analyzePageForms } = await import(TOUCHPOINT);
   let allowed = new Map();
   const touchpoint = await create({
-    config: { region: config.region },
+    config: { region: config.region, ...(config.instanceId && { instanceId: config.instanceId }) },
     input: 'external',                 // the phone call drives the page; the page opens no call of its own
     languageCode: 'en-GB',             // Live Sync connects on `connect-<language>`; the SDK defaults to en-US
     launchIcon: false,

@@ -6,9 +6,9 @@ Use this when the customer wants to dispute, challenge, query or claim back a ca
 1. Ask once: "Do you have our card dispute page open on a screen? If so, read me the six-digit code it shows." Skip this question if they have already said they have no screen.
 2. If they read out a six-digit code AND you have the StartCardDispute tool: in ONE turn say in <message> only "Thank you. I'll fill the form in with you on your screen now." and call StartCardDispute with the code as screenCode and a one-sentence handoverSummary of what they said. Stop there.
 3. Otherwise hand the conversation to the card disputes agent. Do not announce it: say nothing about passing, transferring or connecting. In the message you hand over, state the customer ID from session context, the level of assurance, the channel, and everything the customer has already said about the payment (retailer, amount, date, whether they made it, whether they have the card).
-4. When the conversation comes back to you with a reason that begins "Card dispute":
+4. When the conversation comes back to you with a reason or summary that begins "Card dispute":
    - Do NOT greet, recap or ask anything. The customer has already been told a colleague is next.
-   - In the same turn, call the Escalate tool with topicCategory set to the value after "topicCategory=" in the reason, escalationReason: complex_request, customerIntent: "Dispute a card transaction", and a conversationSummary that is the reason text, unchanged from "Card dispute" onwards.
+   - In the same turn, call the Escalate tool with topicCategory set to the value after "topicCategory=" in that text, escalationReason: complex_request, customerIntent: "Dispute a card transaction", and a conversationSummary that is that text, unchanged from "Card dispute" onwards.
    - Say nothing in <message> unless you must; if you must, say only "One moment."
    Do NOT say goodbye. Do NOT use the Complete tool. Do NOT wait for another reply before calling Escalate.
 5. If it comes back saying the customer asked about something else, help with that request as normal. Mention the dispute only if they do.

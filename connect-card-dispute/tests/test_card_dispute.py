@@ -383,7 +383,8 @@ class ThreeWaysIn(Base):
         self.asked_connect = []
         entry.doors = dispute_web.Doors(
             acxd_key=lambda: "the-key", touchpoint_keys=lambda: {"deploymentKey": "dk", "apiKey": "ak"},
-            customer_of_contact=lambda contact: self.asked_connect.append(contact) or JAMES, region="eu-west-2")
+            customer_of_contact=lambda contact: self.asked_connect.append(contact) or JAMES, region="eu-west-2",
+            instance_id="inst-1")
 
     def acxd(self, body, key="the-key"):
         return entry.lambda_handler({**http("POST", "/acxd/ops", body), "headers": {"x-api-key": key}}, None)
@@ -425,15 +426,19 @@ class ThreeWaysIn(Base):
         refused = entry.lambda_handler(http("POST", "/api/screen/save", {"sessionId": "nope", "fields": {}}), None)
         self.assertEqual(refused["statusCode"], 403)
         config = json.loads(entry.lambda_handler(http("GET", "/api/config"), None)["body"])
-        self.assertEqual(config, {"configured": True, "region": "eu-west-2", "deploymentKey": "dk", "apiKey": "ak"})
+        self.assertEqual(config, {"configured": True, "region": "eu-west-2", "instanceId": "inst-1",
+                                  "deploymentKey": "dk", "apiKey": "ak"})
         entry.doors.touchpoint_keys = lambda: {}
         self.assertEqual(json.loads(entry.lambda_handler(http("GET", "/api/config"), None)["body"]),
-                         {"configured": False, "region": "eu-west-2"})
+                         {"configured": False, "region": "eu-west-2", "instanceId": "inst-1"})
 
     def test_only_the_customer_page_may_run_the_live_sync_library(self):
         customer = entry.lambda_handler(http("GET", "/"), None)["headers"]["content-security-policy"]
         adviser = entry.lambda_handler(http("GET", "/adviser"), None)["headers"]["content-security-policy"]
-        self.assertIn("nlu.acxd.connect.eu-west-2.amazonaws.com", customer)
+        for address in ("https://nlu.acxd.connect.eu-west-2.amazonaws.com", "wss://ws.nlu.acxd.connect.eu-west-2.amazonaws.com",
+                        "https://participant.connect.eu-west-2.amazonaws.com", "https://participant.connect.eu-west-2.api.aws",
+                        "wss://*.transport.connect.eu-west-2.amazonaws.com", "https://*.chime.aws", "wss://*.chime.aws"):
+            self.assertIn(address, customer, "same list as the mortgage Live Sync page")
         self.assertNotIn("acxd", adviser)
         self.assertNotIn("unsafe-inline", adviser)
         for policy in (customer, adviser):
@@ -680,6 +685,10 @@ class DisputesCollaborator(unittest.TestCase):
         lines = prompt.split("\n")
         self.assertEqual([l for l in lines[1:lines.index("messages:")] if l and not l.startswith("  ")], [])
         self.assertLessEqual(len(set(re.findall(r"\{\{\$\.Custom\.([A-Za-z]+)\}\}", prompt))), 19)
+        for field in ("topicCategory:", "escalationReason: complex_request", "customerIntent: Dispute a card transaction",
+                      "conversationSummary"):
+            self.assertIn(field, prompt, "Escalate fails if a required field is left out")
+        self.assertIn("do NOT offer or ask again", prompt)
         for needed in ("You are ARIA", "Never greet", "Card dispute <dispute_id> drafted. topicCategory=<handover.topicCategory>.",
                        "Card dispute not drafted.", "Level 2 or above", "{{$.toolConfigurationList}}"):
             self.assertIn(needed, prompt)
@@ -687,7 +696,7 @@ class DisputesCollaborator(unittest.TestCase):
             if tool != "get_card_dispute":
                 self.assertIn(tool, prompt)
         aria = (FOLDER / "prompts" / "card-disputes-agents-block.txt").read_text()
-        for needed in ('begins "Card dispute"', 'after "topicCategory="', "Do NOT greet", "StartCardDispute", "screenCode"):
+        for needed in ('summary that begins "Card dispute"', 'after "topicCategory="', "Do NOT greet", "StartCardDispute", "screenCode"):
             self.assertIn(needed, aria)
         self.assertNotIn("{{", aria)
 

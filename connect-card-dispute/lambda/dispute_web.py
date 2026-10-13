@@ -46,6 +46,7 @@ class Doors:
     touchpoint_keys: Callable[[], dict]             # {"deploymentKey", "apiKey"} for Live Sync, or {}
     customer_of_contact: Callable[[str], str]       # the customerId Connect holds for a contact, or ""
     region: str = "eu-west-2"
+    instance_id: str = ""                           # the Connect instance; not a secret
 
 
 VENDOR_FILE = re.compile(r"^/vendor/([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\.js$")
@@ -68,8 +69,11 @@ def customer_page_headers(region: str) -> dict:
     WebAssembly, its own inline styles, and connections to the CX designer's
     endpoints. Same policy as the mortgage Live Sync page. Nothing else is allowed.
     """
+    # The list is the mortgage page's, unchanged. It was arrived at on live calls; one missing
+    # address and Live Sync fails with nothing but a message in the browser's console.
     connect = (f"https://nlu.acxd.connect.{region}.amazonaws.com wss://ws.nlu.acxd.connect.{region}.amazonaws.com "
-               f"https://participant.connect.{region}.amazonaws.com wss://*.transport.connect.{region}.amazonaws.com")
+               f"https://participant.connect.{region}.amazonaws.com https://participant.connect.{region}.api.aws "
+               f"wss://*.transport.connect.{region}.amazonaws.com https://*.chime.aws wss://*.chime.aws")
     return {**SECURITY_HEADERS,
             "content-security-policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; "
                                        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
@@ -166,7 +170,7 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
         if path == "/api/config":
             keys = doors.touchpoint_keys() or {}
             ready = bool(keys.get("deploymentKey") and keys.get("apiKey"))
-            return _json(200, {"configured": ready, "region": doors.region,
+            return _json(200, {"configured": ready, "region": doors.region, "instanceId": doors.instance_id,
                                **({"deploymentKey": keys["deploymentKey"], "apiKey": keys["apiKey"]} if ready else {})})
         return _response(404, "Not found", "text/plain")
 

@@ -112,6 +112,7 @@ doors = dispute_web.Doors(
     touchpoint_keys=_touchpoint_keys,
     customer_of_contact=_customer_of_contact,
     region=os.environ.get("AWS_REGION", "eu-west-2"),
+    instance_id=os.environ.get("CONNECT_INSTANCE_ID", ""),
 )
 
 # Tool argument (as ARIA sends it) -> field on the record.

@@ -350,8 +350,12 @@ route 1:
   has been passed to anyone.
 - ARIA hands off without announcing it, and when the conversation comes back it does not greet or
   recap. Its next words are the transfer line.
-- Connect produces the speech for a collaborator in the same instance, from the voice the bot flow
-  sets (Amy, generative). That it sounds identical is the first thing to confirm on a live call.
+- A collaborator in the same instance has no voice of its own. Its text goes out through the same
+  Lex bot and the same text-to-speech as ARIA's, so the voice is the same by construction. What
+  could still show a join is the wording on the hand-off turn, which the two prompts control, and
+  a pause while the second agent starts, which is the first thing to time on a live call.
+- The disputes agent hands back by calling Escalate with every field ARIA's own Escalate needs
+  (topic, reason, intent, summary). A reserved tool call with a field missing fails.
 
 Route 3 is a different agent with its own turn-taking, so a join there is expected. Its opening line
 acknowledges what ARIA was told.
