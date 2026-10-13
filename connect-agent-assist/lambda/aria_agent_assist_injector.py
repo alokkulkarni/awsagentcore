@@ -177,6 +177,10 @@ DISPUTE_LINES = 4
 # application. Unset = not available; the screen pop shows a dash.
 LIVESYNC_FUNCTION_NAME: str = os.environ.get("LIVESYNC_FUNCTION_NAME", "")
 APPLICATION_LINES = 6
+# The form is found by the application ID the contact carried, which on the web
+# journey comes from the customer's browser. Nothing ties it to a verified customer.
+APPLICATION_CAUTION = ("**Found by application ID, not by a verified customer:** confirm identity before "
+                       "reading any of it back.")
 _APPLICATION_ID = re.compile(r"MA-[A-Z0-9]{6,12}")
 _APPLICATION_STAGES = {"about_you": "About you", "property_loan": "Property and loan",
                        "dip_result": "Decision in Principle", "product_selection": "Choosing a product",
@@ -589,8 +593,10 @@ def describe_application(application: dict) -> list[str]:
     missing += [words for doc, words in _APPLICATION_DOCUMENTS.items() if doc not in uploaded]
     return [
         f"**{application.get('applicationId', '')}** · {state} · reached **{stage}** · "
-        f"last changed {str(application.get('updatedAt', ''))[:10]}",
-        line("About you", [("", said("fullName")), ("born", said("dateOfBirth")),
+        f"last changed {str(application.get('updatedAt', ''))[:10]} · " + APPLICATION_CAUTION,
+        # The date of birth is not shown: an adviser checks identity by asking for it,
+        # so it must not be on a screen that the caller's own application ID selected.
+        line("About you", [("", said("fullName")), ("date of birth", said("dateOfBirth") and "given"),
                            ("", said("employmentStatus", _EMPLOYMENT)), ("income", said("annualIncome", money=True)),
                            ("monthly commitments", said("commitmentsMonthly", money=True))]),
         line("Property and loan", [("property", said("propertyValue", money=True)), ("deposit", said("deposit", money=True)),

@@ -305,6 +305,13 @@ reference.
 
 - Only a contact that carries `applicationId` shows a form. A customer who rings the main number
   about an application does not carry one, and there is no find-by-customer (section 11).
+- **The form is chosen by the application ID the contact carries, not by who the customer is.** On
+  the web journey that ID comes from the customer's browser, and a saved application records no
+  customer. Someone who started a contact with another application's ID would cause the adviser to
+  be shown that application. The ID is 8 random characters and contact starts are rate-limited,
+  but this is not identity. So the screen pop says the form was found by ID and to confirm
+  identity first, and it never shows the date of birth. Closing the gap properly needs the bank's
+  login to put a customer on the application.
 - The view is read-only, and nothing the adviser does changes the customer's page (finding 2).
 - The assistant panel cannot yet answer questions about the application (M3).
 - "Bring it forward" is the screen pop showing it. Nothing opens the customer's page for the adviser.

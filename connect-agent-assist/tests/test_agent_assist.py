@@ -353,8 +353,12 @@ class NeverBlocksTheCustomer(Harness):
             self.assertEqual(asked, [("mortgage-livesync-api",
                                       {"operation": "getApplication", "payload": {"applicationId": "MA-ABC12345"}})])
             self.assertEqual(lines["hasApplication"], "true")
-            self.assertEqual(lines["app1"], "**MA-ABC12345** · **Not submitted** · reached **Documents** · last changed 2026-10-13")
-            self.assertEqual(lines["app2"], "**About you:** **Priya Shah**, born **1990-03-14**, **employed**, income **£62,000**")
+            self.assertTrue(lines["app1"].startswith(
+                "**MA-ABC12345** · **Not submitted** · reached **Documents** · last changed 2026-10-13 · "))
+            # The contact's application ID picks the form, and on the web it comes from the browser.
+            self.assertIn("not by a verified customer", lines["app1"])
+            self.assertEqual(lines["app2"], "**About you:** **Priya Shah**, date of birth **given**, **employed**, income **£62,000**")
+            self.assertNotIn("1990-03-14", json.dumps(lines), "an adviser verifies by asking for it")
             self.assertEqual(lines["app3"], "**Property and loan:** property **£300,000**, deposit **£60,000**, "
                                             "term **25 years**, **first-time buyer**")
             self.assertEqual(lines["app5"], "**Documents:** **payslips**")
