@@ -210,11 +210,11 @@ AI agent cannot read out a name it never received. The harness never sets `entry
   this, a caller the harness left unverified is re-authenticated by CLI in the main flow.
 - When `idvStatus` is present, inject `loa`, `idvStatus`, `idvMethod`, `cliRelationship`, `riskScore`
   and `reasonCodes` as `{{$.Custom.*}}`.
-- **A direct call recognised by phone number is given the level in `CLI_MATCH_LOA`, default `3`,**
-  with `idvMethod=cli_match`. This makes a direct call to the main flow behave like one that came
-  through the harness: known contact reasons are offered and a payment can be stepped up in the
-  app. Setting `CLI_MATCH_LOA=""` (deploy flag `--cli-match-loa none`) gives a phone match no level:
-  no contact reasons and no payments. An ID&V result from upstream always wins over the phone match.
+- **Opt-in: `CLI_MATCH_LOA`.** By default a direct call recognised by phone number earns no level:
+  it is greeted by name, as before, but gets no contact reasons and cannot start a payment. Setting
+  `CLI_MATCH_LOA=3` (deploy flag `--cli-match-loa 3`) gives such a caller level 3 with
+  `idvMethod=cli_match`, so a direct call behaves like one that came through the harness. An ID&V
+  result from upstream always wins over the phone match. This is for test and demo use only.
 
 ## 8. Security
 
@@ -251,13 +251,14 @@ AI agent cannot read out a name it never received. The harness never sets `entry
 
 Observed while reading the instance. Nothing here was changed.
 
-1. **CLI authenticates on its own, now at level 3.** On a direct call the injector treats a
-   phone-number match as `authStatus=authenticated` and, by default, `loa=3`. The design document
-   says CLI is at most LoA1, because a number can be borrowed, shared or spoofed. This is a
-   deliberate choice so direct calls and harness calls behave alike in this test build. It means
-   anyone calling from a recognised number is offered that customer's contact reasons, including a
-   fraud-related one. A payment still needs the app approval. `CLI_MATCH_LOA=""` restores the
-   stricter behaviour. For production, put a real ID&V flow in front of the main flow instead.
+1. **CLI authenticates on its own.** On a direct call the injector treats a phone-number match as
+   `authStatus=authenticated`, and ARIA reads out the customer's products on that basis. The design
+   document says CLI is at most LoA1, because a number can be borrowed, shared or spoofed. By
+   default this build gives a phone match no level of assurance, so contact reasons and payments
+   stay behind real ID&V. The `CLI_MATCH_LOA` opt-in removes that protection for direct calls: with
+   it set to 3, anyone calling from a recognised number is offered that customer's contact reasons,
+   including a fraud-related one, and can start a payment approval. Use it only for testing. For
+   production, put a real ID&V flow in front of the main flow.
 2. **The main flow invokes the injector's unqualified ARN** (`$LATEST`), while a `prod` alias exists
    at version 6. Deploying new injector code takes effect in the main flow immediately.
 3. **The main flow creates the Q Connect session twice**: once with the orchestration agent

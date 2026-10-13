@@ -21,9 +21,11 @@
 #   --instance-id   ID       Connect instance ID (optional; derived from events if not set)
 #   --memory-table  NAME     DynamoDB table for prior session summaries (optional)
 #   --crm-endpoint  URL      CRM API endpoint (optional; stub data used if not set)
-#   --cli-match-loa LEVEL    Level of assurance for a caller recognised by phone number
-#                            alone, with no ID&V flow. Default 3. Use "none" so a phone
-#                            match earns no level (no contact reasons, no payments)
+#   --cli-match-loa LEVEL    OPT-IN, test and demo only. Level of assurance (0-3) for a
+#                            caller recognised by phone number alone, with no ID&V flow.
+#                            Default: none (a phone match earns no level). 3 makes a
+#                            direct call behave like one that passed ID&V. Caller ID
+#                            can be spoofed, so do not use this in production
 #   --dry-run                Print what would be done without deploying
 #   --help                   Show this help text
 #
@@ -62,7 +64,7 @@ ASSISTANT_ID="${ASSISTANT_ID:-}"
 INSTANCE_ID="${INSTANCE_ID:-}"
 MEMORY_TABLE_NAME="${MEMORY_TABLE_NAME:-}"
 CRM_API_ENDPOINT="${CRM_API_ENDPOINT:-}"
-CLI_MATCH_LOA="${CLI_MATCH_LOA-3}"
+CLI_MATCH_LOA="${CLI_MATCH_LOA:-}"
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -212,6 +214,7 @@ echo "  AWS_REGION      = ${REGION} (injected by Lambda runtime — not set as e
 [[ -n "$MEMORY_TABLE_NAME" ]] && echo "  MEMORY_TABLE    = ${MEMORY_TABLE_NAME}"
 [[ -n "$CRM_API_ENDPOINT"  ]] && echo "  CRM_ENDPOINT    = ${CRM_API_ENDPOINT}"
 echo "  CLI_MATCH_LOA   = ${CLI_MATCH_LOA:-(none — a phone match earns no level)}"
+[[ -n "$CLI_MATCH_LOA" ]] && warn "A caller recognised by phone number alone will be treated as level ${CLI_MATCH_LOA}. Caller ID can be spoofed: test and demo use only."
 
 # =============================================================================
 # Step 3 — Package Lambda

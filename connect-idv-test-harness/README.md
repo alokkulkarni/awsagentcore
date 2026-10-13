@@ -401,15 +401,19 @@ The change is small and only affects contacts that came through an ID&V flow:
   caller the harness verified at level 2 or above, and a fraud-related reason only at level 3. A
   caller recognised by phone number alone gets none.
 
-- **Direct calls behave like harness calls.** If you call the main number directly and your phone
-  number is in the injector's table, the injector treats you as level 3 (`idvMethod = cli_match`).
-  ARIA then offers the known contact reason and can step a payment up in the app, exactly as it
-  does after the harness.
+Calls that go straight to the main flow have no `idvStatus`. By default they behave as before: you
+are recognised by phone number and greeted by name, but you get **no** contact reasons and cannot
+make a payment, because nothing has verified who is holding the phone.
 
-> **This trusts the phone number.** It is convenient for testing, and it is the opposite of the
-> design document's rule that a number is a claim about a line, not proof of a person. To switch it
-> off, redeploy the injector with `--cli-match-loa none`: a direct call is then still recognised
-> and greeted by name, but gets no contact reasons and cannot make a payment.
+**To make a direct call behave like a harness call (testing only).** Redeploy the injector with
+`--cli-match-loa 3`. A caller recognised by phone number is then treated as level 3
+(`idvMethod = cli_match`): ARIA offers the known contact reason and can step a payment up in the
+app, exactly as it does after the harness.
+
+> **This trusts the phone number, and caller ID can be faked.** It is the opposite of the design
+> document's rule that a number is a claim about a line, not proof of a person. Anyone calling from
+> a recognised number would be offered that customer's contact reasons. Use it on a test instance
+> only. To switch it off again, redeploy without the flag.
 
 > **The contact reasons do nothing until ARIA's prompt is updated.** That is a separate manual step:
 > see [ORCHESTRATOR-PROMPT-CHANGES.md](ORCHESTRATOR-PROMPT-CHANGES.md) for the exact text and where

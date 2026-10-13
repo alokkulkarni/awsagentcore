@@ -509,32 +509,40 @@ class SessionInjectorHandoff(unittest.TestCase):
         self.assertEqual((result["customerId"], result["authStatus"]), ("", "unauthenticated"))
         self.assertNotIn("preferredName", self.injected)
 
-    def test_direct_call_recognised_by_phone_is_treated_as_level_3(self):
+    def test_phone_match_earns_no_level_by_default(self):
+        self.assertEqual(injector.CLI_MATCH_LOA, "", "the secure default is no level")
         result = self.invoke({})               # James's real number, no ID&V flow
         self.assertEqual((result["customerId"], result["authStatus"]), (JAMES, "authenticated"))
-        self.assertEqual((self.injected["loa"], self.injected["idvMethod"]), ("3", "cli_match"))
-        self.assertEqual(result["loa"], "3")
+        self.assertNotIn("loa", self.injected)
+        self.assertEqual((result["loa"], result["hasKnownContactReason"]), ("", "false"))
 
-    def test_phone_match_can_be_configured_to_earn_no_level(self):
-        injector.CLI_MATCH_LOA = ""
+    def test_opting_in_treats_a_direct_call_as_the_configured_level(self):
+        injector.CLI_MATCH_LOA = "3"
         try:
             result = self.invoke({})
         finally:
-            injector.CLI_MATCH_LOA = "3"
-        self.assertEqual((result["customerId"], result["authStatus"]), (JAMES, "authenticated"))
-        self.assertNotIn("loa", self.injected)
-        self.assertEqual(result["hasKnownContactReason"], "false")
+            injector.CLI_MATCH_LOA = ""
+        self.assertEqual((self.injected["loa"], self.injected["idvMethod"]), ("3", "cli_match"))
+        self.assertEqual((result["loa"], result["hasKnownContactReason"]), ("3", "true"))
 
     def test_upstream_idv_result_is_never_overridden_by_the_phone_match(self):
-        call = Call(cli="+447765309252")
-        call.full_journey(line_key(JAMES))
-        call.press(NO, *CLAIM[SARAH])          # Sarah on James's phone: email code, level 2
-        call.press(call.spoken_code())
-        result = self.invoke(call.attributes)
+        injector.CLI_MATCH_LOA = "3"           # even when opted in
+        try:
+            call = Call(cli="+447765309252")
+            call.full_journey(line_key(JAMES))
+            call.press(NO, *CLAIM[SARAH])      # Sarah on James's phone: email code, level 2
+            call.press(call.spoken_code())
+            result = self.invoke(call.attributes)
+        finally:
+            injector.CLI_MATCH_LOA = ""
         self.assertEqual((result["customerId"], self.injected["loa"]), (SARAH, "2"))
 
-    def test_unrecognised_number_gets_no_level(self):
-        result = self.invoke({}, cli="+447911000000")
+    def test_unrecognised_number_gets_no_level_even_when_opted_in(self):
+        injector.CLI_MATCH_LOA = "3"
+        try:
+            result = self.invoke({}, cli="+447911000000")
+        finally:
+            injector.CLI_MATCH_LOA = ""
         self.assertEqual((result["customerId"], result["authStatus"]), ("", "unauthenticated"))
         self.assertNotIn("loa", self.injected)
 

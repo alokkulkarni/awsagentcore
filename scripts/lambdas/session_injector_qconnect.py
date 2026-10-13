@@ -75,9 +75,8 @@ Known contact reasons (injected only for a verified caller):
     contactReasons           — JSON list of the same reasons with detail and date
     These are disclosed only when an upstream ID&V flow has set the `LoA`
     contact attribute, and only reasons whose minimum level that LoA meets.
-    A caller recognised by phone number alone, with no ID&V flow, is given the
-    level in CLI_MATCH_LOA (default "3"). Set CLI_MATCH_LOA="" so a phone match
-    earns no level and therefore no contact reasons.
+    A caller recognised by phone number alone receives none, unless CLI_MATCH_LOA
+    is set as an explicit opt-in for test and demo use.
 
 ID&V pass-through (optional — set by an upstream ID&V flow)
 -----------------------------------------------------------
@@ -88,11 +87,11 @@ in contact attributes. When the `idvStatus` attribute is present this Lambda:
       left unverified is never upgraded to "authenticated" by CLI alone
     - injects loa, idvMethod, cliRelationship, riskScore, reasonCodes and
       idvStatus as {{$.Custom.*}} so the AI prompt can see the assurance level
-A contact that never went through an ID&V flow and is recognised by phone number
-is given the level in CLI_MATCH_LOA (default "3") with idvMethod "cli_match", so
-a direct call and a call through the ID&V flow behave the same. Set
-CLI_MATCH_LOA="" to restore the stricter behaviour, where a phone match earns no
-level, no contact reasons and no payments.
+A contact that never went through an ID&V flow behaves as before by default: a
+phone match earns no level, no contact reasons and no payments. Setting
+CLI_MATCH_LOA (for example "3") is an explicit opt-in that gives such a caller
+that level with idvMethod "cli_match", so a direct call and a call through the
+ID&V flow behave the same. Use it for test and demo only.
 
 ENVIRONMENT VARIABLES
 ----------------------
@@ -106,9 +105,10 @@ Optional:
     CRM_API_ENDPOINT   — HTTP endpoint of your CRM API. If unset, stub data is used.
     MEMORY_TABLE_NAME  — DynamoDB table name for prior session summaries. If unset, skipped.
     TRANSCRIPT_TABLE_NAME — DynamoDB table for cross-channel transcripts. Default: aria-transcript-store
-    CLI_MATCH_LOA      — Level of assurance for a caller recognised by phone number
-                         alone on a contact with no upstream ID&V. Default "3".
-                         Set to "" so a phone match earns no level.
+    CLI_MATCH_LOA      — OPT-IN. Level of assurance for a caller recognised by phone
+                         number alone on a contact with no upstream ID&V. Default ""
+                         (no level). "3" makes a direct call behave like one that
+                         passed ID&V. Test and demo use only: caller ID can be spoofed.
 
 IAM PERMISSIONS REQUIRED (on the Lambda execution role)
 ---------------------------------------------------------
@@ -173,12 +173,16 @@ MEMORY_TABLE_NAME: str = os.environ.get("MEMORY_TABLE_NAME", "") # Empty = skip 
 TRANSCRIPT_TABLE_NAME: str = os.environ.get("TRANSCRIPT_TABLE_NAME", "aria-transcript-store")
 
 # Level of assurance given to a caller who is recognised by phone number alone,
-# on a contact that did NOT come through an ID&V flow. "3" makes a direct call
-# behave like one that passed ID&V: known contact reasons are offered and a
-# payment can be stepped up in the app. Set to "" to give a phone match no level
-# at all (no contact reasons, no payments), which is the stricter reading of
-# "a phone number is a claim about a line, not proof about a person".
-CLI_MATCH_LOA: str = os.environ.get("CLI_MATCH_LOA", "3").strip()
+# on a contact that did NOT come through an ID&V flow.
+#
+# Default "": a phone match earns NO level, so no contact reasons are released
+# and no payment can be started. A calling number can be borrowed, shared or
+# spoofed, so it is a claim about a line, not proof about a person.
+#
+# Setting it (for example "3") is an explicit opt-in for test and demo use. It
+# makes a direct call behave like one that passed ID&V. Do not set it where the
+# calling number is not otherwise verified.
+CLI_MATCH_LOA: str = os.environ.get("CLI_MATCH_LOA", "").strip()
 
 # ---------------------------------------------------------------------------
 # AWS clients — eagerly initialised at module load time so the SDK connection
@@ -343,8 +347,8 @@ _STUB_CUSTOMERS: dict[str, dict] = {
 # block) would tip off a fraudster. Reasons are therefore injected ONLY when an
 # upstream ID&V flow has verified the caller and left a level of assurance in
 # the `LoA` contact attribute, and only reasons whose min_loa that level meets.
-# With no ID&V flow, a phone-number match is given the level in CLI_MATCH_LOA
-# (see the handler). Set that to "" and a phone match alone gets none.
+# A caller recognised by phone number alone gets none, unless CLI_MATCH_LOA has
+# been set as an explicit opt-in (see the handler).
 #
 # Stub fields:
 #   type            stable code for rules and reporting
@@ -874,8 +878,8 @@ def handler(event: dict, context: Any) -> dict:
         if resolved:
             customer_id = resolved
             auth_status = "authenticated"
-            # No ID&V flow ran. Treat the phone match as the configured level
-            # and say plainly how it was reached.
+            # No ID&V flow ran. Only if explicitly opted in, treat the phone
+            # match as the configured level, and say plainly how it was reached.
             if CLI_MATCH_LOA:
                 idv_loa = _parse_loa(CLI_MATCH_LOA)
                 idv_vars = {"loa": CLI_MATCH_LOA, "idvStatus": "cli_match",
