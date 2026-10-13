@@ -190,9 +190,13 @@ The adviser's assistant can then tell them what a dispute still needs.
 
 1. **AI agents** → `my-agent-assistant-agent` → **Edit** → **Add tool** →
    `aria_banking_dispute___get_card_dispute`. Add only this one. **Save**, **Publish**, note the
-   version.
-2. Do the same for `my-agent-briefing-agent`.
-3. In the flow `ARIA agent assist`, update the version number in three places: the **Connect
+   version. Its prompt is not changed: the tool's own description tells the assistant when to use it.
+2. **AI prompts** → `agent-briefing-prompt`: paste the updated
+   [agent-briefing-prompt-v1.yaml](../connect-agent-assist/prompts/agent-briefing-prompt-v1.yaml),
+   **Save**, **Publish**. It now reads the dispute itself when the handover is a card dispute.
+3. **AI agents** → `my-agent-briefing-agent` → **Edit**: add the same tool, choose the new prompt
+   version, **Save**, **Publish**, note the version.
+4. In the flow `ARIA agent assist`, update the version number in three places: the **Connect
    assistant** block, and the `assistAgentArn` and `briefingAgentArn` parameters on the **AWS Lambda
    function** block. **Save**, then **Publish**.
 
@@ -237,7 +241,8 @@ for the customer page.
 ### Test 2 — A payment the customer made, without the screen
 
 Ring as James, dispute the Tesco payment, answer "Yes, but I was charged twice." Decline the screen.
-The contact should reach the **Cards** queue, not Fraud. On the adviser page, tick "The customer
+Tesco is on James's debit card, so the contact goes to whichever queue the routing table gives
+`debit_card` (today that row points at the current-account queue), not to Fraud. On the adviser page, tick "The customer
 confirmed these details to me on this contact", then submit.
 
 ### Test 3 — The rules hold

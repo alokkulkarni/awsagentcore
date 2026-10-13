@@ -201,8 +201,13 @@ from `draft` to `with_adviser`.
 | Tool | The MCP gateway's role | The five tools |
 | Internal | The agent-assist Lambda's role | `screen_pop`: summary lines and a new adviser link |
 
-A web request can never be treated as a tool or internal call: the HTTP API always adds its own
-envelope, and the Lambda checks for it first.
+The way in is decided by how a request arrived, never by what it asks for:
+
+- A web request can never be treated as a tool or internal call. The HTTP API always adds its own
+  envelope, and the Lambda checks for it first.
+- A request from the MCP gateway is always a tool call, even if its arguments ask for `screen_pop`.
+  That matters because `screen_pop` hands out an adviser link, which can confirm and submit. If
+  ARIA could reach it by passing an argument, rule R2 would be a suggestion, not a rule.
 
 ## 7. Security
 

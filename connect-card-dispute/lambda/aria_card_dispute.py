@@ -7,9 +7,14 @@ Card transaction disputes: one Lambda, three ways in (SPEC.md section 6).
     Tool      the MCP gateway. ARIA's five tools; get_card_dispute for agent assist.
     Internal  the agent-assist Lambda. Lines and a link for the adviser's screen pop.
 
-Which way a request came in is decided by its shape, and the web check comes
-first: the HTTP API always wraps a request in its own envelope, so nothing sent
-over the internet can pass itself off as a tool call or an internal call.
+Which way a request came in is decided by how it arrived, never by what it
+asks for:
+  - The web check comes first. The HTTP API always wraps a request in its own
+    envelope, so nothing sent over the internet can pass itself off as a tool
+    call or an internal call.
+  - A request the MCP gateway sent is always a tool call, even if its arguments
+    ask for the internal operation. The internal operation hands out an adviser
+    link, and ARIA must never be able to get one.
 
 ENVIRONMENT VARIABLES
 ---------------------
@@ -79,6 +84,16 @@ def _tool_call(event: dict, context: Any) -> tuple[str, dict]:
     return (name.split("___", 1)[1] if "___" in name else name), (arguments if isinstance(arguments, dict) else {})
 
 
+def _is_tool_call(event: dict, context: Any) -> bool:
+    """True for anything the MCP gateway sent: it names the tool in the invocation context, or sends JSON-RPC."""
+    try:
+        if (context.client_context.custom or {}).get("bedrockAgentCoreToolName"):
+            return True
+    except Exception:
+        pass
+    return any(key in event for key in ("jsonrpc", "method", "params", "toolName", "tool_name"))
+
+
 def _run_tool(name: str, args: dict) -> dict:
     def text(key: str) -> str:
         value = args.get(key, "")
@@ -106,8 +121,12 @@ def lambda_handler(event: dict, context: Any) -> dict:
     if isinstance(event.get("requestContext"), dict) and "http" in event["requestContext"]:
         return dispute_web.handle(event, service)
 
-    # 2. Internal: the agent-assist Lambda asking for the screen pop.
-    if event.get("operation") == "screen_pop":
+    # 2. Internal: the agent-assist Lambda asking for the screen pop. This path
+    #    hands out an adviser link, which can confirm and submit, so a TOOL call
+    #    must never reach it: ARIA could otherwise ask for a link by passing
+    #    "operation" as a tool argument. Anything that arrives as a tool call is
+    #    a tool call, whatever its arguments say.
+    if event.get("operation") == "screen_pop" and not _is_tool_call(event, context):
         try:
             reply = service.screen_pop(str(event.get("customerId") or ""))
         except Exception:

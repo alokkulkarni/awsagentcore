@@ -44,7 +44,7 @@
   },
   {
     "name": "get_card_dispute",
-    "description": "Reads a card dispute: its status, what has been filled in, what is still missing and whether the customer has confirmed it. Without dispute_id, returns the customer's latest open dispute. Read only",
+    "description": "Reads a card dispute: its status, what has been filled in, what is still missing and whether the customer has confirmed it. Without dispute_id, returns the customer's latest open dispute. Read only. When a handover summary begins 'Card dispute', call this before advising, and say what is still missing",
     "inputSchema": {
       "type": "object",
       "properties": {

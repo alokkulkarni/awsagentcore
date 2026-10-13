@@ -512,7 +512,7 @@ def card_dispute_lines(customer_id: str) -> dict[str, str]:
     (connect-card-dispute). Always returns the same keys, as text, and never
     raises: a screen pop must open whatever happens here.
     """
-    lines = {"hasDispute": "false", "disputeId": "", "disputeUrl": "",
+    lines = {"hasDispute": "false", "disputeId": BRIEFING_EMPTY_SLOT, "disputeUrl": BRIEFING_EMPTY_SLOT,
              **{f"dispute{number}": BRIEFING_EMPTY_SLOT for number in range(1, DISPUTE_LINES + 1)}}
     if not (DISPUTE_FUNCTION_NAME and customer_id):
         return lines

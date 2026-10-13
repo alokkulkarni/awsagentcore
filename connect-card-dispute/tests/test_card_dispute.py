@@ -323,6 +323,22 @@ class ThreeWaysIn(Base):
             reply = entry.lambda_handler({**http("POST", "/api/screen/status", {"sessionId": "x"}), **disguise}, None)
             self.assertEqual(json.loads(reply["body"]), {"state": "expired"})
 
+    def test_a_tool_call_can_never_reach_the_internal_operation(self):           # R2
+        # The internal operation hands out an adviser link, which can confirm and submit.
+        # ARIA must not be able to get one by passing "operation" as a tool argument.
+        self.draft()
+        ask = {"operation": "screen_pop", "customerId": JAMES, "customer_id": JAMES}
+        for reply in (
+            entry.lambda_handler(dict(ask), Context("aria-banking-dispute___get_card_dispute")),
+            entry.lambda_handler(dict(ask), Context("aria-banking-dispute___screen_pop")),
+            entry.lambda_handler({"jsonrpc": "2.0", "operation": "screen_pop", "customerId": JAMES,
+                                  "params": {"name": "x___screen_pop", "arguments": ask}}, None),
+            entry.lambda_handler({**ask, "toolName": "screen_pop"}, None),
+        ):
+            self.assertNotIn("disputeUrl", reply)
+            self.assertNotIn("hasDispute", reply)
+            self.assertNotIn("adviser#", json.dumps(reply))
+
     def test_internal_screen_pop_call(self):
         self.draft()
         self.assertEqual(entry.lambda_handler({"operation": "screen_pop", "customerId": JAMES}, None)["hasDispute"], "true")
