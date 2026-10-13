@@ -6,7 +6,7 @@ What was added to `agent-assistance-promnpt` to produce
 | | |
 |---|---|
 | Starting point | Version 2, read from the instance on 13 October 2026 (645 lines, system text about 95,700 characters) |
-| Result | 681 lines, 12 custom variables, system text 98,610 characters (the limit is 100,000) |
+| Result | 681 lines, 12 custom variables, system text 98,919 characters (the limit is 100,000) |
 | Status | **Not applied.** Paste it in by following [README Part C](README.md#part-c--update-the-agent-assist-ai-agent) |
 
 The existing prompt is a carefully built one. It has a strict response protocol (an opening
@@ -58,6 +58,7 @@ static instructions.
 | KNOWN REASONS | Offer the top reason as something to check with the customer, not as a fact. Do not raise a sensitive one unless the customer is strongly verified. For a blocked card say "a block on your card", not "fraud" | Mirrors the rules ARIA follows, adapted for staff |
 | VULNERABILITY FLAGS | Tell the agent how to adapt, in plain words, and that it is not to be mentioned to the customer. Do not print the raw flags | Agents may see this; customers must not hear it |
 | LOOK-UPS | Look up the bank's guidance for the topic before suggesting, and offer it. The customer look-ups only read. Use the customer ID from the handover, never one the customer says. Never write that an action was done | The "related documents" part of the request. The assistant has read-only tools. It advises; the agent acts |
+| GUIDANCE IS WRITTEN FOR CUSTOMERS | Never tell the agent the customer should call the bank, visit a branch or speak to an adviser, or give the bank's phone numbers. Say what the agent does next | Seen on a live contact: the knowledge base is written for customers, and the assistant told a mortgage adviser that the customer "needs to speak to a qualified mortgage adviser — call 0161 900 9000" |
 | WRAP-UP | When asked, or when the contact is ending, produce notes covering who, how verified, what ARIA did, what the agent did, what is open | The "summary" part of the request |
 
 ## Things to know

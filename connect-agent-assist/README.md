@@ -230,7 +230,7 @@ inside Connect's size limit. [PROMPT-CHANGES.md](PROMPT-CHANGES.md) explains bot
 protocol is untouched.
 
 > **If Connect says "System length must not exceed 100000 characters":** the prompt has grown past
-> the limit. The file as supplied is 98,610 characters. Check you pasted it once, not twice, and
+> the limit. The file as supplied is 98,919 characters. Check you pasted it once, not twice, and
 > that nothing was added.
 
 > **If Connect says "Number of custom variables may not exceed 20":** this prompt uses 12, so it
@@ -408,46 +408,49 @@ does not speak when a contact arrives, and it does not display an answer to a qu
 else asked. That was tested on a live contact: the assistant wrote a full briefing, and the panel
 showed none of it.
 
-So the arrival briefing goes in the **screen pop**, which is yours to design:
+So the arrival briefing goes in the **screen pop**, which is yours to design. It gains five lines:
 
-1. While the customer waits in the queue, the Lambda asks the assistant for a briefing in the
-   background: what to do first, what ARIA did, how the customer was verified, the details of the
-   product they are contacting about, the likely reasons, and the related guidance.
-2. The assistant looks those up and writes its answer. This takes about twenty seconds.
-3. The Lambda stores the answer on the contact as the attribute `assistBriefing`.
-4. The screen pop has a new **Assistant briefing** button that shows it.
+| Line on the screen pop | Where it comes from | When it is there |
+|---|---|---|
+| **Verification** | The Lambda: how the customer was verified and what that allows | At once |
+| **Likely reasons** | The Lambda: what the bank already knows may be behind the contact | At once |
+| **Do first** | The assistant | About twenty seconds after the transfer |
+| **Product details** | The assistant, from a look-up of the product the contact is about | About twenty seconds after the transfer |
+| **Related guidance** | The assistant, from your knowledge base | About twenty seconds after the transfer |
+
+The assistant's three lines are written in the background while the customer waits in the queue.
 
 ### Steps
 
-1. Run the deploy script again. It updates the Lambda, raises its timeout to 60 seconds and adds
-   three permissions (read the assistant's messages, set a contact attribute, start its own
-   background run).
+1. Run the deploy script again. It updates the Lambda, and copies the `CLI_MATCH_LOA` setting from
+   ARIA's injector so the agent is told the same verification level ARIA was told.
 2. Open `ARIA-Agent-Screen-Pop-Flow`. Click the arrow next to **Save** → **Export flow** and keep
    the file as your way back.
 3. In the same flow, click the arrow next to **Save** → **Import**, and select
    `connect-agent-assist/flows/aria-agent-screen-pop-flow.json`. This replaces the flow's blocks.
-   It also removes the Lambda block an earlier version of this guide asked you to add.
 4. **Save**, then **Publish**.
 
 Nothing changes in `ARIA agent assist`: the Lambda starts the briefing itself.
 
 ### What the agent sees
 
-The usual handoff summary, with two buttons: **Assistant briefing** and **Got it**. Pressing
-**Assistant briefing** opens the briefing. If the agent accepted within about twenty seconds of the
-transfer, the briefing may still be being written; the view says so, and **Refresh** shows it once
-it is ready.
+The usual handoff summary with the five lines under it, and two buttons: **Refresh briefing** and
+**Got it**. If the agent accepted within about twenty seconds of the transfer, the assistant's three
+lines say they are still being prepared; **Refresh briefing** shows them once they are ready.
 
 ### How to check it worked
 
 | Where to look | What you should see |
 |---|---|
 | Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "started"` on the contact's line, then `"status": "briefing_ready"` about twenty seconds later |
-| **Contact search → your contact → Attributes** | `assistBriefing` holding the text |
+| **Contact search → your contact → Attributes** | `assistBriefFirst`, `assistBriefVerification`, `assistBriefReasons`, `assistBriefProduct`, `assistBriefGuidance` |
+| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks; the new flow switches logging on |
 
-> **Two things only your test can show.** Whether **Refresh** picks up an attribute that was set
-> after the screen pop opened, and whether the view lays out the bullet points as a list. If
-> either is wrong, say so; both have a fallback.
+> **Why five separate lines.** An earlier version showed the whole briefing in a second view behind
+> a button. On a live contact, pressing the button closed the screen pop. Each line is now one
+> contact attribute holding one line of plain text, the same way the existing **Summary** line
+> works. If **Refresh briefing** closes the screen pop instead of refreshing it, say so: the flow
+> now logs, so the cause can be read.
 
 To switch the briefing off without touching a flow, set the Lambda's `BRIEFING_ENABLED` to `false`.
 The wording of the question is `ARRIVAL_BRIEFING_REQUEST` in the Lambda.
@@ -491,9 +494,13 @@ to read both back to the customer first, and says the customer must not be asked
 2. Caller: ask to speak to someone.
 3. Agent: accept the contact.
 
-**Expected.** The assistant's first suggestion is to verify the customer's identity, because no
-identity check was recorded for the contact. This is true for every direct call: the main flow does
-not pass a verification level on to the handover (see SPEC section 8).
+**Expected.** It depends on how ARIA's injector treats a recognised phone number:
+
+- **`CLI_MATCH_LOA` is set on `aria-session-injector-qconnect`** (it is `3` on this instance): the
+  assistant says the customer is verified by one check at that level, that account information
+  can be discussed, and that a payment or a change of details needs the agent's own further
+  verification.
+- **It is not set:** the assistant's first suggestion is to verify the customer's identity.
 
 ### Test 4 — Chat
 
@@ -545,7 +552,8 @@ How `verification` is worded:
 |---|---|
 | Level 3 from a real check | Strongly verified. No further identity check needed |
 | Level 2 | Verified by one check. Fine for account information, not for payments |
-| Recognised by phone number only | Not verified. Verify identity before discussing the account |
+| Direct call, recognised by phone number, and ARIA's injector gives that a level (`CLI_MATCH_LOA`) | Verified by one check at that level. Fine for account information; payments and changes need the agent's own further verification |
+| Recognised by phone number only, no level given | Not verified. Verify identity before discussing the account |
 | No ID&V recorded, or level 0 or 1 | Verify identity before discussing the account |
 
 ---

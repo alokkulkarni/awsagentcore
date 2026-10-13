@@ -49,8 +49,8 @@ JAMES, SARAH, DANIEL = "CUST-001", "CUST-002", "CUST-004"
 SESSION = "arn:aws:wisdom:eu-west-2:111122223333:session/assistant/assist-session"
 AGENT = "arn:aws:wisdom:eu-west-2:111122223333:ai-agent/assistant/agent:4"
 # The assistant's answer as the service stores it: HTML with escaped brackets.
-ANSWER = ("&lt;b&gt;What to do first:&lt;/b&gt; Verify James&#39;s identity.&lt;br&gt;&lt;br&gt;"
-          "&lt;b&gt;Key details:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Balance: &lt;b&gt;£210,500&lt;/b&gt;&lt;/li&gt;"
+ANSWER = ("&lt;b&gt;What to do first:&lt;/b&gt; Confirm what James wants to borrow.&lt;br&gt;&lt;br&gt;"
+          "&lt;b&gt;Product details:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Balance: &lt;b&gt;£210,500&lt;/b&gt;&lt;/li&gt;"
           "&lt;li&gt;Rate: &lt;b&gt;4.25% fixed&lt;/b&gt;&lt;/li&gt;&lt;/ul&gt;\n&lt;message_part&gt;\n&lt;text&gt;"
           "&lt;b&gt;Related guidance:&lt;/b&gt; Subject to affordability.&lt;/text&gt;\n&lt;sources&gt;\n"
           "&lt;sourceId&gt;s3://bucket/mortgages.txt&lt;/sourceId&gt;\n&lt;/sources&gt;\n&lt;/message_part&gt; ")
@@ -159,12 +159,21 @@ class VerificationWording(unittest.TestCase):
     def test_one_check_is_not_enough_for_payments(self):
         self.assertIn("not for payments", assist.describe_verification(2, "otp_email"))
 
-    def test_phone_match_is_never_described_as_verified(self):
-        for loa in (3, 2, None):
+    def test_phone_match_is_never_described_as_strongly_verified(self):
+        # Where ARIA's injector is set to give a recognised number a level, the
+        # agent is told that level, how it was reached, and that payments and
+        # changes still need their own check. It is never "strongly verified".
+        for loa in (3, 2):
+            text = assist.describe_verification(loa, "cli_match")
+            self.assertTrue(text.startswith("Verified by one check"))
+            self.assertIn("registered phone number", text)
+            self.assertIn("not for payments", text)
+            self.assertNotIn("Strongly verified", text)
+            self.assertNotIn("No further identity check", text)
+        for loa in (1, None):
             text = assist.describe_verification(loa, "cli_match")
             self.assertIn("Recognised by phone number only", text)
             self.assertIn("Verify identity", text)
-            self.assertNotIn("Strongly verified", text)
 
     def test_unverified_or_unknown_tells_the_agent_to_verify(self):
         for loa, method in ((0, ""), (1, ""), (None, "")):
@@ -256,7 +265,11 @@ class NeverBlocksTheCustomer(Harness):
 
     def test_briefing_starts_only_once_the_session_has_the_assist_agent(self):
         started = self.invoke({"customerId": JAMES}, parameters={"assistAgentArn": AGENT})
-        self.assertEqual((started["briefing"], self.workers), ("started", [("abc", "contact-1", SESSION)]))
+        self.assertEqual(started["briefing"], "started")
+        ((instance, contact, session, known),) = self.workers
+        self.assertEqual((instance, contact, session), ("abc", "contact-1", SESSION))
+        self.assertIn("mobile app", known["reasons"])
+        self.assertTrue(known["verification"])
         self.workers.clear()
         self.assertEqual(self.invoke({"customerId": JAMES})["briefing"], "not_started")   # no agent passed
         self.update_error = RuntimeError("AccessDenied")
@@ -272,17 +285,47 @@ class NeverBlocksTheCustomer(Harness):
             {"messageId": "tool", "participant": "BOT", "timestamp": 7, "value": {"toolUse": {}}},
             {"messageId": "answer", "participant": "BOT", "timestamp": 8, "value": {"text": {"value": ANSWER}}},
         ]
-        result = assist.handler({"operation": "prepare_briefing", "instanceId": "abc",
-                                 "contactId": "contact-1", "sessionArn": SESSION}, None)
+        result = assist.handler({"operation": "prepare_briefing", "instanceId": "abc", "contactId": "contact-1",
+                                 "sessionArn": SESSION,
+                                 "known": {"verification": "Verified by one check.", "reasons": "(1) app"}}, None)
         self.assertEqual(result, {"status": "done"})
         (message,) = self.messages
         self.assertEqual(message["orchestratorUseCase"], "Connect.AgentAssistance")
         self.assertEqual(message["clientToken"], "arrival-briefing-contact-1")
-        pending, final = [a["Attributes"]["assistBriefing"] for a in self.attribute_updates]
-        self.assertIn("preparing", pending)
-        self.assertEqual(final, "**What to do first:** Verify James's identity.\n\n**Key details:**\n"
-                                "- Balance: **£210,500**\n- Rate: **4.25% fixed**\n\n"
-                                "**Related guidance:** Subject to affordability.")
+        pending, final = [a["Attributes"] for a in self.attribute_updates]
+        # What the Lambda already knows is on screen before the assistant answers.
+        self.assertEqual((pending["assistBriefVerification"], pending["assistBriefReasons"]),
+                         ("Verified by one check.", "(1) app"))
+        self.assertIn("still preparing", pending["assistBriefFirst"])
+        self.assertEqual(final["assistBriefFirst"], "Confirm what James wants to borrow.")
+        self.assertEqual(final["assistBriefProduct"], "Balance: £210,500; Rate: 4.25% fixed")
+        self.assertEqual(final["assistBriefGuidance"], "Subject to affordability.")
+        self.assertEqual(final["assistBriefVerification"], "Verified by one check.")
+        for value in final.values():
+            self.assertNotIn("\n", value.replace(final["assistBriefing"], ""))
+
+    def test_real_answer_shapes_are_split_into_fields(self):
+        # The shape the assistant used on a live contact: one bold headline, then labelled bullets.
+        fields = assist.briefing_fields(
+            "**What to do first: check what James wants.**\n"
+            "- **Customer intent:** Speak to an adviser.\n"
+            "- **James's mortgage:** Balance **£210,500**, \"fixed\" rate.\n"
+            "- **Related guidance:** Overpayments up to 10% are fee-free.\n\nJames is on the line now.")
+        self.assertEqual(fields, {"first": "check what James wants.",
+                                  "product": "Balance £210,500, 'fixed' rate.",
+                                  "guidance": "Overpayments up to 10% are fee-free.; James is on the line now."})
+
+    def test_direct_call_is_passed_at_the_level_aria_gave_it(self):
+        # No ID&V flow ran. ARIA's injector recognised the number and told ARIA Level 3.
+        assist.CLI_MATCH_LOA = 3
+        self.invoke({"customerId": JAMES, "authStatus": "authenticated"})
+        told = self.data["verification"]
+        self.assertTrue(told.startswith("Verified by one check"))
+        self.assertIn("Level 3", told)
+        self.assertIn("your own further verification", told)
+        assist.CLI_MATCH_LOA = None
+        self.invoke({"customerId": JAMES, "authStatus": "authenticated"})
+        self.assertIn("No identity check has been recorded", self.data["verification"])
 
     def test_background_run_reports_when_the_assistant_does_not_answer(self):
         assist.BRIEFING_WAIT_SECONDS = 0.01
@@ -290,7 +333,7 @@ class NeverBlocksTheCustomer(Harness):
                          "value": {"text": {"value": "q"}}}]
         assist.handler({"operation": "prepare_briefing", "instanceId": "abc",
                         "contactId": "contact-1", "sessionArn": SESSION}, None)
-        self.assertIn("could not prepare", self.attribute_updates[-1]["Attributes"]["assistBriefing"])
+        self.assertIn("could not prepare", self.attribute_updates[-1]["Attributes"]["assistBriefFirst"])
 
     def test_retired_brief_operation_does_nothing(self):
         self.assertEqual(self.invoke({"customerId": JAMES}, parameters={"operation": "brief"})["status"], "ignored")
@@ -350,13 +393,15 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
         passed = self.actions["InjectContext"]["Parameters"]["LambdaInvocationAttributes"]
         self.assertEqual(passed, {"assistAgentArn": pinned["AgentAssistanceAgentVersionArn"]})
 
-    def test_screen_pop_shows_the_attribute_the_lambda_writes(self):
+    def test_screen_pop_shows_the_attributes_the_lambda_writes(self):
         pop = json.loads((FOLDER / "flows" / "aria-agent-screen-pop-flow.json").read_text())
-        views = {a["Identifier"]: a["Parameters"]["ViewData"] for a in pop["Actions"] if a["Type"] == "ShowView"}
-        self.assertEqual(views["BriefingView"]["Sections"],
-                         [{"TemplateString": f"$.Attributes.{assist.BRIEFING_ATTRIBUTE}"}])
-        for name in ("HandoffView", "MortgageApplicationView"):
-            self.assertIn("Assistant briefing", views[name]["Actions"])
+        for action in pop["Actions"]:
+            if action["Type"] != "ShowView":
+                continue
+            shown = {item["Value"] for section in action["Parameters"]["ViewData"]["Sections"]
+                     for item in section.get("Items", [])}
+            for attribute in assist.BRIEFING_FIELDS.values():
+                self.assertIn(f"$.Attributes.{attribute}", shown, action["Identifier"])
 
     def test_prompt_system_text_fits_the_connect_limit(self):
         # Connect rejects a prompt whose system text is over 100,000 characters.

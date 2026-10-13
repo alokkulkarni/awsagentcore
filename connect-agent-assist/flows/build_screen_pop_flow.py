@@ -3,13 +3,16 @@
 build_screen_pop_flow.py
 ========================
 Generates flows/aria-agent-screen-pop-flow.json: the agent's screen pop, with
-one addition to the flow that is live today, an "Assistant briefing" button.
+the assistant's arrival briefing added to the flow that is live today.
 
 The two views the live flow already shows (the ARIA handoff summary, and the
-mortgage application view) are reproduced unchanged apart from that button.
-Pressing it opens a third view that shows the contact attribute
-"assistBriefing", which aria-agent-assist-injector fills in with the
-assistant's briefing. "Refresh" on that view re-reads the attribute, for the
+mortgage application view) keep everything they had. Each gains five lines,
+read from contact attributes that aria-agent-assist-injector fills in: what to
+do first, the verification position, the likely reasons, the product details
+and the related guidance. Each attribute holds one line of plain text, the same
+way the existing "Summary" line works.
+
+"Refresh briefing" shows the view again, which re-reads the attributes, for the
 case where the agent accepted before the assistant had finished writing.
 
 This script only writes a local file. It never calls AWS.
@@ -22,22 +25,34 @@ import json
 from pathlib import Path
 
 FLOW_NAME = "ARIA-Agent-Screen-Pop-Flow"
-FLOW_DESCRIPTION = "Agent screen pop: ARIA handoff summary, with the assistant's briefing one click away."
+FLOW_DESCRIPTION = "Agent screen pop: ARIA handoff summary and the assistant's arrival briefing."
 DETAIL_VIEW = "arn:aws:connect:eu-west-2:aws:view/detail:1"   # AWS-managed "Detail" view
-BRIEFING_ACTION, REFRESH_ACTION, DONE_ACTION = "Assistant briefing", "Refresh", "Got it"
+REFRESH_ACTION, DONE_ACTION = "Refresh briefing", "Got it"
+
+# Label on screen -> contact attribute written by aria-agent-assist-injector.
+BRIEFING_ITEMS = [
+    ("Do first", "assistBriefFirst"),
+    ("Verification", "assistBriefVerification"),
+    ("Likely reasons", "assistBriefReasons"),
+    ("Product details", "assistBriefProduct"),
+    ("Related guidance", "assistBriefGuidance"),
+]
 
 
 def build() -> dict:
-    def view(identifier: str, view_data: dict, then: str) -> dict:
+    briefing = {"Items": [{"Label": label, "Value": f"$.Attributes.{attribute}"}
+                          for label, attribute in BRIEFING_ITEMS]}
+
+    def view(identifier: str, view_data: dict) -> dict:
         return {
             "Identifier": identifier,
             "Type": "ShowView",
             "Parameters": {"ViewResource": {"Id": DETAIL_VIEW}, "InvocationTimeLimitSeconds": "600",
-                           "ViewData": view_data},
+                           "ViewData": {**view_data, "Actions": [REFRESH_ACTION, DONE_ACTION]}},
             "Transitions": {
                 "NextAction": "End",
                 "Conditions": [
-                    {"NextAction": then, "Condition": {"Operator": "Equals", "Operands": ["ActionSelected"]}},
+                    {"NextAction": "CheckButton", "Condition": {"Operator": "Equals", "Operands": ["ActionSelected"]}},
                     {"NextAction": "End", "Condition": {"Operator": "Equals", "Operands": ["Back"]}},
                 ],
                 "Errors": [{"NextAction": "End", "ErrorType": error}
@@ -58,17 +73,25 @@ def build() -> dict:
         }
 
     laid_out = [
+        ({
+            "Identifier": "EnableLogging",
+            "Type": "UpdateFlowLoggingBehavior",
+            "Parameters": {"FlowLoggingBehavior": "Enabled"},
+            "Transitions": {"NextAction": "CheckTopic"},
+        }, 200, 200),
         (choose("CheckTopic", "$.Attributes.topicCategory", "mortgage_application",
-                "MortgageApplicationView", "HandoffView"), 200, 200),
+                "MortgageApplicationView", "HandoffView"), 440, 200),
         (view("HandoffView", {
             "Heading": "ARIA Handoff Summary",
-            "Sections": [{"Items": [
-                {"Label": "Customer Intent", "Value": "$.Attributes.ariaCustomerIntent"},
-                {"Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason"},
-                {"Label": "Summary", "Value": "$.Attributes.ariaSummary"},
-            ]}],
-            "Actions": [BRIEFING_ACTION, DONE_ACTION],
-        }, "CheckButton"), 460, 320),
+            "Sections": [
+                {"Items": [
+                    {"Label": "Customer Intent", "Value": "$.Attributes.ariaCustomerIntent"},
+                    {"Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason"},
+                    {"Label": "Summary", "Value": "$.Attributes.ariaSummary"},
+                ]},
+                briefing,
+            ],
+        }), 700, 320),
         (view("MortgageApplicationView", {
             "Heading": "Mortgage application",
             "AttributeBar": [
@@ -82,23 +105,17 @@ def build() -> dict:
                 {"TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"},
                 {"TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"},
                 {"TemplateString": "$.Attributes.ariaSummary"},
+                briefing,
             ],
-            "Actions": [BRIEFING_ACTION, DONE_ACTION],
-        }, "CheckButton"), 460, 60),
-        (choose("CheckButton", "$.Views.Action", BRIEFING_ACTION, "BriefingView", "End"), 720, 200),
-        (view("BriefingView", {
-            "Heading": "Assistant briefing",
-            "Sections": [{"TemplateString": "$.Attributes.assistBriefing"}],
-            "Actions": [REFRESH_ACTION, DONE_ACTION],
-        }, "CheckBriefingButton"), 980, 200),
-        # "Refresh" shows the same view again, which re-reads the attribute.
-        (choose("CheckBriefingButton", "$.Views.Action", REFRESH_ACTION, "BriefingView", "End"), 1240, 200),
-        ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 1500, 200),
+        }), 700, 60),
+        # "Refresh briefing" shows the same view again, which re-reads the attributes.
+        (choose("CheckButton", "$.Views.Action", REFRESH_ACTION, "CheckTopic", "End"), 960, 200),
+        ({"Identifier": "End", "Type": "EndFlowExecution", "Parameters": {}, "Transitions": {}}, 1220, 200),
     ]
 
     return {
         "Version": "2019-10-30",
-        "StartAction": "CheckTopic",
+        "StartAction": "EnableLogging",
         "Metadata": {
             "entryPointPosition": {"x": 40, "y": 200},
             "ActionMetadata": {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out},

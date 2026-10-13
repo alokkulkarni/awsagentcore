@@ -63,6 +63,7 @@ DEFAULT_ACCOUNT_ID="395402194296"
 DEFAULT_INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
 DEFAULT_ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"
 DEFAULT_FUNCTION_NAME="aria-agent-assist-injector"
+ARIA_INJECTOR_FUNCTION="aria-session-injector-qconnect"
 DEFAULT_ROLE_NAME="aria-lambda-agent-assist-injector-role"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -211,9 +212,20 @@ ok "Package ready: $(cd "$BUILD_DIR" && ls ./*.py | tr '\n' ' ')"
 # =============================================================================
 header "Step 3 — Deploying Lambda: ${FUNCTION_NAME}"
 
-ASSISTANT_ID="$ASSISTANT_ID" INSTANCE_ID="$INSTANCE_ID" python3 - > "${BUILD_DIR}/env.json" <<'PY'
+# ARIA's injector can be set to treat a caller recognised by phone number as a
+# given level. Copy that setting, so the agent is told what ARIA was told.
+CLI_MATCH_LOA="$(aws lambda get-function-configuration --function-name "$ARIA_INJECTOR_FUNCTION" \
+    --region "$REGION" --query "Environment.Variables.CLI_MATCH_LOA" --output text 2>/dev/null || true)"
+[[ "$CLI_MATCH_LOA" == "None" ]] && CLI_MATCH_LOA=""
+ok "Level ARIA gives a caller recognised by phone number: ${CLI_MATCH_LOA:-not set}"
+
+ASSISTANT_ID="$ASSISTANT_ID" INSTANCE_ID="$INSTANCE_ID" CLI_MATCH_LOA="$CLI_MATCH_LOA" \
+    python3 - > "${BUILD_DIR}/env.json" <<'PY'
 import json, os
-print(json.dumps({"Variables": {"ASSISTANT_ID": os.environ["ASSISTANT_ID"], "INSTANCE_ID": os.environ["INSTANCE_ID"]}}))
+variables = {"ASSISTANT_ID": os.environ["ASSISTANT_ID"], "INSTANCE_ID": os.environ["INSTANCE_ID"]}
+if os.environ.get("CLI_MATCH_LOA"):
+    variables["CLI_MATCH_LOA"] = os.environ["CLI_MATCH_LOA"]
+print(json.dumps({"Variables": variables}))
 PY
 
 if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then

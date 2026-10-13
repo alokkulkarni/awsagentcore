@@ -1,62 +1,66 @@
 {
   "Version": "2019-10-30",
-  "StartAction": "CheckTopic",
+  "StartAction": "EnableLogging",
   "Metadata": {
     "entryPointPosition": {
       "x": 40,
       "y": 200
     },
     "ActionMetadata": {
-      "CheckTopic": {
+      "EnableLogging": {
         "position": {
           "x": 200,
           "y": 200
         }
       },
+      "CheckTopic": {
+        "position": {
+          "x": 440,
+          "y": 200
+        }
+      },
       "HandoffView": {
         "position": {
-          "x": 460,
+          "x": 700,
           "y": 320
         }
       },
       "MortgageApplicationView": {
         "position": {
-          "x": 460,
+          "x": 700,
           "y": 60
         }
       },
       "CheckButton": {
         "position": {
-          "x": 720,
-          "y": 200
-        }
-      },
-      "BriefingView": {
-        "position": {
-          "x": 980,
-          "y": 200
-        }
-      },
-      "CheckBriefingButton": {
-        "position": {
-          "x": 1240,
+          "x": 960,
           "y": 200
         }
       },
       "End": {
         "position": {
-          "x": 1500,
+          "x": 1220,
           "y": 200
         }
       }
     },
     "Annotations": [],
     "name": "ARIA-Agent-Screen-Pop-Flow",
-    "description": "Agent screen pop: ARIA handoff summary, with the assistant's briefing one click away.",
+    "description": "Agent screen pop: ARIA handoff summary and the assistant's arrival briefing.",
     "type": "contactFlow",
     "status": "saved"
   },
   "Actions": [
+    {
+      "Identifier": "EnableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "CheckTopic"
+      }
+    },
     {
       "Identifier": "CheckTopic",
       "Type": "Compare",
@@ -110,10 +114,34 @@
                   "Value": "$.Attributes.ariaSummary"
                 }
               ]
+            },
+            {
+              "Items": [
+                {
+                  "Label": "Do first",
+                  "Value": "$.Attributes.assistBriefFirst"
+                },
+                {
+                  "Label": "Verification",
+                  "Value": "$.Attributes.assistBriefVerification"
+                },
+                {
+                  "Label": "Likely reasons",
+                  "Value": "$.Attributes.assistBriefReasons"
+                },
+                {
+                  "Label": "Product details",
+                  "Value": "$.Attributes.assistBriefProduct"
+                },
+                {
+                  "Label": "Related guidance",
+                  "Value": "$.Attributes.assistBriefGuidance"
+                }
+              ]
             }
           ],
           "Actions": [
-            "Assistant briefing",
+            "Refresh briefing",
             "Got it"
           ]
         }
@@ -198,10 +226,34 @@
             },
             {
               "TemplateString": "$.Attributes.ariaSummary"
+            },
+            {
+              "Items": [
+                {
+                  "Label": "Do first",
+                  "Value": "$.Attributes.assistBriefFirst"
+                },
+                {
+                  "Label": "Verification",
+                  "Value": "$.Attributes.assistBriefVerification"
+                },
+                {
+                  "Label": "Likely reasons",
+                  "Value": "$.Attributes.assistBriefReasons"
+                },
+                {
+                  "Label": "Product details",
+                  "Value": "$.Attributes.assistBriefProduct"
+                },
+                {
+                  "Label": "Related guidance",
+                  "Value": "$.Attributes.assistBriefGuidance"
+                }
+              ]
             }
           ],
           "Actions": [
-            "Assistant briefing",
+            "Refresh briefing",
             "Got it"
           ]
         }
@@ -254,97 +306,11 @@
         "NextAction": "End",
         "Conditions": [
           {
-            "NextAction": "BriefingView",
+            "NextAction": "CheckTopic",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
-                "Assistant briefing"
-              ]
-            }
-          }
-        ],
-        "Errors": [
-          {
-            "NextAction": "End",
-            "ErrorType": "NoMatchingCondition"
-          }
-        ]
-      }
-    },
-    {
-      "Identifier": "BriefingView",
-      "Type": "ShowView",
-      "Parameters": {
-        "ViewResource": {
-          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
-        },
-        "InvocationTimeLimitSeconds": "600",
-        "ViewData": {
-          "Heading": "Assistant briefing",
-          "Sections": [
-            {
-              "TemplateString": "$.Attributes.assistBriefing"
-            }
-          ],
-          "Actions": [
-            "Refresh",
-            "Got it"
-          ]
-        }
-      },
-      "Transitions": {
-        "NextAction": "End",
-        "Conditions": [
-          {
-            "NextAction": "CheckBriefingButton",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "ActionSelected"
-              ]
-            }
-          },
-          {
-            "NextAction": "End",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "Back"
-              ]
-            }
-          }
-        ],
-        "Errors": [
-          {
-            "NextAction": "End",
-            "ErrorType": "NoMatchingCondition"
-          },
-          {
-            "NextAction": "End",
-            "ErrorType": "NoMatchingError"
-          },
-          {
-            "NextAction": "End",
-            "ErrorType": "TimeLimitExceeded"
-          }
-        ]
-      }
-    },
-    {
-      "Identifier": "CheckBriefingButton",
-      "Type": "Compare",
-      "Parameters": {
-        "ComparisonValue": "$.Views.Action"
-      },
-      "Transitions": {
-        "NextAction": "End",
-        "Conditions": [
-          {
-            "NextAction": "BriefingView",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "Refresh"
+                "Refresh briefing"
               ]
             }
           }

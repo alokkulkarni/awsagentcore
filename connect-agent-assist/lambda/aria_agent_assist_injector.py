@@ -56,7 +56,7 @@ place: the flow.
 
 WHAT this Lambda reads (contact attributes)
 -------------------------------------------
-    customerId, channel                      set by the main flow's injector
+    customerId, channel, authStatus          set by the main flow's injector
     LoA, idvMethod                           set by an ID&V flow, if one ran
     ariaSummary, ariaCustomerIntent,
     ariaTopicCategory, ariaEscalationReason  set by "ARIA human handover"
@@ -95,8 +95,9 @@ suggestions the agent clicks after the customer has spoken.
 
 So, after writing the session data, this Lambda starts a second run of itself in
 the background. That run asks the assistant the opening question, waits for the
-answer (about twenty seconds) and stores it in the contact attribute
-"assistBriefing". The agent's screen pop shows that attribute.
+answer (about twenty seconds) and stores it on the contact in five attributes
+(assistBriefFirst, assistBriefVerification, assistBriefProduct,
+assistBriefReasons, assistBriefGuidance). The agent's screen pop shows them.
 
 ENVIRONMENT VARIABLES
 ---------------------
@@ -104,6 +105,9 @@ Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
     BRIEFING_ENABLED     "false" switches the arrival briefing off
+    CLI_MATCH_LOA        The level ARIA's injector gives a caller recognised by
+                         phone number alone. Copied from that Lambda by the
+                         deploy script, so the agent is told what ARIA was told
     INSTANCE_ID          Connect instance ID; derived from the event if not set
     ASSIST_AI_AGENT_ARN  Agent-assist AI agent version ARN, used only when the
                          flow does not pass the "assistAgentArn" parameter
@@ -138,22 +142,37 @@ ASSISTANT_ID: str = os.environ.get("ASSISTANT_ID", "")
 SESSION_VALUE_MAX_CHARS = injector.SESSION_VALUE_MAX_CHARS
 MAX_REASONS = injector.MAX_CONTACT_REASONS
 ASSIST_AI_AGENT_ARN: str = os.environ.get("ASSIST_AI_AGENT_ARN", "")
+# Must match CLI_MATCH_LOA on aria-session-injector-qconnect. The deploy script copies it.
+CLI_MATCH_LOA: int | None = injector._parse_loa(os.environ.get("CLI_MATCH_LOA", ""))
 
 # The arrival briefing: the assistant's answer to one opening question, stored
 # on the contact for the agent's screen pop.
 BRIEFING_ENABLED: bool = os.environ.get("BRIEFING_ENABLED", "true").lower() != "false"
-BRIEFING_ATTRIBUTE = "assistBriefing"
+BRIEFING_ATTRIBUTE = "assistBriefing"            # the assistant's whole answer, for the record
 BRIEFING_WAIT_SECONDS = 45
 BRIEFING_POLL_SECONDS = 1.5
 BRIEFING_MAX_CHARS = 4000
-BRIEFING_PENDING_TEXT = "The assistant is preparing the briefing. Press **Refresh** in a few seconds."
-BRIEFING_FAILED_TEXT = "The assistant could not prepare a briefing for this contact. Ask it in the Connect assistant panel."
+BRIEFING_FIELD_MAX_CHARS = 900
+# What the screen pop shows. Each is one contact attribute holding one line of
+# plain text, because that is what a view displays reliably. The verification
+# position and the known reasons come from this Lambda, not from the assistant,
+# so they are on screen at once and are always the bank's own wording.
+BRIEFING_FIELDS = {
+    "first":        "assistBriefFirst",
+    "verification": "assistBriefVerification",
+    "product":      "assistBriefProduct",
+    "reasons":      "assistBriefReasons",
+    "guidance":     "assistBriefGuidance",
+}
+BRIEFING_PENDING_TEXT = "The assistant is still preparing this. Press Refresh briefing in a few seconds."
+BRIEFING_FAILED_TEXT = "The assistant could not prepare this. Ask it in the Connect assistant panel."
 ARRIVAL_BRIEFING_REQUEST = (
     "I am about to take this contact and nobody has spoken to the customer yet. Brief me before I speak. "
-    "Look up the details of the product the customer is contacting us about, and look up our "
-    "guidance for that topic. Then tell me: what to do first; what ARIA already did; how the "
-    "customer was verified and what that allows; the key details of that product; the likely "
-    "reasons for the contact; and the related guidance."
+    "Look up the details of the product the customer is contacting us about, and look up our guidance "
+    "for that topic. Answer under exactly these three headings: What to do first; Product details; "
+    "Related guidance. I am the bank's adviser on this contact: under Related guidance tell me what "
+    "the guidance means I should do or explain, and do not tell me the customer should call the bank, "
+    "visit a branch or speak to an adviser."
 )
 
 # The use case Connect records for the agent a human agent's panel talks to.
@@ -185,6 +204,13 @@ def describe_verification(loa: int | None, method: str) -> str:
     an instruction so the agent knows whether to check identity themselves.
     """
     how = _METHOD_WORDS.get(method, method.replace("_", " ")) if method else ""
+    if method == "cli_match" and loa is not None and loa >= 2:
+        # ARIA's injector was configured (CLI_MATCH_LOA) to treat a call from the
+        # customer's registered number as this level, and ARIA served them at it.
+        return (f"Verified by one check (ARIA recognised the customer's registered phone number and treated "
+                f"them as Level {loa}; no app approval or security questions were completed). Enough for "
+                "account information, not for payments or changes to contact details until you have "
+                "completed your own further verification.")
     if method == "cli_match":
         return ("Recognised by phone number only. Nobody has checked who is holding the phone. "
                 "Verify identity before discussing the account.")
@@ -225,6 +251,10 @@ def build_context(attrs: dict, channel: str) -> dict[str, str]:
     customer_id = attr("customerId")
     method = attr("idvMethod")
     loa = injector._parse_loa(attr("LoA", "loa"))
+    if loa is None and not method and attr("authStatus") == "authenticated" and CLI_MATCH_LOA is not None:
+        # A direct call: no ID&V flow ran. ARIA's injector recognised the phone
+        # number and told ARIA this level, so the agent is told the same.
+        loa, method = CLI_MATCH_LOA, "cli_match"
     summary = attr("ariaSummary", "conversationSummary")
 
     context = {
@@ -320,6 +350,32 @@ def briefing_to_markdown(answer: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()[:BRIEFING_MAX_CHARS]
 
 
+def briefing_fields(markdown: str) -> dict[str, str]:
+    """
+    Split the assistant's answer into the parts the screen pop shows, each as
+    one line of plain text. Keys: "first", "product", "guidance".
+    """
+    parts: list[list[str]] = []          # [label, text]
+    for line in markdown.split("\n"):
+        labelled = re.match(r"^(?:- )?\*\*(.+?)\*\*:?\s*(.*)$", line.strip())
+        if labelled:
+            label, text = labelled.group(1).rstrip(":"), labelled.group(2)
+            if not text and ":" in label:        # the whole line was bold: "**Label: text**"
+                label, text = (piece.strip() for piece in label.split(":", 1))
+            parts.append([label, text])
+        elif parts and line.strip():
+            parts[-1][1] += ("; " if parts[-1][1] else "") + line.strip().lstrip("- ")
+    fields: dict[str, str] = {}
+    for label, text in parts:
+        key = next((key for key, words in (("first", ("first",)), ("guidance", ("guidance",)),
+                                           ("product", ("product", "detail", "mortgage", "account", "card")))
+                    if any(word in label.lower() for word in words)), "")
+        text = re.sub(r"\s+", " ", text.replace("*", "").replace('"', "'")).strip(" ;")
+        if key and text and key not in fields:
+            fields[key] = text[:BRIEFING_FIELD_MAX_CHARS]
+    return fields
+
+
 def _briefing_answer(session_id: str, request_id: str) -> str:
     """The assistant's answer to our request, or "" while it is still working."""
     messages = injector._get_qconnect().list_messages(
@@ -338,23 +394,31 @@ def _briefing_answer(session_id: str, request_id: str) -> str:
     return ""
 
 
-def _set_briefing_attribute(instance_id: str, contact_id: str, text: str) -> None:
+def _set_briefing_attributes(instance_id: str, contact_id: str, values: dict[str, str]) -> None:
     injector._get_connect().update_contact_attributes(
-        InstanceId=instance_id, InitialContactId=contact_id, Attributes={BRIEFING_ATTRIBUTE: text})
+        InstanceId=instance_id, InitialContactId=contact_id, Attributes=values)
 
 
-def prepare_briefing(instance_id: str, contact_id: str, session_arn: str) -> str:
+def prepare_briefing(instance_id: str, contact_id: str, session_arn: str, known: dict[str, str]) -> dict[str, str]:
     """
-    Ask the assistant for a briefing and store its answer on the contact, where
-    the agent's screen pop shows it.
+    Ask the assistant for a briefing and store it on the contact, where the
+    agent's screen pop shows it.
 
     Runs on its own, in the background, while the customer waits in the queue:
     the assistant needs about twenty seconds to look things up and write. The
     assistant's own panel cannot be used for this. It only displays answers to
     questions the agent typed into it.
+
+    `known` holds what this Lambda already knows ("verification", "reasons").
+    Those are stored at once, so they are there even if the agent accepts
+    before the assistant has finished.
     """
     session_id = session_arn.split("/")[-1]
-    _set_briefing_attribute(instance_id, contact_id, BRIEFING_PENDING_TEXT)
+    values = {attribute: BRIEFING_PENDING_TEXT for attribute in BRIEFING_FIELDS.values()}
+    values[BRIEFING_FIELDS["verification"]] = known.get("verification") or "Not recorded."
+    values[BRIEFING_FIELDS["reasons"]] = known.get("reasons") or "None recorded."
+    _set_briefing_attributes(instance_id, contact_id, dict(values))
+
     sent = _call_assistant("send_message", session_id, f"{session_id}/message", {
         "type": "TEXT", "message": {"value": {"text": {"value": ARRIVAL_BRIEFING_REQUEST}}},
         "orchestratorUseCase": AGENT_ASSISTANCE_USE_CASE,
@@ -364,21 +428,27 @@ def prepare_briefing(instance_id: str, contact_id: str, session_arn: str) -> str
     while not answer and time.monotonic() < deadline:
         time.sleep(BRIEFING_POLL_SECONDS)
         answer = _briefing_answer(session_id, sent.get("requestMessageId", ""))
-    text = briefing_to_markdown(answer) if answer else BRIEFING_FAILED_TEXT
-    _set_briefing_attribute(instance_id, contact_id, text)
+
+    markdown = briefing_to_markdown(answer)
+    found = briefing_fields(markdown)
+    for key in ("first", "product", "guidance"):
+        values[BRIEFING_FIELDS[key]] = found.get(key) or BRIEFING_FAILED_TEXT
+    values[BRIEFING_ATTRIBUTE] = markdown or BRIEFING_FAILED_TEXT
+    _set_briefing_attributes(instance_id, contact_id, values)
     logger.info(json.dumps({"contactId": contact_id, "status": "briefing_ready" if answer else "briefing_timed_out",
-                            "characters": len(text)}))
-    return text
+                            "fields": sorted(found)}))
+    return values
 
 
-def _start_briefing_worker(context: Any, instance_id: str, contact_id: str, session_arn: str) -> bool:
+def _start_briefing_worker(context: Any, instance_id: str, contact_id: str, session_arn: str,
+                           known: dict[str, str]) -> bool:
     """Start prepare_briefing in a second, background run of this Lambda. Never raises."""
     try:
         import boto3
         boto3.client("lambda", region_name=injector.AWS_REGION).invoke(
             FunctionName=context.invoked_function_arn, InvocationType="Event",
             Payload=json.dumps({"operation": "prepare_briefing", "instanceId": instance_id,
-                                "contactId": contact_id, "sessionArn": session_arn}).encode())
+                                "contactId": contact_id, "sessionArn": session_arn, "known": known}).encode())
         return True
     except Exception:
         logger.exception("Could not start the briefing for contact %s. Check the lambda:InvokeFunction "
@@ -395,7 +465,8 @@ def handler(event: dict, context: Any) -> dict:
     if event.get("operation") == "prepare_briefing":
         # The background run started by _start_briefing_worker, not Connect.
         try:
-            prepare_briefing(event["instanceId"], event["contactId"], event["sessionArn"])
+            prepare_briefing(event["instanceId"], event["contactId"], event["sessionArn"],
+                             event.get("known") or {})
         except Exception:
             logger.exception("Briefing failed for contact %s", event.get("contactId"))
         return {"status": "done"}
@@ -443,7 +514,8 @@ def handler(event: dict, context: Any) -> dict:
         injected = injector._inject_session_data(ASSISTANT_ID, session_arn, data)
         # Only once the session has the right agent and the briefing data.
         if agent_status == "set" and injected and BRIEFING_ENABLED:
-            started = _start_briefing_worker(context, instance_id, contact_id, session_arn)
+            started = _start_briefing_worker(context, instance_id, contact_id, session_arn, {
+                "verification": data.get("verification", ""), "reasons": data.get("knownContactReasons", "")})
             briefing_status = "started" if started else "failed"
     except Exception:
         logger.exception("Agent assist context injection failed for contact %s", contact_id)

@@ -150,13 +150,17 @@ Remove Connect assistant, Set contact data, Set event flow and Transfer to queue
 
 ## 8. Known gaps and open questions
 
-**Known gap: a direct call always looks unverified to the assistant.** The verification level
-reaches the handover as the contact attributes `LoA` and `idvMethod`. Only the ID&V harness sets
-those. The main flow's Set contact attributes block copies sixteen values from its injector and
-neither is among them, so on a direct call the assistant is told no identity check was recorded,
-whatever the injector decided. That is the safe outcome. To change it, add `LoA` (from `$.External.loa`)
-and `idvMethod` to that block in `conversation bot flow`; it is a manual change to the bot flow and
-is deliberately not part of this work.
+**Direct calls take their level from ARIA's injector setting.** The verification level reaches the
+handover as the contact attributes `LoA` and `idvMethod`, and only the ID&V harness sets those. On a
+direct call the main flow passes only `authStatus`. So when `authStatus` is `authenticated` and no
+level is recorded, the Lambda uses its own `CLI_MATCH_LOA` setting, which the deploy script copies
+from `aria-session-injector-qconnect`. The agent is then told the level ARIA worked at, that it rests
+on the phone number alone, and that payments and changes need their own further verification. With
+the setting absent, the agent is told to verify identity first.
+
+This was a product decision made after a live test, and it relaxes an earlier review finding that a
+phone match should never be described as verified. The wording never says "strongly verified", and
+the prompt treats it as one check: account information only.
 
 **Known gap: the mortgage topic does not route.** ARIA emits `topicCategory=mortgage`; the routing
 table key is `mortgages`. The contact is disconnected in `ARIA human handover` before this flow
