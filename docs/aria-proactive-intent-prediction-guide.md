@@ -5,6 +5,14 @@
 
 ---
 
+> **Implementation note (Oct 2026).** A first version of "known contact reasons" is built into the
+> session injectors (`session_injector.py` and `session_injector_qconnect.py`) rather than the
+> separate `aria_intent_enrichment` Lambda described below. It uses stub data, injects
+> `contactReasonSummary` and related `{{$.Custom.*}}` variables, and releases them only to a caller
+> verified at level of assurance 2 or above. See
+> [connect-idv-test-harness/ORCHESTRATOR-PROMPT-CHANGES.md](../connect-idv-test-harness/ORCHESTRATOR-PROMPT-CHANGES.md).
+> The DynamoDB pipeline, chat list picker and conversation-history parts of this guide are not built.
+
 ## Overview
 
 When a customer contacts Meridian Bank, ARIA currently greets them with no context about their history or why they are likely calling. This guide describes how to:
