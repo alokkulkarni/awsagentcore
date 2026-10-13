@@ -65,6 +65,10 @@ DISPUTE_BAR = [
 ]
 
 
+# The mortgage form the customer has filled in, read from Live Sync's saved copy.
+APPLICATION_SECTION = ("**Application form**\n\n" + "\n".join(f"- $.External.app{n}" for n in range(1, 7)))
+
+
 def build() -> dict:
     briefing = [{"TemplateString": section} for section in BRIEFING_SECTIONS]
 
@@ -104,9 +108,12 @@ def build() -> dict:
 
     laid_out = [
         ({
-            "Identifier": "EnableLogging",
+            # Off, on purpose. A flow's log records the whole view it shows, and
+            # these views carry the adviser's dispute link and, for a mortgage
+            # application, the customer's date of birth and income.
+            "Identifier": "LoggingOff",
             "Type": "UpdateFlowLoggingBehavior",
-            "Parameters": {"FlowLoggingBehavior": "Enabled"},
+            "Parameters": {"FlowLoggingBehavior": "Disabled"},
             "Transitions": {"NextAction": "GetBriefing"},
         }, 200, 200),
         ({
@@ -164,6 +171,7 @@ def build() -> dict:
                 {"TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"},
                 {"TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"},
                 {"TemplateString": "$.Attributes.ariaSummary"},
+                {"TemplateString": APPLICATION_SECTION},
                 *briefing,
             ],
         }), 700, 60),
@@ -172,7 +180,7 @@ def build() -> dict:
 
     return {
         "Version": "2019-10-30",
-        "StartAction": "EnableLogging",
+        "StartAction": "LoggingOff",
         "Metadata": {
             "entryPointPosition": {"x": 40, "y": 200},
             "ActionMetadata": {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out},

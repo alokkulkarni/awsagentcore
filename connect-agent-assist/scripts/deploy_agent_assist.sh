@@ -65,6 +65,7 @@ DEFAULT_ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"
 DEFAULT_FUNCTION_NAME="aria-agent-assist-injector"
 ARIA_INJECTOR_FUNCTION="aria-session-injector-qconnect"
 DISPUTE_FUNCTION="aria-card-dispute"      # connect-card-dispute; optional
+LIVESYNC_FUNCTION="mortgage-livesync-api" # connect-livesync-mortgage; optional
 DEFAULT_ROLE_NAME="aria-lambda-agent-assist-injector-role"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -175,6 +176,12 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${DISPUTE_FUNCTION}"
     },
     {
+      "Sid": "ReadASavedMortgageApplicationForTheScreenPop",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${LIVESYNC_FUNCTION}"
+    },
+    {
       "Sid": "SetTheAgentAndWriteContextOnTheSession",
       "Effect": "Allow",
       "Action": ["wisdom:UpdateSession", "wisdom:UpdateSessionData", "wisdom:SendMessage", "wisdom:ListMessages", "qconnect:UpdateSession", "qconnect:UpdateSessionData", "qconnect:SendMessage", "qconnect:ListMessages"],
@@ -221,11 +228,22 @@ if aws lambda get-function --function-name "$DISPUTE_FUNCTION" --region "$REGION
 fi
 ok "Card dispute service: ${DISPUTE_FUNCTION_NAME:-not deployed}"
 
+# Live Sync is optional too. When it is deployed, the screen pop asks it for the
+# mortgage application a contact carries. It answers only once it can save
+# applications (connect-livesync-mortgage v1.22); before that the screen pop
+# says the form has not been saved.
+LIVESYNC_FUNCTION_NAME=""
+if aws lambda get-function --function-name "$LIVESYNC_FUNCTION" --region "$REGION" >/dev/null 2>&1; then
+    LIVESYNC_FUNCTION_NAME="$LIVESYNC_FUNCTION"
+fi
+ok "Mortgage Live Sync: ${LIVESYNC_FUNCTION_NAME:-not deployed}"
+
 ASSISTANT_ID="$ASSISTANT_ID" INSTANCE_ID="$INSTANCE_ID" CLI_MATCH_LOA="$CLI_MATCH_LOA" \
-    DISPUTE_FUNCTION_NAME="$DISPUTE_FUNCTION_NAME" python3 - > "${BUILD_DIR}/env.json" <<'PY'
+    DISPUTE_FUNCTION_NAME="$DISPUTE_FUNCTION_NAME" LIVESYNC_FUNCTION_NAME="$LIVESYNC_FUNCTION_NAME" \
+    python3 - > "${BUILD_DIR}/env.json" <<'PY'
 import json, os
 variables = {"ASSISTANT_ID": os.environ["ASSISTANT_ID"], "INSTANCE_ID": os.environ["INSTANCE_ID"]}
-for name in ("CLI_MATCH_LOA", "DISPUTE_FUNCTION_NAME"):
+for name in ("CLI_MATCH_LOA", "DISPUTE_FUNCTION_NAME", "LIVESYNC_FUNCTION_NAME"):
     if os.environ.get(name):
         variables[name] = os.environ[name]
 print(json.dumps({"Variables": variables}))

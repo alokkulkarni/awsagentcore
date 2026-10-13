@@ -1,13 +1,13 @@
 {
   "Version": "2019-10-30",
-  "StartAction": "EnableLogging",
+  "StartAction": "LoggingOff",
   "Metadata": {
     "entryPointPosition": {
       "x": 40,
       "y": 200
     },
     "ActionMetadata": {
-      "EnableLogging": {
+      "LoggingOff": {
         "position": {
           "x": 200,
           "y": 200
@@ -64,10 +64,10 @@
   },
   "Actions": [
     {
-      "Identifier": "EnableLogging",
+      "Identifier": "LoggingOff",
       "Type": "UpdateFlowLoggingBehavior",
       "Parameters": {
-        "FlowLoggingBehavior": "Enabled"
+        "FlowLoggingBehavior": "Disabled"
       },
       "Transitions": {
         "NextAction": "GetBriefing"
@@ -390,6 +390,9 @@
             },
             {
               "TemplateString": "$.Attributes.ariaSummary"
+            },
+            {
+              "TemplateString": "**Application form**\n\n- $.External.app1\n- $.External.app2\n- $.External.app3\n- $.External.app4\n- $.External.app5\n- $.External.app6"
             },
             {
               "TemplateString": "**Do first**\n\n$.External.first"

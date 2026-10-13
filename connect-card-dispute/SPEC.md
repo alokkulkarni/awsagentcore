@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft for build. Part 1 (card disputes) is built in this folder. Part 2 (mortgage application) is specified here and built separately |
+| Status | Built, not deployed. Part 1 (card disputes) is in this folder. Part 2 (mortgage application) is in Live Sync PR #9 and `connect-agent-assist/`; section 12 says what is and is not done |
 | Date | 13 October 2026 |
 | Depends on | `connect-agent-assist/` (PR #31): the agent-assist flow, its Lambda and the screen pop |
 | Related repo | `connect-livesync-mortgage` (the mortgage application journey) |
@@ -215,7 +215,7 @@ The way in is decided by how a request arrived, never by what it asks for:
 |---|---|
 | Someone opens the customer page and sees another person's dispute | The page shows nothing until a verified contact attaches a dispute by code. Codes are 6 digits, single use, 10 minutes. Five wrong codes on one dispute lock attaching for that dispute |
 | A code is overheard | A code alone opens nothing. It only tells the Lambda which waiting page a verified caller means |
-| The adviser link leaks | It lasts 60 minutes, is tied to one dispute, is never sent to a server by the browser, and is stored only as a hash. The screen-pop flow's log does record it: see known gaps |
+| The adviser link leaks | It lasts 60 minutes, is tied to one dispute, is never sent to a server by the browser, and is stored only as a hash. The screen-pop flow has its logging switched off, because a flow's log records the view it shows |
 | ARIA submits or confirms for the customer | R1 and R2 are enforced in the Lambda, not in the prompt |
 | A caller disputes someone else's transaction | R4 and R5: the customer id comes from the session, and the transaction must be in that customer's own list |
 | Personal data in logs | Logs carry the operation, the outcome and the dispute id only. Never the narrative, merchant, amount, codes or tokens |
@@ -228,9 +228,10 @@ The way in is decided by how a request arrived, never by what it asks for:
 - **A direct call arrives at Level 3 on the phone number alone** when `CLI_MATCH_LOA=3`. A dispute
   started on such a call is drafted on a spoofable identity. The adviser's own verification before
   submitting is the control. The screen pop says so.
-- **The adviser link appears in the screen-pop flow's log**, because that flow logs the view it
-  shows. Anyone who can read that log group can already read contact data. For production, turn
-  that flow's logging off or have the link exchanged for a session on first use.
+- **The screen-pop flow no longer logs.** A flow's log records the whole view it shows, which
+  would include the adviser link and, for a mortgage application, date of birth and income. The
+  cost is that a screen-pop fault can no longer be read from the flow log; the Lambda's own log
+  still shows each request.
 - **Any adviser with the link can open the form.** It is not tied to the adviser's login.
 - **Whether the screen pop's link opens the page** depends on the Detail view accepting a link
   whose address is filled in at run time. If it does not, the address is also shown as text.
@@ -261,12 +262,12 @@ the customer asks, the assistant can bring it forward.
 
 ## 11. What has to change, and where
 
-| # | Change | Repo | Why |
+| # | Change | Repo | State |
 |---|---|---|---|
-| M1 | Save the application on the server as the customer fills it in | Live Sync | Finding 1. Nothing can be shown until this exists |
-| M2 | Read an application by id; find a customer's applications | Live Sync | For the adviser and the assistant |
-| M3 | A `get_mortgage_application` tool | this repo | So the briefing and the panel can report status |
-| M4 | A read-only adviser view, linked from the screen pop | this repo | "See the actual form". Reuses Part 1's adviser link and page shell |
+| M1 | Save the application on the server as the customer fills it in | Live Sync | Built: [connect-livesync-mortgage PR #9](https://github.com/alokkulkarni/connect-livesync-mortgage/pull/9). Not merged or deployed |
+| M2 | Read an application by its id | Live Sync | Built in the same PR (`getApplication`, no internet route) |
+| M4 | The adviser sees the form | this repo | Built: the screen pop's "Mortgage application" view lists the saved form, read-only |
+| M3 | A `get_mortgage_application` tool for the assistant | this repo | Not built. The assistant cannot yet report on an application |
 
 **M1 in detail.** A new page operation, `saveApplication`, called a moment after each change. It
 stores stage, field values, uploaded document types, the Decision in Principle result, the chosen
@@ -284,9 +285,26 @@ contact that carries its `applicationId`.
 **Adviser changes to the customer's form are not in scope.** Finding 2: nothing can push an
 adviser's edit into the customer's Live Sync page. M4 is read-only.
 
-## 12. Order of work
+## 12. What was built, and what it needs
 
-1. Part 1, in this folder.
-2. M1 and M2 as a pull request to Live Sync, following its rules: specification commit first, tests
-   before code, its own review.
-3. M3 and M4 here, once M1 is deployed.
+**In Live Sync (PR #9).** Requirements v1.22 add FR-38 (save), FR-39 (read) and NFR-21 (30 days,
+never logged). The page saves a moment after each change. Reading is by direct Lambda invocation
+only. Because the reference page has no sign-in, the first save returns a key that later saves must
+present, so nobody can overwrite an application by guessing its id.
+
+**Here.** `aria-agent-assist-injector` reads the application a contact carries (the contact
+attribute `applicationId`) and returns six lines, which the screen pop's "Mortgage application" view
+shows under **Application form**: status, About you, Property and loan, Decision and product,
+Documents, and what is still to fill in. It shows a submitted application the same way, with its
+reference.
+
+**To switch it on:** merge and deploy Live Sync PR #9 (its backend and web scripts), then run
+`connect-agent-assist/scripts/deploy_agent_assist.sh` and re-import the screen pop.
+
+**Limits.**
+
+- Only a contact that carries `applicationId` shows a form. A customer who rings the main number
+  about an application does not carry one, and there is no find-by-customer (section 11).
+- The view is read-only, and nothing the adviser does changes the customer's page (finding 2).
+- The assistant panel cannot yet answer questions about the application (M3).
+- "Bring it forward" is the screen pop showing it. Nothing opens the customer's page for the adviser.
