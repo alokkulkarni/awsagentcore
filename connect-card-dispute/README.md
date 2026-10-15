@@ -279,6 +279,20 @@ and neither agent announces the hand-off. Confirming that on a real call is step
 **Before you start:** your Connect instance must be on the **Connect Customer** tier. If it is not,
 step H.4 fails with a message saying so, and nothing changes.
 
+### Who does what
+
+| | ARIA | Disputes agent | Adviser |
+|---|---|---|---|
+| Checks the customer is verified (Level 2+) | Yes | Checks again | Own check before submitting |
+| Asks about the payment, the page, a code | Never | Yes | No |
+| Fills the dispute, blocks the card, attaches the screen | Never | Yes | Can change anything |
+| Transfers to a person | Yes, when the disputes agent hands back | No | — |
+| Submits | Never | Never | Yes, after the customer confirms |
+
+When the disputes agent hands back, ARIA keeps the whole conversation and never asks for anything
+again. If the customer changes subject and later returns to the dispute, ARIA hands over again with
+the dispute's reference, and the disputes agent carries on with it.
+
 ### H.1 Create the disputes agent's prompt
 
 1. **AI agent designer** → **AI prompts** → **Create AI prompt**. Type **Orchestration**. Name
@@ -356,8 +370,14 @@ altogether, run the script with `--remove`.
 
 ## Part J — Route 3: the form fills in on the customer's screen (Live Sync)
 
-When the customer has the card dispute page open and reads its code to ARIA, the call is handed to
-a CX designer assistant that fills the form on their screen as they talk. This is the same
+> **Not reached from a dispute call in the current design.** On a call, ARIA hands every dispute
+> to the disputes agent (Part H), which shows the form on the customer's screen as a view. The
+> Live Sync route needs ARIA to start it, and ARIA no longer asks about the page (SPEC D1). It stays
+> built for an entry that starts from the web page. Steps J.5 and J.6 are the parts that would
+> connect it to calls; leave them out unless you want ARIA to offer it.
+
+When the customer has the card dispute page open, the call can be handed to a CX designer assistant
+that fills the form on their screen as they talk. This is the same
 technology as your mortgage application. It is optional, and it is the largest piece to set up.
 
 **What you need already working:** Parts A to G, and the mortgage Live Sync application, because

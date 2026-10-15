@@ -339,9 +339,25 @@ ARIA's prompt is at 81,000 of 100,000 characters, at its limit of 19 custom vari
 | Tools | The five tools from Part 1 | One Data request, `attachToScreen`. The page saves the form |
 | ARIA resumes afterwards | Yes, and transfers to the adviser | No. The Agentic CX block's Escalation branch transfers |
 
-**D1. Which route.** ARIA asks once whether the customer has the card dispute page open. If they
-read out its six-digit code, ARIA takes route 3, because only Live Sync can fill a form on their
-screen. Otherwise route 1. A customer who opens the page later, on route 1, can still watch (Part 1).
+**D1. Who does what on a dispute call (decided 15 October 2026).**
+
+- **ARIA does the initial checks and hands over.** It confirms the customer is authenticated at
+  Level 2 or above (stepping up first if not), deals with any vulnerability as it always does, and
+  asks nothing about the payment, the page or a code.
+- **The disputes agent handles the dispute end to end**, from the context ARIA passes: which
+  payment, whether the customer made it, every field, blocking the card, offering the screen and
+  attaching it, reading it back.
+- **It hands back to ARIA**, which escalates to an adviser for the final check and submission.
+- **ARIA keeps the context.** Connect merges the disputes agent's conversation into ARIA's session
+  when it hands back. ARIA never asks again for anything already said. If the customer turns to
+  something else and later returns to the dispute, ARIA hands over again with the dispute's
+  reference, and the disputes agent carries on with that dispute rather than starting another.
+
+**Consequence for route 3.** A dispute call no longer reaches the Live Sync page, because only ARIA
+could start it (with its Return-to-Control tool) and ARIA no longer asks about the page. On a call,
+the customer still sees the form fill in live: the disputes agent attaches their page as a view
+(Part 1). Route 3 stays built, for an entry that starts from the web page itself, which is not yet
+wired up.
 
 **D2. One voice, no joins showing.** The customer must not hear a hand-off in either direction on
 route 1:

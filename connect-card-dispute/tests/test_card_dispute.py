@@ -694,7 +694,8 @@ class DisputesCollaborator(unittest.TestCase):
 
     def test_instruction_carries_the_contract_both_prompts_rely_on(self):
         instruction = self.config.INSTRUCTION
-        for needed in ("Level 2", "customer ID", "Do not announce", "'Card dispute'", "six-digit code"):
+        for needed in ("Level 2", "customer ID", "Do not announce", "'Card dispute'", "end to end", "DSP-",
+                       "ask nothing else", "'Customer asked about something else'"):
             self.assertIn(needed, instruction)
 
     def test_disputes_agent_prompt_keeps_the_join_invisible_and_hands_back_in_the_agreed_form(self):
@@ -714,8 +715,15 @@ class DisputesCollaborator(unittest.TestCase):
             if tool != "get_card_dispute":
                 self.assertIn(tool, prompt)
         aria = (FOLDER / "prompts" / "card-disputes-agents-block.txt").read_text()
-        for needed in ('summary that begins "Card dispute"', 'after "topicCategory="', "Do NOT greet", "StartCardDispute", "screenCode"):
+        for needed in ('summary that begins "Card dispute"', 'after "topicCategory="', "Do NOT greet",
+                       "keep everything", "dispute reference", "end to end"):
             self.assertIn(needed, aria)
+        # ARIA does the initial checks and hands over. Everything about the dispute, the page and codes is the agent's.
+        self.assertIn("Ask nothing about the payment, the dispute page, a code or a screen", aria)
+        for tool in entry._TOOLS:
+            self.assertNotIn(tool, aria)
+        self.assertNotIn("StartCardDispute", aria)
+        self.assertIn("carry on with that dispute", prompt)
         self.assertNotIn("{{", aria)
 
 
@@ -778,9 +786,7 @@ class LiveSyncConfiguration(unittest.TestCase):
         schema = json.loads((FOLDER / "acxd" / "connect-ai-agent" / "StartCardDispute.schema.json").read_text())
         self.assertEqual(schema["required"], ["handoverSummary", "screenCode"])
         self.assertEqual(schema["properties"]["screenCode"]["pattern"], "^\\d{6}$")
-        aria = (FOLDER / "prompts" / "card-disputes-agents-block.txt").read_text()
-        for name in schema["properties"]:
-            self.assertIn(name, aria)
+        self.assertEqual(set(schema["properties"]), {"handoverSummary", "screenCode"})
 
 
 class FakeTable:

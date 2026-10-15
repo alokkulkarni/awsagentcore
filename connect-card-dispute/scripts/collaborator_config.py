@@ -22,13 +22,15 @@ MAX_COLLABORATORS = 5       # Connect's limit per AI agent
 MARKER = "[card-disputes]"
 INSTRUCTION = (
     MARKER + " Hand the conversation to this agent when an authenticated customer at Level 2 or above wants to "
-    "dispute, challenge, query or claim back a card payment, or does not recognise a card payment, and has NOT "
-    "read out a six-digit code from the card dispute page. Do not announce the hand-off to the customer. In the "
-    "message you hand over, state the customer ID from session context, the level of assurance, the channel, and "
-    "everything the customer has already said about the payment: retailer, amount, date, whether they made it and "
-    "whether they still have the card. The agent drafts the dispute with the customer and gives the conversation "
-    "back with a reason that begins 'Card dispute'. Do not use it for card blocking on its own, lost cards, "
-    "payments that need making, or anything that is not a dispute about one card transaction."
+    "dispute, challenge, query or claim back a card payment, or does not recognise a card payment. Do your initial "
+    "checks first and ask nothing else: this agent handles the dispute end to end, including the customer's screen. "
+    "Do not announce the hand-off to the customer. In the message you hand over, state the customer ID from session "
+    "context, the level of assurance, the channel, everything the customer has already said about the payment "
+    "(retailer, amount, date, whether they made it, whether they still have the card), and any dispute reference "
+    "(DSP-...) from earlier in the conversation. The agent gives the conversation back with a reason that begins "
+    "'Card dispute' when the dispute is ready for a colleague, or that begins 'Customer asked about something else'. "
+    "Do not use it for card blocking on its own, lost cards, payments that need making, or anything that is not a "
+    "dispute about one card transaction."
 )
 
 
