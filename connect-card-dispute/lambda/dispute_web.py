@@ -9,10 +9,13 @@ Every page call is a POST carrying the caller's own secret in the body: the
 customer page's session id, or the adviser link's token. Neither is ever put in
 an address, so neither reaches an access log.
 
-The CX designer door (POST /acxd/ops) is for the Live Sync route. A CX designer
-tool is an HTTPS call with a key, not an MCP tool, so it comes in here. It
-accepts one operation, attachToScreen, and only with the right key. Being a web
-request, it can never reach a tool or the internal screen-pop operation.
+The CX designer door (POST /acxd/ops) is the disputes agent's whole tool set
+(SPEC Part 4). A CX designer tool is an HTTPS call with a key, not an MCP tool,
+so it comes in here. Only with the right key; only the operations in
+ACXD_OPERATIONS; and never with a customer ID or phone number from the request:
+both come from Connect's own record of the contact (rule R7). Being a web
+request, it can never reach a tool or the internal screen-pop operation. It has
+no operation that confirms or submits a dispute.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from dispute_service import DisputeError, DisputeService
+from dispute_service import ASSISTANT_DISPUTE, FORM_LINK_SECONDS, DisputeError, DisputeService
 
 logger = logging.getLogger()
 
@@ -44,14 +47,36 @@ class Doors:
     """What the web way in needs from outside the Lambda. Each is a function so tests can supply their own."""
     acxd_key: Callable[[], str]                     # the CX designer door's key, or "" if not set up
     touchpoint_keys: Callable[[], dict]             # {"deploymentKey", "apiKey"} for Live Sync, or {}
-    customer_of_contact: Callable[[str], str]       # the customerId Connect holds for a contact, or ""
+    customer_of_contact: Callable[[str], str]       # the verified customerId Connect holds for a contact, or ""
     region: str = "eu-west-2"
     instance_id: str = ""                           # the Connect instance; not a secret
+    contact_phone: Callable[[str], str] = lambda contact_id: ""     # the number the customer is calling from
+    send_sms: Callable[[str, str], str] = lambda phone, text: "sms_not_configured"   # "" when sent, else why not
+    sms_prefixes: tuple = ("+447",)                 # numbers a text may go to (UK mobiles)
+    bank_name: str = "Your bank"
 
 
 VENDOR_FILE = re.compile(r"^/vendor/([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+\.js$")
 CONTACT_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 ACXD_REPLY = {"attached": False, "locked": False, "reason": ""}       # every field, always
+
+# The CX designer door's operations, each with its full reply. Every key is in
+# every reply, because the CX designer rejects one that lacks a field.
+_STATUS = {"ok": False, "reason": "", "message": ""}
+ACXD_OPERATIONS = {
+    "attachToScreen": ACXD_REPLY,               # the older code route; the disputes agent texts a link instead
+    "listCardsAndPayments": {**_STATUS, "cards": [], "payments": []},
+    "startDispute": ASSISTANT_DISPUTE,
+    "updateDispute": ASSISTANT_DISPUTE,
+    "getDispute": ASSISTANT_DISPUTE,
+    "blockCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": ""},
+    "orderReplacementCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": "", "arrivesInWorkingDays": ""},
+    "sendFormLink": {**_STATUS, "sent": False, "sentTo": ""},
+}
+# Request field -> dispute field, for updateDispute. Nothing else can be set. "reason"
+# in a reply means why a call was refused, so the dispute's reason is "reasonCode".
+_UPDATABLE = {"disputeType": "disputeType", "reasonCode": "reason", "cardInPossession": "cardInPossession",
+              "cardBlocked": "cardBlocked", "contactedMerchant": "contactedMerchant", "narrative": "narrative"}
 
 
 SECURITY_HEADERS = {
@@ -133,8 +158,44 @@ def _fields(body: dict) -> dict:
     return fields
 
 
+def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, contact_id: str, dispute_id: str) -> dict:
+    phone = "".join(ch for ch in doors.contact_phone(contact_id) if ch == "+" or ch.isdigit())
+    if not phone.startswith(doors.sms_prefixes):
+        raise DisputeError("no_mobile_number", "The customer is not calling from a mobile we can text. "
+                           "Carry on filling the form by voice.")
+    service._owned(customer_id, dispute_id)
+    link = service.mint_form_link(customer_id, contact_id, dispute_id)
+    hours = FORM_LINK_SECONDS // 3600
+    failed = doors.send_sms(phone, f"{doors.bank_name}: here is your card dispute form, joined to the call you are on: "
+                                   f"{link} It works for {hours} hours. We will never ask for your PIN or passwords.")
+    if failed:
+        raise DisputeError(failed, "The text could not be sent. Carry on filling the form by voice.")
+    service.mark_link_sent(dispute_id)
+    return {"sent": True, "sentTo": f"the mobile ending {phone[-3:]}"}
+
+
+def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: Doors,
+                    customer_id: str, contact_id: str) -> dict:
+    dispute_id = _text(body, "disputeId").strip().upper()
+    if operation == "listCardsAndPayments":
+        return service.assistant_cards_and_payments(customer_id)
+    if operation == "startDispute":
+        return service.assistant_start(customer_id, _text(body, "transactionId").strip(), _text(body, "disputeType").strip())
+    if operation == "updateDispute":
+        fields = {field: body[name] for name, field in _UPDATABLE.items() if name in body}
+        return service.assistant_update(customer_id, dispute_id, fields)
+    if operation == "getDispute":
+        return service.assistant_get(customer_id, dispute_id)
+    if operation in ("blockCard", "orderReplacementCard"):
+        action = "blocked" if operation == "blockCard" else "replacement_ordered"
+        done = service.card_action(customer_id, _text(body, "cardType").strip().lower(), action)
+        extra = {"arrivesInWorkingDays": "3 to 5"} if action == "replacement_ordered" else {}
+        return {"cardType": done["cardType"], "cardLastFour": done["cardLastFour"], "reference": done["reference"], **extra}
+    return _send_form_link(service, doors, customer_id, contact_id, dispute_id)          # sendFormLink
+
+
 def _acxd(event: dict, service: DisputeService, doors: Doors) -> dict:
-    """The CX designer door. One operation, and only with the key."""
+    """The CX designer door: only with the key, only the listed operations, the customer always from Connect."""
     key = doors.acxd_key()
     given = (event.get("headers") or {}).get("x-api-key", "")
     if not key:
@@ -142,15 +203,30 @@ def _acxd(event: dict, service: DisputeService, doors: Doors) -> dict:
     if not hmac.compare_digest(given.encode(), key.encode()):
         return _json(401, {"error": "unauthorised"})
     body = _body(event)
-    if body.get("operation") != "attachToScreen":
+    operation = body.get("operation")
+    if operation not in ACXD_OPERATIONS:
         return _json(403, {"error": "operation_not_available"})
+    empty = ACXD_OPERATIONS[operation]
     contact_id = _text(body, "contactId").strip().lower()
     if not CONTACT_ID.match(contact_id):
-        return _json(200, {**ACXD_REPLY, "reason": "contact_not_recognised"})
+        return _json(200, {**empty, "reason": "contact_not_recognised"})
     # Who the customer is comes from Connect's own record of this contact (rule R7),
     # never from anything the agent or the customer supplies.
-    reply = service.attach_contact_screen(contact_id, doors.customer_of_contact(contact_id), _text(body, "code"))
-    return _json(200, {**ACXD_REPLY, **reply})
+    customer_id = doors.customer_of_contact(contact_id)
+    if operation == "attachToScreen":
+        return _json(200, {**empty, **service.attach_contact_screen(contact_id, customer_id, _text(body, "code"))})
+    if not customer_id:
+        return _json(200, {**empty, "reason": "customer_not_identified",
+                           "message": "The caller is not verified. Do nothing on their cards or disputes; "
+                                      "pass them to a colleague."})
+    # Refusals are answers, not failures: HTTP 200 with ok=false, so the agent can read why and carry on.
+    try:
+        reply = {**empty, **_acxd_operation(operation, body, service, doors, customer_id, contact_id), "ok": True}
+    except DisputeError as error:
+        reply = {**empty, "reason": error.code, "message": error.message}
+    except ValueError as error:          # a field value the model refused; the message names the allowed values
+        reply = {**empty, "reason": "invalid_field", "message": str(error)}
+    return _json(200, reply)
 
 
 def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
@@ -176,6 +252,7 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
 
     routes = {
         "/api/screen": lambda b: service.create_screen(),
+        "/api/screen/open": lambda b: service.open_form_link(_text(b, "linkToken")),
         "/api/screen/status": lambda b: service.screen_status(_text(b, "sessionId")),
         "/api/screen/confirm": lambda b: service.customer_confirm(_text(b, "sessionId")),
         "/api/screen/save": lambda b: service.page_save(_text(b, "sessionId"), _fields(b)),
@@ -193,6 +270,8 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
             reply = _acxd(event, service, doors)
             answer = json.loads(reply["body"])
             outcome = answer.get("error") or answer.get("reason") or "ok"
+            asked = _body(event).get("operation") if reply["statusCode"] not in (401, 503) else ""   # parsed once already
+            outcome = f"{asked if asked in ACXD_OPERATIONS else '-'}:{outcome}"
         else:
             reply = _json(200, route(_body(event)))
             outcome = "ok"

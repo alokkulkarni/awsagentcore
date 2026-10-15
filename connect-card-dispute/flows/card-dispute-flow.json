@@ -34,10 +34,6 @@
               "handoverSummary": {
                 "displayName": "handoverSummary",
                 "useDynamic": true
-              },
-              "screenCode": {
-                "displayName": "screenCode",
-                "useDynamic": true
               }
             }
           },
@@ -46,60 +42,66 @@
           }
         }
       },
-      "CheckTopic": {
+      "BuildHandover": {
         "position": {
           "x": 560,
-          "y": 20
+          "y": 100
+        },
+        "parameters": {
+          "LambdaFunctionARN": {
+            "displayName": "aria-card-dispute"
+          },
+          "LambdaInvocationAttributes": {
+            "assistantSummary": {
+              "useDynamic": true
+            },
+            "assistantReason": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicMetadata": {
+          "operation": false,
+          "assistantSummary": true,
+          "assistantReason": true
         }
       },
-      "Escalated": {
+      "SetHandover": {
         "position": {
           "x": 840,
-          "y": -60
+          "y": 20
         },
         "parameters": {
           "Attributes": {
             "topicCategory": {
               "useDynamic": true
             },
+            "customerIntent": {
+              "useDynamic": true
+            },
             "escalationReason": {
               "useDynamic": true
             },
             "conversationSummary": {
+              "useDynamic": true
+            },
+            "disputeId": {
               "useDynamic": true
             }
           }
         },
         "dynamicParams": [
           "topicCategory",
+          "customerIntent",
           "escalationReason",
-          "conversationSummary"
+          "conversationSummary",
+          "disputeId"
         ]
       },
-      "EscalatedTopicUnknown": {
+      "HandoverUnavailable": {
         "position": {
           "x": 840,
-          "y": 120
-        },
-        "parameters": {
-          "Attributes": {
-            "escalationReason": {
-              "useDynamic": true
-            },
-            "conversationSummary": {
-              "useDynamic": true
-            }
-          }
-        },
-        "dynamicParams": [
-          "escalationReason",
-          "conversationSummary"
-        ]
-      },
-      "AssistantUnavailable": {
-        "position": {
-          "x": 840,
-          "y": 300
+          "y": 240
         },
         "dynamicParams": []
       },
@@ -117,8 +119,8 @@
       }
     },
     "Annotations": [],
-    "name": "Card dispute Live Sync handover",
-    "description": "Hands a caller from ARIA to the CX designer card dispute assistant, which fills the dispute form on the customer's screen, then to an adviser.",
+    "name": "Card dispute assistant",
+    "description": "ARIA hands a card dispute to the CX designer disputes assistant, which does it end to end; then the call goes to an adviser through ARIA human handover.",
     "type": "contactFlow",
     "status": "saved"
   },
@@ -134,8 +136,7 @@
             "contactId": "$.ContactId",
             "firstName": "$.Attributes.preferredName",
             "verification": "$.Attributes.authStatus",
-            "handoverSummary": "$.Attributes.handoverSummary",
-            "screenCode": "$.Attributes.screenCode"
+            "handoverSummary": "$.Attributes.handoverSummary"
           },
           "ApplicationId": "CHOOSE-IN-THE-BLOCK",
           "Alias": "CHOOSE-IN-THE-BLOCK"
@@ -153,10 +154,10 @@
         "IdleChatTimeoutSeconds": 600
       },
       "Transitions": {
-        "NextAction": "AssistantUnavailable",
+        "NextAction": "BuildHandover",
         "Conditions": [
           {
-            "NextAction": "CheckTopic",
+            "NextAction": "BuildHandover",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -167,11 +168,11 @@
         ],
         "Errors": [
           {
-            "NextAction": "AssistantUnavailable",
+            "NextAction": "BuildHandover",
             "ErrorType": "NoMatchingError"
           },
           {
-            "NextAction": "AssistantUnavailable",
+            "NextAction": "BuildHandover",
             "ErrorType": "NoMatchingCondition"
           },
           {
@@ -182,59 +183,41 @@
       }
     },
     {
-      "Identifier": "CheckTopic",
-      "Type": "Compare",
+      "Identifier": "BuildHandover",
+      "Type": "InvokeLambdaFunction",
       "Parameters": {
-        "ComparisonValue": "$.AgenticCX.ContextVariables.topicCategory"
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-card-dispute",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "handover",
+          "assistantSummary": "$.AgenticCX.ContextVariables.summary",
+          "assistantReason": "$.AgenticCX.ContextVariables.escalationReason"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
       },
       "Transitions": {
-        "NextAction": "EscalatedTopicUnknown",
-        "Conditions": [
-          {
-            "NextAction": "Escalated",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "fraud_security"
-              ]
-            }
-          },
-          {
-            "NextAction": "Escalated",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "debit_card"
-              ]
-            }
-          },
-          {
-            "NextAction": "Escalated",
-            "Condition": {
-              "Operator": "Equals",
-              "Operands": [
-                "credit_card"
-              ]
-            }
-          }
-        ],
+        "NextAction": "SetHandover",
         "Errors": [
           {
-            "NextAction": "EscalatedTopicUnknown",
-            "ErrorType": "NoMatchingCondition"
+            "NextAction": "HandoverUnavailable",
+            "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
-      "Identifier": "Escalated",
+      "Identifier": "SetHandover",
       "Type": "UpdateContactAttributes",
       "Parameters": {
         "Attributes": {
-          "topicCategory": "$.AgenticCX.ContextVariables.topicCategory",
-          "customerIntent": "Dispute a card transaction",
-          "escalationReason": "$.AgenticCX.ContextVariables.escalationReason",
-          "conversationSummary": "$.AgenticCX.ContextVariables.summary"
+          "topicCategory": "$.External.topicCategory",
+          "customerIntent": "$.External.customerIntent",
+          "escalationReason": "$.External.escalationReason",
+          "conversationSummary": "$.External.conversationSummary",
+          "disputeId": "$.External.disputeId"
         },
         "TargetContact": "Current"
       },
@@ -242,43 +225,21 @@
         "NextAction": "ToHumanHandover",
         "Errors": [
           {
-            "NextAction": "ToHumanHandover",
+            "NextAction": "HandoverUnavailable",
             "ErrorType": "NoMatchingError"
           }
         ]
       }
     },
     {
-      "Identifier": "EscalatedTopicUnknown",
+      "Identifier": "HandoverUnavailable",
       "Type": "UpdateContactAttributes",
       "Parameters": {
         "Attributes": {
           "topicCategory": "fraud_security",
           "customerIntent": "Dispute a card transaction",
-          "escalationReason": "$.AgenticCX.ContextVariables.escalationReason",
-          "conversationSummary": "$.AgenticCX.ContextVariables.summary"
-        },
-        "TargetContact": "Current"
-      },
-      "Transitions": {
-        "NextAction": "ToHumanHandover",
-        "Errors": [
-          {
-            "NextAction": "ToHumanHandover",
-            "ErrorType": "NoMatchingError"
-          }
-        ]
-      }
-    },
-    {
-      "Identifier": "AssistantUnavailable",
-      "Type": "UpdateContactAttributes",
-      "Parameters": {
-        "Attributes": {
-          "topicCategory": "fraud_security",
-          "customerIntent": "Dispute a card transaction",
-          "escalationReason": "card_dispute_assistant_error",
-          "conversationSummary": "Card dispute not drafted. The on-screen assistant was not available."
+          "escalationReason": "tool_failure",
+          "conversationSummary": "Card dispute: the hand-over summary could not be built. The details the assistant saved are on the dispute form; open it from this screen pop."
         },
         "TargetContact": "Current"
       },

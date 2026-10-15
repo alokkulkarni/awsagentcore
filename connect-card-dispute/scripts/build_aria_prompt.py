@@ -10,9 +10,12 @@ It then inserts a dispute section straight after the </assurance_levels>
 section and writes the whole prompt to a file for you to paste. Which section
 depends on --mode:
 
+    cx       ARIA checks, then hands the call to the CX designer disputes
+             assistant, which does the rest (prompts/card-disputes-cx-designer-block.txt).
+             The current design (SPEC Part 4). The default.
     direct   ARIA drafts the dispute itself (prompts/card-disputes-block.txt)
-    agents   ARIA hands it to the disputes agent or the Live Sync page
-             (prompts/card-disputes-agents-block.txt)
+    agents   ARIA hands it to an in-instance disputes agent (prompts/card-disputes-agents-block.txt).
+             Earlier designs, kept for reference.
 
 It only READS from AWS (one `aws qconnect get-ai-prompt` call). It changes
 nothing there. Run it again at any time: an existing dispute section is replaced,
@@ -20,7 +23,7 @@ never duplicated.
 
 Usage:
     python3 connect-card-dispute/scripts/build_aria_prompt.py
-    python3 connect-card-dispute/scripts/build_aria_prompt.py --mode agents
+    python3 connect-card-dispute/scripts/build_aria_prompt.py --mode cx
     python3 connect-card-dispute/scripts/build_aria_prompt.py --from-file my-export.yaml
 """
 
@@ -36,7 +39,9 @@ FOLDER = Path(__file__).resolve().parents[1]
 #   direct  ARIA drafts the dispute itself with the five tools (SPEC Part 1).
 #   agents  ARIA hands the dispute to the disputes agent, or to the Live Sync
 #           page when the customer has it open (SPEC Part 3). Much shorter.
-BLOCK_FILES = {"direct": FOLDER / "prompts" / "card-disputes-block.txt",
+#   cx      ARIA hands the dispute to the CX designer disputes assistant (SPEC Part 4).
+BLOCK_FILES = {"cx": FOLDER / "prompts" / "card-disputes-cx-designer-block.txt",
+               "direct": FOLDER / "prompts" / "card-disputes-block.txt",
                "agents": FOLDER / "prompts" / "card-disputes-agents-block.txt"}
 OUTPUT_FILE = FOLDER / "prompts" / "aria-orchestration-prompt-with-disputes.yaml"
 
@@ -95,9 +100,9 @@ def check(prompt: str) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Add the card dispute instructions to ARIA's live prompt.")
-    parser.add_argument("--mode", choices=sorted(BLOCK_FILES), default="direct",
-                        help="direct: ARIA drafts the dispute itself. agents: ARIA hands it to the disputes "
-                             "agent or the Live Sync page (default: %(default)s)")
+    parser.add_argument("--mode", choices=sorted(BLOCK_FILES), default="cx",
+                        help="cx: ARIA hands the dispute to the CX designer disputes assistant. direct and "
+                             "agents: earlier designs (default: %(default)s)")
     parser.add_argument("--from-file", help="Use this exported prompt instead of reading from AWS")
     parser.add_argument("--region", default=REGION)
     parser.add_argument("--assistant-id", default=ASSISTANT_ID)

@@ -28,6 +28,35 @@ MAX_WRONG_CODES = 5
 HISTORY_KEPT = 60
 _ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"     # no 0/O or 1/I to misread
 
+FORM_LINK_SECONDS = 2 * 60 * 60     # a form link texted to the customer
+MAX_LINK_OPENS = 5                  # the customer may open it again, or on another device
+MAX_LINKS_PER_DISPUTE = 3
+CARD_ACTIONS_KEPT = 20
+CARD_ACTION_SHOWN_SECONDS = 4 * 60 * 60     # "on this call", near enough, for the screen pop
+REPLACEMENT_WORKING_DAYS = "3 to 5"
+NOTE_MAX_CHARS = 300
+CARD_ACTIONS = {"blocked": "BLOCK", "replacement_ordered": "REPL"}
+ESCALATION_REASONS = ("dispute_ready_for_review", "dispute_incomplete", "customer_request", "vulnerability",
+                      "tool_failure", "other")
+
+# What the CX designer agent gets back for a dispute. Every key, always: the CX
+# designer rejects a reply that lacks a field its sample had.
+ASSISTANT_DISPUTE = {"ok": False, "reason": "", "message": "", "disputeId": "", "status": "", "payment": "",
+                     "disputeType": "", "reasonCode": "", "reasonsAllowed": "", "cardInPossession": "",
+                     "cardBlocked": "", "contactedMerchant": "", "narrative": "", "missing": "", "complete": False,
+                     "customerWatching": False, "linkSent": False}
+
+
+def clean_note(text: str) -> str:
+    """
+    Text an AI wrote, made safe to show in the screen pop: one line, no markdown
+    or HTML control characters (so it cannot add links or formatting), capped.
+    """
+    if not isinstance(text, str):
+        return ""
+    kept = "".join(" " if ch in "[]()<>*_`#|\\{}" or not ch.isprintable() else ch for ch in text)
+    return " ".join(kept.split())[:NOTE_MAX_CHARS]
+
 
 class DisputeError(Exception):
     """A request that was understood and refused. `code` is safe to show and to log."""
@@ -101,7 +130,10 @@ class DisputeService:
         shown = model.view(dispute)
         return {"dispute_id": dispute["disputeId"], "status": dispute["status"], "dispute": shown,
                 "missing": shown["missing"], "handover": self._handover(dispute),
-                "customer_page": self.page_url, "customer_is_watching": bool(dispute.get("screenAttached"))}
+                "customer_page": self.page_url, "customer_is_watching": bool(dispute.get("screenAttached")),
+                "card_actions": [{key: a[key] for key in ("action", "cardType", "cardLastFour", "reference", "at")}
+                                 for a in self._recent_card_actions(dispute["customerId"])],
+                "assistant_note": dispute.get("assistantNote", "")}
 
     def _latest_open(self, customer_id: str) -> dict | None:
         index = self.store.get(f"cust#{customer_id}") or {}
@@ -138,6 +170,9 @@ class DisputeService:
             existing = self.store.get(f"dispute#{dispute_id}")
             if existing and existing["status"] == model.DRAFT and existing["transactionId"] == transaction_id:
                 return existing
+        blocked = {a["cardLastFour"] for a in index.get("cardActions") or [] if a["action"] == "blocked"}
+        if details["cardLastFour"] in blocked and "cardBlocked" not in fields:
+            fields = {**fields, "cardBlocked": "yes"}            # blocked earlier in the call, before the dispute
         dispute_id = "DSP-" + "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
         now = self._now_text()
         dispute = {
@@ -149,7 +184,7 @@ class DisputeService:
         if not self.store.put(f"dispute#{dispute_id}", dispute, expect=ABSENT):
             raise DisputeError("busy", "Could not create the dispute. Try again.", 409)
         seen = int(index["version"])
-        index = {"version": seen + 1, "disputeIds": index["disputeIds"][-19:] + [dispute_id]}
+        index = {**index, "version": seen + 1, "disputeIds": index["disputeIds"][-19:] + [dispute_id]}   # keeps cardActions
         self.store.put(f"cust#{customer_id}", index, expect=seen if seen else None)
         return dispute
 
@@ -278,6 +313,201 @@ class DisputeService:
             return changed
         self._change(dispute["disputeId"], "page", "saved", mutate)
         return self.screen_status(session_id)
+
+    # ── the CX designer disputes agent (SPEC Part 4) ───────────────────────────
+    # Called through the CX designer door. `customer_id` is always what Connect
+    # holds for the call (rule R7), worked out by the caller of these methods.
+
+    def _card_actions(self, customer_id: str) -> list[dict]:
+        return list((self.store.get(f"cust#{customer_id}") or {}).get("cardActions") or [])
+
+    def _recent_card_actions(self, customer_id: str) -> list[dict]:
+        since = self.clock() - CARD_ACTION_SHOWN_SECONDS
+        return [a for a in self._card_actions(customer_id) if float(a["epoch"]) >= since]
+
+    def _note_card_action(self, customer_id: str, action: dict) -> None:
+        key = f"cust#{customer_id}"
+        for _ in range(4):
+            index = self.store.get(key) or {"version": 0, "disputeIds": []}
+            seen = int(index["version"])
+            kept = (index.get("cardActions") or [])[-(CARD_ACTIONS_KEPT - 1):] + [action]
+            if self.store.put(key, {**index, "version": seen + 1, "cardActions": kept}, expect=seen if seen else ABSENT):
+                return
+        raise DisputeError("busy", "Could not record that. Try again.", 409)
+
+    def _assistant_reply(self, dispute: dict) -> dict:
+        shown = model.view(dispute)
+        return {**ASSISTANT_DISPUTE, "ok": True,
+                "disputeId": shown["disputeId"], "status": shown["status"], "payment": model.payment_words(dispute),
+                "disputeType": shown["disputeType"], "reasonCode": shown["reason"],
+                "reasonsAllowed": ", ".join(model.REASONS.get(shown["disputeType"], {})) or "set disputeType first",
+                "cardInPossession": shown["cardInPossession"], "cardBlocked": shown["cardBlocked"],
+                "contactedMerchant": shown["contactedMerchant"], "narrative": shown["narrative"],
+                "missing": ", ".join(shown["missing"]) or "nothing", "complete": not shown["missing"],
+                "customerWatching": bool(dispute.get("screenAttached")), "linkSent": bool(dispute.get("linkSentAt"))}
+
+    def assistant_cards_and_payments(self, customer_id: str) -> dict:
+        blocked = {a["cardLastFour"] for a in self._card_actions(customer_id) if a["action"] == "blocked"}
+        cards = [{"cardType": c["card_type"], "cardLastFour": c["card_last_four"],
+                  "status": "blocked" if c["card_last_four"] in blocked else "active"}
+                 for c in model.customer_cards(customer_id)]
+        payments = [{"transactionId": t["transaction_id"], "date": t["date"], "merchant": t["merchant"],
+                     "amount": t["amount"], "cardType": t["card_type"], "cardLastFour": t["card_last_four"]}
+                    for t in model.card_transactions(customer_id)]
+        if not cards:
+            raise DisputeError("no_cards", "This customer has no cards with us.", 404)
+        return {"cards": cards, "payments": payments}
+
+    def assistant_start(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
+        fields = model.check_fields({"disputeType": dispute_type}) if dispute_type else {}
+        return self._assistant_reply(self._create(customer_id, transaction_id, "assistant", fields))
+
+    def assistant_update(self, customer_id: str, dispute_id: str, fields: dict) -> dict:
+        self._owned(customer_id, dispute_id)
+        clean = model.check_fields({name: value for name, value in fields.items() if value not in ("", None)})
+
+        def mutate(dispute: dict) -> list[str]:
+            if dispute["status"] != model.DRAFT:                                    # rule R1
+                raise DisputeError("with_adviser", "An adviser now has this dispute. They will make any changes.", 409)
+            return self._apply(dispute, clean, "assistant")
+        return self._assistant_reply(self._change(dispute_id, "assistant", "updated", mutate))
+
+    def assistant_get(self, customer_id: str, dispute_id: str = "") -> dict:
+        dispute = self._owned(customer_id, dispute_id) if dispute_id else self._latest_open(customer_id)
+        if not dispute:
+            raise DisputeError("dispute_not_found", "This customer has no open card dispute.", 404)
+        return self._assistant_reply(dispute)
+
+    def card_action(self, customer_id: str, card_type: str, action: str) -> dict:
+        """
+        Block a card, or order its replacement. Only the customer's own card, from
+        the bank's record. Asking twice gives the same reference, so a repeated
+        tool call never blocks or orders twice. A replacement needs the card blocked.
+
+        These cards are test data; a real deployment calls the card system here.
+        """
+        card = next((c for c in model.customer_cards(customer_id) if c["card_type"] == card_type), None)
+        if not card:
+            raise DisputeError("card_not_found", "The customer has no card of that type. Use cardType debit or credit.", 404)
+        last_four = card["card_last_four"]
+        done = {a["action"] for a in self._card_actions(customer_id) if a["cardLastFour"] == last_four}
+        earlier = next((a for a in reversed(self._card_actions(customer_id))
+                        if a["cardLastFour"] == last_four and a["action"] == action), None)
+        if earlier:
+            return earlier
+        if action == "replacement_ordered" and "blocked" not in done:
+            raise DisputeError("card_not_blocked", "Block the card first. A replacement is only sent for a blocked card.", 409)
+        entry = {"action": action, "cardType": card_type, "cardLastFour": last_four,
+                 "reference": f"{CARD_ACTIONS[action]}-{last_four}-" + "".join(secrets.choice(_ID_ALPHABET) for _ in range(6)),
+                 "at": self._now_text(), "epoch": int(self.clock())}
+        self._note_card_action(customer_id, entry)
+        if action == "blocked":
+            # An open draft about a payment on this card now says the card is blocked.
+            for dispute_id in (self.store.get(f"cust#{customer_id}") or {}).get("disputeIds") or []:
+                dispute = self.store.get(f"dispute#{dispute_id}")
+                if dispute and dispute["status"] == model.DRAFT and dispute.get("cardLastFour") == last_four:
+                    self._change(dispute_id, "assistant", "card_blocked",
+                                 lambda d: self._apply(d, {"cardBlocked": "yes"}, "assistant"))
+        return entry
+
+    def mint_form_link(self, customer_id: str, contact_id: str, dispute_id: str) -> str:
+        """
+        A link that opens this dispute's form on the customer's own phone, already
+        joined to their call, with no code to read out. The secret goes after "#",
+        so it never reaches a server log. Works for two hours, a few opens.
+        """
+        dispute = self._owned(customer_id, dispute_id)
+        if dispute["status"] != model.DRAFT:
+            raise DisputeError("with_adviser", "An adviser now has this dispute.", 409)
+        if int(dispute.get("linksSent", 0)) >= MAX_LINKS_PER_DISPUTE:
+            raise DisputeError("too_many_links", "The form link has already been sent the most times allowed.", 429)
+
+        def count(d: dict) -> list[str]:
+            d["linksSent"] = int(d.get("linksSent", 0)) + 1
+            return ["linksSent"]
+        self._change(dispute_id, "assistant", "link_issued", count)
+        token = secrets.token_urlsafe(32)
+        self.store.put(f"link#{_hash(token)}", {"version": 1, "opens": 0, "contactId": contact_id,
+                                                "customerId": customer_id, "disputeId": dispute_id,
+                                                "expiresAt": self.clock() + FORM_LINK_SECONDS})
+        return f"{self.page_url}/#k={token}"
+
+    def mark_link_sent(self, dispute_id: str) -> None:
+        def mark(d: dict) -> list[str]:
+            d["linkSentAt"] = self._now_text()
+            return ["linkSentAt"]
+        self._change(dispute_id, "assistant", "link_sent", mark)
+
+    def open_form_link(self, token: str) -> dict:
+        """The customer opened the texted link: a new page session, joined to the call and the dispute."""
+        key = f"link#{_hash(token)}" if token else ""
+        link = self.store.get(key) if key else None
+        if not link:
+            raise DisputeError("link_expired", "This link has expired. Ask the person on the phone to send a new one.", 403)
+        if int(link["opens"]) >= MAX_LINK_OPENS:
+            raise DisputeError("link_used_up", "This link has been opened too many times. Ask for a new one.", 403)
+        seen = int(link["version"])
+        if not self.store.put(key, {**link, "version": seen + 1, "opens": int(link["opens"]) + 1}, expect=seen):
+            raise DisputeError("busy", "Try again.", 409)
+        session_id = secrets.token_urlsafe(32)
+        self.store.put(f"screen#{_hash(session_id)}", {
+            "version": 1, "code": "", "disputeId": link["disputeId"], "contactId": link["contactId"],
+            "customerId": link["customerId"], "expiresAt": self.clock() + SCREEN_SECONDS})
+
+        def mark(d: dict) -> list[str]:
+            if d.get("screenAttached"):
+                return []
+            d["screenAttached"] = True
+            return ["screenAttached"]
+        self._change(link["disputeId"], "customer", "link_opened", mark)
+        return {"sessionId": session_id}
+
+    def handover(self, customer_id: str, note: str = "", reason: str = "") -> dict:
+        """
+        What the Connect flow passes to ARIA's human hand-over when the disputes
+        agent finishes. Built from the record, not from what the agent remembers,
+        so the routing and the adviser's summary are always right. Flat text only:
+        Connect's Lambda block reads a string map.
+        """
+        note = clean_note(note)
+        dispute = self._latest_open(customer_id) if customer_id else None
+        actions = self._recent_card_actions(customer_id) if customer_id else []
+        done = [f"{a['cardType'].capitalize()} card ending {a['cardLastFour']} "
+                f"{'blocked' if a['action'] == 'blocked' else 'replacement ordered'} ({a['reference']})." for a in actions]
+        if dispute and note:
+            def keep(d: dict) -> list[str]:
+                if d.get("assistantNote") == note:
+                    return []
+                d["assistantNote"] = note
+                return ["assistantNote"]
+            dispute = self._change(dispute["disputeId"], "assistant", "handed_over", keep)
+        if not dispute:
+            summary = " ".join(["Card dispute not drafted.", *done, f"Assistant's note: {note}" if note else ""])
+            return {"hasDispute": "false", "disputeId": "none", "topicCategory": "fraud_security",
+                    "customerIntent": "Dispute a card transaction",
+                    "escalationReason": reason if reason in ESCALATION_REASONS else "dispute_incomplete",
+                    "conversationSummary": summary.strip()}
+        shown = model.view(dispute)
+        if dispute.get("screenAttached"):
+            screen = "Customer is viewing the form on their phone."
+        elif dispute.get("linkSentAt"):
+            screen = "Form link texted; the customer has not opened it."
+        else:
+            screen = "Customer is not viewing the form."
+        kind = f"{shown['disputeTypeWords']}" + (f" ({shown['reasonWords']})" if shown["reasonWords"] else "")
+        summary = " ".join(part for part in [
+            f"Card dispute {shown['disputeId']} drafted by the phone assistant.",
+            f"{model.payment_words(dispute)}; {kind or 'type not given'}.",
+            ("Still needed: " + ", ".join(shown["missing"]) + ".") if shown["missing"] else "All details filled in.",
+            *done, screen,
+            f"Assistant's note: {note}" if note else "",
+            "Confirm the details with the customer before you submit."] if part)
+        default = "dispute_incomplete" if shown["missing"] else "dispute_ready_for_review"
+        return {"hasDispute": "true", "disputeId": shown["disputeId"],
+                "topicCategory": self._handover(dispute)["topicCategory"],
+                "customerIntent": "Dispute a card transaction",
+                "escalationReason": reason if reason in ESCALATION_REASONS else default,
+                "conversationSummary": summary}
 
     # ── the customer page ──────────────────────────────────────────────────────
 
@@ -409,6 +639,16 @@ class DisputeService:
         day = datetime.strptime(shown["transactionDate"], "%Y-%m-%d").strftime("%-d %b %Y")
         confirmed = "**Customer has confirmed** the details." if shown["customerConfirmed"] \
             else "Customer has **not yet confirmed** the details."
+        if dispute.get("screenAttached"):
+            screen = "Customer is **watching the form** on their own screen."
+        elif dispute.get("linkSentAt"):
+            screen = "Form link **texted** to the customer; **not opened yet**. You review and submit it."
+        else:
+            screen = "Customer is not viewing the form. **You review and submit it** after confirming with them."
+        actions = [f"**{a['cardType'].capitalize()} card ending {a['cardLastFour']} "
+                   f"{'blocked' if a['action'] == 'blocked' else 'replacement ordered'}** ({a['reference']})"
+                   for a in self._recent_card_actions(customer_id)]
+        note = dispute.get("assistantNote", "")
         return {
             "hasDispute": "true",
             "disputeId": shown["disputeId"],
@@ -418,6 +658,8 @@ class DisputeService:
                         f"{shown['cardType']} card ending {shown['cardLastFour']}",
             "dispute3": ("**Still needed:** " + ", ".join(shown["missing"]) + ".") if shown["missing"]
                         else "**Form complete.** " + confirmed,
-            "dispute4": "Customer is **watching the form** on their own screen." if dispute.get("screenAttached")
-                        else "Customer is not viewing the form. **You review and submit it** after confirming with them.",
+            "dispute4": screen,
+            "dispute5": ("**Cards:** " + " · ".join(actions) + ".") if actions
+                        else "**Cards:** none blocked or replaced on this call.",
+            "dispute6": f"**Assistant's note:** {note}" if note else "**Assistant's note:** none.",
         }

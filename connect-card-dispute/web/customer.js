@@ -3,6 +3,10 @@
 //   - on the Live Sync route, a form: the agent on the call fills it in, the customer can type in
 //     it too, and the page saves it. Once an adviser has the dispute the form becomes a view.
 // The page's secret (sessionId) never leaves this tab.
+//
+// Opened from the link the phone assistant texted (/#k=…), it skips the code: the link's secret is
+// swapped once for a session already joined to the call and the dispute, then wiped from the address
+// bar. It sits after "#", so the browser never sends it to a server or in a Referer.
 import { api, $, show, text, drawRows } from './common.js';
 import { createSaver } from './formfill.js';
 import { startLiveSync } from './livesync.js';
@@ -10,7 +14,9 @@ import { startLiveSync } from './livesync.js';
 const POLL_MS = 2000;
 const KEY = 'disputeScreen';
 const FIELDS = ['transactionId', 'disputeType', 'reason', 'cardInPossession', 'contactedMerchant', 'narrative'];
-let sessionId = sessionStorage.getItem(KEY);
+let linkToken = new URLSearchParams(location.hash.slice(1)).get('k');
+if (linkToken) history.replaceState(null, '', location.pathname);
+let sessionId = linkToken ? null : sessionStorage.getItem(KEY);
 let last = null;
 let liveSync = null; let liveSyncStarted = false;
 let lastForm = null;       // the last form status, so a change can redraw the choices at once
@@ -121,8 +127,22 @@ function draw(status) {
   else if (status.state === 'waiting') drawWaiting(status);
 }
 
+async function openLink() {
+  const token = linkToken;
+  linkToken = null;
+  try {
+    sessionId = (await api('/screen/open', { linkToken: token })).sessionId;
+    sessionStorage.setItem(KEY, sessionId);
+    return true;
+  } catch (error) {
+    text('code', '······'); text('code-note', error.message);
+    return false;
+  }
+}
+
 async function refresh() {
   try {
+    if (linkToken && !(await openLink())) return;   // an expired link says so and stops; it never falls back to a code
     if (!sessionId) await newCode();
     const status = await api('/screen/status', { sessionId });
     if (status.state === 'expired') { // an attached page stays as it was; a waiting page offers a new code

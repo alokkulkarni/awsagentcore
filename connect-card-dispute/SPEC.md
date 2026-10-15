@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Built, not deployed. Part 1 (card disputes) is in this folder. Part 2 (mortgage application) is in Live Sync PR #9 and `connect-agent-assist/`; section 12 says what is and is not done |
+| Status | Built, not deployed. **Part 4 (15 October 2026) is the current design for card disputes; Parts 1 and 3 are earlier designs kept in the code.** Part 1 (card disputes) is in this folder. Part 2 (mortgage application) is in Live Sync PR #9 and `connect-agent-assist/`; section 12 says what is and is not done |
 | Date | 13 October 2026 |
 | Depends on | `connect-agent-assist/` (PR #31): the agent-assist flow, its Lambda and the screen pop |
 | Related repo | `connect-livesync-mortgage` (the mortgage application journey) |
@@ -461,3 +461,93 @@ navigation, and there is no action that confirms or submits.
   production.
 - **Live Sync on this page is copied from the mortgage page's working pattern**, but that pattern
   took many live fixes there. Expect the same here.
+
+---
+
+# Part 4 — The CX designer disputes assistant does the dispute end to end
+
+Decided 15 October 2026. It replaces D1 and route 1 of Part 3 for dispute calls.
+
+## 18. What is wanted
+
+> ARIA, on a dispute or a payment the customer does not recognise, calls the disputes agent in the
+> CX designer, which handles everything end to end, including Live Sync: it completes the form on
+> the customer's behalf, asking what it needs and prefilling everything else, and if the customer
+> wants to see the form it sends them the link. Then it hands over to ARIA to be transferred to a
+> human agent for final verification before the form is submitted, with the entire summary (cards
+> blocked, cards ordered, the form) in the screen pop. Agent assist gets the tools already
+> described. Ignore the AI agent created in Connect for disputes.
+
+## 19. Decisions
+
+**D5. ARIA checks and starts; the CX designer assistant does everything else.** ARIA confirms the
+caller is verified at Level 2 or above and handles any vulnerability, then calls the
+Return-to-Control tool `StartCardDispute` with one sentence of what the customer already said. It
+asks nothing about the payment, the card, a form or a code. The bot flow transfers to the flow
+`Card dispute assistant`, whose Agentic CX block runs the CX designer application `Card dispute`.
+
+**D6. "Hands back to ARIA" is ARIA's own hand-over path.** ARIA's Escalate tool only sets four
+attributes, and the bot flow then runs `ARIA human handover`. The disputes flow ends on the same
+flow with the same four attributes. Re-entering ARIA's Lex block would add a turn of silence,
+because the bot waits for the caller to speak first, and ARIA would have nothing to add.
+
+**D7. The hand-over is built from the record.** After the Agentic CX block, the flow calls
+`aria-card-dispute` with `operation=handover`. The Lambda builds the team (`fraud_security` for a
+payment the customer did not make, otherwise the card's team or `MERCHANT_DISPUTE_TOPIC`), the
+summary and the dispute reference from what was saved, not from what the assistant remembers. The
+summary starts "Card dispute …" so the briefing agent reads the dispute. The assistant adds only a
+one-sentence note and a reason, stripped of formatting before it reaches the screen pop. If the
+Lambda fails, the call still goes to `fraud_security` with a fixed summary.
+
+**D8. Seven Data requests, identity from Connect.** `listCardsAndPayments`, `startDispute`,
+`updateDispute`, `getDispute`, `blockCard`, `orderReplacementCard`, `sendFormLink`, all on
+`POST /acxd/ops` with the key. None takes a customer ID or phone number: the Lambda reads the
+contact's attributes (`customerId`, `authStatus`, `LoA`, `customerPhone`) from Connect and applies
+the verification gate (rule R7) on every call. A refusal is HTTP 200 with `ok:false`, a reason
+and a message, so the assistant can read it and carry on. Every reply always has every field.
+
+**D9. Card actions.** Block and replacement work only on the customer's own cards, are idempotent
+(a repeated call returns the first reference), and a replacement needs the card blocked. They are
+kept on the customer, not the contact, because the screen pop runs under a different contact. A
+block sets "card blocked: yes" on an open draft for that card. The cards are test data; a real
+deployment calls the card system in `DisputeService.card_action`.
+
+**D10. The texted form link.** `sendFormLink` texts the number the customer is calling from (UK
+mobiles only by default) through AWS End User Messaging. The link carries its secret after `#`, so
+it never reaches a server log. Opening it gives a page session already joined to the call and the
+dispute, so Live Sync starts with no code. It works for two hours and five opens, and can be sent
+three times per dispute. The assistant never sees the link. Without an SMS sender configured, the
+assistant is told it cannot text and carries on by voice.
+
+**D11. The assistant saves; the page shows.** The assistant writes every answer with
+`updateDispute`. The page shows the saved record within two seconds and saves what the customer
+types, so both always agree. Live Sync lets the assistant see the page; it does not need to fill
+the page itself.
+
+**D12. Same voice.** ARIA's last words are one neutral sentence; the assistant never introduces
+itself, and its opening, built before the assistant node, asks about the payment. The CX designer
+application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice block does not change it.
+
+## 20. New rules
+
+| # | Rule | Enforced in |
+|---|---|---|
+| R11 | The CX designer door acts only for a verified caller, found from Connect's record of the contact | `dispute_web._acxd`, `aria_card_dispute.verified_customer` |
+| R12 | A card can be blocked or replaced only if it is the customer's own; each at most once | `DisputeService.card_action` |
+| R13 | A form link goes only to the number the customer is calling from, at most three times per dispute | `dispute_web._send_form_link`, `DisputeService.mint_form_link` |
+| R14 | A Connect flow event is accepted only when it is not a tool call; its reply holds no link or secret | `aria_card_dispute.lambda_handler` |
+
+## 21. Known gaps (Part 4)
+
+- **Nothing here has run on a live contact.** The CX designer steps follow the mortgage build, which
+  works, but this application is new.
+- **The opening question** is generated from ARIA's one-sentence summary. If ARIA's summary is
+  thin, the first question is generic.
+- **SMS** needs an End User Messaging sender and, until production access, verified destination
+  numbers. UK sender rules are to be checked in the console.
+- **Chat.** The flow works for chat too, but texting needs a mobile number, which chat has not.
+- **Contact attributes are cached for 30 seconds** in the Lambda, so a verification made during the
+  dispute is seen up to 30 seconds late.
+- **The adviser's own tools** (blocking, refunds) are outside this work; the screen pop says what the
+  assistant did.
+

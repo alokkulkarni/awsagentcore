@@ -1,10 +1,13 @@
 """
 aria_card_dispute.py
 ====================
-Card transaction disputes: one Lambda, three ways in (SPEC.md section 6).
+Card transaction disputes: one Lambda, four ways in (SPEC.md section 6 and Part 4).
 
-    Web       the HTTP API. The customer page, the adviser page, their JSON calls.
-    Tool      the MCP gateway. ARIA's five tools; get_card_dispute for agent assist.
+    Web       the HTTP API. The customer page, the adviser page, their JSON calls,
+              and the CX designer disputes agent's tools (POST /acxd/ops).
+    Flow      a Connect flow, when the disputes agent hands the call back. The
+              summary and team for ARIA's human hand-over.
+    Tool      the MCP gateway. get_card_dispute for agent assist (and ARIA's older tools).
     Internal  the agent-assist Lambda. Lines and a link for the adviser's screen pop.
 
 Which way a request came in is decided by how it arrived, never by what it
@@ -28,6 +31,11 @@ ENVIRONMENT VARIABLES
                             Unset = that door answers "not configured"
     TOUCHPOINT_SECRET_ID    Secrets Manager secret holding {"deploymentKey", "apiKey"}
                             for Live Sync. Unset = the page is a view only
+    SMS_ORIGINATION_IDENTITY  AWS End User Messaging sender (phone number, sender ID or
+                            pool, as its ID or ARN) for texting the form link. Unset =
+                            the agent is told it cannot text, and carries on by voice
+    SMS_ALLOWED_PREFIXES    Comma-separated number prefixes a text may go to. Default +447
+    BANK_NAME               How the text names the sender. Default "Your bank"
     LOG_LEVEL               Default INFO
 
 LOGGING
@@ -92,19 +100,56 @@ def _touchpoint_keys() -> dict:
     return keys if isinstance(keys, dict) else {}
 
 
-def _customer_of_contact(contact_id: str) -> str:
-    """The customerId attribute Connect holds for a contact. A flow set it; the agent and the customer cannot."""
+_contact_cache: dict[str, tuple[float, dict]] = {}
+CONTACT_CACHE_SECONDS = 30
+
+
+def _contact_attributes(contact_id: str) -> dict:
+    """
+    The attributes Connect holds for a contact. Flows set them; the agent and the
+    customer cannot. Kept for 30 seconds, because the disputes agent makes several
+    calls in a row and Connect limits how often this may be asked.
+    """
     instance_id = os.environ.get("CONNECT_INSTANCE_ID", "")
     if not instance_id:
-        return ""
+        return {}
+    kept = _contact_cache.get(contact_id)
+    if kept and kept[0] > time.time():
+        return kept[1]
     try:
         import boto3
         attributes = boto3.client("connect").get_contact_attributes(
             InstanceId=instance_id, InitialContactId=contact_id).get("Attributes", {})
     except Exception:
         logger.exception("Could not read the contact. Check the connect:GetContactAttributes permission.")
-        return ""
-    return verified_customer(attributes)
+        return {}
+    _contact_cache[contact_id] = (time.time() + CONTACT_CACHE_SECONDS, attributes)
+    return attributes
+
+
+def _customer_of_contact(contact_id: str) -> str:
+    return verified_customer(_contact_attributes(contact_id))
+
+
+def _contact_phone(contact_id: str) -> str:
+    """The number the customer is calling from. The bot flow records it as customerPhone."""
+    return str(_contact_attributes(contact_id).get("customerPhone") or "")
+
+
+def _send_sms(phone: str, text: str) -> str:
+    """Texts the customer. "" when sent, otherwise a reason that is safe to log and to show the agent."""
+    sender = os.environ.get("SMS_ORIGINATION_IDENTITY", "")
+    if not sender:
+        return "sms_not_configured"
+    try:
+        import boto3
+        boto3.client("pinpoint-sms-voice-v2").send_text_message(
+            DestinationPhoneNumber=phone, OriginationIdentity=sender, MessageBody=text, MessageType="TRANSACTIONAL")
+    except Exception as error:
+        # The class name only: the error text can hold the number.
+        logger.warning("Could not send the form link text: %s", type(error).__name__)
+        return "sms_failed"
+    return ""
 
 
 def verified_customer(attributes: dict) -> str:
@@ -133,6 +178,10 @@ doors = dispute_web.Doors(
     customer_of_contact=_customer_of_contact,
     region=os.environ.get("AWS_REGION", "eu-west-2"),
     instance_id=os.environ.get("CONNECT_INSTANCE_ID", ""),
+    contact_phone=_contact_phone,
+    send_sms=_send_sms,
+    sms_prefixes=tuple(p.strip() for p in os.environ.get("SMS_ALLOWED_PREFIXES", "+447").split(",") if p.strip()),
+    bank_name=os.environ.get("BANK_NAME", "Your bank"),
 )
 
 # Tool argument (as ARIA sends it) -> field on the record.
@@ -203,7 +252,29 @@ def lambda_handler(event: dict, context: Any) -> dict:
     if isinstance(event.get("requestContext"), dict) and "http" in event["requestContext"]:
         return dispute_web.handle(event, service, doors)
 
-    # 2. Internal: the agent-assist Lambda asking for the screen pop. This path
+    # 2. Flow: a Connect flow's Lambda block, when the disputes agent hands the
+    #    call back. Connect sends {"Name": "ContactFlowEvent", "Details": ...}.
+    #    Tool arguments can arrive at the top level of an event, so a tool call
+    #    that copies that shape is still a tool call. The reply holds no link or
+    #    secret, only the hand-over summary for this contact's own customer.
+    if event.get("Name") == "ContactFlowEvent" and isinstance(event.get("Details"), dict) \
+            and not _is_tool_call(event, context):
+        details = event["Details"]
+        asked = details.get("Parameters") if isinstance(details.get("Parameters"), dict) else {}
+        attributes = (details.get("ContactData") or {}).get("Attributes") or {}
+        if asked.get("operation") != "handover":
+            return {"hasDispute": "false", "error": "unknown_operation"}
+        try:
+            reply = service.handover(verified_customer(attributes), str(asked.get("assistantSummary") or ""),
+                                     str(asked.get("assistantReason") or ""))
+        except Exception:
+            logger.exception("op=handover failed")
+            reply = service.handover("", "")          # still a usable hand-over, routed to fraud_security
+        logger.info("op=handover outcome=%s dispute=%s topic=%s", reply["hasDispute"], reply["disputeId"],
+                    reply["topicCategory"])
+        return reply
+
+    # 3. Internal: the agent-assist Lambda asking for the screen pop. This path
     #    hands out an adviser link, which can confirm and submit, so a TOOL call
     #    must never reach it: ARIA could otherwise ask for a link by passing
     #    "operation" as a tool argument. Anything that arrives as a tool call is
@@ -217,7 +288,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
         logger.info("op=screen_pop outcome=%s dispute=%s", reply["hasDispute"], reply.get("disputeId", "-"))
         return reply
 
-    # 3. Tool.
+    # 4. Tool.
     name, args = _tool_call(event, context)
     try:
         reply = _run_tool(name, args)

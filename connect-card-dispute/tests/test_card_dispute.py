@@ -389,12 +389,13 @@ class ThreeWaysIn(Base):
     def acxd(self, body, key="the-key"):
         return entry.lambda_handler({**http("POST", "/acxd/ops", body), "headers": {"x-api-key": key}}, None)
 
-    def test_cx_designer_door_needs_the_key_and_offers_one_operation(self):
+    def test_cx_designer_door_needs_the_key_and_offers_only_its_operations(self):
         session = json.loads(entry.lambda_handler(http("POST", "/api/screen"), None)["body"])
         ask = {"operation": "attachToScreen", "contactId": CONTACT, "code": session["code"]}
         self.assertEqual(self.acxd(ask, key="wrong")["statusCode"], 401)
         self.assertEqual(self.acxd(ask, key="")["statusCode"], 401)
-        for operation in ("screen_pop", "adviser_submit", "start_card_dispute", "getDispute"):
+        for operation in ("screen_pop", "adviser_submit", "start_card_dispute", "submitDispute", "confirmDispute",
+                          "handover", "openFormLink", None):
             self.assertEqual(self.acxd({**ask, "operation": operation})["statusCode"], 403, operation)
         self.assertEqual(self.service.screen_status(session["sessionId"])["state"], "waiting", "nothing attached yet")
         reply = self.acxd(ask)
@@ -576,6 +577,204 @@ class ThreeWaysIn(Base):
         self.assertIn(started["dispute_id"], written)
 
 
+MOBILE = "+447700900123"
+
+
+def flow_event(attributes, **parameters):
+    """What a Connect flow's Lambda block sends."""
+    return {"Name": "ContactFlowEvent", "Details": {"ContactData": {"ContactId": CONTACT, "Attributes": attributes},
+                                                    "Parameters": parameters}}
+
+
+VERIFIED = {"customerId": JAMES, "authStatus": "authenticated"}
+
+
+class DisputesAgentInCxDesigner(Base):
+    """SPEC Part 4: the CX designer disputes agent does the dispute end to end through /acxd/ops."""
+
+    def setUp(self):
+        super().setUp()
+        entry.service = self.service
+        self.texts = []
+        self.phone = MOBILE
+        entry.doors = dispute_web.Doors(
+            acxd_key=lambda: "the-key", touchpoint_keys=lambda: {"deploymentKey": "dk", "apiKey": "ak"},
+            customer_of_contact=lambda contact: JAMES, region="eu-west-2", instance_id="inst-1",
+            contact_phone=lambda contact: self.phone,
+            send_sms=lambda phone, text: self.texts.append((phone, text)) or "", bank_name="Test Bank")
+
+    def op(self, operation, **fields):
+        reply = entry.lambda_handler({**http("POST", "/acxd/ops", {"operation": operation, "contactId": CONTACT, **fields}),
+                                      "headers": {"x-api-key": "the-key"}}, None)
+        self.assertEqual(reply["statusCode"], 200, reply["body"])
+        body = json.loads(reply["body"])
+        self.assertEqual(set(body), set(dispute_web.ACXD_OPERATIONS[operation]), f"{operation}: every field, always")
+        return body
+
+    def started(self, kind="unauthorised"):
+        return self.op("startDispute", transactionId=AMAZON, disputeType=kind)
+
+    def test_the_whole_journey_ends_in_a_hand_over_built_from_the_record(self):
+        listed = self.op("listCardsAndPayments")
+        self.assertEqual({c["cardLastFour"]: c["status"] for c in listed["cards"]}, {"4821": "active", "2291": "active"})
+        self.assertIn(AMAZON, [p["transactionId"] for p in listed["payments"]])
+        started = self.started()
+        self.assertEqual((started["ok"], started["payment"]), (True, "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821"))
+        self.assertIn("not_recognised", started["reasonsAllowed"])
+        dispute_id = started["disputeId"]
+        updated = self.op("updateDispute", disputeId=dispute_id, reasonCode="card_details_used_without_card",
+                          cardInPossession="yes", narrative="I never bought anything from Amazon.", disputeType="")
+        self.assertEqual((updated["complete"], updated["missing"]), (True, "nothing"))
+        blocked = self.op("blockCard", cardType="debit")
+        self.assertEqual((blocked["ok"], blocked["cardLastFour"]), (True, "4821"))
+        self.assertTrue(blocked["reference"].startswith("BLOCK-4821-"))
+        self.assertEqual(self.op("getDispute", disputeId=dispute_id)["cardBlocked"], "yes", "the form says so")
+        replaced = self.op("orderReplacementCard", cardType="debit")
+        self.assertEqual((replaced["ok"], replaced["arrivesInWorkingDays"]), (True, "3 to 5"))
+        self.assertEqual(self.op("listCardsAndPayments")["cards"][0]["status"], "blocked")
+
+        handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover",
+                                                 assistantSummary="Customer **was** upset [link](http://x)"), None)
+        self.assertTrue(all(isinstance(v, str) for v in handed.values()), "Connect reads a string map")
+        self.assertEqual((handed["hasDispute"], handed["disputeId"], handed["topicCategory"], handed["escalationReason"]),
+                         ("true", dispute_id, "fraud_security", "dispute_ready_for_review"))
+        summary = handed["conversationSummary"]
+        self.assertTrue(summary.startswith(f"Card dispute {dispute_id} drafted"), "the briefing agent keys on this")
+        for expected in ("AMAZON.CO.UK, £89.99", "All details filled in.", "Debit card ending 4821 blocked (BLOCK-4821-",
+                         "Debit card ending 4821 replacement ordered (REPL-4821-", "Confirm the details"):
+            self.assertIn(expected, summary)
+        self.assertNotIn("](", summary)
+        self.assertNotIn("**", summary)
+
+        pop = self.service.screen_pop(JAMES)
+        self.assertIn("blocked** (BLOCK-4821-", pop["dispute5"])
+        self.assertIn("replacement ordered", pop["dispute5"])
+        self.assertEqual(pop["dispute6"], "**Assistant's note:** Customer was upset link http://x")
+        self.assertTrue(all("\n" not in v for v in pop.values()))
+
+    def test_the_customer_comes_from_connect_never_from_the_request(self):          # R7
+        started = self.op("startDispute", transactionId=AMAZON, disputeType="merchant", customerId=SARAH, customer_id=SARAH)
+        self.assertEqual(self.service.get_card_dispute(JAMES, started["disputeId"])["dispute"]["merchant"], "AMAZON.CO.UK")
+        self.refused("dispute_not_found", self.service.get_card_dispute, SARAH, started["disputeId"])
+        self.assertEqual(self.op("startDispute", transactionId="TXN-3317-20261011-8999", disputeType="merchant")["reason"],
+                         "transaction_not_found", "Sarah's payment is not James's to dispute")
+
+    def test_an_unverified_caller_gets_nothing_done(self):
+        entry.doors.customer_of_contact = lambda contact: entry.verified_customer({"customerId": JAMES})
+        for operation, fields in (("listCardsAndPayments", {}), ("startDispute", {"transactionId": AMAZON}),
+                                  ("blockCard", {"cardType": "debit"}), ("sendFormLink", {"disputeId": "DSP-X"})):
+            reply = self.op(operation, **fields)
+            self.assertEqual((reply["ok"], reply["reason"]), (False, "customer_not_identified"), operation)
+        self.assertEqual(self.service.screen_pop(JAMES), {"hasDispute": "false"})
+        self.assertEqual(self.texts, [])
+
+    def test_refusals_are_answers_the_agent_can_read(self):
+        self.assertEqual(self.op("getDispute")["reason"], "dispute_not_found")
+        bad = self.op("startDispute", transactionId=AMAZON, disputeType="maybe")
+        self.assertEqual((bad["ok"], bad["reason"]), (False, "invalid_field"))
+        self.assertIn("unauthorised", bad["message"])
+        self.assertEqual(self.op("blockCard", cardType="amex")["reason"], "card_not_found")
+        self.assertEqual(self.op("orderReplacementCard", cardType="credit")["reason"], "card_not_blocked")
+        self.assertEqual(self.op("updateDispute", disputeId="DSP-NOPE", narrative="x")["reason"], "dispute_not_found")
+        self.assertEqual(self.op("startDispute", contactId="not-a-contact")["reason"], "contact_not_recognised")
+
+    def test_no_operation_can_confirm_submit_or_change_who_owns_a_dispute(self):     # R2, R3
+        dispute_id = self.started()["disputeId"]
+        self.op("updateDispute", disputeId=dispute_id, status="submitted", customerConfirmation="yes",
+                customerId=SARAH, filledBy="adviser", narrative="mine")
+        shown = self.service.get_card_dispute(JAMES, dispute_id)["dispute"]
+        self.assertEqual((shown["status"], shown["customerConfirmed"], shown["filledBy"]["narrative"]),
+                         ("draft", False, "assistant"))
+        token = self.adviser_token(dispute_id)
+        self.service.adviser_open(token)
+        self.assertEqual(self.op("updateDispute", disputeId=dispute_id, narrative="later")["reason"], "with_adviser")   # R1
+
+    def test_card_actions_happen_once_and_only_on_the_customers_own_cards(self):
+        first = self.op("blockCard", cardType="debit")
+        again = self.op("blockCard", cardType="DEBIT")
+        self.assertEqual(first["reference"], again["reference"], "a repeated call never blocks twice")
+        self.assertEqual(len(self.service.get_card_dispute(JAMES, self.started()["disputeId"])["card_actions"]), 1)
+        entry.doors.customer_of_contact = lambda contact: SARAH
+        self.assertEqual(self.op("blockCard", cardType="credit")["reason"], "card_not_found", "Sarah has no credit card")
+
+    def test_the_form_link_is_texted_to_the_callers_mobile_and_opens_the_form_joined_to_the_call(self):
+        dispute_id = self.started()["disputeId"]
+        sent = self.op("sendFormLink", disputeId=dispute_id)
+        self.assertEqual((sent["ok"], sent["sent"], sent["sentTo"]), (True, True, "the mobile ending 123"))
+        (phone, words), = self.texts
+        self.assertEqual(phone, MOBILE)
+        self.assertTrue(words.startswith("Test Bank: "))
+        link = re.search(r"https://pages\.example/#k=([A-Za-z0-9_-]+)", words)
+        self.assertIsNotNone(link, "the secret is after '#', so no server log ever holds it")
+        self.assertNotIn(link.group(1), json.dumps(sent), "the agent never sees the link")
+        self.assertIn("**texted**", self.service.screen_pop(JAMES)["dispute4"])
+
+        opened = entry.lambda_handler(http("POST", "/api/screen/open", {"linkToken": link.group(1)}), None)
+        session = json.loads(opened["body"])["sessionId"]
+        status = self.service.screen_status(session)
+        self.assertEqual((status["state"], status["contactId"], status["editable"], status["dispute"]["disputeId"]),
+                         ("form", CONTACT, True, dispute_id), "Live Sync starts for this call, no code to read out")
+        self.assertTrue(self.op("getDispute", disputeId=dispute_id)["customerWatching"])
+        self.service.page_save(session, {"transactionId": AMAZON, "narrative": "Typed by me."})
+        self.assertEqual(self.op("getDispute", disputeId=dispute_id)["narrative"], "Typed by me.", "the agent sees it")
+
+        for _ in range(4):
+            self.service.open_form_link(link.group(1))
+        self.refused("link_used_up", self.service.open_form_link, link.group(1))
+        self.now += 2 * 60 * 60 + 1
+        self.refused("link_expired", self.service.open_form_link, link.group(1))
+        self.refused("link_expired", self.service.open_form_link, "made-up")
+
+    def test_the_form_link_is_only_texted_to_a_mobile_a_few_times_and_says_why_not(self):
+        dispute_id = self.started()["disputeId"]
+        for number in ("", "anonymous", "+441619009000", "+15551234567"):
+            self.phone = number
+            self.assertEqual(self.op("sendFormLink", disputeId=dispute_id)["reason"], "no_mobile_number", number)
+        self.phone = MOBILE
+        entry.doors.send_sms = lambda phone, text: "sms_not_configured"
+        self.assertEqual(self.op("sendFormLink", disputeId=dispute_id)["reason"], "sms_not_configured")
+        entry.doors.send_sms = lambda phone, text: ""
+        self.assertTrue(self.op("sendFormLink", disputeId=dispute_id)["sent"])
+        self.assertTrue(self.op("sendFormLink", disputeId=dispute_id)["sent"])
+        self.assertEqual(self.op("sendFormLink", disputeId=dispute_id)["reason"], "too_many_links")
+        self.assertEqual(self.op("sendFormLink", disputeId="DSP-NOPE")["reason"], "dispute_not_found")
+
+    def test_hand_over_without_a_dispute_or_a_verified_customer_still_routes(self):
+        self.op("blockCard", cardType="credit")
+        handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover", assistantReason="vulnerability"), None)
+        self.assertEqual((handed["hasDispute"], handed["topicCategory"], handed["escalationReason"]),
+                         ("false", "fraud_security", "vulnerability"))
+        self.assertTrue(handed["conversationSummary"].startswith("Card dispute not drafted. Credit card ending 2291 blocked"))
+        nobody = entry.lambda_handler(flow_event({"customerId": JAMES}, operation="handover"), None)
+        self.assertEqual((nobody["hasDispute"], nobody["conversationSummary"]), ("false", "Card dispute not drafted."))
+        self.assertEqual(entry.lambda_handler(flow_event(VERIFIED, operation="screen_pop"), None)["error"],
+                         "unknown_operation")
+        started = self.started("merchant")
+        merchant = entry.lambda_handler(flow_event(VERIFIED, operation="handover", assistantReason="made-up"), None)
+        self.assertEqual((merchant["topicCategory"], merchant["escalationReason"], merchant["disputeId"]),
+                         ("debit_card", "dispute_incomplete", started["disputeId"]))
+
+    def test_a_tool_call_shaped_like_a_flow_event_is_still_a_tool_call(self):
+        self.started()
+        disguised = flow_event(VERIFIED, operation="handover")
+        for reply in (entry.lambda_handler(dict(disguised), Context("aria-banking-dispute___get_card_dispute")),
+                      entry.lambda_handler({**disguised, "jsonrpc": "2.0"}, None)):
+            self.assertNotIn("conversationSummary", reply)
+
+    def test_logs_carry_no_phone_link_or_customer_words(self):
+        with self.assertLogs(level="INFO") as logs:
+            dispute_id = self.started()["disputeId"]
+            self.op("updateDispute", disputeId=dispute_id, narrative="PRIVATE-WORDS")
+            self.op("sendFormLink", disputeId=dispute_id)
+            entry.lambda_handler(flow_event(VERIFIED, operation="handover", assistantSummary="PRIVATE-NOTE"), None)
+        written = "\n".join(logs.output)
+        token = re.search(r"#k=([A-Za-z0-9_-]+)", self.texts[0][1]).group(1)
+        for private in ("PRIVATE-WORDS", "PRIVATE-NOTE", MOBILE, "0900123", token, "AMAZON"):
+            self.assertNotIn(private, written)
+        self.assertIn("sendFormLink:ok", written)
+        self.assertIn(dispute_id, written)
+
+
 def _has_float(value):
     if isinstance(value, float):
         return True
@@ -727,17 +926,35 @@ class DisputesCollaborator(unittest.TestCase):
         self.assertNotIn("{{", aria)
 
 
-class LiveSyncConfiguration(unittest.TestCase):
-    """SPEC Part 3, route 3: what is pasted into the CX designer and imported into Connect agrees with the code."""
+class CxDesignerConfiguration(unittest.TestCase):
+    """SPEC Part 4: what is pasted into the CX designer and imported into Connect agrees with the code."""
+
+    # The fields the door reads for each operation (dispute_web._acxd_operation).
+    READS = {"listCardsAndPayments": set(), "startDispute": {"transactionId", "disputeType"},
+             "updateDispute": {"disputeId", *dispute_web._UPDATABLE}, "getDispute": {"disputeId"},
+             "blockCard": {"cardType"}, "orderReplacementCard": {"cardType"}, "sendFormLink": {"disputeId"}}
 
     def setUp(self):
-        self.node = (FOLDER / "acxd" / "live-sync-node.md").read_text()
-        self.flow = json.loads((FOLDER / "flows" / "card-dispute-livesync-handover-flow.json").read_text())
+        sys.path.insert(0, str(FOLDER / "flows"))
+        import build_card_dispute_flow
+        self.builder = build_card_dispute_flow
+        self.doc = (FOLDER / "acxd" / "disputes-assistant.md").read_text()
+        self.flow = json.loads((FOLDER / "flows" / "card-dispute-flow.json").read_text())
         self.blocks = {a["Identifier"]: a for a in self.flow["Actions"]}
 
     def declared(self, set_by_connect):
-        rows = re.findall(r"^\| `(\w+)` \| String \| (On|Off) \|", self.node, re.M)
+        rows = re.findall(r"^\| `(\w+)` \| String \| (On|Off) \|", self.doc, re.M)
         return {name for name, frontend in rows if (frontend == "On") == set_by_connect}
+
+    def data_requests(self):
+        sections = re.split(r"^#### `(\w+)`\n", self.doc.split("### 1c. Data requests")[1].split("## 2.")[0], flags=re.M)
+        return dict(zip(sections[1::2], sections[2::2]))
+
+    def test_the_committed_flow_is_what_the_builder_makes(self):
+        built = self.builder.build(self.builder.REGION, self.builder.ACCOUNT_ID, self.builder.INSTANCE_ID,
+                                   self.builder.WORKSPACE_ID, self.builder.NOT_CHOSEN, self.builder.NOT_CHOSEN,
+                                   self.builder.HUMAN_HANDOVER_FLOW_ID, self.builder.DISPUTE_FUNCTION)
+        self.assertEqual(built, self.flow)
 
     def test_flow_passes_only_declared_context_variables_and_at_most_ten(self):
         passed = self.blocks["CardDisputeAssistant"]["Parameters"]["AgentConfiguration"]["ContextVariables"]
@@ -745,48 +962,75 @@ class LiveSyncConfiguration(unittest.TestCase):
         self.assertLessEqual(len(passed), 10)
         self.assertEqual(passed["contactId"], "$.ContactId")
         self.assertNotIn("customerId", passed, "the service finds the customer from the contact itself (R7)")
+        self.assertNotIn("screenCode", passed, "ARIA never asks for a code")
 
     def test_flow_reads_back_only_what_the_assistant_sets(self):
         read = set(re.findall(r"\$\.AgenticCX\.ContextVariables\.(\w+)", json.dumps(self.flow)))
         self.assertEqual(read, self.declared(set_by_connect=False))
         for name in read:
-            self.assertRegex(self.node, rf"\| `{name}` \| `", f"{name} is set on the Escalate node")
+            self.assertRegex(self.doc, rf"\| `{name}` \| `", f"{name} is set on the Escalate node")
 
-    def test_every_way_out_of_the_assistant_reaches_a_person_with_a_topic(self):
-        start = self.blocks["CardDisputeAssistant"]["Transitions"]
-        self.assertEqual(start["Conditions"][0]["NextAction"], "CheckTopic")
-        for name in ("Escalated", "EscalatedTopicUnknown", "AssistantUnavailable"):
-            block = self.blocks[name]
-            self.assertTrue(block["Parameters"]["Attributes"]["topicCategory"])
-            self.assertEqual(block["Transitions"]["NextAction"], "ToHumanHandover")
-        self.assertEqual(self.blocks["EscalatedTopicUnknown"]["Parameters"]["Attributes"]["topicCategory"], "fraud_security")
-        topics = [c["Condition"]["Operands"][0] for c in self.blocks["CheckTopic"]["Transitions"]["Conditions"]]
-        self.assertEqual(topics, ["fraud_security", "debit_card", "credit_card"])
-        self.assertIn("fraud_security, debit_card, credit_card", self.node)
+    def test_every_way_out_except_hanging_up_reaches_a_person_through_the_record(self):
+        out = self.blocks["CardDisputeAssistant"]["Transitions"]
+        exits = {e["ErrorType"]: e["NextAction"] for e in out["Errors"]}
+        self.assertEqual((out["NextAction"], out["Conditions"][0]["NextAction"]), ("BuildHandover", "BuildHandover"))
+        self.assertEqual(exits, {"NoMatchingError": "BuildHandover", "NoMatchingCondition": "BuildHandover",
+                                 "InputTimeLimitExceeded": "Disconnect"})
+        build = self.blocks["BuildHandover"]["Parameters"]
+        self.assertTrue(build["LambdaFunctionARN"].endswith(":function:aria-card-dispute"))
+        self.assertEqual(build["LambdaInvocationAttributes"]["operation"], "handover")
+        self.assertEqual(build["ResponseValidation"], {"ResponseType": "STRING_MAP"})
+        self.assertEqual(self.blocks["BuildHandover"]["Transitions"]["Errors"][0]["NextAction"], "HandoverUnavailable")
+        for name in ("SetHandover", "HandoverUnavailable"):
+            self.assertEqual(self.blocks[name]["Transitions"]["NextAction"], "ToHumanHandover")
+        self.assertEqual(self.blocks["HandoverUnavailable"]["Parameters"]["Attributes"]["topicCategory"], "fraud_security")
+        self.assertTrue(self.blocks["ToHumanHandover"]["Parameters"]["ContactFlowId"].endswith(
+            "/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"), "ARIA human handover, as ARIA's own escalations")
 
-    def test_the_one_data_request_matches_the_door_it_calls(self):
-        sample = json.loads(re.search(r"Request sample \| `(\{.*?\})`", self.node).group(1))
-        self.assertEqual(set(sample), {"operation", "contactId", "code"})
-        self.assertRegex(sample["contactId"], dispute_web.CONTACT_ID)
-        response = json.loads(re.search(r"Response sample \| `(\{.*?\})`", self.node).group(1))
-        self.assertEqual(set(response), set(dispute_web.ACXD_REPLY))
-        self.assertEqual(re.findall(r"\| Data request \| `(\w+)`", self.node), ["attachToScreen"])
+    def test_the_flow_copies_exactly_what_the_hand_over_operation_returns(self):
+        service = DisputeService(MemoryStore(lambda: 0.0), lambda: 0.0)
+        copied = self.blocks["SetHandover"]["Parameters"]["Attributes"]
+        self.assertEqual(copied, {k: f"$.External.{k}" for k in service.handover("") if k != "hasDispute"})
+        self.assertEqual(set(self.builder.HANDOVER_ATTRIBUTES), set(copied))
+        meta = self.flow["Metadata"]["ActionMetadata"]["BuildHandover"]
+        self.assertEqual(meta["dynamicMetadata"], {"operation": False, "assistantSummary": True, "assistantReason": True})
+
+    def test_each_data_request_matches_the_door_it_calls(self):
+        requests = self.data_requests()
+        self.assertEqual(set(requests), set(dispute_web.ACXD_OPERATIONS) - {"attachToScreen"})
+        for name, text in requests.items():
+            sample = json.loads(re.search(r"Request sample \| `(\{.*?\})`", text).group(1))
+            self.assertEqual(sample.pop("operation"), name)
+            self.assertRegex(sample.pop("contactId"), dispute_web.CONTACT_ID)
+            self.assertEqual(set(sample), self.READS[name], name)
+            response = re.search(r"Response sample \| (.*?) \|", text).group(1)
+            if response.startswith("`"):
+                self.assertEqual(set(json.loads(response.strip("`"))), set(dispute_web.ACXD_OPERATIONS[name]), name)
+            else:
+                self.assertEqual(dispute_web.ACXD_OPERATIONS[name], dispute_web.ACXD_OPERATIONS["startDispute"], name)
+            for field in ("customerId", "customer_id", "phone", "phoneNumber"):
+                self.assertNotIn(field, text, f"{name}: never from the request (R7)")
 
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
-        self.assertIn("Never submit, confirm or accept a dispute", self.node)
-        self.assertNotIn("Task complete |", self.node.split("### 3d.")[1].split("Also connect")[0])
+        self.assertIn("Never submit, confirm or accept a dispute", self.doc)
+        exits = self.doc.split("### 3e.")[1].split("Also connect")[0]
+        self.assertNotIn("Task complete |", exits)
+        self.assertFalse(any(re.search(r"submit|confirm", op, re.I) for op in dispute_web.ACXD_OPERATIONS))
 
     def test_prompt_variables_are_all_declared(self):
-        prompt = self.node.split("### 3a. Agent prompt")[1].split("```")[1]
-        used = set(re.findall(r"\{(\w+)\}", prompt))
+        prompt = self.doc.split("### 3b. The assistant node")[1].split("```")[1]
+        opening = self.doc.split("### 3a. The opening")[1].split("### 3b.")[0]
+        used = set(re.findall(r"\{(\w+)\}", prompt + opening)) - {"openingQuestion"}
         self.assertLessEqual(used, self.declared(True) | self.declared(False))
 
     def test_arias_hand_over_tool_and_prompt_agree(self):
         schema = json.loads((FOLDER / "acxd" / "connect-ai-agent" / "StartCardDispute.schema.json").read_text())
-        self.assertEqual(schema["required"], ["handoverSummary", "screenCode"])
-        self.assertEqual(schema["properties"]["screenCode"]["pattern"], "^\\d{6}$")
-        self.assertEqual(set(schema["properties"]), {"handoverSummary", "screenCode"})
+        self.assertEqual((schema["required"], set(schema["properties"])), (["handoverSummary"], {"handoverSummary"}))
+        block = (FOLDER / "prompts" / "card-disputes-cx-designer-block.txt").read_text()
+        self.assertIn("call the StartCardDispute tool", block)
+        self.assertIn("Ask nothing about the payment, the card, a form, a link, a code or a screen", block)
+        self.assertNotIn("Escalate tool", block, "the flow does the hand-over; ARIA only starts it")
 
 
 class FakeTable:
@@ -845,6 +1089,21 @@ class BothStoresBehaveTheSame(unittest.TestCase):
         service.adviser_open(token)
         service.customer_confirm(session["sessionId"])
         self.assertEqual(service.adviser_submit(token)["dispute"]["status"], "submitted")
+
+    def test_the_disputes_assistant_works_on_the_dynamodb_store(self):
+        now = [1_800_000_000.25]
+        service = DisputeService(DynamoStore("t", lambda: now[0], table=FakeTable()), lambda: now[0], page_url="https://p")
+        blocked = service.card_action(JAMES, "debit", "blocked")
+        dispute_id = service.assistant_start(JAMES, AMAZON, "unauthorised")["disputeId"]     # after the block
+        service.card_action(JAMES, "debit", "replacement_ordered")
+        self.assertEqual(service.card_action(JAMES, "debit", "blocked")["reference"], blocked["reference"])
+        link = service.mint_form_link(JAMES, CONTACT, dispute_id).split("#k=")[1]
+        session = service.open_form_link(link)["sessionId"]
+        self.assertEqual(service.screen_status(session)["dispute"]["cardBlocked"], "yes", "blocked before the dispute began")
+        handed = service.handover(JAMES, "Calm.")
+        self.assertIn("Debit card ending 4821 blocked", handed["conversationSummary"])
+        self.assertIn("replacement ordered", service.screen_pop(JAMES)["dispute5"])
+        self.assertFalse(_has_float(service.get_card_dispute(JAMES, dispute_id)), "DynamoDB numbers come back plain")
 
 
 if __name__ == "__main__":

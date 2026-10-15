@@ -172,7 +172,7 @@ BRIEFING_EMPTY_SLOT = "—"
 # The card dispute Lambda (connect-card-dispute), asked whether the customer has
 # an open dispute. Unset = that feature is not deployed; the screen pop says no.
 DISPUTE_FUNCTION_NAME: str = os.environ.get("DISPUTE_FUNCTION_NAME", "")
-DISPUTE_LINES = 4
+DISPUTE_LINES = 6        # dispute1..6 in the screen pop: reference, payment, form, screen, cards, note
 # Live Sync's main Lambda (connect-livesync-mortgage), asked for a saved mortgage
 # application. Unset = not available; the screen pop shows a dash.
 LIVESYNC_FUNCTION_NAME: str = os.environ.get("LIVESYNC_FUNCTION_NAME", "")

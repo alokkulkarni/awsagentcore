@@ -322,10 +322,12 @@ class NeverBlocksTheCustomer(Harness):
             assist.DISPUTE_FUNCTION_NAME = "aria-card-dispute"
             assist._invoke_dispute_lambda = lambda payload: asked.append(payload) or {
                 "hasDispute": "true", "disputeId": "DSP-AB12CD34", "disputeUrl": "https://p/adviser#t",
-                "dispute1": "one", "dispute2": "two", "dispute3": "three", "dispute4": "four", "extra": "ignored"}
+                "dispute1": "one", "dispute2": "two", "dispute3": "three", "dispute4": "four", "dispute6": "six",
+                "extra": "ignored"}
             lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
             self.assertEqual(asked, [{"operation": "screen_pop", "customerId": JAMES}])
             self.assertEqual((lines["hasDispute"], lines["disputeId"], lines["dispute4"]), ("true", "DSP-AB12CD34", "four"))
+            self.assertEqual((lines["dispute5"], lines["dispute6"]), ("—", "six"), "a line not sent shows a dash")
             self.assertNotIn("extra", lines)
             # Deployed, but it fails: the screen pop still opens, without a dispute.
             def boom(payload):

@@ -81,6 +81,11 @@ _SPENDING = (
 )
 
 
+def customer_cards(customer_id: str) -> list[dict]:
+    """The customer's cards, as the bank holds them. A card can only be blocked or replaced if it is here."""
+    return [{"card_type": kind, "card_last_four": last_four} for kind, last_four in _CARDS.get(customer_id, ())]
+
+
 def card_transactions(customer_id: str, card_type: str = "") -> list[dict]:
     """The customer's recent card transactions, newest first, optionally for one card type."""
     transactions = []
@@ -138,6 +143,14 @@ def check_fields(fields: dict) -> dict:
             raise ValueError(f"{name} must be one of: {', '.join(allowed)}")
         clean[name] = value
     return clean
+
+
+def payment_words(dispute: dict) -> str:
+    """'AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821', or '' before a payment is chosen."""
+    if not dispute.get("transactionId"):
+        return ""
+    return (f"{dispute['merchant']}, £{dispute['amount']} on {dispute['transactionDate']}, "
+            f"{dispute['cardType']} card ending {dispute['cardLastFour']}")
 
 
 def view(dispute: dict) -> dict:

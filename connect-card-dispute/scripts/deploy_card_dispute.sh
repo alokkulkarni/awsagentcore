@@ -3,17 +3,20 @@
 # deploy_card_dispute.sh
 # =============================================================================
 # Deploys the card dispute service: its table, its Lambda, the web address for
-# the customer and adviser pages, and ARIA's five dispute tools.
+# the customer and adviser pages and for the CX designer disputes assistant's
+# tools, and the read-only dispute tool for agent assist.
 #
 # YOU run this script. It makes changes in your AWS account:
 #   1. DynamoDB table for disputes (created once, then left alone)
 #   2. IAM role for the Lambda: read and write that one table, nothing else
 #   3. Lambda aria-card-dispute (code and settings), and a key in Secrets
-#      Manager that the CX designer agent's tool must present (Live Sync route)
-#   4. HTTP API in front of the Lambda, for the two web pages
-#   5. Gateway target aria-banking-dispute on the existing MCP gateway, with the
-#      five tools, and permission for the gateway to call the Lambda
-#   6. Tests: one tool call and one page request
+#      Manager that the CX designer assistant's Data requests must present
+#   4. HTTP API in front of the Lambda, for the pages and the CX designer
+#   5. Connect may call the Lambda from a flow (the hand-back to ARIA), and the
+#      Lambda is added to the instance, so the flow's Lambda block can pick it
+#   6. Gateway target aria-banking-dispute on the existing MCP gateway, with the
+#      dispute tools, and permission for the gateway to call the Lambda
+#   7. Tests: a tool call, the hand-back call, the pages and the CX designer door
 #
 # It uses the AWS CLI only. It does NOT change any AI agent, prompt or contact
 # flow. Those are the manual steps printed at the end and written up in
@@ -34,6 +37,13 @@
 #   --merchant-topic  TOPIC   Route "problem with a payment I made" disputes to
 #                             this topic, e.g. fraud_security. Default: the
 #                             card's own topic (debit_card / credit_card)
+#   --sms-from        ID      AWS End User Messaging sender for texting the form
+#                             link: a phone number, sender ID or pool, as its ID or
+#                             ARN. Kept from the last run if not given. Without it
+#                             the assistant says it cannot text, and carries on
+#   --sms-prefixes    LIST    Comma-separated number prefixes a text may go to
+#                             (default: +447, UK mobiles; kept from the last run)
+#   --bank-name       NAME    How the text names the sender (default: "Your bank")
 #   --skip-gateway            Do not touch the MCP gateway
 #   --dry-run                 Print what would be done without changing anything
 #   --help                    Show this help text
@@ -63,6 +73,9 @@ REGION="${AWS_REGION:-eu-west-2}"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
 ENV_NAME="${ARIA_ENV:-prod}"
 MERCHANT_TOPIC=""
+SMS_FROM=""
+SMS_PREFIXES=""
+BANK_NAME=""
 INSTANCE_ID="${INSTANCE_ID:-f969d4b4-f716-4974-a325-bb7899f2f293}"
 DO_GATEWAY=true
 DRY_RUN=false
@@ -74,7 +87,7 @@ API_NAME="aria-card-dispute-pages"
 TARGET_NAME="aria-banking-dispute"
 HANDLER_NAME="aria_card_dispute.lambda_handler"
 ACXD_KEY_SECRET="aria-card-dispute/acxd-key"        # made by this script
-TOUCHPOINT_SECRET="aria-card-dispute/touchpoint"    # made by you, once you have the keys (README Part J)
+TOUCHPOINT_SECRET="aria-card-dispute/touchpoint"    # made by you, once you have the keys (README step 7)
 TOUCHPOINT_VERSION="1.0.1"                          # pinned; the version the mortgage page runs
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -89,6 +102,9 @@ while [[ $# -gt 0 ]]; do
         --env)            ENV_NAME="$2";       shift 2 ;;
         --instance-id)    INSTANCE_ID="$2";    shift 2 ;;
         --merchant-topic) MERCHANT_TOPIC="$2"; shift 2 ;;
+        --sms-from)       SMS_FROM="$2";       shift 2 ;;
+        --sms-prefixes)   SMS_PREFIXES="$2";   shift 2 ;;
+        --bank-name)      BANK_NAME="$2";      shift 2 ;;
         --skip-gateway)   DO_GATEWAY=false; shift ;;
         --dry-run)        DRY_RUN=true; shift ;;
         --help|-h)
@@ -112,6 +128,9 @@ for source in "$LAMBDA_DIR"/*.py; do
 done
 [[ "$MERCHANT_TOPIC" =~ ^[a-z_]*$ ]] || die "--merchant-topic must be lower-case letters and underscores."
 [[ "$INSTANCE_ID" =~ ^[0-9a-f-]{36}$ ]] || die "--instance-id is not a Connect instance ID."
+[[ "$SMS_FROM" =~ ^[A-Za-z0-9:/+_.-]*$ ]] || die "--sms-from must be a phone number, sender ID, pool ID or ARN."
+[[ "$SMS_PREFIXES" =~ ^[+0-9,]*$ ]] || die "--sms-prefixes must be prefixes like +447, comma-separated."
+[[ "$BANK_NAME" =~ ^[A-Za-z0-9\ \&.-]{0,30}$ ]] || die "--bank-name: letters, digits, spaces, & . - only, up to 30."
 
 step "Checking AWS credentials..."
 CALLER_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) \
@@ -139,6 +158,16 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 # one line per page. Collect every match and take the first real value.
 first_value() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1 || true; }
 
+# Settings not given on the command line are kept from the last run, so running the
+# script again never switches texting off.
+current_setting() {
+    aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
+        --query "Environment.Variables.$1" --output text 2>/dev/null | first_value
+}
+[[ -n "$SMS_FROM" ]] || SMS_FROM=$(current_setting SMS_ORIGINATION_IDENTITY)
+[[ -n "$SMS_PREFIXES" ]] || SMS_PREFIXES=$(current_setting SMS_ALLOWED_PREFIXES)
+[[ -n "$BANK_NAME" ]] || BANK_NAME=$(current_setting BANK_NAME)
+
 header "Deploying with"
 echo "  Region    : ${REGION}"
 echo "  Account   : ${ACCOUNT_ID}"
@@ -147,6 +176,7 @@ echo "  Table     : ${TABLE_NAME}"
 echo "  Gateway   : ${GATEWAY_NAME} $($DO_GATEWAY || echo '(skipped)')"
 # No apostrophe may appear inside a ${VAR:-default}: bash would read it as opening a quoted string.
 echo "  Merchant disputes go to: ${MERCHANT_TOPIC:-the topic of the card itself}"
+echo "  Form link texts from    : ${SMS_FROM:-not set, so the assistant will not text}"
 
 # =============================================================================
 # Step 1 — Table
@@ -196,6 +226,17 @@ else
 fi
 
 # Read and write single items in one table. No scans, no deletes, nothing else.
+# Texting is allowed only once a sender is set.
+SMS_STATEMENT=""
+if [[ -n "$SMS_FROM" ]]; then
+    SMS_STATEMENT=',
+    {
+      "Sid": "TextTheFormLink",
+      "Effect": "Allow",
+      "Action": "sms-voice:SendTextMessage",
+      "Resource": "*"
+    }'
+fi
 cat > "${BUILD_DIR}/policy.json" <<POLICY
 {
   "Version": "2012-10-17",
@@ -207,20 +248,20 @@ cat > "${BUILD_DIR}/policy.json" <<POLICY
       "Resource": "${TABLE_ARN}"
     },
     {
-      "Sid": "LiveSyncRouteFindTheCustomerOfAContact",
+      "Sid": "FindTheCustomerAndPhoneOfAContact",
       "Effect": "Allow",
       "Action": "connect:GetContactAttributes",
       "Resource": "arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}/contact/*"
     },
     {
-      "Sid": "LiveSyncRouteReadItsOwnTwoSecrets",
+      "Sid": "ReadItsOwnTwoSecrets",
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",
       "Resource": [
         "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:${ACXD_KEY_SECRET}-??????",
         "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:${TOUCHPOINT_SECRET}-??????"
       ]
-    }
+    }${SMS_STATEMENT}
   ]
 }
 POLICY
@@ -261,19 +302,21 @@ ok "Package ready: $(cd "${BUILD_DIR}/package" && find . -type f | wc -l | tr -d
 write_env() {
     TABLE_NAME="$TABLE_NAME" PUBLIC_BASE_URL="$1" MERCHANT_TOPIC="$MERCHANT_TOPIC" INSTANCE_ID="$INSTANCE_ID" \
     ACXD_KEY_SECRET="$ACXD_KEY_SECRET" TOUCHPOINT_SECRET="$TOUCHPOINT_SECRET_IN_USE" \
+    SMS_FROM="$SMS_FROM" SMS_PREFIXES="$SMS_PREFIXES" BANK_NAME="$BANK_NAME" \
         python3 - > "${BUILD_DIR}/env.json" <<'PY'
 import json, os
 variables = {"DISPUTE_TABLE_NAME": os.environ["TABLE_NAME"], "CONNECT_INSTANCE_ID": os.environ["INSTANCE_ID"],
              "ACXD_KEY_SECRET_ID": os.environ["ACXD_KEY_SECRET"]}
 for name, key in (("PUBLIC_BASE_URL", "PUBLIC_BASE_URL"), ("MERCHANT_TOPIC", "MERCHANT_DISPUTE_TOPIC"),
-                  ("TOUCHPOINT_SECRET", "TOUCHPOINT_SECRET_ID")):
+                  ("TOUCHPOINT_SECRET", "TOUCHPOINT_SECRET_ID"), ("SMS_FROM", "SMS_ORIGINATION_IDENTITY"),
+                  ("SMS_PREFIXES", "SMS_ALLOWED_PREFIXES"), ("BANK_NAME", "BANK_NAME")):
     if os.environ.get(name):
         variables[key] = os.environ[name]
 print(json.dumps({"Variables": variables}))
 PY
 }
 
-# The key the CX designer agent's tool must present (Live Sync route). Made once,
+# The key the CX designer assistant's Data requests must present. Made once,
 # by this script, straight into Secrets Manager. The script never reads it back.
 if aws secretsmanager describe-secret --secret-id "$ACXD_KEY_SECRET" --region "$REGION" >/dev/null 2>&1; then
     ok "CX designer key already exists: ${ACXD_KEY_SECRET} (kept as it is)"
@@ -288,7 +331,7 @@ else
 fi
 
 # The Live Sync keys for the page come from your CX designer application, so only
-# you can create this secret (README Part J). Until it exists the page is a plain form.
+# you can create this secret (README step 7). Until it exists the page is a plain form.
 TOUCHPOINT_SECRET_IN_USE=""
 if aws secretsmanager describe-secret --secret-id "$TOUCHPOINT_SECRET" --region "$REGION" >/dev/null 2>&1; then
     TOUCHPOINT_SECRET_IN_USE="$TOUCHPOINT_SECRET"
@@ -364,9 +407,32 @@ ok "Customer page : ${PAGE_URL}/"
 ok "Adviser page  : opened from the screen pop (${PAGE_URL}/adviser#<link token>)"
 
 # =============================================================================
-# Step 5 — ARIA's tools on the MCP gateway
+# Step 5 — Connect may call the Lambda from a flow
 # =============================================================================
-header "Step 5 — MCP gateway target: ${TARGET_NAME}"
+header "Step 5 — Connect flows may call ${FUNCTION_NAME}"
+
+# The "Card dispute assistant" flow calls the Lambda when the assistant hands the
+# call back. Only this Connect instance may, and the Lambda must be added to the
+# instance before a flow's Lambda block can choose it.
+INSTANCE_ARN="arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}"
+run aws lambda add-permission --function-name "$FUNCTION_NAME" --region "$REGION" \
+    --statement-id "ConnectFlowInvoke" --action "lambda:InvokeFunction" --principal "connect.amazonaws.com" \
+    --source-account "$ACCOUNT_ID" --source-arn "$INSTANCE_ARN" \
+    >/dev/null 2>&1 || warn "Connect's invoke permission is already set (non-fatal)"
+associated=$(aws connect list-lambda-functions --instance-id "$INSTANCE_ID" --region "$REGION" \
+    --query "LambdaFunctions[?@=='${LAMBDA_ARN}']" --output text 2>/dev/null | first_value)
+if [[ -n "$associated" ]]; then
+    ok "Already added to the Connect instance."
+else
+    run aws connect associate-lambda-function --instance-id "$INSTANCE_ID" --region "$REGION" \
+        --function-arn "$LAMBDA_ARN"
+    ok "Added to the Connect instance."
+fi
+
+# =============================================================================
+# Step 6 — The read-only dispute tool on the MCP gateway
+# =============================================================================
+header "Step 6 — MCP gateway target: ${TARGET_NAME}"
 
 if ! $DO_GATEWAY; then
     warn "Skipped (--skip-gateway)."
@@ -439,9 +505,9 @@ PY
 fi
 
 # =============================================================================
-# Step 6 — Tests
+# Step 7 — Tests
 # =============================================================================
-header "Step 6 — Testing"
+header "Step 7 — Testing"
 
 if $DRY_RUN; then
     warn "Skipped in dry-run."
@@ -473,6 +539,21 @@ else
         -d '{}' "${PAGE_URL}/api/screen" || true)
     [[ "$code" == "200" ]] || die "The page could not get a code (HTTP ${code}). Check the Lambda's log."
     ok "The page can get a code, so the Lambda can read and write its table."
+
+    # The hand-back call, the way the Connect flow makes it. An unverified test contact: reads, writes nothing.
+    echo '{"Name":"ContactFlowEvent","Details":{"ContactData":{"Attributes":{}},"Parameters":{"operation":"handover"}}}' \
+        > "${BUILD_DIR}/handover.json"
+    aws lambda invoke --function-name "$FUNCTION_NAME" --region "$REGION" --cli-binary-format raw-in-base64-out \
+        --payload "file://${BUILD_DIR}/handover.json" "${BUILD_DIR}/handover-out.json" >/dev/null
+    topic=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("topicCategory",""))' "${BUILD_DIR}/handover-out.json")
+    [[ "$topic" == "fraud_security" ]] || die "The hand-back call did not answer as expected: $(cat "${BUILD_DIR}/handover-out.json")"
+    ok "The hand-back call works (an unknown caller goes to fraud_security)."
+
+    # The CX designer door refuses a request without the key. (The right key is only in Secrets Manager.)
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+        -d '{"operation":"listCardsAndPayments"}' "${API_URL}/acxd/ops" || true)
+    [[ "$code" == "401" ]] || die "The CX designer door answered HTTP ${code} without a key; expected 401."
+    ok "The CX designer door is up and refuses requests without the key."
 fi
 
 # =============================================================================
@@ -486,25 +567,22 @@ cat <<SUMMARY
   Lambda        : ${FUNCTION_NAME}
   Table         : ${TABLE_NAME}
 
-  For the Live Sync route (README Part J):
-    CX designer tool address : ${API_URL}/acxd/ops
-    Its key                  : Secrets Manager secret ${ACXD_KEY_SECRET}
-    Live Sync keys           : ${TOUCHPOINT_SECRET_IN_USE:-not set yet; create secret ${TOUCHPOINT_SECRET} and run this again}
+  For the CX designer disputes assistant (acxd/disputes-assistant.md):
+    Data request address : ${API_URL}/acxd/ops
+    Its key              : Secrets Manager secret ${ACXD_KEY_SECRET}
+    Live Sync keys       : ${TOUCHPOINT_SECRET_IN_USE:-not set yet; create secret ${TOUCHPOINT_SECRET} and run this again}
+    Form link texts      : ${SMS_FROM:-off; run again with --sms-from to switch on}
 
-$(printf "${YELLOW}")What is left, in this order (details in connect-card-dispute/README.md):$(printf "${RESET}")
+$(printf "${YELLOW}")What is left, in this order (connect-card-dispute/README.md, "Set it up"):$(printf "${RESET}")
 
-  1. Run the agent-assist deploy script again, so the adviser's screen pop
-     can ask this Lambda about a customer's dispute:
-       ./connect-agent-assist/scripts/deploy_agent_assist.sh
-
-  2. Give ARIA the five tools (README Part C): AI agent designer, AI agents,
-     my-conversation-agent, add the tools from aria-banking-dispute.
-
-  3. Build ARIA's new prompt and paste it (README Part D):
-       python3 connect-card-dispute/scripts/build_aria_prompt.py
-
-  4. Give the agent-assist agents the read-only tool get_card_dispute (README Part E).
-
-  5. Import the new screen pop (README Part F).
+  1. ./connect-agent-assist/scripts/deploy_agent_assist.sh   (screen pop reads disputes)
+  2. Build the "Card dispute" application in the CX designer (acxd/disputes-assistant.md)
+  3. Store its Live Sync keys as secret ${TOUCHPOINT_SECRET}, then run this script again
+  4. python3 connect-card-dispute/flows/build_card_dispute_flow.py --application-id <id> --alias <alias>
+     and import connect-card-dispute/flows/card-dispute-flow.json as "Card dispute assistant"
+  5. ARIA: the StartCardDispute tool, and the prompt from
+       python3 connect-card-dispute/scripts/build_aria_prompt.py --mode cx
+  6. conversation bot flow: one StartCardDispute branch, then point it at ARIA's new version
+  7. Import the screen pop; give the agent-assist agents get_card_dispute
 
 SUMMARY
