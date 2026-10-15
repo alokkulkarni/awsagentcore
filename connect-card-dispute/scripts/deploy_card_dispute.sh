@@ -337,7 +337,16 @@ else
         --target "$LAMBDA_ARN" --query "ApiId" --output text)
     ok "HTTP API created: ${API_ID}"
 fi
-PAGE_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com"
+API_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com"
+PAGE_URL="$API_URL"
+# If CloudFront has been put in front of the pages (deploy_pages_cloudfront.sh),
+# customers and advisers use its address, and links are built with it.
+CF_DOMAIN=$(aws cloudfront list-distributions \
+    --query "DistributionList.Items[?Comment=='${API_NAME}'].DomainName" --output text 2>/dev/null | first_value)
+if [[ -n "$CF_DOMAIN" ]]; then
+    PAGE_URL="https://${CF_DOMAIN}"
+    ok "CloudFront is in front of the pages: ${PAGE_URL}"
+fi
 
 # Only this API may call the Lambda over the web, and never faster than this.
 run aws lambda add-permission --function-name "$FUNCTION_NAME" --region "$REGION" \
@@ -478,7 +487,7 @@ cat <<SUMMARY
   Table         : ${TABLE_NAME}
 
   For the Live Sync route (README Part J):
-    CX designer tool address : ${PAGE_URL}/acxd/ops
+    CX designer tool address : ${API_URL}/acxd/ops
     Its key                  : Secrets Manager secret ${ACXD_KEY_SECRET}
     Live Sync keys           : ${TOUCHPOINT_SECRET_IN_USE:-not set yet; create secret ${TOUCHPOINT_SECRET} and run this again}
 

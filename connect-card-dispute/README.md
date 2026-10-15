@@ -113,6 +113,18 @@ customer page. Add `--dry-run` first if you want to see what it would do.
 
 At the end it prints the **customer page** address. Keep it: you open it in Part G.
 
+**Optional: put CloudFront in front of the pages.**
+
+```bash
+./connect-card-dispute/scripts/deploy_pages_cloudfront.sh
+```
+
+The pages work without it, served by the Lambda. With it, the 3.6 MB Touchpoint library is cached
+close to the customer and both pages get one stable `https://….cloudfront.net` address. Only the
+library and the pages' own files are cached; every page and every call goes to the Lambda
+uncached. It takes 5 to 15 minutes to roll out, and later runs of the first script keep using its
+address.
+
 **2. The agent-assist Lambda, again.**
 
 ```bash
