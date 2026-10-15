@@ -146,7 +146,9 @@ Each has a **name**, a **description** the assistant reads to decide when to use
 the other fields differ.
 
 Below are seven sections, one per Data request, each with every step and every value written out.
-Do them in order. Each takes about five minutes.
+Do them in order. Each takes about five minutes. Already made them? Open each one and compare it
+with its section: the description and both samples must match exactly. Where they differ, paste
+the new ones and **Auto-generate** the models again.
 
 Every reply has `ok`, `reason` and `message`. When `ok` is false, `message` tells the assistant what
 to do, and it follows it. None of these takes a customer ID or a phone number: the service finds
@@ -160,13 +162,13 @@ If a test goes wrong:
 
 #### `listCardsAndPayments`
 
-Data request 1 of 7. This one looks up the customer's cards and recent payments.
+Data request 1 of 7. This one looks up the customer's cards and one page of their recent payments.
 
 1. Left menu → **Resources** → **Data requests** → **New data request**.
 2. **Name**: `listCardsAndPayments`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   The customer's cards (with whether each is blocked) and their recent card payments. Call it first, before asking which payment.
+   The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -177,25 +179,30 @@ Data request 1 of 7. This one looks up the customer's cards and recent payments.
       then `card_dispute_api_key`. It becomes a chip.
 5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
    ```json
-   {"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666"}
+   {"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666","page":1,"fromDate":"2026-10-01","toDate":"2026-10-15","cardType":"debit"}
    ```
+   Check that `page` came out as type **Number**, not Text.
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821"}]}
+   {"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821","label":"11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
       - `operation`: `listCardsAndPayments`
       - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `page`: `1`
+      - `fromDate`: `2026-10-01`
+      - `toDate`: `2026-10-15`
+      - `cardType`: `debit`
 
    ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
    verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
 
 The same two samples, for reference only (nothing more to do):
 
-| Request sample | `{"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666"}` |
+| Request sample | `{"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666","page":1,"fromDate":"2026-10-01","toDate":"2026-10-15","cardType":"debit"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821"}]}` |
+| Response sample | `{"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821","label":"11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}` |
 
 #### `startDispute`
 
@@ -567,15 +574,15 @@ fixed question as a back-up.
    2. Click it. **Output variable**: `openingQuestion`.
    3. **Prompt**: paste this, then delete the pasted `{handoverSummary}` and insert the chip (type
       `{`, choose the context variable `handoverSummary`):
-      "The customer wants to dispute a card payment. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves the dispute on without asking for anything they already said. If they named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise ask which payment it is: the shop and roughly how much is enough. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
+      "The customer wants to dispute a card payment. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves the dispute on without asking for anything they already said. If they clearly named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise offer to show them their most recent card payments, or payments from a particular time if they remember roughly when it was, and ask which they would like. Never ask them for the shop name or the amount. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
 3. **Say that question.**
    1. Add a **Basic** node. Drag a line from the Generative text node's **Success** to it.
    2. Click it. **Message**: type `{` and choose `openingQuestion`. The message is just that chip.
 4. **The back-up question.**
    1. Add another **Basic** node. Drag lines from the Generative text node's **Failure** and
       **Timeout** to it.
-   2. Click it. **Message**: "Which card payment would you like to dispute? The shop and roughly
-      how much is enough."
+   2. Click it. **Message**: "I can show you your most recent card payments, or payments from a
+      particular time if you remember roughly when it was. Which would you like?"
 
 **The assistant.**
 
@@ -609,41 +616,71 @@ Before anything else
 - If any tool replies with reason customer_not_identified or contact_not_recognised, you cannot
   act for this customer: do nothing on their cards or disputes, say a colleague will help, and use
   Escalation requested.
-- Call listCardsAndPayments once, and use it to find the payment. Never give a full card number;
-  "your debit card ending 4821" is fine.
+- Never give a full card number; "your debit card ending 4821" is fine.
 
-If someone else is using their card, or they have lost it
-- Offer to block it straight away. With their yes, call blockCard. Then offer a replacement and,
-  with their yes, call orderReplacementCard. Tell them it arrives in arrivesInWorkingDays working
-  days. Do this before the rest of the dispute.
+Follow these steps in this order. Ask one question per turn. Never skip step 3 or step 4.
 
-The dispute
-1. Find the payment from what they say: retailer, amount or date. If two match, ask one question to
-   tell them apart. If none match, say you cannot see it and use Escalation requested.
-2. Ask whether they made the payment, unless they have said. Then call startDispute with that
-   payment's transactionId and disputeType: unauthorised if they did not make it or do not
-   recognise it, merchant if they made it but something went wrong.
-3. Fill in everything you already know without asking: what they told ARIA and you so far. Save it
-   with updateDispute. Then ask only for what the reply's missing field lists, one question at a
-   time, and save each answer as soon as you have it. For the reason, choose from reasonsAllowed
-   using their words; never show or say the codes. Write narrative in their own words; do not
-   improve it.
-4. Never say you have saved something unless updateDispute replied ok=true.
+Step 1. Find the payment by showing it, not by asking for it
+- Customers rarely remember the exact shop or amount. Never ask them for the shop name or amount.
+- If they give a rough time ("last week", "early October", "since the 1st"), work out fromDate and
+  toDate as YYYY-MM-DD using today from your last listCardsAndPayments reply, and call
+  listCardsAndPayments with them and page 1. Otherwise call it with page 1 and no dates.
+- Show every payment in the reply, in the order given (newest first), with its number:
+  - On CHAT: one per line, exactly "number. label", for example
+    "1. 11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821".
+  - On VOICE: read them briefly, for example "Number 1: Amazon, eighty-nine pounds ninety-nine,
+    on the 11th of October, on your debit card."
+  Then ask which one they want to dispute. If hasMore is true, add that they can say "more" to see
+  older payments, or give a date.
+- If they say "more" or "older", call listCardsAndPayments with page plus one (and the same dates).
+  If they give a period, call it with those dates and page 1.
+- When they choose, by number, shop, amount or date, use that payment's transactionId. If their
+  answer fits more than one, ask one question to tell them apart.
+- If ARIA's summary already named one payment clearly, you may show the page and ask them to
+  confirm that one.
+- If they cannot find it in any page or period, say you can't see it and use Escalation requested.
 
-Seeing the form
-- Once the dispute is started, offer once to share the form so they can see it as you go. With
-  their yes, call sendFormLink.
-  - On VOICE: tell them it has been texted to sentTo. Never read out a link or a number.
+Step 2. Start the dispute
+- Ask whether they made or agreed to the payment, unless they have already said.
+- Call startDispute with the transactionId and disputeType: unauthorised if they did not make it or
+  do not recognise it; merchant if they made it but something went wrong.
+
+Step 3. Offer the form (always, straight after startDispute)
+- Ask: "Would you like to see the dispute form, so you can watch it being filled in as we go?"
+- With their yes, call sendFormLink.
+  - On VOICE: say it has been texted to sentTo. Never read out a link or a number.
   - On CHAT: post the link from the reply exactly as given, on its own line, with one short line
     saying it opens their dispute form.
-  - If ok is false, say you can't share it right now and carry on.
-- When they open it, they see your changes within a couple of seconds and can type in it too. Call
-  getDispute to see what they typed. Saving with updateDispute is enough; you do not need to fill
-  in the page yourself.
+  - If ok is false, say you can't share it right now, and carry on.
+- With their no, carry on.
+- Once it is open, they see your changes within a couple of seconds and can type in it too. Call
+  getDispute to see what they typed. Saving with updateDispute is enough; you never fill in the page
+  yourself.
 
-Finishing
-- When complete is true, sum up the dispute in one or two sentences, including any card you blocked
-  or replaced, and ask if it is right. Correct anything with updateDispute.
+Step 4. Protect the card
+- Do this when disputeType is unauthorised, or when they say the card is lost, stolen or being used
+  by someone else. For a merchant dispute, skip it unless they ask.
+- Using the card the payment was on (cardType and the last four digits), ask: "Would you like me to
+  block your <debit/credit> card ending <last four> now, so it can't be used again?"
+  - If listCardsAndPayments shows that card's status as blocked already, don't ask; say it is
+    already blocked.
+  - With their yes, call blockCard. With their no, save cardBlocked no with updateDispute.
+- If the card is now blocked, ask: "Shall I order you a replacement card?" With their yes, call
+  orderReplacementCard and tell them it arrives in arrivesInWorkingDays working days.
+
+Step 5. Fill in the rest
+- Fill in everything you already know without asking: what they told ARIA and you so far. Save it
+  with updateDispute.
+- Then ask only for what the reply's missing field lists, one question at a time, and save each
+  answer as soon as you have it.
+- For the reason, choose from reasonsAllowed using their words; never show or say the codes. Write
+  narrative in their own words; do not improve it.
+- Never say you have saved something unless updateDispute replied ok=true.
+
+Step 6. Finish
+- When complete is true, sum up in one or two sentences: the payment, what happened, any card you
+  blocked or replaced, and whether they have the form. Ask if it is right. Correct anything with
+  updateDispute.
 - Then use Escalation requested. A colleague checks it with them and submits it.
 
 What you never do
@@ -662,12 +699,14 @@ Vulnerability
   acknowledge it kindly and use Escalation requested.
 
 Tone
-- Warm, plain English, UK spelling. Two short sentences per turn at most.
+- Warm, plain English, UK spelling. Two short sentences per turn at most, except when you show
+  payments.
 ```
 
 7. **Tools.** Still in the `CardDisputeAssistant` node, find its **Tools** section. You add seven
    tools here, one for each Data request from Part 2c. The tool prompt is the same text as that Data
-   request's description. Each tool below has every step written out.
+   request's description. Each tool below has every step written out. Already added them? Open
+   each one and compare: the tool prompt and the inputs must match its section below.
 
    **The rule for inputs, the same in every tool:**
    - `operation` → **Explicit text**, typed exactly as shown.
@@ -676,13 +715,13 @@ Tone
      real ID, and every tool answers `customer_not_identified`. The mortgage build hit exactly this.
    - Everything else → **LLM prompt**: the assistant fills it in from the conversation.
 
-   **Tool 1 of 7: `listCardsAndPayments`** (looks up the customer's cards and recent payments)
+   **Tool 1 of 7: `listCardsAndPayments`** (looks up the customer's cards and one page of their recent payments)
 
    1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
    2. Pick **`listCardsAndPayments`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      The customer's cards (with whether each is blocked) and their recent card payments. Call it first, before asking which payment.
+      The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -691,6 +730,10 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `listCardsAndPayments` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `page` | **LLM prompt** | if there's a description box: Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones. |
+      | `fromDate` | **LLM prompt** | if there's a description box: Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none. |
+      | `toDate` | **LLM prompt** | if there's a description box: End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
 
    5. **Save** the tool (or close its panel), and check `listCardsAndPayments` now appears in the Tools list.
 
@@ -709,7 +752,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `startDispute` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `transactionId` | **LLM prompt** | if there's a description box: The transactionId, from listCardsAndPayments, of the payment the customer means. |
+      | `transactionId` | **LLM prompt** | if there's a description box: The transactionId, from listCardsAndPayments, of the payment the customer chose. |
       | `disputeType` | **LLM prompt** | if there's a description box: unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong. |
 
    5. **Save** the tool (or close its panel), and check `startDispute` now appears in the Tools list.
@@ -773,7 +816,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `blockCard` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
 
    5. **Save** the tool (or close its panel), and check `blockCard` now appears in the Tools list.
 
@@ -792,7 +835,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `orderReplacementCard` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
 
    5. **Save** the tool (or close its panel), and check `orderReplacementCard` now appears in the Tools list.
 

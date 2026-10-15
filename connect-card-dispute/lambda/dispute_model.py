@@ -71,13 +71,28 @@ _CARDS = {
     "CUST-004": (("debit", "7734"),),
     "CUST-005": (("debit", "1155"),),
 }
-_SPENDING = (
+# Enough payments for several pages of five, so paging can be tried. The first
+# entries of each list are the ones the tests and earlier disputes use; keep them.
+_DEBIT_SPENDING = (
     ("2026-10-11", "AMAZON.CO.UK", "89.99"),
     ("2026-10-10", "TESCO STORES 2041", "42.50"),
     ("2026-10-09", "TRAINLINE.COM", "64.20"),
     ("2026-10-08", "NETFLIX.COM", "10.99"),
+    ("2026-10-07", "SHELL MANCHESTER", "55.10"),
+    ("2026-10-05", "PRET A MANGER", "8.45"),
+    ("2026-10-03", "ARGOS LTD", "129.99"),
+    ("2026-10-01", "UBER TRIP", "18.60"),
+    ("2026-09-29", "SAINSBURYS S/MKT", "63.27"),
+    ("2026-09-27", "SPOTIFY UK", "11.99"),
+    ("2026-09-24", "BOOTS 1132", "22.40"),
+    ("2026-09-20", "ASOS.COM", "74.00"),
+)
+_CREDIT_SPENDING = (
+    ("2026-10-08", "NETFLIX.COM", "10.99"),
     ("2026-10-06", "ELECTROWORLD ONLINE", "349.00"),
     ("2026-10-04", "SUNSHINE VILLAS BOOKING", "612.00"),
+    ("2026-09-30", "BRITISH AIRWAYS", "245.60"),
+    ("2026-09-22", "JOHN LEWIS", "189.00"),
 )
 
 
@@ -92,9 +107,7 @@ def card_transactions(customer_id: str, card_type: str = "") -> list[dict]:
     for kind, last_four in _CARDS.get(customer_id, ()):
         if card_type and kind != card_type:
             continue
-        # A credit card shows the second half of the list, so the two cards differ.
-        spending = _SPENDING[3:] if kind == "credit" else _SPENDING[:4]
-        for date, merchant, amount in spending:
+        for date, merchant, amount in (_CREDIT_SPENDING if kind == "credit" else _DEBIT_SPENDING):
             transactions.append({
                 "transaction_id": f"TXN-{last_four}-{date.replace('-', '')}-{amount.replace('.', '')}",
                 "date": date, "merchant": merchant, "amount": amount, "currency": "GBP",

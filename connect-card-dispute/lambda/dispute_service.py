@@ -48,6 +48,20 @@ ASSISTANT_DISPUTE = {"ok": False, "reason": "", "message": "", "disputeId": "", 
 
 
 _LINK_WORDS = {"text": "texted to the customer", "chat": "posted in the chat"}
+PAYMENTS_PER_PAGE = 5
+
+
+def _is_date(text: str) -> bool:
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+        return len(text) == 10
+    except (TypeError, ValueError):
+        return False
+
+
+def _day_words(date: str) -> str:
+    """'2026-10-11' -> '11 Oct 2026'."""
+    return datetime.strptime(date, "%Y-%m-%d").strftime("%-d %b %Y")
 
 
 def clean_note(text: str) -> str:
@@ -349,17 +363,43 @@ class DisputeService:
                 "missing": ", ".join(shown["missing"]) or "nothing", "complete": not shown["missing"],
                 "customerWatching": bool(dispute.get("screenAttached")), "linkSent": bool(dispute.get("linkSentAt"))}
 
-    def assistant_cards_and_payments(self, customer_id: str) -> dict:
+    def assistant_cards_and_payments(self, customer_id: str, page=1, from_date: str = "", to_date: str = "",
+                                     card_type: str = "") -> dict:
+        """
+        The customer's cards, and one page of their card payments, newest first.
+        Customers rarely remember the exact shop or amount, so the assistant shows
+        these and lets them choose. Each payment has a number that runs across the
+        pages, so "number 7" means the same payment on any page.
+        """
         blocked = {a["cardLastFour"] for a in self._card_actions(customer_id) if a["action"] == "blocked"}
         cards = [{"cardType": c["card_type"], "cardLastFour": c["card_last_four"],
                   "status": "blocked" if c["card_last_four"] in blocked else "active"}
                  for c in model.customer_cards(customer_id)]
-        payments = [{"transactionId": t["transaction_id"], "date": t["date"], "merchant": t["merchant"],
-                     "amount": t["amount"], "cardType": t["card_type"], "cardLastFour": t["card_last_four"]}
-                    for t in model.card_transactions(customer_id)]
         if not cards:
             raise DisputeError("no_cards", "This customer has no cards with us.", 404)
-        return {"cards": cards, "payments": payments}
+        for name, value in (("fromDate", from_date), ("toDate", to_date)):
+            if value and not _is_date(value):
+                raise ValueError(f"{name} must be a date written YYYY-MM-DD, for example 2026-10-01")
+        if card_type and card_type not in ("debit", "credit"):
+            raise ValueError("cardType must be debit or credit, or empty for both")
+        try:
+            page = max(1, int(page or 1))
+        except (TypeError, ValueError):
+            raise ValueError("page must be a whole number, starting at 1")
+        chosen = [t for t in model.card_transactions(customer_id, card_type)
+                  if (not from_date or t["date"] >= from_date) and (not to_date or t["date"] <= to_date)]
+        pages = max(1, -(-len(chosen) // PAYMENTS_PER_PAGE))
+        first = (page - 1) * PAYMENTS_PER_PAGE
+        payments = [{"number": first + i + 1, "transactionId": t["transaction_id"], "date": t["date"],
+                     "merchant": t["merchant"], "amount": t["amount"], "cardType": t["card_type"],
+                     "cardLastFour": t["card_last_four"],
+                     "label": f"{_day_words(t['date'])}, {t['merchant']}, £{t['amount']}, "
+                              f"{t['card_type']} card ending {t['card_last_four']}"}
+                    for i, t in enumerate(chosen[first:first + PAYMENTS_PER_PAGE])]
+        message = "" if payments else ("No payments in that period." if chosen == [] else "No more payments.")
+        return {"today": datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y-%m-%d"),
+                "cards": cards, "payments": payments, "page": page, "totalPages": pages,
+                "totalPayments": len(chosen), "hasMore": page < pages, "message": message}
 
     def assistant_start(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
         fields = model.check_fields({"disputeType": dispute_type}) if dispute_type else {}

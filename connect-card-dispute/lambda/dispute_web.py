@@ -66,7 +66,8 @@ ACXD_REPLY = {"attached": False, "locked": False, "reason": ""}       # every fi
 _STATUS = {"ok": False, "reason": "", "message": ""}
 ACXD_OPERATIONS = {
     "attachToScreen": ACXD_REPLY,               # the older code route; the disputes agent texts a link instead
-    "listCardsAndPayments": {**_STATUS, "cards": [], "payments": []},
+    "listCardsAndPayments": {**_STATUS, "today": "", "cards": [], "payments": [], "page": 1, "totalPages": 1,
+                             "totalPayments": 0, "hasMore": False},
     "startDispute": ASSISTANT_DISPUTE,
     "updateDispute": ASSISTANT_DISPUTE,
     "getDispute": ASSISTANT_DISPUTE,
@@ -203,7 +204,9 @@ def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: 
                     customer_id: str, contact_id: str) -> dict:
     dispute_id = _text(body, "disputeId").strip().upper()
     if operation == "listCardsAndPayments":
-        return service.assistant_cards_and_payments(customer_id)
+        return service.assistant_cards_and_payments(
+            customer_id, body.get("page") or 1, _text(body, "fromDate").strip(), _text(body, "toDate").strip(),
+            _text(body, "cardType").strip().lower())
     if operation == "startDispute":
         return service.assistant_start(customer_id, _text(body, "transactionId").strip(), _text(body, "disputeType").strip())
     if operation == "updateDispute":

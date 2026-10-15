@@ -1,0 +1,210 @@
+{
+  "_about": "The seven CX designer Data requests. scripts/build_cx_guide.py writes acxd/disputes-assistant.md Part 2c and Part 3b step 7 from this file. Edit here, then run it.",
+  "inputHints": {
+    "transactionId": "The transactionId, from listCardsAndPayments, of the payment the customer chose.",
+    "disputeType": "unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong.",
+    "disputeId": "The disputeId from startDispute.",
+    "reasonCode": "One of reasonsAllowed from the last dispute reply, matching what the customer said.",
+    "cardInPossession": "yes or no: does the customer still have the card?",
+    "cardBlocked": "yes or no: is the card blocked?",
+    "contactedMerchant": "yes or no: has the customer contacted the retailer?",
+    "narrative": "What happened, in the customer's own words.",
+    "cardType": "debit or credit: which card. Leave empty for both.",
+    "page": "Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones.",
+    "fromDate": "Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none.",
+    "toDate": "End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none."
+  },
+  "dataRequests": [
+    {
+      "name": "listCardsAndPayments",
+      "purpose": "looks up the customer's cards and one page of their recent payments",
+      "description": "The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.",
+      "request": {
+        "operation": "listCardsAndPayments",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "page": 1,
+        "fromDate": "2026-10-01",
+        "toDate": "2026-10-15",
+        "cardType": "debit"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "today": "2026-10-15",
+        "cards": [
+          {
+            "cardType": "debit",
+            "cardLastFour": "4821",
+            "status": "active"
+          }
+        ],
+        "payments": [
+          {
+            "number": 1,
+            "transactionId": "TXN-4821-20261011-8999",
+            "date": "2026-10-11",
+            "merchant": "AMAZON.CO.UK",
+            "amount": "89.99",
+            "cardType": "debit",
+            "cardLastFour": "4821",
+            "label": "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"
+          }
+        ],
+        "page": 1,
+        "totalPages": 2,
+        "totalPayments": 8,
+        "hasMore": true
+      }
+    },
+    {
+      "name": "startDispute",
+      "purpose": "starts the dispute for the payment the customer chose",
+      "description": "Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).",
+      "request": {
+        "operation": "startDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "transactionId": "TXN-4821-20261011-8999",
+        "disputeType": "unauthorised"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "updateDispute",
+      "purpose": "saves the customer's answers on the dispute",
+      "description": "Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.",
+      "request": {
+        "operation": "updateDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345",
+        "disputeType": "unauthorised",
+        "reasonCode": "card_details_used_without_card",
+        "cardInPossession": "yes",
+        "cardBlocked": "yes",
+        "contactedMerchant": "no",
+        "narrative": "I have never ordered from Amazon."
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "getDispute",
+      "purpose": "reads the dispute back, including anything the customer typed on the form",
+      "description": "The dispute as it stands, including anything the customer typed on the form themselves. Leave disputeId empty for the customer's latest open dispute.",
+      "request": {
+        "operation": "getDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "blockCard",
+      "purpose": "blocks a card",
+      "description": "Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.",
+      "request": {
+        "operation": "blockCard",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "cardType": "debit"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "cardType": "debit",
+        "cardLastFour": "4821",
+        "reference": "BLOCK-4821-ABC234"
+      }
+    },
+    {
+      "name": "orderReplacementCard",
+      "purpose": "orders a replacement for a blocked card",
+      "description": "Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.",
+      "request": {
+        "operation": "orderReplacementCard",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "cardType": "debit"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "cardType": "debit",
+        "cardLastFour": "4821",
+        "reference": "REPL-4821-ABC234",
+        "arrivesInWorkingDays": "3 to 5"
+      }
+    },
+    {
+      "name": "sendFormLink",
+      "purpose": "texts the form (phone) or gives a link to post (chat)",
+      "description": "Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.",
+      "request": {
+        "operation": "sendFormLink",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "sent": true,
+        "sentTo": "the mobile ending 123",
+        "link": ""
+      }
+    }
+  ]
+}

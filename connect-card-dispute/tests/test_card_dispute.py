@@ -652,6 +652,30 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual(pop["dispute6"], "**Assistant's note:** Customer was upset link http://x")
         self.assertTrue(all("\n" not in v for v in pop.values()))
 
+    def test_payments_come_five_a_page_newest_first_numbered_across_pages(self):
+        first = self.op("listCardsAndPayments", page=1)
+        self.assertEqual((first["page"], first["totalPayments"], first["totalPages"], first["hasMore"]), (1, 17, 4, True))
+        self.assertEqual([p["number"] for p in first["payments"]], [1, 2, 3, 4, 5])
+        dates = [p["date"] for p in first["payments"]]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+        self.assertEqual(first["payments"][0]["label"], "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821")
+        self.assertEqual(first["today"], "2027-01-15", "the service's own clock, for working out 'last week'")
+        last = self.op("listCardsAndPayments", page="4")
+        self.assertEqual(([p["number"] for p in last["payments"]], last["hasMore"]), ([16, 17], False))
+        beyond = self.op("listCardsAndPayments", page=9)
+        self.assertEqual((beyond["ok"], beyond["payments"], beyond["message"]), (True, [], "No more payments."))
+
+    def test_payments_can_be_narrowed_by_dates_and_card(self):
+        october = self.op("listCardsAndPayments", fromDate="2026-10-01", toDate="2026-10-09", cardType="debit")
+        self.assertEqual(october["totalPayments"], 6)
+        self.assertTrue(all("2026-10-01" <= p["date"] <= "2026-10-09" and p["cardType"] == "debit"
+                            for p in october["payments"]))
+        none = self.op("listCardsAndPayments", fromDate="2025-01-01", toDate="2025-01-31")
+        self.assertEqual((none["payments"], none["message"], none["hasMore"]), ([], "No payments in that period.", False))
+        for bad in ({"fromDate": "01/10/2026"}, {"toDate": "yesterday"}, {"page": "two"}, {"cardType": "amex"}):
+            reply = self.op("listCardsAndPayments", **bad)
+            self.assertEqual((reply["ok"], reply["reason"]), (False, "invalid_field"), bad)
+
     def test_the_customer_comes_from_connect_never_from_the_request(self):          # R7
         started = self.op("startDispute", transactionId=AMAZON, disputeType="merchant", customerId=SARAH, customer_id=SARAH)
         self.assertEqual(self.service.get_card_dispute(JAMES, started["disputeId"])["dispute"]["merchant"], "AMAZON.CO.UK")
@@ -961,7 +985,7 @@ class CxDesignerConfiguration(unittest.TestCase):
     """SPEC Part 4: what is pasted into the CX designer and imported into Connect agrees with the code."""
 
     # The fields the door reads for each operation (dispute_web._acxd_operation).
-    READS = {"listCardsAndPayments": set(), "startDispute": {"transactionId", "disputeType"},
+    READS = {"listCardsAndPayments": {"page", "fromDate", "toDate", "cardType"}, "startDispute": {"transactionId", "disputeType"},
              "updateDispute": {"disputeId", *dispute_web._UPDATABLE}, "getDispute": {"disputeId"},
              "blockCard": {"cardType"}, "orderReplacementCard": {"cardType"}, "sendFormLink": {"disputeId"}}
 
@@ -1050,6 +1074,26 @@ class CxDesignerConfiguration(unittest.TestCase):
             request = re.search(r"Request sample \| `(\{.*?\})`", text).group(1)
             for field in ("customerId", "customer_id", "phone", "phoneNumber"):
                 self.assertNotIn(f'"{field}"', request, f"{name}: never from the request (R7)")
+
+    def test_the_guide_is_built_from_the_data_file(self):
+        sys.path.insert(0, str(FOLDER / "scripts"))
+        import build_cx_guide
+        data = json.loads((FOLDER / "acxd" / "data-requests.json").read_text())
+        self.assertEqual(build_cx_guide.render(self.doc, data), self.doc,
+                         "run scripts/build_cx_guide.py after editing acxd/data-requests.json")
+        for d in data["dataRequests"]:
+            self.assertEqual(set(d["response"]), set(dispute_web.ACXD_OPERATIONS[d["name"]]), d["name"])
+            for field in d["request"]:
+                if field not in ("operation", "contactId"):
+                    self.assertIn(field, data["inputHints"], f"{d['name']}.{field} needs a hint")
+
+    def test_the_prompt_makes_the_form_and_card_steps_unmissable(self):
+        prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
+        for must in ("Never skip step 3 or step 4", "Step 3. Offer the form (always, straight after startDispute)",
+                     "Step 4. Protect the card", "Never ask them for the shop name or amount", "hasMore"):
+            self.assertIn(must, prompt)
+        opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
+        self.assertNotIn("the shop and roughly how much", opening)
 
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
