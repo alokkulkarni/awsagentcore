@@ -47,6 +47,9 @@ ASSISTANT_DISPUTE = {"ok": False, "reason": "", "message": "", "disputeId": "", 
                      "customerWatching": False, "linkSent": False}
 
 
+_LINK_WORDS = {"text": "texted to the customer", "chat": "posted in the chat"}
+
+
 def clean_note(text: str) -> str:
     """
     Text an AI wrote, made safe to show in the screen pop: one line, no markdown
@@ -432,10 +435,11 @@ class DisputeService:
                                                 "expiresAt": self.clock() + FORM_LINK_SECONDS})
         return f"{self.page_url}/#k={token}"
 
-    def mark_link_sent(self, dispute_id: str) -> None:
+    def mark_link_sent(self, dispute_id: str, via: str = "text") -> None:
+        """via: "text" (an SMS on a call) or "chat" (posted in the chat)."""
         def mark(d: dict) -> list[str]:
-            d["linkSentAt"] = self._now_text()
-            return ["linkSentAt"]
+            d["linkSentAt"], d["linkSentVia"] = self._now_text(), via
+            return ["linkSentAt", "linkSentVia"]
         self._change(dispute_id, "assistant", "link_sent", mark)
 
     def open_form_link(self, token: str) -> dict:
@@ -489,9 +493,9 @@ class DisputeService:
                     "conversationSummary": summary.strip()}
         shown = model.view(dispute)
         if dispute.get("screenAttached"):
-            screen = "Customer is viewing the form on their phone."
+            screen = "Customer is viewing the form."
         elif dispute.get("linkSentAt"):
-            screen = "Form link texted; the customer has not opened it."
+            screen = f"Form link {_LINK_WORDS[dispute.get('linkSentVia', 'text')]}; the customer has not opened it."
         else:
             screen = "Customer is not viewing the form."
         kind = f"{shown['disputeTypeWords']}" + (f" ({shown['reasonWords']})" if shown["reasonWords"] else "")
@@ -642,7 +646,8 @@ class DisputeService:
         if dispute.get("screenAttached"):
             screen = "Customer is **watching the form** on their own screen."
         elif dispute.get("linkSentAt"):
-            screen = "Form link **texted** to the customer; **not opened yet**. You review and submit it."
+            screen = (f"Form link **{_LINK_WORDS[dispute.get('linkSentVia', 'text')]}**; **not opened yet**. "
+                      "You review and submit it.")
         else:
             screen = "Customer is not viewing the form. **You review and submit it** after confirming with them."
         actions = [f"**{a['cardType'].capitalize()} card ending {a['cardLastFour']} "

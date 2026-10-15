@@ -512,11 +512,15 @@ kept on the customer, not the contact, because the screen pop runs under a diffe
 block sets "card blocked: yes" on an open draft for that card. The cards are test data; a real
 deployment calls the card system in `DisputeService.card_action`.
 
-**D10. The texted form link.** `sendFormLink` texts the number the customer is calling from (UK
-mobiles only by default) through AWS End User Messaging. The link carries its secret after `#`, so
+**D10. The form link, on phone and chat.** The flow records the channel (`disputeChannel` =
+`$.Channel`) before the assistant starts, and passes it to the assistant as `channel`. On a call,
+`sendFormLink` texts the number the customer is calling from (UK mobiles only by default) through
+AWS End User Messaging. On chat, it returns the link for the assistant to post in the chat: the
+customer is already in that verified conversation, and a chat has no number to text. The chat
+transcript then holds a link that works for two hours and five opens. The link carries its secret after `#`, so
 it never reaches a server log. Opening it gives a page session already joined to the call and the
 dispute, so Live Sync starts with no code. It works for two hours and five opens, and can be sent
-three times per dispute. The assistant never sees the link. Without an SMS sender configured, the
+three times per dispute. On a call the assistant never sees the link. Without an SMS sender configured, the
 assistant is told it cannot text and carries on by voice.
 
 **D11. The assistant saves; the page shows.** The assistant writes every answer with
@@ -534,7 +538,7 @@ application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice bloc
 |---|---|---|
 | R11 | The CX designer door acts only for a verified caller, found from Connect's record of the contact | `dispute_web._acxd`, `aria_card_dispute.verified_customer` |
 | R12 | A card can be blocked or replaced only if it is the customer's own; each at most once | `DisputeService.card_action` |
-| R13 | A form link goes only to the number the customer is calling from, at most three times per dispute | `dispute_web._send_form_link`, `DisputeService.mint_form_link` |
+| R13 | A form link goes only to the number the customer is calling from, or into the chat they are in; at most three times per dispute | `dispute_web._send_form_link`, `DisputeService.mint_form_link` |
 | R14 | A Connect flow event is accepted only when it is not a tool call; its reply holds no link or secret | `aria_card_dispute.lambda_handler` |
 
 ## 21. Known gaps (Part 4)
@@ -545,7 +549,8 @@ application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice bloc
   thin, the first question is generic.
 - **SMS** needs an End User Messaging sender and, until production access, verified destination
   numbers. UK sender rules are to be checked in the console.
-- **Chat.** The flow works for chat too, but texting needs a mobile number, which chat has not.
+- **Chat links sit in the transcript** for their two hours. Anyone who can read the transcript in
+  that time could open the form (view and type, never confirm or submit).
 - **Contact attributes are cached for 30 seconds** in the Lambda, so a verification made during the
   dispute is seen up to 30 seconds late.
 - **The adviser's own tools** (blocking, refunds) are outside this work; the screen pop says what the

@@ -707,7 +707,8 @@ class DisputesAgentInCxDesigner(Base):
         link = re.search(r"https://pages\.example/#k=([A-Za-z0-9_-]+)", words)
         self.assertIsNotNone(link, "the secret is after '#', so no server log ever holds it")
         self.assertNotIn(link.group(1), json.dumps(sent), "the agent never sees the link")
-        self.assertIn("**texted**", self.service.screen_pop(JAMES)["dispute4"])
+        self.assertIn("**texted to the customer**", self.service.screen_pop(JAMES)["dispute4"])
+        self.assertEqual(sent["link"], "", "on a call the link goes by text only")
 
         opened = entry.lambda_handler(http("POST", "/api/screen/open", {"linkToken": link.group(1)}), None)
         session = json.loads(opened["body"])["sessionId"]
@@ -724,6 +725,27 @@ class DisputesAgentInCxDesigner(Base):
         self.now += 2 * 60 * 60 + 1
         self.refused("link_expired", self.service.open_form_link, link.group(1))
         self.refused("link_expired", self.service.open_form_link, "made-up")
+
+    def test_on_chat_the_link_is_given_to_post_in_the_chat_and_nothing_is_texted(self):
+        entry.doors.contact_channel = lambda contact: "CHAT"
+        self.phone = ""                                   # a chat has no phone number
+        dispute_id = self.started()["disputeId"]
+        sent = self.op("sendFormLink", disputeId=dispute_id)
+        self.assertEqual((sent["ok"], sent["sentTo"], self.texts), (True, "this chat", []))
+        token = re.fullmatch(r"https://pages\.example/#k=([A-Za-z0-9_-]+)", sent["link"]).group(1)
+        session = self.service.open_form_link(token)["sessionId"]
+        self.assertEqual(self.service.screen_status(session)["contactId"], CONTACT, "Live Sync binds to the chat")
+        self.assertIn("watching the form", self.service.screen_pop(JAMES)["dispute4"])
+        for _ in range(2):
+            self.op("sendFormLink", disputeId=dispute_id)
+        self.assertEqual(self.op("sendFormLink", disputeId=dispute_id)["reason"], "too_many_links", "same cap as texts")
+
+    def test_a_chat_link_not_yet_opened_is_described_as_posted(self):
+        entry.doors.contact_channel = lambda contact: "CHAT"
+        dispute_id = self.started()["disputeId"]
+        self.op("sendFormLink", disputeId=dispute_id)
+        self.assertIn("**posted in the chat**", self.service.screen_pop(JAMES)["dispute4"])
+        self.assertIn("Form link posted in the chat", self.service.handover(JAMES)["conversationSummary"])
 
     def test_the_form_link_is_only_texted_to_a_mobile_a_few_times_and_says_why_not(self):
         dispute_id = self.started()["disputeId"]
@@ -947,7 +969,7 @@ class CxDesignerConfiguration(unittest.TestCase):
         return {name for name, frontend in rows if (frontend == "On") == set_by_connect}
 
     def data_requests(self):
-        sections = re.split(r"^#### `(\w+)`\n", self.doc.split("### 1c. Data requests")[1].split("## 2.")[0], flags=re.M)
+        sections = re.split(r"^#### `(\w+)`\n", self.doc.split("### 2c. Data requests")[1].split("## Part 3")[0], flags=re.M)
         return dict(zip(sections[1::2], sections[2::2]))
 
     def test_the_committed_flow_is_what_the_builder_makes(self):
@@ -963,6 +985,14 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertEqual(passed["contactId"], "$.ContactId")
         self.assertNotIn("customerId", passed, "the service finds the customer from the contact itself (R7)")
         self.assertNotIn("screenCode", passed, "ARIA never asks for a code")
+        self.assertEqual(passed["channel"], "$.Channel", "the assistant writes on chat and speaks on a call")
+
+    def test_the_flow_records_the_channel_before_the_assistant_starts(self):
+        self.assertEqual(self.flow["StartAction"], "RecordChannel")
+        record = self.blocks["RecordChannel"]
+        self.assertEqual(record["Parameters"]["Attributes"], {"disputeChannel": "$.Channel"})
+        self.assertEqual({record["Transitions"]["NextAction"], record["Transitions"]["Errors"][0]["NextAction"]},
+                         {"CardDisputeAssistant"}, "even if it fails, the dispute goes ahead (the link falls back to text)")
 
     def test_flow_reads_back_only_what_the_assistant_sets(self):
         read = set(re.findall(r"\$\.AgenticCX\.ContextVariables\.(\w+)", json.dumps(self.flow)))
@@ -1008,19 +1038,20 @@ class CxDesignerConfiguration(unittest.TestCase):
                 self.assertEqual(set(json.loads(response.strip("`"))), set(dispute_web.ACXD_OPERATIONS[name]), name)
             else:
                 self.assertEqual(dispute_web.ACXD_OPERATIONS[name], dispute_web.ACXD_OPERATIONS["startDispute"], name)
+            request = re.search(r"Request sample \| `(\{.*?\})`", text).group(1)
             for field in ("customerId", "customer_id", "phone", "phoneNumber"):
-                self.assertNotIn(field, text, f"{name}: never from the request (R7)")
+                self.assertNotIn(f'"{field}"', request, f"{name}: never from the request (R7)")
 
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
         self.assertIn("Never submit, confirm or accept a dispute", self.doc)
-        exits = self.doc.split("### 3e.")[1].split("Also connect")[0]
+        exits = self.doc.split("**Exit conditions**")[1].split("\n11. ")[0]
         self.assertNotIn("Task complete |", exits)
         self.assertFalse(any(re.search(r"submit|confirm", op, re.I) for op in dispute_web.ACXD_OPERATIONS))
 
     def test_prompt_variables_are_all_declared(self):
-        prompt = self.doc.split("### 3b. The assistant node")[1].split("```")[1]
-        opening = self.doc.split("### 3a. The opening")[1].split("### 3b.")[0]
+        prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
+        opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         used = set(re.findall(r"\{(\w+)\}", prompt + opening)) - {"openingQuestion"}
         self.assertLessEqual(used, self.declared(True) | self.declared(False))
 

@@ -1,15 +1,31 @@
 {
   "Version": "2019-10-30",
-  "StartAction": "CardDisputeAssistant",
+  "StartAction": "RecordChannel",
   "Metadata": {
     "entryPointPosition": {
-      "x": 40,
+      "x": 20,
       "y": 100
     },
     "ActionMetadata": {
+      "RecordChannel": {
+        "position": {
+          "x": 160,
+          "y": 100
+        },
+        "parameters": {
+          "Attributes": {
+            "disputeChannel": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "disputeChannel"
+        ]
+      },
       "CardDisputeAssistant": {
         "position": {
-          "x": 280,
+          "x": 420,
           "y": 100
         },
         "parameters": {
@@ -34,6 +50,10 @@
               "handoverSummary": {
                 "displayName": "handoverSummary",
                 "useDynamic": true
+              },
+              "channel": {
+                "displayName": "channel",
+                "useDynamic": true
               }
             }
           },
@@ -44,7 +64,7 @@
       },
       "BuildHandover": {
         "position": {
-          "x": 560,
+          "x": 700,
           "y": 100
         },
         "parameters": {
@@ -68,7 +88,7 @@
       },
       "SetHandover": {
         "position": {
-          "x": 840,
+          "x": 980,
           "y": 20
         },
         "parameters": {
@@ -100,20 +120,20 @@
       },
       "HandoverUnavailable": {
         "position": {
-          "x": 840,
+          "x": 980,
           "y": 240
         },
         "dynamicParams": []
       },
       "ToHumanHandover": {
         "position": {
-          "x": 1120,
+          "x": 1260,
           "y": 100
         }
       },
       "Disconnect": {
         "position": {
-          "x": 1400,
+          "x": 1540,
           "y": 100
         }
       }
@@ -126,6 +146,25 @@
   },
   "Actions": [
     {
+      "Identifier": "RecordChannel",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "disputeChannel": "$.Channel"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "CardDisputeAssistant",
+        "Errors": [
+          {
+            "NextAction": "CardDisputeAssistant",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
       "Identifier": "CardDisputeAssistant",
       "Type": "ConnectParticipantWithAgenticCX",
       "Parameters": {
@@ -136,7 +175,8 @@
             "contactId": "$.ContactId",
             "firstName": "$.Attributes.preferredName",
             "verification": "$.Attributes.authStatus",
-            "handoverSummary": "$.Attributes.handoverSummary"
+            "handoverSummary": "$.Attributes.handoverSummary",
+            "channel": "$.Channel"
           },
           "ApplicationId": "CHOOSE-IN-THE-BLOCK",
           "Alias": "CHOOSE-IN-THE-BLOCK"

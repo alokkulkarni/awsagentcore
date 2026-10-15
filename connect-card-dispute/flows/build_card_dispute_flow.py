@@ -5,6 +5,9 @@ build_card_dispute_flow.py
 Generates flows/card-dispute-flow.json: the Connect flow ARIA's bot flow
 transfers to when ARIA calls its StartCardDispute tool (SPEC Part 4).
 
+    Set contact attributes            records the channel (VOICE or CHAT), so the
+          │                           service knows whether to text the form link
+          ▼                           or post it in the chat
     Agentic CX block "Card dispute"   the CX designer disputes assistant does the dispute
           │  any way out except the caller hanging up
           ▼
@@ -14,6 +17,8 @@ transfers to when ARIA calls its StartCardDispute tool (SPEC Part 4).
     Set contact attributes            the same attributes ARIA's Escalate tool sets
           ▼
     Transfer to flow: ARIA human handover   the same path ARIA's own escalations take
+
+It works the same on a phone call and on chat.
 
 So the adviser gets an ARIA hand-over in every way: the same flow, the same
 attributes, the same screen pop, with the dispute's details in it.
@@ -54,6 +59,7 @@ CONTEXT_IN = {
     "firstName": "$.Attributes.preferredName",
     "verification": "$.Attributes.authStatus",
     "handoverSummary": "$.Attributes.handoverSummary",
+    "channel": "$.Channel",
 }
 # What the assistant sets on its way out, read back here.
 CONTEXT_OUT = ("summary", "escalationReason")
@@ -68,6 +74,14 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
     from_assistant = lambda name: f"$.AgenticCX.ContextVariables.{name}"        # noqa: E731
 
     laid_out = [
+        ({
+            # Read by the dispute service from Connect's record of the contact, like customerId.
+            "Identifier": "RecordChannel",
+            "Type": "UpdateContactAttributes",
+            "Parameters": {"Attributes": {"disputeChannel": "$.Channel"}, "TargetContact": "Current"},
+            "Transitions": {"NextAction": "CardDisputeAssistant",
+                            "Errors": [{"NextAction": "CardDisputeAssistant", "ErrorType": "NoMatchingError"}]},
+        }, 160, 100),
         ({
             "Identifier": "CardDisputeAssistant",
             "Type": "ConnectParticipantWithAgenticCX",
@@ -90,7 +104,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
                            {"NextAction": "BuildHandover", "ErrorType": "NoMatchingCondition"},
                            {"NextAction": "Disconnect", "ErrorType": "InputTimeLimitExceeded"}],
             },
-        }, 280, 100),
+        }, 420, 100),
         ({
             "Identifier": "BuildHandover",
             "Type": "InvokeLambdaFunction",
@@ -105,7 +119,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
             },
             "Transitions": {"NextAction": "SetHandover",
                             "Errors": [{"NextAction": "HandoverUnavailable", "ErrorType": "NoMatchingError"}]},
-        }, 560, 100),
+        }, 700, 100),
         ({
             "Identifier": "SetHandover",
             "Type": "UpdateContactAttributes",
@@ -113,7 +127,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
                            "TargetContact": "Current"},
             "Transitions": {"NextAction": "ToHumanHandover",
                             "Errors": [{"NextAction": "HandoverUnavailable", "ErrorType": "NoMatchingError"}]},
-        }, 840, 20),
+        }, 980, 20),
         ({
             "Identifier": "HandoverUnavailable",
             "Type": "UpdateContactAttributes",
@@ -124,15 +138,15 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
                            "TargetContact": "Current"},
             "Transitions": {"NextAction": "ToHumanHandover",
                             "Errors": [{"NextAction": "ToHumanHandover", "ErrorType": "NoMatchingError"}]},
-        }, 840, 240),
+        }, 980, 240),
         ({
             "Identifier": "ToHumanHandover",
             "Type": "TransferToFlow",
             "Parameters": {"ContactFlowId": handover_arn},
             "Transitions": {"NextAction": "Disconnect",
                             "Errors": [{"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}]},
-        }, 1120, 100),
-        ({"Identifier": "Disconnect", "Type": "DisconnectParticipant", "Parameters": {}, "Transitions": {}}, 1400, 100),
+        }, 1260, 100),
+        ({"Identifier": "Disconnect", "Type": "DisconnectParticipant", "Parameters": {}, "Transitions": {}}, 1540, 100),
     ]
 
     metadata = {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out}
@@ -141,7 +155,9 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
         "AgentConfiguration": {"ContextVariables": {name: {"displayName": name, "useDynamic": True}
                                                     for name in CONTEXT_IN}},
         "IdleChatTimeoutSeconds": {"unit": 60}}
-    lambda_attributes = laid_out[1][0]["Parameters"]["LambdaInvocationAttributes"]
+    metadata["RecordChannel"]["parameters"] = {"Attributes": {"disputeChannel": {"useDynamic": True}}}
+    metadata["RecordChannel"]["dynamicParams"] = ["disputeChannel"]
+    lambda_attributes = laid_out[2][0]["Parameters"]["LambdaInvocationAttributes"]
     metadata["BuildHandover"]["parameters"] = {
         "LambdaFunctionARN": {"displayName": function},
         "LambdaInvocationAttributes": {k: {"useDynamic": True} for k, v in lambda_attributes.items() if v.startswith("$.")}}
@@ -152,8 +168,8 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
 
     return {
         "Version": "2019-10-30",
-        "StartAction": "CardDisputeAssistant",
-        "Metadata": {"entryPointPosition": {"x": 40, "y": 100}, "ActionMetadata": metadata, "Annotations": [],
+        "StartAction": "RecordChannel",
+        "Metadata": {"entryPointPosition": {"x": 20, "y": 100}, "ActionMetadata": metadata, "Annotations": [],
                      "name": FLOW_NAME, "description": FLOW_DESCRIPTION, "type": "contactFlow", "status": "saved"},
         "Actions": [a for a, _, _ in laid_out],
     }

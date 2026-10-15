@@ -1,376 +1,443 @@
 # Card Transaction Disputes — Setup Guide
 
-A customer tells ARIA they want to dispute a card payment, or that they don't recognise one. ARIA
-checks who they are and hands the call, in the same voice and without announcing it, to the **card
-dispute assistant** built in the CX designer. That assistant does the whole dispute: it finds the
-payment, fills the form (asking only what it doesn't already know), blocks and replaces the card if
-the customer wants, and texts them the form if they want to see it. Then the call goes back through
-ARIA's own human hand-over to an adviser, whose screen pop shows the dispute, any card blocked or
-ordered, and a link to the form. The adviser checks it with the customer and submits it.
+A customer tells ARIA, **on the phone or in a chat**, that they want to dispute a card payment or
+don't recognise one. ARIA checks who they are and passes them, without announcing it, to the **card
+dispute assistant**. That assistant does the whole dispute:
 
-This guide assumes you have not done this before. Follow the steps in order: each one needs the
-one before.
+- finds the payment;
+- fills in the dispute form, asking only for what it doesn't already know;
+- blocks the card and orders a replacement, if the customer says yes;
+- shares the form if the customer wants to see it: **texted** on a phone call, **posted in the
+  chat** on chat. The form then fills in in front of them as they talk.
 
-> **Nothing here has been tried on a live contact yet.** The code has unit tests only, and the
-> CX designer and flow steps are written from your mortgage Live Sync build, which works. The first
-> real call is the test of everything else. Each step says what to check.
+Then the customer goes to an adviser through ARIA's usual hand-over. The adviser's screen shows
+the dispute, any card blocked or ordered, and a link to the form. The adviser checks it with the
+customer and submits it.
+
+**This guide assumes you've never done this before.** Do the steps in order; each one needs the
+one before. Every step says what you should see when it has worked.
+
+> **Nothing here has been tried on a live call or chat yet.** The code has automatic tests only.
+> The CX designer and Connect steps follow your mortgage Live Sync build, which works. Your first
+> real call and chat are the real test, and "Test it" says exactly what to check.
 
 ## Table of Contents
 
-- [1. How a call goes](#1-how-a-call-goes)
-- [2. Who does what](#2-who-does-what)
-- [3. What is in this folder](#3-what-is-in-this-folder)
-- [4. Before you start](#4-before-you-start)
-- [Set it up](#set-it-up)
+- [1. How it works](#1-how-it-works)
+- [2. Words you'll see](#2-words-youll-see)
+- [3. Before you start](#3-before-you-start)
+- [Set it up (11 steps)](#set-it-up)
 - [Test it](#test-it)
 - [Troubleshooting](#troubleshooting)
 - [How to undo it](#how-to-undo-it)
+- [What is in this folder](#what-is-in-this-folder)
 - [Earlier designs](#earlier-designs)
 
 ---
 
-## 1. How a call goes
+## 1. How it works
 
 ```
-Caller ─► ARIA (conversation bot flow)
-            │  checks: verified, Level 2+, no vulnerability to handle first
-            │  calls StartCardDispute with what the caller already said
-            ▼
-          Card dispute assistant flow ─► Agentic CX block: the CX designer "Card dispute" assistant
-            │    finds the payment, fills the dispute, blocks / replaces the card,
-            │    texts the form link (the form then updates on the caller's phone as they talk)
-            │    reads it back, then hands back
-            ▼
-          Lambda aria-card-dispute "handover": team + summary, built from what was saved
-            ▼
-          ARIA human handover (the same flow ARIA's own escalations use) ─► adviser's queue
-            ▼
-          Adviser: screen pop "Card dispute" ─► opens the form ─► customer confirms ─► Submit
+Customer (phone or chat) ─► ARIA            checks they're verified, then calls StartCardDispute
+                              │
+                              ▼
+                      "Card dispute assistant" flow (Connect)
+                              │ 1. notes the channel: VOICE or CHAT
+                              │ 2. the CX designer assistant does the dispute
+                              │ 3. Lambda builds the hand-over from what was saved
+                              ▼
+                      "ARIA human handover" flow ─► adviser's queue
+                              │
+                              ▼
+                      Adviser: screen pop "Card dispute" ─► opens the form ─► customer confirms ─► Submit
 ```
-
-**Why the flow, not ARIA, does the transfer at the end.** When ARIA escalates, its Escalate tool
-only fills in four attributes; `conversation bot flow` then runs **ARIA human handover**. The
-disputes route ends on that same flow with the same four attributes, so to the adviser it *is* an
-ARIA hand-over. Sending the call back into ARIA's bot just to say goodbye would leave the caller in
-silence: ARIA's bot waits for the caller to speak first.
-
-**The same voice.** ARIA hands over with one sentence such as "Let's sort that out for you", and the
-assistant's first words are a question about the payment. Neither says anything about transferring.
-The assistant's voice is set in the CX designer application, so it must be set to match ARIA's
-(step 6).
-
----
-
-## 2. Who does what
 
 | | ARIA | Card dispute assistant | Adviser |
 |---|---|---|---|
-| Checks the caller is verified (Level 2+) | Yes | Checks again; the Lambda also refuses an unverified call | Own checks |
-| Asks about the payment, the card, the form | Never | Yes, only what it does not already know | Confirms with the customer |
+| Checks the customer is verified | Yes | Checks again (and the service refuses an unverified customer) | Own checks |
+| Asks about the payment and the card | Never | Yes, only what it doesn't know | Confirms with the customer |
 | Fills in the dispute | Never | Yes | Can change anything |
-| Blocks / orders a replacement card | Not for disputes | Yes, with the customer's yes | Yes, in your own systems |
-| Texts the form link | No | Yes, if the customer wants to see it | — |
-| Confirms or submits the dispute | Never | Never (it has no way to) | Yes, after the customer confirms |
+| Blocks / replaces the card | No (for disputes) | Yes, with the customer's yes | In your own systems |
+| Shares the form | No | Phone: texts it. Chat: posts it | — |
+| Submits | Never | Never (it can't) | Yes, after the customer confirms |
 
-The assistant reaches the dispute service through seven **Data requests**, each an HTTPS call with
-a key. None takes a customer ID or a phone number: the service works out the customer and the
-number to text from Connect's own record of the call. An unverified call gets nothing done.
+**Why ARIA doesn't speak again at the end.** ARIA's own transfers work by filling in four details
+and then running the **ARIA human handover** flow. The dispute route ends on that same flow with
+the same four details, so to the adviser it is an ARIA hand-over. Bringing a caller back into ARIA
+just to say goodbye would leave them in silence, because ARIA waits for the customer to speak first.
 
 ---
 
-## 3. What is in this folder
+## 2. Words you'll see
 
-| Path | What it is |
+| Word | What it means here |
 |---|---|
-| [SPEC.md](SPEC.md) | The design, the rules the code enforces, the known gaps. Part 4 is this design |
-| [acxd/disputes-assistant.md](acxd/disputes-assistant.md) | Everything to create in the CX designer, value by value |
-| [flows/build_card_dispute_flow.py](flows/build_card_dispute_flow.py) | Writes the Connect flow `card-dispute-flow.json` |
-| [lambda/](lambda/) | The Lambda. `dispute_service.py` holds every rule; `dispute_web.py` the CX designer door |
-| [web/](web/) | The customer form page and the adviser page |
-| [scripts/deploy_card_dispute.sh](scripts/deploy_card_dispute.sh) | Deploys the Lambda, table, web address, gateway tool and Connect access |
-| [scripts/deploy_pages_cloudfront.sh](scripts/deploy_pages_cloudfront.sh) | Optional: CloudFront in front of the pages |
-| [scripts/build_aria_prompt.py](scripts/build_aria_prompt.py) | Builds ARIA's new prompt from the one that is live today |
-| [prompts/card-disputes-cx-designer-block.txt](prompts/card-disputes-cx-designer-block.txt) | The section added to ARIA's prompt |
-| [acxd/connect-ai-agent/StartCardDispute.schema.json](acxd/connect-ai-agent/StartCardDispute.schema.json) | ARIA's hand-over tool |
-| [tests/](tests/) | Unit tests |
+| **Terminal** | The command window on your Mac. Every `./…` or `python3 …` line below is typed there, from the repository folder |
+| **Connect admin website** | Where you manage Amazon Connect: AWS console → Amazon Connect → your instance → **Log in for emergency access** (or your usual sign-in link) |
+| **Flow** | A diagram in Connect (**Routing → Flows**) that decides what happens to a call or chat. Made of **blocks** joined by arrows |
+| **Publish** | Makes your saved changes live. **Save** alone does not |
+| **AI agent / AI prompt** | ARIA's brain and instructions, under **AI agent designer** in the Connect admin website. Each **Publish** makes a new numbered **version**, and flows name the version they use |
+| **Agentic CX designer** | Where the card dispute assistant is built (AWS console → Amazon Connect → your instance → **agentic CX designer**) |
+| **Data request** | One of the assistant's tools: a call to the dispute service |
+| **Screen pop** | What the adviser sees when the call or chat arrives |
 
 ---
 
-## 4. Before you start
+## 3. Before you start
 
-- You are on the branch with this work: `git checkout feature/dispute-agents && git pull`.
-- You can run the AWS CLI against account `395402194296`, and you have `python3`, `zip`, `curl`
-  and `npm`.
-- The agent-assist work in [connect-agent-assist/](../connect-agent-assist/) is deployed and its
-  screen pop works.
-- Your mortgage Live Sync application works in the CX designer workspace `ariaworkspace`. This
-  reuses its workspace, and every CX designer screen will look familiar.
-- The routing table `aria-routing-config` has rows for `fraud_security`, `debit_card` and
-  `credit_card` (it does today), and an adviser serves those queues.
+Check each of these. If one isn't true, stop and sort it out first.
+
+- [ ] **The code.** In Terminal, go to the repository folder and run:
+  ```bash
+  git checkout feature/dispute-agents && git pull
+  ```
+- [ ] **The AWS CLI works** for account `395402194296`. Test it:
+  ```bash
+  aws sts get-caller-identity --query Account --output text
+  ```
+  It should print `395402194296`.
+- [ ] `python3`, `zip`, `curl` and `npm` are installed (`npm -v` prints a number).
+- [ ] The **agent-assist** screen pop already works (from `connect-agent-assist`).
+- [ ] The **mortgage Live Sync assistant** works in agentic CX designer, in workspace `ariaworkspace`.
+- [ ] An adviser account can take contacts from the fraud and cards queues.
 
 ---
 
 ## Set it up
 
-### Step 1 — Run the tests (optional, no AWS)
+### Step 1 — Run the automatic tests (2 minutes, optional)
 
 ```bash
 python3 -m unittest discover -s connect-card-dispute/tests
 python3 -m unittest discover -s connect-agent-assist/tests
 ```
 
-Both end with `OK`.
+✅ **Worked if:** both end with `OK`. They don't touch AWS.
 
-### Step 2 — Deploy the dispute service
+### Step 2 — Deploy the dispute service (5 minutes)
 
 ```bash
 ./connect-card-dispute/scripts/deploy_card_dispute.sh
 ```
 
-It updates the Lambda `aria-card-dispute` and its table, keeps the web address for the pages,
-lets Connect call the Lambda from a flow (and adds it to your instance), and updates the gateway
-tool. It tests itself at the end. Add `--dry-run` first to see what it would do.
+This updates the Lambda `aria-card-dispute`, its database table and web address, lets Connect
+call it from a flow, and updates the agent-assist tool. Want to see what it would do first? Add
+`--dry-run` to the end.
 
-Keep two lines it prints:
+✅ **Worked if:** it ends with `Done` and green ✓ lines for every test, including "The hand-back
+call works" and "The CX designer door is up". **Copy these two lines** somewhere; you need them in
+step 6:
 
 ```
-For the CX designer disputes assistant (acxd/disputes-assistant.md):
   Data request address : https://…/acxd/ops
   Its key              : Secrets Manager secret aria-card-dispute/acxd-key
 ```
 
-### Step 3 — CloudFront in front of the pages (optional)
+❌ **If it stops with a red message,** the message says what's wrong (most often: not signed in to
+AWS, so redo the check in "Before you start").
+
+### Step 3 — CloudFront in front of the form pages (15 minutes, optional)
 
 ```bash
 ./connect-card-dispute/scripts/deploy_pages_cloudfront.sh
 ```
 
-The pages work without it. With it, the texted link and the adviser's link use one stable
-`https://….cloudfront.net` address and the Touchpoint library is cached near the customer. Every
-page load and every call still goes to the Lambda uncached. It takes 5 to 15 minutes. Later runs of
-step 2 keep using its address; the Data request address stays the API's.
+Gives the form one tidy `https://….cloudfront.net` address and makes it load faster. Skip it if
+you like; the form works without it.
 
-### Step 4 — Let the screen pop read disputes
+✅ **Worked if:** it prints the CloudFront address and says the page loads there.
+
+### Step 4 — Let the adviser's screen pop read disputes (3 minutes)
 
 ```bash
 ./connect-agent-assist/scripts/deploy_agent_assist.sh
 ```
 
-Look for `Card dispute service: aria-card-dispute`.
+✅ **Worked if:** you see the line `Card dispute service: aria-card-dispute`.
 
-### Step 5 — Texting the form link (optional)
+### Step 5 — Switch on texting for phone calls (20 minutes, optional)
 
-Without this the assistant simply says it can't text the form, and carries on by voice. To switch
-it on:
+On chat, the form link is posted in the chat, so nothing is needed here for chat. On a phone call
+the link is texted; without this step the assistant says it can't text the form and carries on by
+voice.
 
-1. AWS console → **AWS End User Messaging SMS** (eu-west-2).
-2. Get a sender that can text UK mobiles: **Phone numbers** → **Request originator**, or a **Sender
-   ID**. Check in the console what the UK needs for the one you choose.
-3. A new account is in the SMS **sandbox**: it only texts numbers you have verified. Under
-   **Destination phone numbers**, add and verify the mobile you will test from. Request production
-   access before real customers use it.
-4. Run step 2 again with the sender's ID or ARN:
+1. AWS console → search **End User Messaging** → open **AWS End User Messaging SMS**. Check the
+   region at the top right is **Europe (London) eu-west-2**.
+2. Get a sender that can text UK mobiles: **Phone numbers** → **Request originator** (or a
+   **Sender ID**). Follow the screens; check there what the UK requires for the type you choose.
+3. A new account is in the **SMS sandbox**: it only texts numbers you've verified. Go to
+   **Destination phone numbers** → **Add destination phone number**, enter the mobile you'll test
+   from, and enter the code it receives.
+4. Open your new sender and copy its **ARN** (it starts `arn:aws:sms-voice:`).
+5. Run step 2 again with it:
    ```bash
-   ./connect-card-dispute/scripts/deploy_card_dispute.sh --sms-from <phone-number-or-sender-id-ARN> --bank-name "Your bank"
+   ./connect-card-dispute/scripts/deploy_card_dispute.sh --sms-from <the ARN> --bank-name "Your bank"
    ```
-   The texts go only to numbers starting `+447` (UK mobiles); `--sms-prefixes +447,+353` widens it.
-   The setting is kept on later runs.
 
-The text goes to the number the customer is calling from, which `conversation bot flow` already
-records as `customerPhone`. The link works for two hours.
+✅ **Worked if:** the "Deploying with" section says `Form link texts from: arn:aws:sms-voice:…`.
+The setting is remembered on later runs. Texts go only to UK mobiles (`+447…`).
 
-### Step 6 — Build the assistant in the CX designer
+Before real customers use it, request **production access** in the same console, so it can text
+any number.
 
-Follow [acxd/disputes-assistant.md](acxd/disputes-assistant.md) from top to bottom: seven context
-variables, one Secret, seven Data requests (use the address and key from step 2), the
-`HandBackToARIA` flow, the main flow's opening, prompt, tools and exits, and the voice. Then build
-and deploy the application `Card dispute`. Note its **application ID**, its environment's
-**alias**, and its **deployment key** and **API key**.
+### Step 6 — Build the assistant in agentic CX designer (about 2 hours)
 
-Test each Data request with **Test** as you create it: `401` means the key is wrong; `ok:false`
-with `customer_not_identified` means it reached the service (a made-up contact is not a verified
-customer).
+Follow **[acxd/disputes-assistant.md](acxd/disputes-assistant.md)** from top to bottom. It's
+click-by-click and gives every value to paste: 8 context variables, 1 Secret, 7 Data requests, 2
+flows and the application.
 
-### Step 7 — Give the form page its Live Sync keys
+Three things matter most. That guide explains each one:
 
-1. AWS console → **Secrets Manager** → **Store a new secret** → **Other type of secret**.
-2. Two key/value rows: `deploymentKey` and `apiKey`, from step 6.
-3. Name it exactly `aria-card-dispute/touchpoint`, and create it.
-4. Run step 2 again. It should say `Live Sync keys found`.
+- the **opening** before the assistant node, so the assistant speaks first;
+- **`contactId` chosen as a Variable** in every tool, never typed;
+- the application's **voice set to Amy, English (UK)**, so callers hear one voice.
 
-Without them, the texted form still shows the dispute and updates as the assistant fills it in;
-only the assistant seeing what the customer types needs Live Sync.
+✅ **Worked if:** the application `Card dispute` shows **Live**, and you've written down its
+**application ID**, **alias**, **deployment key** and **API key**.
 
-### Step 8 — Import the Connect flow
+### Step 7 — Give the form page its Live Sync keys (5 minutes)
+
+This lets the assistant see what the customer types on the form.
+
+1. AWS console → **Secrets Manager** → **Store a new secret**.
+2. Choose **Other type of secret**. Add two rows under **Key/value**:
+   - key `deploymentKey`, value: the deployment key from step 6;
+   - key `apiKey`, value: the API key from step 6.
+3. **Next**. Secret name: `aria-card-dispute/touchpoint`, exactly. **Next**, **Next**, **Store**.
+4. Run step 2 again: `./connect-card-dispute/scripts/deploy_card_dispute.sh`
+
+✅ **Worked if:** it says `Live Sync keys found: aria-card-dispute/touchpoint`.
+
+### Step 8 — Add the "Card dispute assistant" flow to Connect (10 minutes)
+
+**8a. Make the flow file.** In Terminal, using the ID and alias from step 6:
 
 ```bash
-python3 connect-card-dispute/flows/build_card_dispute_flow.py --application-id <id> --alias <alias>
+python3 connect-card-dispute/flows/build_card_dispute_flow.py --application-id <application ID> --alias <alias>
 ```
 
-1. **Routing** → **Flows** → **Create flow** → arrow next to **Save** → **Import** →
-   `connect-card-dispute/flows/card-dispute-flow.json`.
-2. Name it `Card dispute assistant`.
-3. Check the **Agentic CX** block shows the `Card dispute` application, its environment, and five
-   context variables. Check the **AWS Lambda function** block shows `aria-card-dispute` (step 2
-   added it to the instance) and three parameters.
-4. **Save**, then **Publish**.
+✅ It prints `Wrote …/card-dispute-flow.json (7 blocks)`.
 
-If you ran the script without `--application-id`, choose the application in the block before
-saving.
+**8b. Import it.**
 
-### Step 9 — Give ARIA its hand-over tool and prompt
+1. Connect admin website → **Routing** → **Flows** → **Create flow**.
+2. At the top right, click the small arrow next to **Save** → **Import flow** → choose
+   `connect-card-dispute/flows/card-dispute-flow.json` → **Import**.
+3. Click the flow's name at the top left and change it to `Card dispute assistant`.
+4. Check three blocks. Click each one to open it:
+   - **Set contact attributes** (first): one attribute, `disputeChannel`, set from **System →
+     Channel**.
+   - **Agentic CX**: shows the `Card dispute` application and its environment, and six context
+     variables. If it says "choose an application", pick `Card dispute` and its environment now.
+   - **AWS Lambda function**: shows `aria-card-dispute` and three parameters.
+5. **Save**, then **Publish**.
 
-**The tool.**
+✅ **Worked if:** the flow publishes with no error. Yellow warnings before saving are normal.
 
-1. **AI agent designer** → **AI agents** → `my-conversation-agent` → **Edit** → **Add tool** →
-   **Create new AI Tool**.
-2. Name `StartCardDispute`, exactly. Type **Return to Control**.
-3. Input schema: paste
-   [acxd/connect-ai-agent/StartCardDispute.schema.json](acxd/connect-ai-agent/StartCardDispute.schema.json).
-4. Instructions:
+### Step 9 — Give ARIA its hand-over tool and new instructions (20 minutes)
+
+**9a. The tool.**
+
+1. Connect admin website → **AI agent designer** → **AI agents** → open `my-conversation-agent`.
+2. **Edit**. Scroll to **Tools** → **Add tool** → **Create new AI Tool**.
+3. **Tool name**: `StartCardDispute`. Type it exactly, with the capital letters; the bot flow
+   compares it letter for letter.
+4. **Tool type**: **Return to Control**.
+5. **Input schema**: open
+   [acxd/connect-ai-agent/StartCardDispute.schema.json](acxd/connect-ai-agent/StartCardDispute.schema.json),
+   copy all of it, paste.
+6. **Instructions**, paste:
    ```
    Use when a verified customer wants to dispute a card payment or does not recognise one. Put
    everything they have already said about the payment in handoverSummary.
    ```
-5. Example:
+7. **Examples**, paste (keep the tags):
    ```
    <message>Let's sort that out for you.</message>
    ```
-6. **Save**. Don't publish yet.
+8. **Create**. Don't publish yet.
 
-**The prompt.**
+**9b. The instructions (prompt).** In Terminal:
 
 ```bash
 python3 connect-card-dispute/scripts/build_aria_prompt.py --mode cx
 ```
 
-It reads ARIA's live prompt (it changes nothing in AWS), adds the dispute section, and writes
-`connect-card-dispute/prompts/aria-orchestration-prompt-with-disputes.yaml`. Today that is
-83,135 characters, under Connect's limit.
+✅ It prints `Wrote …/aria-orchestration-prompt-with-disputes.yaml` and a size under 100,000
+characters. It only reads from AWS; it changes nothing.
 
-1. **AI prompts** → `ARIA-Banking-Ochestration-Prompt`. Copy the current text somewhere as a backup.
-2. Replace the whole text with the file. Check the first line is exactly `system: |`.
-3. **Save**, then **Publish**.
-4. In `my-conversation-agent`, choose that prompt version. **Save**, then **Publish**. Note the new
-   agent version (today's live one is 26, so expect 27).
-
-ARIA does not need the dispute tools from the gateway, and today it has none. Leave them off.
-
-### Step 10 — Add one branch to the bot flow
-
-In `conversation bot flow`, find the **Check contact attributes** block that tests
-`$.Lex.SessionAttributes.Tool`. It has branches for `Escalate`, `Complete` and
-`StartMortgageApplication`.
-
-1. Add a condition: **Equals** `StartCardDispute`.
-2. Add a **Set contact attributes** block and connect the new branch to it:
-
-| Destination key | Value |
-|---|---|
-| `handoverSummary` | Set dynamically: namespace **Lex**, session attribute `handoverSummary` |
-| `entry` | Set manually: `phone` |
-
-3. Add a **Transfer to flow** block choosing `Card dispute assistant`. Connect the Set contact
-   attributes block's **Success** and **Error** to it, and its **Error** to the flow's existing
-   Disconnect.
-4. Point the flow at ARIA's new version, in both places:
-   - the first **Connect assistant** block: the new version of `my-conversation-agent`;
-   - the **Get customer input** block's session attribute `x-amz-lex:q-in-connect:ai-agent-arn`:
-     change the number at the end to the new version.
+1. **AI agent designer** → **AI prompts** → open `ARIA-Banking-Ochestration-Prompt`.
+2. Select all the text and copy it into a file on your desktop. **That's your backup.**
+3. **Edit**. Delete all the text and paste the whole of
+   `connect-card-dispute/prompts/aria-orchestration-prompt-with-disputes.yaml`.
+4. Check the very first line is exactly `system: |`.
 5. **Save**, then **Publish**.
 
-### Step 11 — The adviser's side
+**9c. Publish ARIA.**
 
-**The screen pop.**
+1. Back in `my-conversation-agent` → **Edit**: under the prompt, choose the version you just
+   published.
+2. **Save**, then **Publish**.
+3. **Write down the new version number**. Today's live one is 26, so expect 27.
 
-1. **Routing** → **Flows** → `ARIA-Agent-Screen-Pop-Flow` → arrow next to **Save** → **Export
-   flow**, to keep as your way back.
-2. Arrow next to **Save** → **Import** → `connect-agent-assist/flows/aria-agent-screen-pop-flow.json`.
-3. The **Card dispute** view now has six lines: reference, payment, what's still needed, whether the
-   customer is viewing the form, cards blocked or ordered, and the assistant's note.
+### Step 10 — Send ARIA's hand-over to the new flow (15 minutes)
+
+All of this is in the flow **conversation bot flow** (Connect admin website → **Routing** →
+**Flows**). It works the same for phone and chat.
+
+**10a. Add the branch.**
+
+1. Find the **Check contact attributes** block that checks **Namespace: Lex**, session attribute
+   **`Tool`**. It sits after **Get customer input** and already has branches for `Escalate`,
+   `Complete` and `StartMortgageApplication`.
+2. Open it → **Add another condition** → **Equals** → type `StartCardDispute` → **Save**. A new
+   output called `StartCardDispute` appears on the block.
+
+**10b. Copy what ARIA was told onto the contact.**
+
+1. From the block library on the left, drag a **Set contact attributes** block onto the canvas.
+2. Drag an arrow from the new `StartCardDispute` output to it.
+3. Open it and add two attributes. Choose **Add another attribute** for the second.
+
+   | Destination key | How | Value |
+   |---|---|---|
+   | `handoverSummary` | **Set dynamically**, Namespace **Lex**, Key **Session attributes** | `handoverSummary` |
+   | `entry` | **Set manually** | `aria` |
+
+4. **Save**.
+
+**10c. Transfer to the dispute flow.**
+
+1. Drag a **Transfer to flow** block onto the canvas. Open it, choose `Card dispute assistant`,
+   **Save**.
+2. Draw arrows from the Set contact attributes block's **Success** and **Error** to it.
+3. Draw an arrow from the Transfer to flow block's **Error** to the nearby **Disconnect** block.
+
+**10d. Use ARIA's new version (from step 9c), everywhere this flow names it.**
+
+1. Every **Connect assistant** block that shows `my-conversation-agent` (today only the first one,
+   after **Set language**): open it, choose the new version, **Save**.
+2. The **Get customer input** block → **Session attributes** → `x-amz-lex:q-in-connect:ai-agent-arn`.
+   Its value ends `…:26`. Change only that last number to the new version, for example `:27`.
+   **Save**.
+3. If step 6 used a voice other than Amy: the **Set voice** block near the top, choose the same
+   voice.
+
+**10e.** **Save**, then **Publish** the flow.
+
+✅ **Worked if:** it publishes without errors. Click **Save** first if Publish is greyed out.
+
+### Step 11 — The adviser's side (15 minutes)
+
+**11a. The new screen pop.**
+
+1. **Routing** → **Flows** → open `ARIA-Agent-Screen-Pop-Flow`.
+2. Arrow next to **Save** → **Export flow**. Keep the file. **That's your backup.**
+3. Arrow next to **Save** → **Import flow** →
+   `connect-agent-assist/flows/aria-agent-screen-pop-flow.json`.
 4. **Save**, then **Publish**.
 
-**The adviser's assistant (optional).** It can then answer questions about the dispute.
+✅ The **Card dispute** view (open it in the flow to look) now lists six lines, `dispute1` to
+`dispute6`.
 
-1. **AI agents** → `my-agent-assistant-agent` → **Edit** → **Add tool** →
-   `aria_banking_dispute___get_card_dispute`, only this one. **Save**, **Publish**, note the version.
-2. **AI prompts** → `agent-briefing-prompt`: paste
-   [agent-briefing-prompt-v1.yaml](../connect-agent-assist/prompts/agent-briefing-prompt-v1.yaml),
-   **Save**, **Publish**.
+**11b. Let the adviser's assistant read disputes (optional).**
+
+1. **AI agent designer** → **AI agents** → `my-agent-assistant-agent` → **Edit** → **Add tool** →
+   choose `aria_banking_dispute___get_card_dispute` (only this one) → **Save** → **Publish**.
+   Write down the version.
+2. **AI prompts** → `agent-briefing-prompt` → **Edit**: replace the text with
+   [agent-briefing-prompt-v1.yaml](../connect-agent-assist/prompts/agent-briefing-prompt-v1.yaml)
+   → **Save** → **Publish**.
 3. **AI agents** → `my-agent-briefing-agent` → **Edit**: add the same tool, choose the new prompt
-   version, **Save**, **Publish**, note the version.
-4. In the flow `ARIA agent assist`, update the versions in three places: the **Connect assistant**
-   block, and the `assistAgentArn` and `briefingAgentArn` parameters on the **AWS Lambda function**
-   block. **Save**, then **Publish**.
+   version → **Save** → **Publish**. Write down the version.
+4. **Routing** → **Flows** → `ARIA agent assist`. Update the version numbers in three places: the
+   **Connect assistant** block, and on the **AWS Lambda function** block the parameters
+   `assistAgentArn` and `briefingAgentArn` (change the number at the end). **Save**, **Publish**.
 
-> **If `get_card_dispute` is not offered:** Connect keeps its own copy of the gateway's tool list.
-> Remove the `aria-mcp-agentcore-gateway-server` integration from the agent, add it again, and
-> re-select the tools it had. Note them down first.
+> If `get_card_dispute` isn't in the tool list: Connect keeps its own copy of the gateway's tools.
+> Note the tools the agent has, remove the `aria-mcp-agentcore-gateway-server` integration, add it
+> back, and re-select them.
+
+🎉 **Set-up is done.** Now test it.
 
 ---
 
 ## Test it
 
-You need a phone (the mobile you verified in step 5, if texting is on), and an adviser logged in to
-the agent workspace and **Available**.
+You need: a phone (the mobile you verified in step 5, if texting is on), a browser for chat, and an
+adviser signed in to the agent workspace and set to **Available**.
 
-### Test 1 — A payment the customer did not make, with the form
+### Test 1 — Phone: a payment the customer didn't make
 
-| # | Who | Do | Expect |
+| # | Who | Do | You should see / hear |
 |---|---|---|---|
-| 1 | Customer | Ring ARIA as James. "I don't recognise a payment on my debit card" | ARIA checks you; then one short sentence, no transfer words |
-| 2 | Customer | (listen) | The same voice asks about the payment, without asking what you already said |
-| 3 | Customer | "The Amazon one, about ninety pounds. I still have my card." | It names the payment back and asks whether you made it, or goes straight on |
+| 1 | Customer | Ring ARIA as James: "I don't recognise a payment on my debit card" | ARIA checks you, then one short sentence. No "transferring" |
+| 2 | Customer | Listen | The **same voice** asks about the payment, without asking what you've already said |
+| 3 | Customer | "The Amazon one, about ninety pounds. I still have my card." | It names the payment back, or asks whether you made it |
 | 4 | Customer | "No, I didn't make it" | It offers to block the card |
-| 5 | Customer | "Yes please", then "yes" to a replacement | It gives the replacement time (3 to 5 working days) |
-| 6 | Customer | (listen) | It offers to text you the form |
-| 7 | Customer | "Yes" | A text arrives on your mobile; it says "the mobile ending …" only |
-| 8 | Customer | Open the link | The form, filled in so far, "Connected to your call" |
-| 9 | Customer | Answer its remaining questions; type a sentence into "what happened" yourself | Fields fill as you speak; your typing is kept |
-| 10 | Customer | Agree when it reads it back | "A colleague will now check the form with you…", then "Please wait while I connect you…" |
-| 11 | Adviser | Accept | Screen pop **Card dispute**: the payment, **Cards:** blocked and replacement ordered, the note, the link |
-| 12 | Adviser | Open the link, change a field | The customer's form becomes read-only and shows the change |
+| 5 | Customer | "Yes please", then yes to a replacement | It says the replacement arrives in 3 to 5 working days |
+| 6 | Customer | Listen | It offers to share the form |
+| 7 | Customer | "Yes" | A text arrives. It says "the mobile ending …", never the full number |
+| 8 | Customer | Open the link in the text | The form, filled in so far, and "Connected to your call" |
+| 9 | Customer | Answer its questions; type a sentence into "what happened" yourself | Fields fill as you speak; your typing stays |
+| 10 | Customer | Agree when it sums up | "A colleague will now check the form with you…", then "Please wait while I connect you…" |
+| 11 | Adviser | Accept the call | Screen pop **Card dispute**: the payment, **Cards:** blocked and replacement ordered, the note, a link |
+| 12 | Adviser | Open the link and change a field | The customer's form becomes read-only and shows the change |
 | 13 | Customer | Press **These details are correct** | The adviser page shows the confirmation |
 | 14 | Adviser | **Submit dispute** | Both pages show "Submitted" and the reference |
 
-### Test 2 — A payment the customer made, by voice only
+### Test 2 — Chat: the same, in writing
 
-Ring as James, dispute the Tesco payment, "I was charged twice". Decline the text. The call goes to
-the queue the routing table gives `debit_card`, not Fraud. On the adviser page, tick "The customer
-confirmed these details to me on this contact", then submit.
+1. Start a chat with ARIA the way you normally test ARIA on chat: your chat widget, or **Test
+   chat** in the Connect admin website (**Test settings** → choose `conversation bot flow` →
+   **Apply**).
+2. Type "I want to dispute a card payment", and verify yourself as James when ARIA asks.
 
-### Test 3 — The rules hold
+| # | You should see |
+|---|---|
+| 1 | ARIA replies with one short sentence, then the assistant's question about the payment, in the same chat |
+| 2 | It blocks and replaces the card only after you type yes |
+| 3 | When you say you'd like to see the form, **a link appears in the chat**. Nothing is texted |
+| 4 | Opening it shows the form, joined to the chat, filling in as you type in the chat |
+| 5 | At the end, the chat goes to an adviser, whose screen pop says the link was "posted in the chat" |
 
-- Call from a number that isn't verified as James: the assistant does nothing on cards or disputes
-  and passes you to a colleague.
+### Test 3 — Phone, without the form
+
+Ring as James, dispute the Tesco payment: "I was charged twice". When it offers the form, say no.
+The call goes to the queue the routing table gives `debit_card`, not to Fraud. On the adviser page,
+tick "The customer confirmed these details to me on this contact", then submit.
+
+### Test 4 — The safety rules hold
+
 - Ask the assistant to submit the dispute: it can't, and says a colleague will.
-- Ask for the text a fourth time: refused ("sent the most times allowed").
+- Ask for the form a fourth time: it says it can't share it again.
 - On the adviser page, press **Submit** before the customer has confirmed: refused.
 
-### Where to look
+### Where to look when something goes wrong
 
-| Log group | Shows |
+| Where | What it shows |
 |---|---|
-| `/aws/lambda/aria-card-dispute` | One line per call: `route=/acxd/ops … outcome=blockCard:ok`, `op=handover … topic=fraud_security`, page requests. Never content, numbers or links |
-| `/aws/connect/<your instance>` flow logs | Which blocks `conversation bot flow` and `Card dispute assistant` ran |
-| `/aws/lambda/aria-agent-assist-injector` | `briefing_read` each time a screen pop opens |
+| CloudWatch → Log groups → `/aws/lambda/aria-card-dispute` | One line per tool call, e.g. `outcome=blockCard:ok` or `op=handover … topic=fraud_security`. Never customer details |
+| CloudWatch → `/aws/connect/<your instance alias>`, search the contact ID | Every flow block the call or chat went through |
+| Agentic CX designer → the application → **Test** → **Debugger** | What the assistant decided and which tools it called |
 
 ---
 
 ## Troubleshooting
 
-| What you see | Likely cause |
+| What you see | Most likely cause, and the fix |
 |---|---|
-| ARIA tries to help with the dispute itself | ARIA's prompt or version: step 9 (prompt published, agent published) and step 10 (both version places) |
-| ARIA says one sentence, then silence | The assistant's opening (acxd/disputes-assistant.md 3a) is missing or not connected to the assistant node |
-| The call drops after ARIA's sentence | The bot flow branch (step 10) is missing, so the Tool check takes "no match". Or the Agentic CX block has no application chosen |
-| A different voice after ARIA | The CX designer application's voice (acxd 4.1) |
-| Every Data request says `customer_not_identified` | `contactId` is not mapped as a **Variable** (acxd 3c), or the caller isn't verified |
-| Data requests answer `401` | The CX designer Secret doesn't match `aria-card-dispute/acxd-key` |
-| "I can't text the form right now" | `sms_not_configured` (step 5 not done), `no_mobile_number` (not calling from a `+447` mobile), or `sms_failed`: the SMS sandbox, or the sender can't send to that number |
-| The form opens but doesn't update | It updates every two seconds from what's saved. If the assistant says it saved something and it doesn't appear, check the log for `updateDispute` outcomes |
-| The adviser gets "Card dispute: the hand-over summary could not be built" | The flow couldn't call the Lambda. Step 2 again (it adds the Connect permission), then check the Lambda block in step 8 |
-| The screen pop is the ordinary one, with no dispute | The dispute wasn't started (the summary says "Card dispute not drafted"), or step 4 wasn't run |
+| ARIA tries to handle the dispute itself | ARIA isn't on the new version. Check step 9 (prompt and agent published) and 10d (both places) |
+| ARIA says its sentence, then silence | The assistant's opening is missing or not connected: disputes-assistant.md Part 3b, steps 2 to 5 |
+| The call or chat ends after ARIA's sentence | The `StartCardDispute` branch (10a to 10c) is missing or not connected, or the Agentic CX block has no application (8b) |
+| A different voice after ARIA | The CX designer application's voice: disputes-assistant.md Part 4, step 3 |
+| The assistant says it can't find anything about you | Every Data request answered `customer_not_identified`: `contactId` isn't chosen as a **Variable** (Part 3b, step 7), or ARIA hadn't verified you |
+| Data requests answer `401` | The CX designer Secret doesn't match `aria-card-dispute/acxd-key`: Part 2b again |
+| Phone: "I can't share the form right now" | Look in the Lambda log for `sendFormLink:`. `sms_not_configured` = step 5 not done; `no_mobile_number` = not calling from a UK mobile; `sms_failed` = sandbox (verify the number) or the sender can't text it |
+| Chat: no link appears | The log shows `sendFormLink:ok` but no link was posted: the prompt's "On CHAT" rule (Part 3b, step 6) |
+| The form opens but doesn't change | It updates every two seconds from what's saved. Check the log for `updateDispute:ok` |
+| Adviser sees "the hand-over summary could not be built" | Connect couldn't call the Lambda. Run step 2 again, then check the Lambda block (8b) |
+| The screen pop is the usual one, no dispute | No dispute was started (the summary says "Card dispute not drafted"), or step 4 wasn't run |
 
 ---
 
@@ -378,23 +445,40 @@ confirmed these details to me on this contact", then submit.
 
 | To undo | Do |
 |---|---|
-| ARIA's dispute hand-over | Point `conversation bot flow` back at agent version 26, both places, and publish |
-| The screen pop | Import the file you exported in step 11 and publish |
-| The adviser's assistant tool | Point `ARIA agent assist` back at the previous agent versions |
-| Texting | Lambda console → `aria-card-dispute` → **Configuration** → **Environment variables**: remove `SMS_ORIGINATION_IDENTITY`. Later runs of step 2 leave it off |
-| The dispute service | Delete the gateway target `aria-banking-dispute`, the HTTP API `aria-card-dispute-pages`, the Lambda `aria-card-dispute`, its role `aria-lambda-card-dispute-role` and the table `aria-card-disputes`. Then run step 4 again |
+| ARIA's dispute hand-over | In `conversation bot flow`, put version 26 back in both places (10d) and publish |
+| The screen pop | Import the backup from 11a and publish |
+| ARIA's prompt | Paste the backup from 9b, publish, and choose that version in the agent |
+| Texting | Lambda console → `aria-card-dispute` → **Configuration** → **Environment variables** → remove `SMS_ORIGINATION_IDENTITY`. Later runs of step 2 leave it off |
+| The whole dispute service | Delete the gateway target `aria-banking-dispute`, the HTTP API `aria-card-dispute-pages`, the Lambda `aria-card-dispute`, its role `aria-lambda-card-dispute-role` and the table `aria-card-disputes`. Then run step 4 again |
+
+---
+
+## What is in this folder
+
+| Path | What it is |
+|---|---|
+| [SPEC.md](SPEC.md) | The design, the rules the code enforces, the known gaps. Part 4 is this design |
+| [acxd/disputes-assistant.md](acxd/disputes-assistant.md) | Step 6: everything to build in agentic CX designer |
+| [flows/build_card_dispute_flow.py](flows/build_card_dispute_flow.py) | Step 8: writes the Connect flow `card-dispute-flow.json` |
+| [lambda/](lambda/) | The Lambda. `dispute_service.py` holds the rules; `dispute_web.py` the assistant's tools |
+| [web/](web/) | The customer's form page and the adviser's page |
+| [scripts/deploy_card_dispute.sh](scripts/deploy_card_dispute.sh) | Step 2 |
+| [scripts/deploy_pages_cloudfront.sh](scripts/deploy_pages_cloudfront.sh) | Step 3 |
+| [scripts/build_aria_prompt.py](scripts/build_aria_prompt.py) | Step 9b |
+| [prompts/card-disputes-cx-designer-block.txt](prompts/card-disputes-cx-designer-block.txt) | The section added to ARIA's prompt |
+| [acxd/connect-ai-agent/StartCardDispute.schema.json](acxd/connect-ai-agent/StartCardDispute.schema.json) | Step 9a |
+| [tests/](tests/) | Step 1 |
 
 ---
 
 ## Earlier designs
 
-Two earlier designs are still in the code, and neither is used now:
+Two earlier designs are still in the code, and neither is used:
 
 - **ARIA drafts the dispute itself** with five gateway tools (`build_aria_prompt.py --mode direct`).
-- **An in-instance disputes agent** attached to ARIA as a collaborator (`--mode agents`,
-  `attach_disputes_collaborator.sh`, `prompts/disputes-agent-prompt-v1.yaml`). The AI agent
-  `card-disputes-agent` you created for it is not attached to ARIA (checked: ARIA has no
-  collaborator); you can leave it or delete it.
+- **An in-instance disputes agent** attached to ARIA (`--mode agents`,
+  `attach_disputes_collaborator.sh`). The AI agent `card-disputes-agent` made for it isn't attached
+  to ARIA (checked: ARIA has no collaborator). You can leave it or delete it.
 
-Their setup steps are in this README's history, at commit `35a43f2`. SPEC.md Parts 1 to 3 explain
+Their setup steps are in this README's history at commit `35a43f2`; SPEC.md Parts 1 to 3 explain
 them.

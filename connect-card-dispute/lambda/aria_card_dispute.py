@@ -136,6 +136,11 @@ def _contact_phone(contact_id: str) -> str:
     return str(_contact_attributes(contact_id).get("customerPhone") or "")
 
 
+def _contact_channel(contact_id: str) -> str:
+    """VOICE or CHAT. The "Card dispute assistant" flow records it as disputeChannel before the assistant starts."""
+    return str(_contact_attributes(contact_id).get("disputeChannel") or "VOICE").upper()
+
+
 def _send_sms(phone: str, text: str) -> str:
     """Texts the customer. "" when sent, otherwise a reason that is safe to log and to show the agent."""
     sender = os.environ.get("SMS_ORIGINATION_IDENTITY", "")
@@ -179,6 +184,7 @@ doors = dispute_web.Doors(
     region=os.environ.get("AWS_REGION", "eu-west-2"),
     instance_id=os.environ.get("CONNECT_INSTANCE_ID", ""),
     contact_phone=_contact_phone,
+    contact_channel=_contact_channel,
     send_sms=_send_sms,
     sms_prefixes=tuple(p.strip() for p in os.environ.get("SMS_ALLOWED_PREFIXES", "+447").split(",") if p.strip()),
     bank_name=os.environ.get("BANK_NAME", "Your bank"),

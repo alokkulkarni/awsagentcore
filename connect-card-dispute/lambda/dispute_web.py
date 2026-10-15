@@ -51,6 +51,7 @@ class Doors:
     region: str = "eu-west-2"
     instance_id: str = ""                           # the Connect instance; not a secret
     contact_phone: Callable[[str], str] = lambda contact_id: ""     # the number the customer is calling from
+    contact_channel: Callable[[str], str] = lambda contact_id: "VOICE"     # VOICE or CHAT, as the flow recorded it
     send_sms: Callable[[str, str], str] = lambda phone, text: "sms_not_configured"   # "" when sent, else why not
     sms_prefixes: tuple = ("+447",)                 # numbers a text may go to (UK mobiles)
     bank_name: str = "Your bank"
@@ -71,7 +72,7 @@ ACXD_OPERATIONS = {
     "getDispute": ASSISTANT_DISPUTE,
     "blockCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": ""},
     "orderReplacementCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": "", "arrivesInWorkingDays": ""},
-    "sendFormLink": {**_STATUS, "sent": False, "sentTo": ""},
+    "sendFormLink": {**_STATUS, "sent": False, "sentTo": "", "link": ""},     # link: on chat only
 }
 # Request field -> dispute field, for updateDispute. Nothing else can be set. "reason"
 # in a reply means why a call was refused, so the dispute's reason is "reasonCode".
@@ -159,6 +160,16 @@ def _fields(body: dict) -> dict:
 
 
 def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, contact_id: str, dispute_id: str) -> dict:
+    """
+    On chat, the link comes back for the assistant to post in the chat: the
+    customer is already in that verified conversation. On a call, it is texted to
+    the number they are calling from, and the assistant never sees it.
+    """
+    if doors.contact_channel(contact_id) == "CHAT":
+        service._owned(customer_id, dispute_id)
+        link = service.mint_form_link(customer_id, contact_id, dispute_id)
+        service.mark_link_sent(dispute_id, "chat")
+        return {"sent": True, "sentTo": "this chat", "link": link}
     phone = "".join(ch for ch in doors.contact_phone(contact_id) if ch == "+" or ch.isdigit())
     if not phone.startswith(doors.sms_prefixes):
         raise DisputeError("no_mobile_number", "The customer is not calling from a mobile we can text. "
@@ -170,8 +181,8 @@ def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, con
                                    f"{link} It works for {hours} hours. We will never ask for your PIN or passwords.")
     if failed:
         raise DisputeError(failed, "The text could not be sent. Carry on filling the form by voice.")
-    service.mark_link_sent(dispute_id)
-    return {"sent": True, "sentTo": f"the mobile ending {phone[-3:]}"}
+    service.mark_link_sent(dispute_id, "text")
+    return {"sent": True, "sentTo": f"the mobile ending {phone[-3:]}", "link": ""}
 
 
 def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: Doors,
