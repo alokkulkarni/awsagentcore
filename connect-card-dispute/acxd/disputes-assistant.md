@@ -904,7 +904,9 @@ mortgage conversation.
 6. **Production.** Repeat step 4, choosing **Production** instead of Development.
 7. **Write down four things.** You need them in the README, steps 7 and 8:
    - the **application ID**: in the application's settings, or in the browser's address bar;
-   - the **alias** of the **Production** environment you deployed to;
+   - the **alias code** of the **Production** environment: a random-looking string such as
+     `MyX46JWMLhtmdRWZgXTDe`. Not the word `Production`: Connect rejects that ("NLX Streaming Request
+     Failed With Status: 400");
    - the build's **deployment key**: click the deployed build;
    - the application's **API key**: application settings → **Access**.
 

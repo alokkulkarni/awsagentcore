@@ -210,7 +210,9 @@ This lets the assistant see what the customer types on the form.
 
 ### Step 8 — Add the "Card dispute assistant" flow to Connect (10 minutes)
 
-**8a. Make the flow file.** In Terminal, using the ID and alias from step 6:
+**8a. Make the flow file.** In Terminal, using the ID and alias from step 6. The alias is a code like
+`MyX46JWMLhtmdRWZgXTDe`, not the word `Production`. If you can't find it, leave `--alias …` off and
+choose the environment in the Agentic CX block in 8b:
 
 ```bash
 python3 connect-card-dispute/flows/build_card_dispute_flow.py --application-id <application ID> --alias <alias>
@@ -429,6 +431,7 @@ tick "The customer confirmed these details to me on this contact", then submit.
 |---|---|
 | ARIA tries to handle the dispute itself | ARIA isn't on the new version. Check step 9 (prompt and agent published) and 10d (both places) |
 | ARIA says its sentence, then silence | The assistant's opening is missing or not connected: disputes-assistant.md Part 3b, steps 2 to 5 |
+| ARIA's sentence, then straight to "Please wait while I connect you" | The Agentic CX block failed to start. The Connect flow log shows `NLX Streaming Request Failed With Status: 400`: usually the block's alias is the environment's name, not its code. Open the block and choose the environment from the drop-down (8b) |
 | The call or chat ends after ARIA's sentence | The `StartCardDispute` branch (10a to 10c) is missing or not connected, or the Agentic CX block has no application (8b) |
 | A different voice after ARIA | The CX designer application's voice: disputes-assistant.md Part 4, step 3 |
 | The assistant says it can't find anything about you | Every Data request answered `customer_not_identified`: `contactId` isn't chosen as a **Variable** (Part 3b, step 7), or ARIA hadn't verified you |

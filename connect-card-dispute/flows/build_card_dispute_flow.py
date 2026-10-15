@@ -188,6 +188,12 @@ def main() -> None:
     parser.add_argument("--function", default=DISPUTE_FUNCTION, help="The dispute Lambda's name")
     parser.add_argument("--output", default=str(Path(__file__).parent / "card-dispute-flow.json"))
     args = parser.parse_args()
+    # The block needs the environment's alias CODE (like MyX46JWMLhtmdRWZgXTDe), not its name.
+    # Given "Production", CX designer answers "NLX Streaming Request Failed With Status: 400".
+    if args.alias.lower() in ("production", "development", "prod", "dev", "test", "staging"):
+        parser.error(f"--alias {args.alias} is the environment's name. Use its alias code (a random-looking "
+                     "string such as MyX46JWMLhtmdRWZgXTDe), or leave --alias off and choose the environment "
+                     "in the Agentic CX block after import.")
 
     flow = build(args.region, args.account_id, args.instance_id, args.workspace_id, args.application_id,
                  args.alias, args.handover_flow_id, args.function)
