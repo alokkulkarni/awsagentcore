@@ -160,9 +160,9 @@ first_value() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1
 
 # Settings not given on the command line are kept from the last run, so running the
 # script again never switches texting off.
-current_setting() {
-    aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
-        --query "Environment.Variables.$1" --output text 2>/dev/null | first_value
+current_setting() {      # "" on a first deploy, when the Lambda does not exist yet (and under pipefail)
+    { aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
+        --query "Environment.Variables.$1" --output text 2>/dev/null || true; } | first_value
 }
 [[ -n "$SMS_FROM" ]] || SMS_FROM=$(current_setting SMS_ORIGINATION_IDENTITY)
 [[ -n "$SMS_PREFIXES" ]] || SMS_PREFIXES=$(current_setting SMS_ALLOWED_PREFIXES)
@@ -419,8 +419,8 @@ run aws lambda add-permission --function-name "$FUNCTION_NAME" --region "$REGION
     --statement-id "ConnectFlowInvoke" --action "lambda:InvokeFunction" --principal "connect.amazonaws.com" \
     --source-account "$ACCOUNT_ID" --source-arn "$INSTANCE_ARN" \
     >/dev/null 2>&1 || warn "Connect's invoke permission is already set (non-fatal)"
-associated=$(aws connect list-lambda-functions --instance-id "$INSTANCE_ID" --region "$REGION" \
-    --query "LambdaFunctions[?@=='${LAMBDA_ARN}']" --output text 2>/dev/null | first_value)
+associated=$({ aws connect list-lambda-functions --instance-id "$INSTANCE_ID" --region "$REGION" \
+    --query "LambdaFunctions[?@=='${LAMBDA_ARN}']" --output text 2>/dev/null || true; } | first_value)
 if [[ -n "$associated" ]]; then
     ok "Already added to the Connect instance."
 else
