@@ -36,25 +36,36 @@ about two hours the first time. Work top to bottom: a flow can only use things t
 
 Everything the flows use is a **resource**: context variables, a Secret and Data requests.
 
-### 2a. Context variables (8)
+### 2a. Context variables (7 used, only 1 to create)
 
-Context variables carry values between Connect and the assistant. Connect can only fill in one
-that has **Allow frontend updates** switched on.
+Context variables carry values between Connect and the assistant. They belong to the whole
+workspace, so the mortgage assistant's are shared with this one. Six of the seven this assistant
+uses already exist from the mortgage build
+([connect-livesync-mortgage](https://github.com/alokkulkarni/connect-livesync-mortgage), GUIDE
+Part 3a). Don't create those again; only check them.
 
-1. Go to **Resources** → **Context variables** → **Add context variable**.
-2. Create each row below. Type the name exactly (capital letters matter), choose **String**, set
-   **Allow frontend updates** as shown, then **Save**.
+1. Go to **Resources** → **Context variables**.
+2. **Check** the six marked "Yes" are in the list, with **Allow frontend updates** as shown. If one
+   is missing (for example, in a different workspace), create it the same way as step 3.
+3. **Create** `channel`: **Add context variable** → Name `channel` → Type **String** → **Allow
+   frontend updates** On → **Save**.
 
-| Name | Type | Allow frontend updates | Set by | What it is |
-|------|------|------------------------|--------|------------|
-| `entry` | String | On | Connect | where the customer came from (`aria`) |
-| `contactId` | String | On | Connect | the call's or chat's ID; every Data request sends it |
-| `firstName` | String | On | Connect | the customer's first name |
-| `verification` | String | On | Connect | `authenticated` if ARIA verified them |
-| `handoverSummary` | String | On | Connect | what the customer already told ARIA |
-| `channel` | String | On | Connect | `VOICE` or `CHAT` |
-| `summary` | String | Off | the assistant | its note for the adviser |
-| `escalationReason` | String | Off | the assistant | why the customer goes to a person |
+| Name | Type | Allow frontend updates | Already there? | What it holds here |
+|------|------|------------------------|----------------|--------------------|
+| `entry` | String | On | Yes (mortgage) | where the customer came from: `aria` |
+| `contactId` | String | On | Yes (mortgage) | the call's or chat's ID; every Data request sends it |
+| `firstName` | String | On | Yes (mortgage) | the customer's first name |
+| `handoverSummary` | String | On | Yes (mortgage) | what the customer already told ARIA |
+| `channel` | String | On | **No: create it** | `VOICE` or `CHAT` |
+| `summary` | String | Off | Yes (mortgage) | the assistant's note for the adviser |
+| `escalationReason` | String | Off | Yes (mortgage) | why the customer goes to a person |
+
+Sharing them with the mortgage assistant is safe: each conversation has its own values. The
+mortgage flows keep setting `entry` to `phone` or `web_widget`; only this assistant sees `aria`.
+
+There's no `verification` variable: the dispute service checks every request itself and answers
+`customer_not_identified` for anyone ARIA didn't verify, and the assistant then passes them to a
+colleague.
 
 ### 2b. The Secret (1)
 
@@ -235,7 +246,8 @@ showed this.
 5. Add a **Live Sync** node, name it `CardDisputeAssistant`, and connect both Basic nodes to it.
    Live Sync lets the assistant see the form when the customer opens the link, including anything
    they type. With no form open, it's an ordinary phone or chat conversation.
-6. **Prompt**: paste the whole block below, then re-insert each `{name}` with the `{` menu.
+6. **Prompt**: paste the whole block below, then re-insert each `{name}` with the `{` menu
+   (`{channel}`, `{firstName}`, `{handoverSummary}`).
 
 ```
 You are the card dispute assistant for the bank. The customer was just talking to our assistant,
@@ -244,7 +256,7 @@ introduce yourself, never greet them again, and never ask for anything they alre
 handle the whole dispute. A colleague then checks it with the customer and submits it.
 
 Conversation details (empty when not known):
-channel: {channel} | first name: {firstName} | verified: {verification}
+channel: {channel} | first name: {firstName}
 already said to ARIA: {handoverSummary}
 
 Channel
@@ -252,8 +264,8 @@ Channel
 - channel CHAT is a chat: you are writing. Keep messages short; you may use a short list.
 
 Before anything else
-- If "verified" is not "authenticated", do nothing on their cards or disputes. Say a colleague will
-  help, and use Escalation requested.
+- If any tool replies with reason customer_not_identified, the customer is not verified: do
+  nothing on their cards or disputes, say a colleague will help, and use Escalation requested.
 - Call listCardsAndPayments once, and use it to find the payment. Never give a full card number;
   "your debit card ending 4821" is fine.
 

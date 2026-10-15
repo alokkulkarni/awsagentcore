@@ -43,10 +43,6 @@
                 "displayName": "firstName",
                 "useDynamic": true
               },
-              "verification": {
-                "displayName": "verification",
-                "useDynamic": true
-              },
               "handoverSummary": {
                 "displayName": "handoverSummary",
                 "useDynamic": true
@@ -174,7 +170,6 @@
             "entry": "$.Attributes.entry",
             "contactId": "$.ContactId",
             "firstName": "$.Attributes.preferredName",
-            "verification": "$.Attributes.authStatus",
             "handoverSummary": "$.Attributes.handoverSummary",
             "channel": "$.Channel"
           },

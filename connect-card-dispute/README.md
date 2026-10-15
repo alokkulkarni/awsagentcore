@@ -183,8 +183,8 @@ any number.
 ### Step 6 — Build the assistant in agentic CX designer (about 2 hours)
 
 Follow **[acxd/disputes-assistant.md](acxd/disputes-assistant.md)** from top to bottom. It's
-click-by-click and gives every value to paste: 8 context variables, 1 Secret, 7 Data requests, 2
-flows and the application.
+click-by-click and gives every value to paste: 1 new context variable (the other six already exist
+from your mortgage build), 1 Secret, 7 Data requests, 2 flows and the application.
 
 Three things matter most. That guide explains each one:
 
@@ -227,7 +227,7 @@ python3 connect-card-dispute/flows/build_card_dispute_flow.py --application-id <
 4. Check three blocks. Click each one to open it:
    - **Set contact attributes** (first): one attribute, `disputeChannel`, set from **System →
      Channel**.
-   - **Agentic CX**: shows the `Card dispute` application and its environment, and six context
+   - **Agentic CX**: shows the `Card dispute` application and its environment, and five context
      variables. If it says "choose an application", pick `Card dispute` and its environment now.
    - **AWS Lambda function**: shows `aria-card-dispute` and three parameters.
 5. **Save**, then **Publish**.

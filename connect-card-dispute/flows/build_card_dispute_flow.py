@@ -51,13 +51,14 @@ FLOW_DESCRIPTION = ("ARIA hands a card dispute to the CX designer disputes assis
                     "then the call goes to an adviser through ARIA human handover.")
 NOT_CHOSEN = "CHOOSE-IN-THE-BLOCK"
 
-# What Connect passes in. At most ten per block. No customer ID: the dispute
-# service finds the customer from the contact itself (rule R7).
+# What Connect passes in. At most ten per block. No customer ID and no verification
+# flag: the dispute service finds the customer from the contact itself and refuses
+# an unverified one on every call (rules R7, R11). All but "channel" already exist
+# in the workspace, created for the mortgage assistant.
 CONTEXT_IN = {
     "entry": "$.Attributes.entry",
     "contactId": "$.ContactId",
     "firstName": "$.Attributes.preferredName",
-    "verification": "$.Attributes.authStatus",
     "handoverSummary": "$.Attributes.handoverSummary",
     "channel": "$.Channel",
 }
