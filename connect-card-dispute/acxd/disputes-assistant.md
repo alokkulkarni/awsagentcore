@@ -1,54 +1,102 @@
 # CX designer guide — the "Card dispute" assistant
 
-This builds the assistant that takes a card dispute over from ARIA and does all of it: it finds the
-payment, fills in the dispute, blocks and replaces the card if the customer wants, and shares the
-form (texted on a phone call, posted in the chat on chat). Then it hands the customer back, and
-Connect passes them to an adviser.
+This guide builds, step by step, the assistant that takes a card dispute over from ARIA. It is
+written for someone who has never built anything in agentic CX designer. Every click is listed,
+and each part ends with a check, so you know it worked before you move on.
 
-It works the same on a **phone call** and on **chat**. The only difference is how the form link
-reaches the customer, and the assistant handles that itself.
+**What the assistant does.** When a customer tells ARIA they want to dispute a card payment, ARIA
+passes them to this assistant without saying so. The assistant then:
 
-You build it in **agentic CX designer**, the same tool you used for the mortgage application. Allow
-about two hours the first time. Work top to bottom: a flow can only use things that already exist.
+- finds the payment;
+- fills in the dispute form, asking only for what it doesn't already know;
+- blocks the card and orders a replacement, if the customer says yes;
+- shares the form if the customer wants to see it: **texted** on a phone call, **posted in the
+  chat** on chat.
 
-**Keep these open while you work:**
-- This file. You'll copy text from it.
-- The output of `deploy_card_dispute.sh` (README step 2). You need the **Data request address**,
-  which ends in `/acxd/ops`.
+When it's finished, it hands the customer back, and Connect passes them to an adviser, who checks
+the form and submits it.
 
-**Two habits that avoid most problems:**
-- When a value contains `{something}`, don't type the braces. Type `{` and pick the item from the
-  menu that opens. Typed braces are sent as plain text.
-- **Save** often. The canvas doesn't save on its own.
+It works the same on a **phone call** and on **chat**.
+
+**Time:** allow about two hours the first time. You can stop between parts; everything you save is
+kept.
+
+---
+
+## Before you start
+
+**Have these open:**
+
+1. **This file**, in VS Code. You'll copy text from it. Always copy from the file, not from a chat
+   or an email, so nothing gets changed on the way.
+2. **The AWS console**, signed in, region **Europe (London)** (top right).
+3. **The output of `deploy_card_dispute.sh`** (README step 2). You need one line from it, the
+   **Data request address**, which looks like
+   `https://abcd1234.execute-api.eu-west-2.amazonaws.com/acxd/ops`.
+
+**Five words you'll meet:**
+
+| Word | What it means |
+|---|---|
+| **Workspace** | A container for everything you build. Your mortgage assistant lives in `ariaworkspace`; so will this one, and it shares some of the mortgage assistant's pieces |
+| **Resource** | Something flows use: a context variable, a Secret, a Data request. Created once, in the workspace |
+| **Flow** | A diagram of boxes (**nodes**) joined by lines (**paths**). It's the script of the conversation |
+| **Application** | A package of flows that you build and deploy. Connect talks to the application |
+| **Chip** | A coloured tag inside a text box that stands for a variable or Secret. You insert it from a menu; you never type it |
+
+**Three habits that avoid almost every problem:**
+
+1. **Never type `{` … `}` by hand.** When a value in this guide contains `{something}`, type only
+   `{`. A menu opens; choose the item. It turns into a chip. Text you type with braces is sent as
+   plain text, and the assistant breaks without any error message.
+2. **Save often.** Nothing saves on its own. If you close the tab without saving, it's gone.
+3. **Type names exactly.** `CardDispute` and `carddispute` are different things to the designer.
 
 ---
 
 ## Part 1 — Open the designer and your workspace
 
-1. Open the AWS console and go to **Amazon Connect**.
-2. Select your instance, then **agentic CX designer**.
-3. Use the workspace dropdown at the top left to choose `ariaworkspace` (the one your mortgage
-   assistant lives in).
+1. In the AWS console, type `Amazon Connect` in the search bar at the top and open it.
+2. You see a list of instances. Click your instance's **alias**, the blue link in the first
+   column. Don't tick the checkbox.
+3. On the instance page, look for **agentic CX designer** (in the left menu or on the page) and
+   click it. It opens in a new browser tab.
+4. At the **top left** there's a drop-down with a workspace name. Click it and choose
+   **`ariaworkspace`**.
+
+✅ **Check:** in the left menu, open **Resources** → **Data requests**. You see your mortgage
+assistant's Data requests (for example `attachToScreen`). That proves you're in the right workspace.
 
 ---
 
 ## Part 2 — Create the resources
 
-Everything the flows use is a **resource**: context variables, a Secret and Data requests.
+Resources come first, because a flow can only use a resource that already exists.
 
 ### 2a. Context variables (7 used, only 1 to create)
 
-Context variables carry values between Connect and the assistant. They belong to the whole
-workspace, so the mortgage assistant's are shared with this one. Six of the seven this assistant
-uses already exist from the mortgage build
-([connect-livesync-mortgage](https://github.com/alokkulkarni/connect-livesync-mortgage), GUIDE
-Part 3a). Don't create those again; only check them.
+**What they are.** A context variable is a named box that carries a value between Connect and the
+assistant. Connect puts values in when the conversation starts (for example the customer's first
+name), and the assistant puts values in when it finishes (for example its note for the adviser).
+Connect can only fill a box that has **Allow frontend updates** switched on.
 
-1. Go to **Resources** → **Context variables**.
-2. **Check** the six marked "Yes" are in the list, with **Allow frontend updates** as shown. If one
-   is missing (for example, in a different workspace), create it the same way as step 3.
-3. **Create** `channel`: **Add context variable** → Name `channel` → Type **String** → **Allow
-   frontend updates** On → **Save**.
+They belong to the whole workspace, so the mortgage assistant's boxes are shared with this one.
+Six of the seven this assistant uses already exist from the mortgage build
+([connect-livesync-mortgage](https://github.com/alokkulkarni/connect-livesync-mortgage), GUIDE
+Part 3a). **Don't create those again; only check them.**
+
+**Check the six that exist:**
+
+1. Left menu → **Resources** → **Context variables**. A list appears.
+2. Find each row marked "Yes" in the table below. Click it, check **Type** is **String** and **Allow
+   frontend updates** is as shown, and close it without changing anything.
+3. If one is missing (it shouldn't be), create it as below.
+
+**Create the new one:**
+
+4. Click **Add context variable**.
+5. **Name**: `channel`. **Type**: **String**. **Allow frontend updates**: switch it **On**.
+6. **Save**.
 
 | Name | Type | Allow frontend updates | Already there? | What it holds here |
 |------|------|------------------------|----------------|--------------------|
@@ -60,58 +108,87 @@ Part 3a). Don't create those again; only check them.
 | `summary` | String | Off | Yes (mortgage) | the assistant's note for the adviser |
 | `escalationReason` | String | Off | Yes (mortgage) | why the customer goes to a person |
 
-Sharing them with the mortgage assistant is safe: each conversation has its own values. The
+Sharing them with the mortgage assistant is safe: every conversation has its own values. The
 mortgage flows keep setting `entry` to `phone` or `web_widget`; only this assistant sees `aria`.
 
-There's no `verification` variable: the dispute service checks every request itself and answers
-`customer_not_identified` for anyone ARIA didn't verify, and the assistant then passes them to a
+There's no "verified" variable. The dispute service checks every request itself, and answers
+`customer_not_identified` for anyone ARIA didn't verify; the assistant then passes them to a
 colleague.
+
+✅ **Check:** the list shows `channel`, and the six others are as in the table.
 
 ### 2b. The Secret (1)
 
-The Data requests prove who they are with a key. The deploy script created it in AWS; you copy it
-into the designer once.
+**What it is.** The assistant's tools call the dispute service over the internet. The service only
+answers callers who present the right key, like a password. The deploy script created that key in
+AWS Secrets Manager; you copy it into the designer once, as a **Secret**, so the tools can present
+it without anyone seeing it.
 
-1. In another browser tab: AWS console → **Secrets Manager** → open `aria-card-dispute/acxd-key` →
-   **Retrieve secret value** → copy the value.
-2. Back in the designer: **Resources** → **Secrets** → **Add secret**. Name `card_dispute_api_key`,
-   paste the value, **Save**.
+This is a new Secret. The mortgage assistant's `mortgage_api_key` unlocks a different service and
+won't work here.
 
-Don't paste the key anywhere else.
+1. **AWS console tab**: search `Secrets Manager` and open it.
+2. Click the secret named **`aria-card-dispute/acxd-key`**.
+3. Scroll to **Secret value** → click **Retrieve secret value** → click the copy icon next to the
+   value.
+4. **Designer tab**: left menu → **Resources** → **Secrets** → **Add secret**.
+5. **Name**: `card_dispute_api_key`. **Value**: paste (Cmd+V). **Save**.
+6. Don't paste the key anywhere else (not in notes, chats or emails).
+
+✅ **Check:** `card_dispute_api_key` appears in the Secrets list. The designer won't show its value
+again; that's normal.
 
 ### 2c. Data requests (7)
 
-These are the assistant's tools. All seven call the same address; only `operation` and the fields
-differ.
+**What they are.** A Data request is one tool the assistant can use: a call to the dispute service.
+Each has a **name**, a **description** the assistant reads to decide when to use it, and a
+**request** and **response** shape. All seven call the same address; only the `operation` field and
+the other fields differ.
 
-**Do these steps for each of the seven below:**
+You create seven, all the same way. Below the steps, each one has its own heading with exactly
+what to paste.
 
-1. **Resources** → **Data requests** → **New data request**.
-2. **Name**: the name in the heading, exactly (for example `listCardsAndPayments`).
-3. **Description**: the "Description" text. The assistant reads it to decide when to use the tool,
-   so paste it as written.
-4. **Implementation** tab → choose **External** (never **Static**: Static returns made-up data and
-   never calls the service). Then:
+**For each of the seven, in this order** (`listCardsAndPayments`, `startDispute`, `updateDispute`,
+`getDispute`, `blockCard`, `orderReplacementCard`, `sendFormLink`):
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: the name in the heading, exactly. Example: `listCardsAndPayments`.
+3. **Description**: copy the text inside the quotation marks after "Description:" in that heading.
+   Don't include the quotation marks themselves. The assistant reads this to decide when to use
+   the tool, so don't reword it.
+4. Open the **Implementation** tab and choose **External**.
+   - Never choose **Static**: Static returns made-up data and never calls the service.
    - **Method**: `POST`.
-   - **Production** and **Development** endpoint URL: both the **Data request address** from the
-     deploy script, ending `/acxd/ops`.
-   - **Headers**, add two:
-     - `Content-Type` with value `application/json`;
-     - `x-api-key`: in the value box type `{`, choose **Secrets**, then `card_dispute_api_key`.
-5. **Request model**: choose **Auto-generate** (the star icon), paste the "Request sample", confirm.
-6. **Response model**: **Auto-generate** again, paste the "Response sample", confirm. Where it says
-   "the same as `startDispute`", paste `startDispute`'s response sample.
+   - **Production** endpoint URL: paste the **Data request address** (ends `/acxd/ops`).
+   - **Development** endpoint URL: paste the same address.
+   - **Headers**: add the first header: key `Content-Type`, value `application/json`.
+   - Add a second header: key `x-api-key`. For its value, click in the value box, type `{`, choose
+     **Secrets**, then click `card_dispute_api_key`. A chip appears. Don't type anything else.
+5. **Request model**: click **Auto-generate** (the star icon). A box opens. Paste the **Request
+   sample**: everything between the backticks in that heading, starting with `{` and ending with
+   `}`. Confirm. The designer turns it into a list of fields.
+6. **Response model**: click **Auto-generate** again and paste the **Response sample** the same
+   way. For `updateDispute` and `getDispute`, the heading says "the same as `startDispute`": paste
+   `startDispute`'s response sample.
 7. **Save**.
-8. **Test**: open **Test**, choose **Development**, enter the request sample's values, and run.
-   - `ok: false` with reason `customer_not_identified` is **correct** here: the sample's contact
-     isn't a real verified call, and it proves the request reached the service.
-   - `401` means the `x-api-key` header isn't using the Secret. Check step 4.
+8. **Test** it:
+   1. Open the **Test** tab and choose the **Development** environment.
+   2. Fill in the fields with the values from the request sample.
+   3. Click **Run**.
+   - ✅ **The right result is** `"ok": false` with `"reason": "customer_not_identified"`. That's
+     good news: the sample's contact isn't a real verified customer, and the reply proves the tool
+     reached the dispute service and the key worked.
+   - ❌ **`401`**: the `x-api-key` header isn't using the Secret. Go back to step 4.
+   - ❌ **The response sample comes back unchanged**: you chose Static. Switch to External.
+   - ❌ **Timeout or "could not connect"**: the address is wrong. Copy it again from the deploy
+     output.
 
-Every reply has `ok`, `reason` and `message`. When `ok` is false, `message` says what to do, and the
-assistant follows it.
+Every reply has `ok`, `reason` and `message`. When `ok` is false, `message` tells the assistant what
+to do, and it follows it.
 
-None of these takes a customer ID or a phone number. The service finds both from the call or chat
-itself, and does nothing for a customer ARIA didn't verify. None can confirm or submit a dispute.
+None of these tools takes a customer ID or a phone number. The service finds both from the call or
+chat itself, and does nothing for a customer ARIA didn't verify. None can confirm or submit a
+dispute.
 
 #### `listCardsAndPayments`
 
@@ -169,53 +246,108 @@ Description: "Shares this dispute's form with the customer, joined to this conve
 |---|---|
 | Response sample | `{"ok":true,"reason":"","message":"","sent":true,"sentTo":"the mobile ending 123","link":""}` |
 
+✅ **Check before Part 3:** the Data requests list shows all seven new names, and each one tested as
+described in step 8.
+
 ---
 
 ## Part 3 — Build the flows
 
-You build two flows. Build `HandBackToARIA` first, because the main flow points to it.
+### How flows and the canvas work (read this once)
 
-**How the canvas works**
-- **Add a node**: **Add** on the toolbar, or right-click the canvas → **New node**.
-- **Connect two nodes**: drag from a node's small exit dot to the next node.
-- **Edit a node**: click it; its settings open on the side.
-- **Validation** on the toolbar lists anything not connected.
+A **flow** is drawn on a **canvas**, a big empty page you can scroll and zoom.
+
+- A **node** is a box that does one thing: say a message, ask the AI to write something, let the
+  assistant talk, hand over. Every flow starts with a **Start** node that's already there.
+- A **path** is a line from one node to the next. Most nodes have several exits, shown as small
+  dots or labels on their edge: for example **Success**, **Failure** and **Timeout**. Each exit
+  needs a line to wherever that outcome should go.
+- An **output variable** is a name you give a node's result, so later nodes can use it as a chip.
+
+**The moves you need:**
+
+| To | Do |
+|---|---|
+| Add a node | Click **Add** on the toolbar, or right-click empty canvas → **New node**, then choose the node type |
+| Connect two nodes | Press and hold on an exit dot of the first node, drag to the second node, let go. A line appears |
+| Change a node | Click it. Its settings open in a panel on the right. Close the panel when done |
+| Remove a line | Click the line and press Delete (or use its menu) |
+| Move around | Drag empty canvas to scroll; use the zoom buttons or your trackpad to zoom |
+| Find problems | Click **Validation** on the toolbar. It lists anything not connected |
+
+**Node types used here:**
+
+| Node | What it does |
+|---|---|
+| **Generative text** | Asks the AI to write some text from a prompt you give it, and stores it in an output variable. The customer doesn't see it |
+| **Basic** | Says (or, on chat, writes) a message to the customer |
+| **Live Sync** | The assistant itself: talks with the customer, uses tools, and can see the form on the customer's screen |
+| **Escalate** | Ends the assistant's part and hands the customer back to Connect |
+| **Redirect** | Jumps to another flow |
+
+You build two flows. **Build `HandBackToARIA` first**, because the main flow jumps to it, and a
+Redirect can only choose a flow that exists.
 
 ### 3a. Flow `HandBackToARIA`
+
+**What it does.** It runs at the very end. It asks the AI for a one-line note for the adviser and a
+reason, then hands the customer back to Connect. The finished flow looks like this:
 
 ```
 Start → Generative text "handoffNote" → Generative text "handoffReason" → Escalate
 ```
 
-1. **Resources** → **Flows** → **New flow**. Name `HandBackToARIA` (flow names can't have
-   spaces), then **Create flow**.
-2. Add a **Generative text** node and connect **Start** to it.
-   - **Output variable**: `handoffNote`.
-   - **Prompt**: paste, then re-insert `{System.transcript}` with the `{` menu:
-     "In one sentence for a bank adviser, say anything they should know that is not on the dispute form: how the customer is feeling, anything they asked for that was not done, anything else they want help with. Write 'Nothing further.' if there is nothing. No card numbers. Conversation: {System.transcript}"
-3. Add a second **Generative text** node. Connect the first node's **Success**, **Failure** *and*
-   **Timeout** to it, so an empty answer never stops the hand-off.
-   - **Output variable**: `handoffReason`.
-   - **Prompt**: "Why is this going to a person? Output exactly one of: dispute_ready_for_review, dispute_incomplete, customer_request, vulnerability, tool_failure, other. No markdown, no explanation. Conversation: {System.transcript}"
-4. Add an **Escalate** node. Connect the second node's **Success**, **Failure** and **Timeout** to it.
-   - **Message**: "That's everything I need. A colleague will now check the form with you before
-     it's submitted. You won't need to repeat anything."
-   - **Add functionality** → **State modifications**. Add two **Set** rows; for each value type `{`
-     and pick the variable:
+1. **Create the flow.** Left menu → **Resources** → **Flows** → **New flow**. **Name**:
+   `HandBackToARIA` (flow names can't contain spaces). Click **Create flow**. The canvas opens with
+   a **Start** node.
+2. **The note for the adviser.**
+   1. Add a **Generative text** node. Place it to the right of **Start**.
+   2. Drag a line from **Start**'s exit to it.
+   3. Click it to open its settings.
+   4. **Output variable**: `handoffNote`.
+   5. **Prompt**: copy this text and paste it in:
+      "In one sentence for a bank adviser, say anything they should know that is not on the dispute form: how the customer is feeling, anything they asked for that was not done, anything else they want help with. Write 'Nothing further.' if there is nothing. No card numbers. Conversation: {System.transcript}"
+   6. At the end of the prompt, delete the pasted `{System.transcript}`. In its place type `{`,
+      choose **System**, then **transcript**. A chip appears. This chip gives the AI the whole
+      conversation so far.
+3. **The reason.**
+   1. Add a second **Generative text** node to the right of the first.
+   2. From the **first** node, drag **three** lines to it: from **Success**, from **Failure** and
+      from **Timeout**. That way the hand-over carries on even if the AI fails to answer.
+   3. Click it. **Output variable**: `handoffReason`.
+   4. **Prompt**: paste, then replace `{System.transcript}` with the chip as before:
+      "Why is this going to a person? Output exactly one of: dispute_ready_for_review, dispute_incomplete, customer_request, vulnerability, tool_failure, other. No markdown, no explanation. Conversation: {System.transcript}"
+4. **The hand-back.**
+   1. Add an **Escalate** node to the right.
+   2. From the second Generative text node, drag lines from **Success**, **Failure** and **Timeout**
+      to it.
+   3. Click it. **Message** (what the customer hears or reads):
+      "That's everything I need. A colleague will now check the form with you before it's
+      submitted. You won't need to repeat anything."
+   4. Click **Add functionality** → **State modifications**. This is how values reach Connect.
+      Add two rows with **Set**:
 
-     | Context variable | Value |
-     |------------------|-------|
-     | `summary` | `{handoffNote}` |
-     | `escalationReason` | `{handoffReason}` |
+      | Context variable | Value |
+      |------------------|-------|
+      | `summary` | `{handoffNote}` |
+      | `escalationReason` | `{handoffReason}` |
 
-   - Leave the Escalate node's **Continuation** path unconnected. **Validation** may mention it;
-     that's expected.
-5. **Save**.
+      For each row, choose the context variable from the list. For the value, type `{` and choose
+      the output variable (`handoffNote` or `handoffReason`) so it becomes a chip.
+   5. The Escalate node has an exit called **Continuation**. **Leave it unconnected.**
+5. Click **Save**.
 
-You don't choose the team or write the dispute summary here. Connect builds both from what the
-assistant saved, so they're always right.
+You don't choose the adviser's team or write the dispute summary here. Connect builds both from
+what the assistant saved, so they're always right.
+
+✅ **Check:** four nodes in a row, every exit connected except the Escalate node's **Continuation**.
+**Validation** may mention that Continuation; that's expected.
 
 ### 3b. Flow `CardDispute` (the main flow)
+
+**What it does.** It's the whole conversation. It has two parts: an **opening** that asks the first
+question, and the **assistant** that does the dispute. When the assistant finishes, it jumps to
+`HandBackToARIA`. The finished flow looks like this:
 
 ```
 Start → Generative text "openingQuestion" ─ Success ─────────► Basic "{openingQuestion}" ─┐
@@ -224,30 +356,43 @@ Start → Generative text "openingQuestion" ─ Success ────────
                                         Live Sync node "CardDisputeAssistant" ─ exits ─► Redirect → HandBackToARIA
 ```
 
-1. **Resources** → **Flows** → **New flow**. Name `CardDispute`, then **Create flow**.
+1. **Create the flow.** Left menu → **Resources** → **Flows** → **New flow**. **Name**:
+   `CardDispute`. Click **Create flow**.
 
-**The opening.** The assistant node only replies to what the customer says; it never speaks first.
-Coming from ARIA, the customer has just heard (or read) one sentence and is waiting. So the flow
-must speak first and end with a question, or the conversation goes silent. Your mortgage build
-showed this.
+**The opening.** The assistant node only ever *replies*; it never speaks first. Coming from ARIA,
+the customer has just heard (or read) one short sentence and is waiting. So the flow must speak
+first and end with a question, or the conversation goes silent. Your mortgage build found this the
+hard way. The opening writes a question that fits what the customer already told ARIA, and has a
+fixed question as a back-up.
 
-2. Add a **Generative text** node and connect **Start** to it.
-   - **Output variable**: `openingQuestion`.
-   - **Prompt** (re-insert `{handoverSummary}` with the `{` menu):
-     "The customer wants to dispute a card payment. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves the dispute on without asking for anything they already said. If they named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise ask which payment it is: the shop and roughly how much is enough. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
-3. Add a **Basic** node from the Generative text node's **Success**. **Message**: type `{` and pick
-   `openingQuestion`.
-4. Add another **Basic** node, and connect the Generative text node's **Failure** and **Timeout** to
-   it. **Message**: "Which card payment would you like to dispute? The shop and roughly how much is
-   enough."
+2. **Write the first question.**
+   1. Add a **Generative text** node and drag a line from **Start** to it.
+   2. Click it. **Output variable**: `openingQuestion`.
+   3. **Prompt**: paste this, then delete the pasted `{handoverSummary}` and insert the chip (type
+      `{`, choose the context variable `handoverSummary`):
+      "The customer wants to dispute a card payment. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves the dispute on without asking for anything they already said. If they named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise ask which payment it is: the shop and roughly how much is enough. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
+3. **Say that question.**
+   1. Add a **Basic** node. Drag a line from the Generative text node's **Success** to it.
+   2. Click it. **Message**: type `{` and choose `openingQuestion`. The message is just that chip.
+4. **The back-up question.**
+   1. Add another **Basic** node. Drag lines from the Generative text node's **Failure** and
+      **Timeout** to it.
+   2. Click it. **Message**: "Which card payment would you like to dispute? The shop and roughly
+      how much is enough."
 
 **The assistant.**
 
-5. Add a **Live Sync** node, name it `CardDisputeAssistant`, and connect both Basic nodes to it.
-   Live Sync lets the assistant see the form when the customer opens the link, including anything
-   they type. With no form open, it's an ordinary phone or chat conversation.
-6. **Prompt**: paste the whole block below, then re-insert each `{name}` with the `{` menu
-   (`{channel}`, `{firstName}`, `{handoverSummary}`).
+5. **Add the assistant node.**
+   1. Add a **Live Sync** node.
+   2. Name it `CardDisputeAssistant`.
+   3. Drag a line from **each** Basic node to it (two lines in total).
+
+   Live Sync means the assistant can also see the dispute form if the customer opens the link, and
+   see anything they type. When no form is open, it's an ordinary phone or chat conversation.
+6. **Prompt** (the assistant's instructions). Click the node and find its **Prompt** box. Copy the
+   whole block below (everything between the two lines of three backticks, but not the backticks)
+   and paste it in. Then find these three, delete each, and insert it as a chip with `{`:
+   `{channel}`, `{firstName}`, `{handoverSummary}`.
 
 ```
 You are the card dispute assistant for the bank. The customer was just talking to our assistant,
@@ -322,71 +467,119 @@ Tone
 - Warm, plain English, UK spelling. Two short sentences per turn at most.
 ```
 
-7. **Tools**: in the node's tools section, add each of the seven Data requests. For each one, paste
-   its Description as the tool prompt, then map its inputs:
+7. **Tools.** Still in the `CardDisputeAssistant` node, find its **Tools** section. Add the seven
+   Data requests from Part 2c, one at a time:
+   1. **Add tool** → type **Data request** → pick the Data request (for example
+      `listCardsAndPayments`).
+   2. **Tool prompt** (or description): paste that Data request's Description again.
+   3. The tool shows its **inputs**, one per field of its request sample. For each input, choose
+      where its value comes from:
 
-   | Input | Choose |
-   |-------|--------|
-   | `operation` | **Explicit text**, and type the Data request's own name, for example `blockCard` |
-   | `contactId` | **Variable**, then pick the context variable `contactId` |
-   | every other input | **LLM prompt** (the assistant fills it from the conversation) |
+      | Input | Choose |
+      |-------|--------|
+      | `operation` | **Explicit text**, and type the Data request's own name, for example `blockCard` |
+      | `contactId` | **Variable**, then pick the context variable `contactId` from the list |
+      | every other input | **LLM prompt** (the assistant fills it in from the conversation) |
 
-   Don't choose Explicit text and put a `{contactId}` chip inside it. The designer then sends the
-   chip's placeholder instead of the real ID, and every request answers `customer_not_identified`.
-   The mortgage build hit exactly this.
+   4. Repeat for all seven.
 
-8. **Data capture**: don't add it, and remove it if the node has one. The Data requests save the
-   dispute; slots would stay empty and make the node fail.
-9. **Live Sync actions**: paste the contents of `acxd/live-sync-actions.json` (an empty list).
-   There's no action that confirms or submits.
-10. **Exit conditions**: add these two.
+   ⚠️ **The most common mistake:** choosing **Explicit text** for `contactId` and inserting a
+   `{contactId}` chip inside it. The designer then sends the chip's placeholder text instead of the
+   real ID, and every tool answers `customer_not_identified`. Always use **Variable** for
+   `contactId`. The mortgage build hit exactly this.
+
+8. **Data capture.** If the node has a **Data capture** section, remove it (or leave it empty). The
+   tools save the dispute; data capture slots would stay empty and make the node fail.
+9. **Live Sync actions.** Find the node's **Live Sync actions** box. In VS Code, open
+   `acxd/live-sync-actions.json`, copy all of it (`{"actions": []}`), and paste it in. It's empty on
+   purpose: nothing on the page can confirm or submit.
+10. **Exit conditions.** These are the ways the assistant can finish. In the node, find **Exit
+    conditions** and add two. Paste the descriptions exactly; the assistant reads them to decide
+    when to leave.
 
     | Name | Description for the agent |
     |------|---------------------------|
     | `Escalation requested` | Use when the dispute is complete and summed up, when the customer asks for a person, when the payment cannot be found, when the customer is not verified, or at any sign of vulnerability. Always use this exit for any transfer. |
     | `Unable to help` | A Data request failed twice. |
 
-11. From each exit, and from the node's **Timeout** and **Failure** paths, add a **Redirect** node
-    pointing to the flow `HandBackToARIA` (one Redirect node can take all four). Don't add a "Task
-    complete" exit: this assistant never finishes a dispute; an adviser does.
-12. **Save**, then **Validation**. Fix anything it lists, except the Escalate node's Continuation
-    in `HandBackToARIA`.
+    Each exit you add appears as a new exit dot on the node, next to its built-in **Timeout** and
+    **Failure** exits. Don't add a "Task complete" exit: this assistant never finishes a dispute;
+    an adviser does.
+
+11. **Send every way out to the hand-back.**
+    1. Add a **Redirect** node to the right of the assistant. Click it and choose the flow
+       **`HandBackToARIA`**.
+    2. Drag four lines from `CardDisputeAssistant` to the Redirect: from **Escalation requested**,
+       **Unable to help**, **Timeout** and **Failure**.
+12. **Save**, then click **Validation** on the toolbar. It lists anything not connected. Fix each
+    one by drawing the missing line. The only thing it may still mention is the Escalate node's
+    Continuation in `HandBackToARIA`, which is fine.
+
+✅ **Check:** the flow matches the picture at the top of 3b. The assistant node has a prompt, seven
+tools, no data capture, two exit conditions, and four lines to the Redirect.
 
 ---
 
 ## Part 4 — Create, build and deploy the application
 
-1. **Applications** → **New application**. Name `Card dispute`, then **Create**.
-2. **Design** tab:
-   1. Attach both flows, `CardDispute` and `HandBackToARIA`, and **Save**. A Redirect only works if
-      its target flow is attached.
-   2. Set all four **default behaviours** (the **Default behavior** icon under the **Flows** list),
-      then **Save**:
+**What this is.** The flows exist, but nothing can use them until they're in an **application**
+that's been built and deployed. Make a **new** application for this assistant. Don't add these flows
+to the Mortgage application: an application has one starting flow, and the mortgage one starts the
+mortgage conversation.
 
-      | Default | Flow |
-      |---------|------|
-      | **Welcome** | `CardDispute` |
-      | **Unknown** | `CardDispute` |
-      | **Fallback** | `HandBackToARIA` |
-      | **Escalation** | `HandBackToARIA` |
+1. **Create it.** Left menu → **Applications** → **New application**. **Name**: `Card dispute`.
+   **Create**.
+2. **Design tab: attach the flows and set the defaults.**
+   1. Attach the two flows `CardDispute` and `HandBackToARIA` (not the mortgage flows). **Save**.
+      A Redirect only works if its target flow is attached.
+   2. Click the **Default behavior** icon under the **Flows** list (or the three-dot menu next to a
+      flow). Set all four, then **Save**:
 
-      If Unknown or Fallback is empty, the build warns about "Default quick replies" and the
+      | Default | Flow | When it's used |
+      |---------|------|----------------|
+      | **Welcome** | `CardDispute` | a conversation starts |
+      | **Unknown** | `CardDispute` | the assistant didn't understand; it asks again |
+      | **Fallback** | `HandBackToARIA` | something keeps going wrong; send to a person |
+      | **Escalation** | `HandBackToARIA` | the customer needs a person |
+
+      If Unknown or Fallback is left empty, the build warns about "Default quick replies" and the
       assistant uses generic built-in replies. Set both.
-3. **Voice**: in the application's settings, find its voice and choose **Amy, English (UK)**, the
-   voice ARIA uses. Connect's own Set voice block doesn't change this assistant's voice. If Amy
-   isn't offered, choose the closest British voice, write it down, and set ARIA's Set voice block to
-   the same one (README step 10). On chat, voice doesn't matter.
-4. **Deploy** tab:
-   1. Choose **Development** → **Build & deploy**.
-   2. Read the checks: red must be fixed, yellow are warnings.
-   3. Description `v1 card dispute`, then **Build**.
-   4. When the build finishes, hover over its status → **Deploy**. It shows **Live** when done.
-5. **Test** tab: type "I want to dispute a payment" and check it replies. It can't do real work
-   here (there's no verified call, so the Data requests say `customer_not_identified`), and that's
-   expected. The real test is README "Test it".
-6. When you're happy, repeat step 4 with **Production**.
-7. **Write down**, for the README:
-   - the **application ID** (in the application's settings, or the address bar);
-   - the **alias** of the environment you deployed (for example `Production`'s alias);
-   - the build's **deployment key** (click the deployed build);
-   - the application's **API key** (application settings → **Access**).
+3. **Voice.** Open the application's settings and find its voice. Choose **Amy, English (UK)**,
+   the voice ARIA uses, so a caller hears one voice throughout. Connect's own Set voice block
+   doesn't change this assistant's voice; only this setting does. If Amy isn't offered, choose the
+   closest British voice, write its name down, and set ARIA's Set voice block to the same one
+   (README step 10). On chat, the voice doesn't matter.
+4. **Deploy tab: build and deploy.**
+   1. Choose the **Development** environment → **Build & deploy**.
+   2. Read the checks it shows. **Red** items must be fixed (it says which flow or node). **Yellow**
+      items are warnings; read them, but you can go on.
+   3. **Description**: `v1 card dispute`. Click **Build**. Wait; it takes a few minutes.
+   4. When it finishes, hover over the build's status and choose **Deploy**. Wait until it shows
+      **Live**.
+5. **Test tab: quick check.** Type "I want to dispute a payment". It should reply with a question.
+   It can't look anything up here, because there's no verified customer in this test, so its tools
+   answer `customer_not_identified` and it offers a colleague. That's expected. The real test is in
+   the README, "Test it".
+6. **Production.** Repeat step 4, choosing **Production** instead of Development.
+7. **Write down four things.** You need them in the README, steps 7 and 8:
+   - the **application ID**: in the application's settings, or in the browser's address bar;
+   - the **alias** of the **Production** environment you deployed to;
+   - the build's **deployment key**: click the deployed build;
+   - the application's **API key**: application settings → **Access**.
+
+✅ **Check:** the application `Card dispute` shows **Live** in Production, and you have the four
+values written down.
+
+---
+
+## If something goes wrong here
+
+| What you see | What it means | Fix |
+|---|---|---|
+| A Data request test gives `401` | The key isn't being sent | Part 2c step 4: the `x-api-key` value must be the Secret chip |
+| A test returns exactly the sample | The Data request is Static | Part 2c step 4: choose External |
+| A flow can't find `HandBackToARIA` in the Redirect | That flow wasn't saved, or isn't attached to the application | Save it (3a step 5); attach it (Part 4 step 2) |
+| The build shows red items | Something is unconnected or missing | Click the item; it opens the node. Usually a missing line |
+| In a real call, the assistant says nothing after ARIA | The opening isn't connected to the assistant | 3b steps 2 to 5 |
+| In a real call, every tool says `customer_not_identified` | `contactId` isn't set as a Variable, or ARIA hadn't verified the customer | 3b step 7 |
+| Prompt text shows `{channel}` as typed words, not a chip | The braces were typed | Delete it and insert with `{` |

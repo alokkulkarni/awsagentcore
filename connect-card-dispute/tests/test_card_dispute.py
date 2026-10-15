@@ -1045,7 +1045,8 @@ class CxDesignerConfiguration(unittest.TestCase):
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
         self.assertIn("Never submit, confirm or accept a dispute", self.doc)
-        exits = self.doc.split("**Exit conditions**")[1].split("\n11. ")[0]
+        exits = self.doc.split("10. **Exit conditions.**")[1].split("\n11. ")[0]
+        self.assertEqual(re.findall(r"^    \| `([^`]+)` \|", exits, re.M), ["Escalation requested", "Unable to help"])
         self.assertNotIn("Task complete |", exits)
         self.assertFalse(any(re.search(r"submit|confirm", op, re.I) for op in dispute_web.ACXD_OPERATIONS))
 
