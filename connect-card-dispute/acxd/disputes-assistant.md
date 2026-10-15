@@ -145,54 +145,53 @@ Each has a **name**, a **description** the assistant reads to decide when to use
 **request** and **response** shape. All seven call the same address; only the `operation` field and
 the other fields differ.
 
-You create seven, all the same way. Below the steps, each one has its own heading with exactly
-what to paste.
-
-**For each of the seven, in this order** (`listCardsAndPayments`, `startDispute`, `updateDispute`,
-`getDispute`, `blockCard`, `orderReplacementCard`, `sendFormLink`):
-
-1. Left menu → **Resources** → **Data requests** → **New data request**.
-2. **Name**: the name in the heading, exactly. Example: `listCardsAndPayments`.
-3. **Description**: copy the text inside the quotation marks after "Description:" in that heading.
-   Don't include the quotation marks themselves. The assistant reads this to decide when to use
-   the tool, so don't reword it.
-4. Open the **Implementation** tab and choose **External**.
-   - Never choose **Static**: Static returns made-up data and never calls the service.
-   - **Method**: `POST`.
-   - **Production** endpoint URL: paste the **Data request address** (ends `/acxd/ops`).
-   - **Development** endpoint URL: paste the same address.
-   - **Headers**: add the first header: key `Content-Type`, value `application/json`.
-   - Add a second header: key `x-api-key`. For its value, click in the value box, type `{`, choose
-     **Secrets**, then click `card_dispute_api_key`. A chip appears. Don't type anything else.
-5. **Request model**: click **Auto-generate** (the star icon). A box opens. Paste the **Request
-   sample**: everything between the backticks in that heading, starting with `{` and ending with
-   `}`. Confirm. The designer turns it into a list of fields.
-6. **Response model**: click **Auto-generate** again and paste the **Response sample** the same
-   way. For `updateDispute` and `getDispute`, the heading says "the same as `startDispute`": paste
-   `startDispute`'s response sample.
-7. **Save**.
-8. **Test** it:
-   1. Open the **Test** tab and choose the **Development** environment.
-   2. Fill in the fields with the values from the request sample.
-   3. Click **Run**.
-   - ✅ **The right result is** `"ok": false` with `"reason": "customer_not_identified"`. That's
-     good news: the sample's contact isn't a real verified customer, and the reply proves the tool
-     reached the dispute service and the key worked.
-   - ❌ **`401`**: the `x-api-key` header isn't using the Secret. Go back to step 4.
-   - ❌ **The response sample comes back unchanged**: you chose Static. Switch to External.
-   - ❌ **Timeout or "could not connect"**: the address is wrong. Copy it again from the deploy
-     output.
+Below are seven sections, one per Data request, each with every step and every value written out.
+Do them in order. Each takes about five minutes.
 
 Every reply has `ok`, `reason` and `message`. When `ok` is false, `message` tells the assistant what
-to do, and it follows it.
+to do, and it follows it. None of these takes a customer ID or a phone number: the service finds
+both from the call or chat itself, and does nothing for a customer ARIA didn't verify. None can
+confirm or submit a dispute.
 
-None of these tools takes a customer ID or a phone number. The service finds both from the call or
-chat itself, and does nothing for a customer ARIA didn't verify. None can confirm or submit a
-dispute.
+If a test goes wrong:
+- **`401`**: the `x-api-key` header isn't using the Secret chip (step 4.5).
+- **The response sample comes back unchanged**: the Data request is Static; choose External.
+- **Timeout or "could not connect"**: the endpoint URL is wrong; copy it again from the deploy output.
 
 #### `listCardsAndPayments`
 
-Description: "The customer's cards (with whether each is blocked) and their recent card payments. Call it first, before asking which payment."
+Data request 1 of 7. This one looks up the customer's cards and recent payments.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `listCardsAndPayments`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   The customer's cards (with whether each is blocked) and their recent card payments. Call it first, before asking which payment.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821"}]}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `listCardsAndPayments`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666"}` |
 |---|---|
@@ -200,7 +199,40 @@ Description: "The customer's cards (with whether each is blocked) and their rece
 
 #### `startDispute`
 
-Description: "Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong)."
+Data request 2 of 7. This one starts the dispute for the payment the customer chose.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `startDispute`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261011-8999","disputeType":"unauthorised"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `startDispute`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `transactionId`: `TXN-4821-20261011-8999`
+      - `disputeType`: `unauthorised`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261011-8999","disputeType":"unauthorised"}` |
 |---|---|
@@ -208,23 +240,125 @@ Description: "Starts the dispute for one payment, or returns the one already sta
 
 #### `updateDispute`
 
-Description: "Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed."
+Data request 3 of 7. This one saves the customer's answers on the dispute.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `updateDispute`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"updateDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345","disputeType":"unauthorised","reasonCode":"card_details_used_without_card","cardInPossession":"yes","cardBlocked":"yes","contactedMerchant":"no","narrative":"I have never ordered from Amazon."}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `updateDispute`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `disputeId`: `DSP-ABCD2345`
+      - `disputeType`: `unauthorised`
+      - `reasonCode`: `card_details_used_without_card`
+      - `cardInPossession`: `yes`
+      - `cardBlocked`: `yes`
+      - `contactedMerchant`: `no`
+      - `narrative`: `I have never ordered from Amazon.`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"updateDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345","disputeType":"unauthorised","reasonCode":"card_details_used_without_card","cardInPossession":"yes","cardBlocked":"yes","contactedMerchant":"no","narrative":"I have never ordered from Amazon."}` |
 |---|---|
-| Response sample | the same as `startDispute` |
+| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
 
 #### `getDispute`
 
-Description: "The dispute as it stands, including anything the customer typed on the form themselves. Leave disputeId empty for the customer's latest open dispute."
+Data request 4 of 7. This one reads the dispute back, including anything the customer typed on the form.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `getDispute`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   The dispute as it stands, including anything the customer typed on the form themselves. Leave disputeId empty for the customer's latest open dispute.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"getDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `getDispute`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `disputeId`: `DSP-ABCD2345`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"getDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345"}` |
 |---|---|
-| Response sample | the same as `startDispute` |
+| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
 
 #### `blockCard`
 
-Description: "Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees."
+Data request 5 of 7. This one blocks a card.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `blockCard`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"BLOCK-4821-ABC234"}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `blockCard`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `cardType`: `debit`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}` |
 |---|---|
@@ -232,7 +366,39 @@ Description: "Blocks the customer's debit or credit card straight away. cardType
 
 #### `orderReplacementCard`
 
-Description: "Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees."
+Data request 6 of 7. This one orders a replacement for a blocked card.
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `orderReplacementCard`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"orderReplacementCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"REPL-4821-ABC234","arrivesInWorkingDays":"3 to 5"}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `orderReplacementCard`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `cardType`: `debit`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"orderReplacementCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}` |
 |---|---|
@@ -240,14 +406,45 @@ Description: "Orders a replacement for a card that has been blocked. cardType is
 
 #### `sendFormLink`
 
-Description: "Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given."
+Data request 7 of 7. This one texts the form (phone) or gives a link to post (chat).
+
+1. Left menu → **Resources** → **Data requests** → **New data request**.
+2. **Name**: `sendFormLink`
+3. **Description**: copy and paste this (the assistant reads it, so don't change it):
+   ```text
+   Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.
+   ```
+4. Open the **Implementation** tab and choose **External** (not Static).
+   1. **Method**: `POST`.
+   2. **Production** endpoint URL: the **Data request address** from the deploy script.
+   3. **Development** endpoint URL: the same address.
+   4. **Headers** → add a header: key `Content-Type`, value `application/json`.
+   5. Add a second header: key `x-api-key`. Click in its value box, type `{`, choose **Secrets**,
+      then `card_dispute_api_key`. It becomes a chip.
+5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
+   ```json
+   {"operation":"sendFormLink","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345"}
+   ```
+6. **Response model** → **Auto-generate** → paste this, then confirm:
+   ```json
+   {"ok":true,"reason":"","message":"","sent":true,"sentTo":"the mobile ending 123","link":""}
+   ```
+7. **Save**.
+8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
+      - `operation`: `sendFormLink`
+      - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
+      - `disputeId`: `DSP-ABCD2345`
+
+   ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
+   verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
+
+The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"sendFormLink","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345"}` |
 |---|---|
 | Response sample | `{"ok":true,"reason":"","message":"","sent":true,"sentTo":"the mobile ending 123","link":""}` |
 
-✅ **Check before Part 3:** the Data requests list shows all seven new names, and each one tested as
-described in step 8.
+✅ **Check before Part 3:** the Data requests list shows all seven new names, and each tested as above.
 
 ---
 
@@ -467,26 +664,157 @@ Tone
 - Warm, plain English, UK spelling. Two short sentences per turn at most.
 ```
 
-7. **Tools.** Still in the `CardDisputeAssistant` node, find its **Tools** section. Add the seven
-   Data requests from Part 2c, one at a time:
-   1. **Add tool** → type **Data request** → pick the Data request (for example
-      `listCardsAndPayments`).
-   2. **Tool prompt** (or description): paste that Data request's Description again.
-   3. The tool shows its **inputs**, one per field of its request sample. For each input, choose
-      where its value comes from:
+7. **Tools.** Still in the `CardDisputeAssistant` node, find its **Tools** section. You add seven
+   tools here, one for each Data request from Part 2c. The tool prompt is the same text as that Data
+   request's description. Each tool below has every step written out.
 
-      | Input | Choose |
-      |-------|--------|
-      | `operation` | **Explicit text**, and type the Data request's own name, for example `blockCard` |
-      | `contactId` | **Variable**, then pick the context variable `contactId` from the list |
-      | every other input | **LLM prompt** (the assistant fills it in from the conversation) |
+   **The rule for inputs, the same in every tool:**
+   - `operation` → **Explicit text**, typed exactly as shown.
+   - `contactId` → **Variable** → the context variable `contactId`. ⚠️ Never Explicit text with a
+     `{contactId}` chip inside it: the designer then sends the chip's placeholder instead of the
+     real ID, and every tool answers `customer_not_identified`. The mortgage build hit exactly this.
+   - Everything else → **LLM prompt**: the assistant fills it in from the conversation.
 
-   4. Repeat for all seven.
+   **Tool 1 of 7: `listCardsAndPayments`** (looks up the customer's cards and recent payments)
 
-   ⚠️ **The most common mistake:** choosing **Explicit text** for `contactId` and inserting a
-   `{contactId}` chip inside it. The designer then sends the chip's placeholder text instead of the
-   real ID, and every tool answers `customer_not_identified`. Always use **Variable** for
-   `contactId`. The mortgage build hit exactly this.
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`listCardsAndPayments`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      The customer's cards (with whether each is blocked) and their recent card payments. Call it first, before asking which payment.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `listCardsAndPayments` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+
+   5. **Save** the tool (or close its panel), and check `listCardsAndPayments` now appears in the Tools list.
+
+   **Tool 2 of 7: `startDispute`** (starts the dispute for the payment the customer chose)
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`startDispute`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `startDispute` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `transactionId` | **LLM prompt** | if there's a description box: The transactionId, from listCardsAndPayments, of the payment the customer means. |
+      | `disputeType` | **LLM prompt** | if there's a description box: unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong. |
+
+   5. **Save** the tool (or close its panel), and check `startDispute` now appears in the Tools list.
+
+   **Tool 3 of 7: `updateDispute`** (saves the customer's answers on the dispute)
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`updateDispute`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `updateDispute` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `disputeId` | **LLM prompt** | if there's a description box: The disputeId from startDispute. |
+      | `disputeType` | **LLM prompt** | if there's a description box: unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong. |
+      | `reasonCode` | **LLM prompt** | if there's a description box: One of reasonsAllowed from the last dispute reply, matching what the customer said. |
+      | `cardInPossession` | **LLM prompt** | if there's a description box: yes or no: does the customer still have the card? |
+      | `cardBlocked` | **LLM prompt** | if there's a description box: yes or no: is the card blocked? |
+      | `contactedMerchant` | **LLM prompt** | if there's a description box: yes or no: has the customer contacted the retailer? |
+      | `narrative` | **LLM prompt** | if there's a description box: What happened, in the customer's own words. |
+
+   5. **Save** the tool (or close its panel), and check `updateDispute` now appears in the Tools list.
+
+   **Tool 4 of 7: `getDispute`** (reads the dispute back, including anything the customer typed on the form)
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`getDispute`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      The dispute as it stands, including anything the customer typed on the form themselves. Leave disputeId empty for the customer's latest open dispute.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `getDispute` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `disputeId` | **LLM prompt** | if there's a description box: The disputeId from startDispute. |
+
+   5. **Save** the tool (or close its panel), and check `getDispute` now appears in the Tools list.
+
+   **Tool 5 of 7: `blockCard`** (blocks a card)
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`blockCard`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `blockCard` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. |
+
+   5. **Save** the tool (or close its panel), and check `blockCard` now appears in the Tools list.
+
+   **Tool 6 of 7: `orderReplacementCard`** (orders a replacement for a blocked card)
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`orderReplacementCard`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `orderReplacementCard` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. |
+
+   5. **Save** the tool (or close its panel), and check `orderReplacementCard` now appears in the Tools list.
+
+   **Tool 7 of 7: `sendFormLink`** (texts the form (phone) or gives a link to post (chat))
+
+   1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
+   2. Pick **`sendFormLink`** from the list.
+   3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
+      ```text
+      Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.
+      ```
+   4. The tool lists its **inputs**, one for each field below. For each input, open its source
+      drop-down and choose as shown:
+
+      | Input | Source | Value |
+      |-------|--------|-------|
+      | `operation` | **Explicit text** | type exactly: `sendFormLink` |
+      | `contactId` | **Variable** | pick the context variable `contactId` from the list |
+      | `disputeId` | **LLM prompt** | if there's a description box: The disputeId from startDispute. |
+
+   5. **Save** the tool (or close its panel), and check `sendFormLink` now appears in the Tools list.
+
+   ✅ The Tools list shows all seven: `listCardsAndPayments`, `startDispute`, `updateDispute`, `getDispute`, `blockCard`, `orderReplacementCard`, `sendFormLink`.
 
 8. **Data capture.** If the node has a **Data capture** section, remove it (or leave it empty). The
    tools save the dispute; data capture slots would stay empty and make the node fail.
