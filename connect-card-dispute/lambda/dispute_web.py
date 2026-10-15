@@ -159,6 +159,20 @@ def _fields(body: dict) -> dict:
     return fields
 
 
+def _contact_id_shape(value) -> str:
+    """
+    Why a contactId was refused, for the log only, never the value itself:
+    empty (a CX designer test, or the input is not mapped), placeholder (the
+    input is Explicit text with a {contactId} chip inside, which sends the
+    chip's name instead of the ID), or malformed.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return "empty"
+    if "{" in value or "NLX" in value or "contactId" in value:
+        return "placeholder"
+    return "malformed"
+
+
 def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, contact_id: str, dispute_id: str) -> dict:
     """
     On chat, the link comes back for the assistant to post in the chat: the
@@ -281,8 +295,11 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
             reply = _acxd(event, service, doors)
             answer = json.loads(reply["body"])
             outcome = answer.get("error") or answer.get("reason") or "ok"
-            asked = _body(event).get("operation") if reply["statusCode"] not in (401, 503) else ""   # parsed once already
+            body = _body(event) if reply["statusCode"] not in (401, 503) else {}   # parsed once already
+            asked = body.get("operation")
             outcome = f"{asked if asked in ACXD_OPERATIONS else '-'}:{outcome}"
+            if outcome.endswith("contact_not_recognised"):
+                outcome += f":{_contact_id_shape(body.get('contactId'))}"
         else:
             reply = _json(200, route(_body(event)))
             outcome = "ok"

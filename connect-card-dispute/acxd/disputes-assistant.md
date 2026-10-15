@@ -606,8 +606,9 @@ Channel
 - channel CHAT is a chat: you are writing. Keep messages short; you may use a short list.
 
 Before anything else
-- If any tool replies with reason customer_not_identified, the customer is not verified: do
-  nothing on their cards or disputes, say a colleague will help, and use Escalation requested.
+- If any tool replies with reason customer_not_identified or contact_not_recognised, you cannot
+  act for this customer: do nothing on their cards or disputes, say a colleague will help, and use
+  Escalation requested.
 - Call listCardsAndPayments once, and use it to find the payment. Never give a full card number;
   "your debit card ending 4821" is fine.
 
@@ -884,10 +885,22 @@ mortgage conversation.
    3. **Description**: `v1 card dispute`. Click **Build**. Wait; it takes a few minutes.
    4. When it finishes, hover over the build's status and choose **Deploy**. Wait until it shows
       **Live**.
-5. **Test tab: quick check.** Type "I want to dispute a payment". It should reply with a question.
-   It can't look anything up here, because there's no verified customer in this test, so its tools
-   answer `customer_not_identified` and it offers a colleague. That's expected. The real test is in
-   the README, "Test it".
+5. **Test tab: quick check.** The Test tab has no real call, so the assistant can't act for a real
+   customer. What you can check is that every piece is wired up.
+   1. **New conversation test**. The opening question should appear by itself, asking about the
+      payment.
+   2. Reply "I want to dispute a payment". The assistant calls `listCardsAndPayments`, gets told it
+      can't act for this customer, and ends with "That's everything I need. A colleague will…",
+      then **Application exited via Escalation**. **That's the expected result here.**
+   3. **Check that `contactId` is mapped correctly** (the most common mistake). AWS console →
+      **CloudWatch** → **Log groups** → `/aws/lambda/aria-card-dispute` → the newest log stream.
+      Find the line with `route=/acxd/ops` from your test:
+      - `outcome=listCardsAndPayments:contact_not_recognised:empty`: correct. The test simply has
+        no contact ID. On a real call it will have one.
+      - `…:contact_not_recognised:placeholder`: **wrong**. `contactId` is set as Explicit text with
+        a chip inside. Go back to step 7 of Part 3b and set it to **Variable** in all seven tools.
+      - `status=401`: the Secret isn't being sent. See Part 2c.
+   4. The real test, with a verified customer, is in the README, "Test it".
 6. **Production.** Repeat step 4, choosing **Production** instead of Development.
 7. **Write down four things.** You need them in the README, steps 7 and 8:
    - the **application ID**: in the application's settings, or in the browser's address bar;

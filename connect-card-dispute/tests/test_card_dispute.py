@@ -783,6 +783,15 @@ class DisputesAgentInCxDesigner(Base):
                       entry.lambda_handler({**disguised, "jsonrpc": "2.0"}, None)):
             self.assertNotIn("conversationSummary", reply)
 
+    def test_a_refused_contact_id_is_logged_by_its_shape_never_its_value(self):
+        with self.assertLogs(level="INFO") as logs:
+            for value in ("", "{contactId:NLX.Context}", "abc-123"):
+                self.assertEqual(self.op("listCardsAndPayments", contactId=value)["reason"], "contact_not_recognised")
+        written = "\n".join(logs.output)
+        for shape in ("contact_not_recognised:empty", "contact_not_recognised:placeholder", "contact_not_recognised:malformed"):
+            self.assertIn(shape, written)
+        self.assertNotIn("abc-123", written)
+
     def test_logs_carry_no_phone_link_or_customer_words(self):
         with self.assertLogs(level="INFO") as logs:
             dispute_id = self.started()["disputeId"]
