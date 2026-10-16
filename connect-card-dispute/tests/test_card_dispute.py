@@ -1106,7 +1106,8 @@ class CxDesignerConfiguration(unittest.TestCase):
         for must in ("Never skip step 3 or step 4", "Step 3. Offer the form (always, straight after step 2)",
                      "Step 4. Protect the card", "Never ask them for the shop name or amount", "hasMore",
                      "Straight away, call updateDispute", "call orderReplacementCard with the same cardType",
-                     "with the references", "Never use it to pass on something you have a tool for"):
+                     "with the references", "Never use it to pass on something you have a tool for",
+                     "First, which card", "Is it your debit card ending 4821 or your credit card ending 2291?"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)
