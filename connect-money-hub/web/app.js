@@ -33,6 +33,14 @@ function el(tag, className, content) {
 }
 
 // Bars per month (the totals are for `months` months), so they read the same way as the habits below them.
+// How often, in words a customer would use: "about 5 payments a month", "about once every 3 months".
+function howOften(perMonth) {
+  if (perMonth < 0.75) return `About once every ${Math.max(2, Math.round(1 / perMonth))} months`;
+  if (perMonth < 1.5) return 'About once a month';
+  return `About ${Math.round(perMonth)} payments a month`;
+}
+const pounds = (n) => `£${Math.round(Number(n)).toLocaleString('en-GB')}`;
+
 function bars(listId, rows, months = 1) {
   const perMonth = (r) => r.total / months;
   const top = Math.max(...rows.map(perMonth), 1);
@@ -66,7 +74,7 @@ function drawOverview(o, d) {
   $('habits').replaceChildren(...d.habits.filter((h) => h.discretionary).slice(0, 6).map((h) => {
     const li = el('li');
     li.append(el('strong', '', h.words), el('span', 'amount', `${gbp(h.perMonth)} a month`),
-      el('span', 'hint', `${h.timesPerMonth} ${h.timesPerMonth === 1 ? 'time' : 'times'} · ${gbp(h.averageEach)} each`));
+      el('span', 'hint', `${howOften(h.timesPerMonth)}, around ${pounds(h.averageEach)} each`));
     return li;
   }));
   $('months').replaceChildren(...o.months.map((m) => {
