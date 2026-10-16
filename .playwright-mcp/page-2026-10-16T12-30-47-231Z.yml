@@ -1,0 +1,86 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - heading "Money Hub" [level=1] [ref=f1e4]
+      - paragraph [ref=f1e5]: Figures up to 15 Oct
+  - main [ref=f1e6]:
+    - status [ref=f1e7]
+    - generic [ref=f1e8]:
+      - generic [ref=f1e9]:
+        - article [ref=f1e10]:
+          - heading "Balance" [level=2] [ref=f1e11]
+          - paragraph [ref=f1e12]: £2,828.80
+        - article [ref=f1e13]:
+          - heading "Money in a month, on average" [level=2] [ref=f1e14]
+          - paragraph [ref=f1e15]: £3,367.91
+        - article [ref=f1e16]:
+          - heading "Money out a month, on average" [level=2] [ref=f1e17]
+          - paragraph [ref=f1e18]: £3,158.01
+        - article [ref=f1e19]:
+          - heading "Left over a month, on average" [level=2] [ref=f1e20]
+          - paragraph [ref=f1e21]: £209.90
+      - region [ref=f1e22]:
+        - generic [ref=f1e23]:
+          - generic [ref=f1e24]:
+            - heading "Questions about your money?" [level=2] [ref=f1e25]
+            - paragraph [ref=f1e26]: Chat or talk with our assistant. It works from the same figures as this page.
+          - generic [ref=f1e27]:
+            - button "Chat" [ref=f1e28] [cursor=pointer]
+            - button "Call" [ref=f1e29] [cursor=pointer]
+        - generic [ref=f1e30]:
+          - status [ref=f1e31]: The conversation service said 403.
+          - list "Conversation"
+          - generic [ref=f1e32]:
+            - textbox "Your message" [ref=f1e33]:
+              - /placeholder: Ask about your spending
+            - button "Send" [ref=f1e34] [cursor=pointer]
+          - button "Close" [ref=f1e35] [cursor=pointer]
+      - tablist "Money Hub views" [ref=f1e36]:
+        - tab "Money out" [selected] [ref=f1e37] [cursor=pointer]
+        - tab "Money in" [ref=f1e38] [cursor=pointer]
+        - tab "Expected" [ref=f1e39] [cursor=pointer]
+        - tab "Transactions" [ref=f1e40] [cursor=pointer]
+        - tab "Goals" [ref=f1e41] [cursor=pointer]
+      - tabpanel "Money out" [ref=f1e42]:
+        - heading "Where your money goes July 2026 to September 2026" [level=2] [ref=f1e43]
+        - paragraph [ref=f1e44]: Essentials £2,112.19 a month · Discretionary £1,045.82 a month (33%)
+        - paragraph [ref=f1e45]: Totals for the three months, by category.
+        - list [ref=f1e46]:
+          - listitem [ref=f1e47]:
+            - generic [ref=f1e48]: Mortgage or rent
+            - generic [ref=f1e51]: £3,150.00
+          - listitem [ref=f1e52]:
+            - generic [ref=f1e53]: Bills and utilities
+            - generic [ref=f1e56]: £1,226.70
+          - listitem [ref=f1e57]:
+            - generic [ref=f1e58]: Groceries
+            - generic [ref=f1e61]: £935.18
+          - listitem [ref=f1e62]:
+            - generic [ref=f1e63]: Shopping
+            - generic [ref=f1e66]: £900.94
+          - listitem [ref=f1e67]:
+            - generic [ref=f1e68]: Holidays and travel
+            - generic [ref=f1e71]: £888.65
+          - listitem [ref=f1e72]:
+            - generic [ref=f1e73]: Transport
+            - generic [ref=f1e76]: £688.36
+        - heading "Habits" [level=3] [ref=f1e77]
+        - list [ref=f1e78]:
+          - listitem [ref=f1e79]:
+            - strong [ref=f1e80]: Shopping
+            - generic [ref=f1e81]: £300.31 a month · 5.3 times · £56.31 each
+          - listitem [ref=f1e82]:
+            - strong [ref=f1e83]: Holidays and travel
+            - generic [ref=f1e84]: £296.22 a month · 1 time · £296.22 each
+          - listitem [ref=f1e85]:
+            - strong [ref=f1e86]: Eating out
+            - generic [ref=f1e87]: £160.77 a month · 3 times · £53.59 each
+          - listitem [ref=f1e88]:
+            - strong [ref=f1e89]: Takeaways
+            - generic [ref=f1e90]: £127.50 a month · 4.3 times · £29.42 each
+          - listitem [ref=f1e91]:
+            - strong [ref=f1e92]: Coffee and snacks
+            - generic [ref=f1e93]: £48.71 a month · 11.7 times · £4.18 each
+          - listitem [ref=f1e94]:
+            - strong [ref=f1e95]: Subscriptions
+            - generic [ref=f1e96]: £42.95 a month · 5 times · £8.59 each

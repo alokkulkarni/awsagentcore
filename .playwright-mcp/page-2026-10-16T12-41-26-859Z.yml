@@ -1,0 +1,11 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Money Hub" [level=1] [ref=e4]
+      - paragraph [ref=e5]: Figures up to 15 Oct
+  - main [ref=e6]:
+    - status [ref=e7]
+  - button "Ask about your money Money out" [ref=e8] [cursor=pointer]:
+    - generic [ref=e10]:
+      - strong [ref=e11]: Ask about your money
+      - generic [ref=e12]: Money out

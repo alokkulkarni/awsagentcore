@@ -1,0 +1,116 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Money Hub" [level=1] [ref=e4]
+      - paragraph [ref=e5]: Figures up to 15 Oct
+  - main [ref=e6]:
+    - status [ref=e7]
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - article [ref=e15]:
+          - heading "Balance" [level=2] [ref=e16]
+          - paragraph [ref=e17]: £2,828.80
+        - article [ref=e18]:
+          - heading "Money in a month, on average" [level=2] [ref=e19]
+          - paragraph [ref=e20]: £3,367.91
+        - article [ref=e21]:
+          - heading "Money out a month, on average" [level=2] [ref=e22]
+          - paragraph [ref=e23]: £3,158.01
+        - article [ref=e24]:
+          - heading "Left over a month, on average" [level=2] [ref=e25]
+          - paragraph [ref=e26]: £209.90
+      - tablist "Money Hub views" [ref=e27]:
+        - tab "Money out" [ref=e28] [cursor=pointer]
+        - tab "Money in" [ref=e29] [cursor=pointer]
+        - tab "Expected" [active] [selected] [ref=e30] [cursor=pointer]
+        - tab "Transactions" [ref=e31] [cursor=pointer]
+        - tab "Goals" [ref=e32] [cursor=pointer]
+      - tabpanel "Expected" [ref=e33]:
+        - heading "The months ahead an estimate from your past patterns" [level=2] [ref=e34]
+        - generic [ref=e35]:
+          - article [ref=e36]:
+            - heading "November 2026" [level=3] [ref=e37]
+            - paragraph [ref=e38]: In £3,220.31
+            - paragraph [ref=e39]: Out £3,061.79
+            - paragraph [ref=e40]: Ends at £2,987.32
+          - article [ref=e41]:
+            - heading "December 2026" [level=3] [ref=e42]
+            - paragraph [ref=e43]: In £3,220.31
+            - paragraph [ref=e44]: Out £3,061.79
+            - paragraph [ref=e45]: Ends at £3,145.84
+          - article [ref=e46]:
+            - heading "January 2027" [level=3] [ref=e47]
+            - paragraph [ref=e48]: In £3,220.31
+            - paragraph [ref=e49]: Out £3,061.79
+            - paragraph [ref=e50]: Ends at £3,304.36
+        - heading "Regular payments and income" [level=3] [ref=e51]
+        - list [ref=e52]:
+          - listitem [ref=e53]:
+            - generic [ref=e54]: Acme Engineering Ltd Salary
+            - generic [ref=e55]: Salary · next 25 Oct
+            - generic [ref=e56]: +£3,150.00
+          - listitem [ref=e57]:
+            - generic [ref=e58]: Nationwide Mortgage
+            - generic [ref=e59]: Mortgage or rent · next 1 Nov
+            - generic [ref=e60]: −£1,050.00
+          - listitem [ref=e61]:
+            - generic [ref=e62]: Transfer To Savings
+            - generic [ref=e63]: Moved to savings · next 26 Oct
+            - generic [ref=e64]: −£200.00
+          - listitem [ref=e65]:
+            - generic [ref=e66]: Manchester City Council Tax
+            - generic [ref=e67]: Bills and utilities · next 3 Nov
+            - generic [ref=e68]: −£168.00
+          - listitem [ref=e69]:
+            - generic [ref=e70]: Octopus Energy
+            - generic [ref=e71]: Bills and utilities · next 5 Nov
+            - generic [ref=e72]: −£118.00
+          - listitem [ref=e73]:
+            - generic [ref=e74]: Aviva Car Insurance
+            - generic [ref=e75]: Insurance · next 9 Nov
+            - generic [ref=e76]: −£61.20
+          - listitem [ref=e77]:
+            - generic [ref=e78]: Sky Broadband
+            - generic [ref=e79]: Bills and utilities · next 18 Oct
+            - generic [ref=e80]: −£42.00
+          - listitem [ref=e81]:
+            - generic [ref=e82]: United Utilities Water
+            - generic [ref=e83]: Bills and utilities · next 12 Nov
+            - generic [ref=e84]: −£38.40
+          - listitem [ref=e85]:
+            - generic [ref=e86]: EE Mobile
+            - generic [ref=e87]: Bills and utilities · next 20 Oct
+            - generic [ref=e88]: −£28.00
+          - listitem [ref=e89]:
+            - generic [ref=e90]: Puregym
+            - generic [ref=e91]: Health and fitness · next 2 Nov
+            - generic [ref=e92]: −£24.99
+          - listitem [ref=e93]:
+            - generic [ref=e94]: Tv Licence
+            - generic [ref=e95]: Bills and utilities · next 1 Nov
+            - generic [ref=e96]: −£14.50
+          - listitem [ref=e97]:
+            - generic [ref=e98]: Spotify
+            - generic [ref=e99]: Subscriptions · next 27 Oct
+            - generic [ref=e100]: −£11.99
+          - listitem [ref=e101]:
+            - generic [ref=e102]: Netflix
+            - generic [ref=e103]: Subscriptions · next 8 Nov
+            - generic [ref=e104]: −£10.99
+          - listitem [ref=e105]:
+            - generic [ref=e106]: Amazon Prime
+            - generic [ref=e107]: Subscriptions · next 14 Nov
+            - generic [ref=e108]: −£8.99
+          - listitem [ref=e109]:
+            - generic [ref=e110]: Disney Plus
+            - generic [ref=e111]: Subscriptions · next 22 Oct
+            - generic [ref=e112]: −£7.99
+          - listitem [ref=e113]:
+            - generic [ref=e114]: Apple iCloud
+            - generic [ref=e115]: Subscriptions · next 10 Nov
+            - generic [ref=e116]: −£2.99
+        - paragraph [ref=e117]: Regular payments on their usual day; everyday spending at its average for 2026-07 to 2026-09; one-off holidays left out.
+  - button "Ask about your money Expected" [ref=e118] [cursor=pointer]:
+    - generic [ref=e10]:
+      - strong [ref=e11]: Ask about your money
+      - generic [ref=e12]: Expected

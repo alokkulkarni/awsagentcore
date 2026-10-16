@@ -1,0 +1,78 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Money Hub" [level=1] [ref=e4]
+      - paragraph [ref=e5]: Figures up to 15 Oct
+  - main [ref=e6]:
+    - status [ref=e7]
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - article [ref=e10]:
+          - heading "Balance" [level=2] [ref=e11]
+          - paragraph [ref=e12]: £2,828.80
+        - article [ref=e13]:
+          - heading "Money in a month, on average" [level=2] [ref=e14]
+          - paragraph [ref=e15]: £3,367.91
+        - article [ref=e16]:
+          - heading "Money out a month, on average" [level=2] [ref=e17]
+          - paragraph [ref=e18]: £3,158.01
+        - article [ref=e19]:
+          - heading "Left over a month, on average" [level=2] [ref=e20]
+          - paragraph [ref=e21]: £209.90
+      - region [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - heading "Questions about your money?" [level=2] [ref=e25]
+            - paragraph [ref=e26]: Chat or talk with our assistant. It works from the same figures as this page.
+          - generic [ref=e27]:
+            - button "Chat" [ref=e28] [cursor=pointer]
+            - button "Call" [ref=e29] [cursor=pointer]
+      - tablist "Money Hub views" [ref=e30]:
+        - tab "Money out" [selected] [ref=e31] [cursor=pointer]
+        - tab "Money in" [ref=e32] [cursor=pointer]
+        - tab "Expected" [ref=e33] [cursor=pointer]
+        - tab "Transactions" [ref=e34] [cursor=pointer]
+        - tab "Goals" [ref=e35] [cursor=pointer]
+      - tabpanel "Money out" [ref=e36]:
+        - heading "Where your money goes July 2026 to September 2026" [level=2] [ref=e37]
+        - paragraph [ref=e38]: Essentials £2,112.19 a month · Discretionary £1,045.82 a month (33%)
+        - paragraph [ref=e39]: Totals for the three months, by category.
+        - list [ref=e40]:
+          - listitem [ref=e41]:
+            - generic [ref=e42]: Mortgage or rent
+            - generic [ref=e45]: £3,150.00
+          - listitem [ref=e46]:
+            - generic [ref=e47]: Bills and utilities
+            - generic [ref=e50]: £1,226.70
+          - listitem [ref=e51]:
+            - generic [ref=e52]: Groceries
+            - generic [ref=e55]: £935.18
+          - listitem [ref=e56]:
+            - generic [ref=e57]: Shopping
+            - generic [ref=e60]: £900.94
+          - listitem [ref=e61]:
+            - generic [ref=e62]: Holidays and travel
+            - generic [ref=e65]: £888.65
+          - listitem [ref=e66]:
+            - generic [ref=e67]: Transport
+            - generic [ref=e70]: £688.36
+        - heading "Habits" [level=3] [ref=e71]
+        - list [ref=e72]:
+          - listitem [ref=e73]:
+            - strong [ref=e74]: Shopping
+            - generic [ref=e75]: £300.31 a month · 5.3 times · £56.31 each
+          - listitem [ref=e76]:
+            - strong [ref=e77]: Holidays and travel
+            - generic [ref=e78]: £296.22 a month · 1 time · £296.22 each
+          - listitem [ref=e79]:
+            - strong [ref=e80]: Eating out
+            - generic [ref=e81]: £160.77 a month · 3 times · £53.59 each
+          - listitem [ref=e82]:
+            - strong [ref=e83]: Takeaways
+            - generic [ref=e84]: £127.50 a month · 4.3 times · £29.42 each
+          - listitem [ref=e85]:
+            - strong [ref=e86]: Coffee and snacks
+            - generic [ref=e87]: £48.71 a month · 11.7 times · £4.18 each
+          - listitem [ref=e88]:
+            - strong [ref=e89]: Subscriptions
+            - generic [ref=e90]: £42.95 a month · 5 times · £8.59 each
