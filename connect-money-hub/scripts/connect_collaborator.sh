@@ -70,20 +70,21 @@ cli_ok() {
 }
 if ! cli_ok aws; then
     # A common cause: the installer put a newer CLI somewhere later on PATH (for example ~/.local/bin).
-    for other in $(which -a aws | awk '!seen[$0]++' | tail -n +2); do
-        if cli_ok "$other"; then
-            die "The AWS CLI Terminal runs first ($(command -v aws), $(aws --version 2>&1 | cut -d' ' -f1)) is too old,\n" \
-                "  but a newer one at ${other} ($("$other" --version 2>&1 | cut -d' ' -f1)) has what's needed.\n" \
-                "  Put it first and run this again:  export PATH=\"$(dirname "$other"):\$PATH\""
-        fi
+    # If there is one, use it for the whole of this script.
+    NEWER=""
+    for other in $(which -a aws | awk '!seen[$0]++' | tail -n +2) "$HOME/.local/bin/aws" /usr/local/aws-cli/aws; do
+        if [[ -x "$other" ]] && cli_ok "$other"; then NEWER="$other"; break; fi
     done
-    die "Your AWS CLI ($(aws --version 2>&1 | cut -d' ' -f1)) is too old for A2A collaborators: it lacks\n" \
+    [[ -n "$NEWER" ]] || die "Your AWS CLI ($(aws --version 2>&1 | cut -d' ' -f1)) is too old for A2A collaborators: it lacks\n" \
         "  appintegrations create-application --auth-config and connect update-security-profile --allowed-ai-agents.\n" \
         "  Update it (macOS: brew upgrade awscli, or the AWS installer), then run this again."
+    warn "Terminal's first AWS CLI ($(command -v aws), $(aws --version 2>&1 | cut -d' ' -f1)) is too old;"
+    warn "  using ${NEWER} ($("$NEWER" --version 2>&1 | cut -d' ' -f1)) for this script."
+    aws() { command "$NEWER" "$@"; }
 fi
 CALLER=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || die "Sign in with the AWS CLI first."
 [[ "$CALLER" == "$ACCOUNT_ID" ]] || die "Signed in to ${CALLER}, but the target is ${ACCOUNT_ID}."
-if $APPLY; then run() { "$@"; }; else warn "DRY RUN: nothing will change. Add --apply to do it."; run() { echo "  [would run] $*"; }; fi
+if $APPLY; then run() { "$@"; }; else warn "DRY RUN: nothing will change. Add --apply to do it."; run() { echo "  [would run] $*" >&2; }; fi
 first_value() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1 || true; }
 BUILD="$(mktemp -d)"; trap 'rm -rf "$BUILD"' EXIT
 INSTANCE_ARN="arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}"
@@ -120,7 +121,7 @@ if ! $REMOVE; then
     if [[ -n "$linked" ]]; then ok "Already associated."; else
         run aws connect create-integration-association --instance-id "$INSTANCE_ID" --region "$REGION" \
             --integration-type APPLICATION --integration-arn "$APP_ARN" >/dev/null
-        ok "Associated."
+        if $APPLY; then ok "Associated."; fi
     fi
 fi
 
@@ -159,7 +160,7 @@ if ! $REMOVE; then
         --permissions BasicAgentAccess --allowed-ai-agents "[{\"Arn\":\"${APP_ARN}\",\"Type\":\"THIRD_PARTY\"}]" >/dev/null
     run aws connect associate-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" \
         --entity-arn "$ARIA_ARN" --entity-type AI_AGENT --security-profiles "Id=${PROFILE_ID}" >/dev/null
-    ok "Profile allows the application and contact context; associated with ARIA."
+    if $APPLY; then ok "Profile allows the application and contact context; associated with ARIA."; fi
 fi
 
 header "Step 5 - Publish a new ARIA version"

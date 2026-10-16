@@ -60,7 +60,7 @@ CALLER=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) 
 [[ "$CALLER" == "$ACCOUNT_ID" ]] || die "Signed in to ${CALLER}, but the target is ${ACCOUNT_ID}."
 ok "Signed in to ${ACCOUNT_ID}; Docker buildx found."
 
-if $DRY_RUN; then warn "DRY-RUN: no changes."; run() { echo "  [dry-run] $*"; }; else run() { "$@"; }; fi
+if $DRY_RUN; then warn "DRY-RUN: no changes."; run() { echo "  [dry-run] $*" >&2; }; else run() { "$@"; }; fi
 first_value() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1 || true; }
 BUILD="$(mktemp -d)"; trap 'rm -rf "$BUILD"' EXIT
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
