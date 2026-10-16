@@ -20,6 +20,11 @@
 #   5. Publishes a new ARIA version and prints its number. You then point
 #      conversation bot flow at it (README step 6)
 #
+# ARIA's prompt and guardrail versions are set here too: by default the newest
+# published version of each (the console's agent "Save" doesn't reach the
+# configuration this script reads, so don't rely on it). --prompt-version N and
+# --guardrail-version N choose others; --keep-versions leaves them as they are.
+#
 # --check only reads: it confirms ARIA (and a version, with --version N) is linked
 # to the collaborators profile and that the profile allows the application.
 # Saving ARIA in the AI agent designer can replace its security profiles, which
@@ -27,6 +32,7 @@
 #
 # Usage:
 #   ./connect-money-hub/scripts/connect_collaborator.sh [--apply] [--remove] [--check [--version N]] [--region R]
+#       [--prompt-version N] [--guardrail-version N] [--keep-versions]
 #       [--account-id A] [--instance-id ID] [--assistant-id ID] [--aria-agent-id ID]
 #
 # Requirements: AWS CLI v2.27+ (qconnect, appintegrations), python3.
@@ -49,6 +55,9 @@ APPLY=false
 REMOVE=false
 CHECK=false
 CHECK_VERSION=""
+PROMPT_VERSION=""
+GUARDRAIL_VERSION=""
+KEEP_VERSIONS=false
 APP_NAME="aria-money-hub"
 PROFILE_NAME="ARIA AI agent collaborators"
 SECRET_NAME="aria-money-hub/a2a-api-key"
@@ -61,6 +70,9 @@ while [[ $# -gt 0 ]]; do
         --remove)        REMOVE=true; shift ;;
         --check)         CHECK=true; shift ;;
         --version)       CHECK_VERSION="$2"; shift 2 ;;
+        --prompt-version)    PROMPT_VERSION="$2"; shift 2 ;;
+        --guardrail-version) GUARDRAIL_VERSION="$2"; shift 2 ;;
+        --keep-versions)     KEEP_VERSIONS=true; shift ;;
         --region)        REGION="$2"; shift 2 ;;
         --account-id)    ACCOUNT_ID="$2"; shift 2 ;;
         --instance-id)   INSTANCE_ID="$2"; shift 2 ;;
@@ -170,7 +182,21 @@ header "Step 3 - ARIA's collaborators"
 aws qconnect get-ai-agent --assistant-id "$ASSISTANT_ID" --ai-agent-id "$ARIA_ID" --region "$REGION" > "$BUILD/aria.json"
 mkdir -p "$SCRIPT_DIR/backups"
 cp "$BUILD/aria.json" "$SCRIPT_DIR/backups/aria-before-money-hub-$(date +%Y%m%d%H%M%S).json"
-python3 "$SCRIPT_DIR/collaborator.py" "$($REMOVE && echo remove || echo add)" "$APP_ID" < "$BUILD/aria.json" > "$BUILD/config.json"
+read -r CUR_PROMPT CUR_GUARDRAIL < <(python3 -c 'import json,sys
+o = json.load(open(sys.argv[1]))["aiAgent"]["configuration"]["orchestrationAIAgentConfiguration"]
+print(o.get("orchestrationAIPromptId") or "-", o.get("orchestrationAIGuardrailId") or "-")' "$BUILD/aria.json")
+newest() {   # newest published version number of a prompt or guardrail
+    aws qconnect "list-ai-$1-versions" --assistant-id "$ASSISTANT_ID" --region "$REGION" "--ai-$1-id" "$2" \
+        --query "ai$3VersionSummaries[].versionNumber" --output text | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n | tail -n 1
+}
+if ! $KEEP_VERSIONS; then
+    [[ -n "$PROMPT_VERSION" || "$CUR_PROMPT" == "-" ]] || PROMPT_VERSION=$(newest prompt "${CUR_PROMPT%%:*}" Prompt)
+    [[ -n "$GUARDRAIL_VERSION" || "$CUR_GUARDRAIL" == "-" ]] || GUARDRAIL_VERSION=$(newest guardrail "${CUR_GUARDRAIL%%:*}" Guardrail)
+fi
+echo "  Prompt version:    ${CUR_PROMPT##*:} -> ${PROMPT_VERSION:-${CUR_PROMPT##*:}}"
+[[ "$CUR_GUARDRAIL" == "-" ]] || echo "  Guardrail version: ${CUR_GUARDRAIL##*:} -> ${GUARDRAIL_VERSION:-${CUR_GUARDRAIL##*:}}"
+python3 "$SCRIPT_DIR/collaborator.py" "$($REMOVE && echo remove || echo add)" "$APP_ID" \
+    --prompt-version "$PROMPT_VERSION" --guardrail-version "$GUARDRAIL_VERSION" < "$BUILD/aria.json" > "$BUILD/config.json"
 python3 - "$BUILD/aria.json" "$BUILD/config.json" <<'PY'
 import json, sys
 before = json.load(open(sys.argv[1]))["aiAgent"]["configuration"]["orchestrationAIAgentConfiguration"].get("multiAgentConfigurations") or []

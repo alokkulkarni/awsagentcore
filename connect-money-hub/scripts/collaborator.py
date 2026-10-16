@@ -8,6 +8,11 @@ Used by connect_collaborator.sh; it only transforms JSON on stdin/stdout.
 
     python3 collaborator.py add <applicationId>    < get-ai-agent.json > configuration.json
     python3 collaborator.py remove <applicationId> < get-ai-agent.json > configuration.json
+    python3 collaborator.py add <applicationId> --prompt-version 22 --guardrail-version 3 < … > …
+
+--prompt-version and --guardrail-version point ARIA at those versions of the
+prompt and guardrail it already uses (the console's agent "Save" doesn't reach
+the configuration the API reads, so the script sets them itself).
 
 Every other collaborator and setting on ARIA is kept exactly as it was. Adding
 twice replaces, never duplicates.
@@ -48,11 +53,31 @@ def apply(configuration: dict, application_id: str, remove: bool = False) -> dic
     return config
 
 
+def pin_versions(configuration: dict, prompt_version: str = "", guardrail_version: str = "") -> dict:
+    """Point ARIA at these versions of the prompt and guardrail it already uses ("" leaves one as it is)."""
+    config = json.loads(json.dumps(configuration))
+    orchestration = config.setdefault("orchestrationAIAgentConfiguration", {})
+    for field, version in (("orchestrationAIPromptId", prompt_version), ("orchestrationAIGuardrailId", guardrail_version)):
+        current = orchestration.get(field)
+        if version and current:
+            if not str(version).isdigit():
+                raise ValueError(f"{field}: version must be a number, got {version!r}")
+            orchestration[field] = f"{current.split(':')[0]}:{int(version)}"
+    return config
+
+
 def main() -> None:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("add", "remove"):
-        sys.exit("usage: collaborator.py add|remove <applicationId> < get-ai-agent.json")
+    args = sys.argv[1:]
+    options = {"--prompt-version": "", "--guardrail-version": ""}
+    while len(args) > 2 and args[-2] in options:
+        options[args[-2]] = args[-1]
+        args = args[:-2]
+    if len(args) != 2 or args[0] not in ("add", "remove"):
+        sys.exit("usage: collaborator.py add|remove <applicationId> [--prompt-version N] [--guardrail-version N] "
+                 "< get-ai-agent.json")
     agent = json.load(sys.stdin)["aiAgent"]
-    print(json.dumps(apply(agent["configuration"], sys.argv[2], remove=sys.argv[1] == "remove")))
+    config = apply(agent["configuration"], args[1], remove=args[0] == "remove")
+    print(json.dumps(pin_versions(config, options["--prompt-version"], options["--guardrail-version"])))
 
 
 if __name__ == "__main__":

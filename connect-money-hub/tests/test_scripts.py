@@ -44,6 +44,26 @@ class Collaborator(unittest.TestCase):
                          collaborator.apply(alone, "app-1", remove=True)["orchestrationAIAgentConfiguration"])
 
 
+class Versions(unittest.TestCase):
+
+    def test_prompt_and_guardrail_versions_are_set_and_nothing_else_changes(self):
+        config = {"orchestrationAIAgentConfiguration": {"orchestrationAIPromptId": "p-1:20",
+                                                        "orchestrationAIGuardrailId": "g-1:1", "locale": "en_GB"}}
+        pinned = collaborator.pin_versions(collaborator.apply(config, "app-1"), "22", "3")
+        o = pinned["orchestrationAIAgentConfiguration"]
+        self.assertEqual((o["orchestrationAIPromptId"], o["orchestrationAIGuardrailId"], o["locale"]),
+                         ("p-1:22", "g-1:3", "en_GB"))
+        self.assertEqual(len(o["multiAgentConfigurations"]), 1)
+        same = collaborator.pin_versions(config)
+        self.assertEqual(same, config, "no versions given: left as they are")
+        no_guardrail = collaborator.pin_versions({"orchestrationAIAgentConfiguration": {"orchestrationAIPromptId": "p:1"}},
+                                                 "2", "3")
+        self.assertNotIn("orchestrationAIGuardrailId", no_guardrail["orchestrationAIAgentConfiguration"],
+                         "a guardrail isn't invented")
+        with self.assertRaises(ValueError):
+            collaborator.pin_versions(config, "latest")
+
+
 class Prompt(unittest.TestCase):
     PROMPT = "system: |\n  <rules>\n  </rules>\n  <assurance_levels>\n  L2\n  </assurance_levels>\n  <tail/>\nmessages:\n- x\n"
 
