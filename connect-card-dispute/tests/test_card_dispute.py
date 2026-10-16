@@ -600,7 +600,7 @@ class DisputesAgentInCxDesigner(Base):
         entry.doors = dispute_web.Doors(
             acxd_key=lambda: "the-key", touchpoint_keys=lambda: {"deploymentKey": "dk", "apiKey": "ak"},
             customer_of_contact=lambda contact: JAMES, region="eu-west-2", instance_id="inst-1",
-            contact_phone=lambda contact: self.phone,
+            contact_phone=lambda contact: self.phone, contact_channel=lambda contact: "CHAT",
             send_sms=lambda phone, text: self.texts.append((phone, text)) or "", bank_name="Test Bank")
 
     def op(self, operation, **fields):
@@ -772,6 +772,20 @@ class DisputesAgentInCxDesigner(Base):
             self.assertEqual(handed["customerIntent"], "Report a scam and dispute the payment")
         self.assertTrue(self.service.screen_pop(JAMES)["dispute1"].startswith("**SCAM** · **DSP-"))
 
+    def test_on_a_phone_call_digits_and_references_are_written_to_be_said_one_by_one(self):
+        entry.doors.contact_channel = lambda contact: "VOICE"
+        asked = self.op("listCardsAndPayments")
+        self.assertIn("debit card ending 4 8 2 1 or your credit card ending 2 2 9 1", asked["message"])
+        first = self.op("listCardsAndPayments", cardType="debit")["payments"][0]
+        self.assertEqual(first["label"], "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4 8 2 1", "money left as money")
+        self.assertEqual(first["transactionId"], AMAZON, "IDs the assistant sends back are untouched")
+        both = self.op("blockCard", cardType="debit", orderReplacement="yes")
+        self.assertRegex(both["confirmation"], r"ending 4 8 2 1 is now blocked.*reference is BLOCK, 4 8 2 1, (\w ){5}\w\.")
+        self.assertIn("3 to 5 working days", both["confirmation"])
+        self.assertRegex(both["reference"], r"^BLOCK-4821-\w{6}$", "the reference field itself stays as issued")
+        entry.doors.contact_channel = lambda contact: "CHAT"
+        self.assertIn("ending 4821 is now blocked", self.op("blockCard", cardType="debit")["confirmation"])
+
     def test_one_block_call_can_order_the_replacement_and_says_what_to_tell_the_customer(self):
         both = self.op("blockCard", cardType="debit", orderReplacement="yes")
         self.assertEqual((both["ok"], both["replacementOrdered"], both["arrivesInWorkingDays"]), (True, True, "3 to 5"))
@@ -798,9 +812,10 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual(self.op("blockCard", cardType="credit")["reason"], "card_not_found", "Sarah has no credit card")
 
     def test_the_form_link_is_texted_to_the_callers_mobile_and_opens_the_form_joined_to_the_call(self):
+        entry.doors.contact_channel = lambda contact: "VOICE"
         dispute_id = self.started()["disputeId"]
         sent = self.op("sendFormLink", disputeId=dispute_id)
-        self.assertEqual((sent["ok"], sent["sent"], sent["sentTo"]), (True, True, "the mobile ending 123"))
+        self.assertEqual((sent["ok"], sent["sent"], sent["sentTo"]), (True, True, "the mobile ending 1 2 3"))
         (phone, words), = self.texts
         self.assertEqual(phone, MOBILE)
         self.assertTrue(words.startswith("Test Bank: "))
@@ -848,6 +863,7 @@ class DisputesAgentInCxDesigner(Base):
         self.assertIn("Form link posted in the chat", self.service.handover(JAMES)["conversationSummary"])
 
     def test_the_form_link_is_only_texted_to_a_mobile_a_few_times_and_says_why_not(self):
+        entry.doors.contact_channel = lambda contact: "VOICE"
         dispute_id = self.started()["disputeId"]
         for number in ("", "anonymous", "+441619009000", "+15551234567"):
             self.phone = number
@@ -893,6 +909,7 @@ class DisputesAgentInCxDesigner(Base):
         self.assertNotIn("abc-123", written)
 
     def test_logs_carry_no_phone_link_or_customer_words(self):
+        entry.doors.contact_channel = lambda contact: "VOICE"
         with self.assertLogs(level="INFO") as logs:
             dispute_id = self.started()["disputeId"]
             self.op("updateDispute", disputeId=dispute_id, narrative="PRIVATE-WORDS")
@@ -1179,7 +1196,8 @@ class CxDesignerConfiguration(unittest.TestCase):
                      "Step 3. Decide what kind of case it is: fraud, scam or dispute",
                      "SCAM (disputeType scam)", "For a DISPUTE, don't block or replace the card",
                      "tell them whatHappensNext from your last dispute reply, word for word",
-                     "Never say them to the\n  customer", "To protect you from any further payments"):
+                     "Never say them to the\n  customer", "To protect you from any further payments",
+                     "card and phone digits one at a time", "ending 4 8 2 1"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)

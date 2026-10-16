@@ -163,6 +163,36 @@ def _fields(body: dict) -> dict:
     return fields
 
 
+_SPOKEN_FIELDS = ("confirmation", "message", "payment", "sentTo", "label")
+_ENDING = re.compile(r"\bending (\d{3,4})\b")
+_REFERENCE = re.compile(r"\b(BLOCK|REPL|DSP)-(?:(\d{4})-)?([A-Z0-9]{6,8})\b")
+
+
+def _one_by_one(text: str) -> str:
+    return " ".join(text)
+
+
+def spoken(text: str) -> str:
+    """
+    Text the assistant reads out on a phone call, written so the voice says it
+    the way a person would: card and phone digits one at a time ("ending 4 8 2 1",
+    not "four thousand eight hundred..."), references character by character.
+    Money, dates and words are left as they are; the voice reads those well.
+    """
+    text = _ENDING.sub(lambda m: f"ending {_one_by_one(m.group(1))}", text)
+    return _REFERENCE.sub(lambda m: ", ".join(part for part in (
+        m.group(1), _one_by_one(m.group(2)) if m.group(2) else "", _one_by_one(m.group(3))) if part), text)
+
+
+def _for_voice(reply: dict) -> dict:
+    """The same reply, with the fields the assistant speaks rewritten by spoken(). IDs it sends back are untouched."""
+    out = {k: spoken(v) if k in _SPOKEN_FIELDS and isinstance(v, str) else v for k, v in reply.items()}
+    if isinstance(out.get("payments"), list):
+        out["payments"] = [{**p, "label": spoken(p.get("label", ""))} if isinstance(p, dict) else p
+                           for p in out["payments"]]
+    return out
+
+
 def _contact_id_shape(value) -> str:
     """
     Why a contactId was refused, for the log only, never the value itself:
@@ -271,6 +301,8 @@ def _acxd(event: dict, service: DisputeService, doors: Doors) -> dict:
     # Refusals are answers, not failures: HTTP 200 with ok=false, so the agent can read why and carry on.
     try:
         reply = {**empty, **_acxd_operation(operation, body, service, doors, customer_id, contact_id), "ok": True}
+        if doors.contact_channel(contact_id) == "VOICE":
+            reply = _for_voice(reply)
     except DisputeError as error:
         reply = {**empty, "reason": error.code, "message": error.message}
     except ValueError as error:          # a field value the model refused; the message names the allowed values
