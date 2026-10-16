@@ -456,6 +456,28 @@ def _build_contact_reason_vars(customer_id: str, auth_status: str, loa: int | No
 # ---------------------------------------------------------------------------
 
 
+# A contact started from the Money Hub page (connect-money-hub) carries entry=money_hub and the tab the
+# customer had open. That is their reason for getting in touch, so it is offered to ARIA as the known contact
+# reason: ARIA's prompt can then open with the Money Hub at once, on a call as well as in a chat.
+MONEY_HUB_TABS = {"out": "Money out", "in": "Money in", "expected": "Expected", "transactions": "Transactions",
+                  "goals": "Goals"}
+
+
+def _money_hub_reason_vars(entry: str, view: str) -> dict[str, str]:
+    if entry != "money_hub":
+        return {}
+    tab = MONEY_HUB_TABS.get(view, "Money out")
+    return {
+        "hasKnownContactReason": "true",
+        "topContactReason": f"their Money Hub ({tab} tab)",
+        "topContactReasonCategory": "money_hub",
+        "contactReasonSummary": f"Money Hub: the customer started this from their Money Hub page, on the {tab} tab, "
+                                "to understand their money.",
+        "contactReasons": "",
+    }
+
+
+
 # ---------------------------------------------------------------------------
 # Q Connect session resolution
 # ---------------------------------------------------------------------------
@@ -917,6 +939,7 @@ def handler(event: dict, context: Any) -> dict:
                 "priorSummary":         prior_summary,
             })
             reason_vars = _build_contact_reason_vars(customer_id, auth_status, idv_loa)
+            reason_vars.update(_money_hub_reason_vars(_attr("entry"), _attr("moneyHubView")))
             session_vars.update(reason_vars)
 
             logger.info(

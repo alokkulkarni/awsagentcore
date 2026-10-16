@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Money Hub</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 18V9l8-5 8 5v9M8 18v-5h8v5M3 18h18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div>
+          <h1>Money Hub</h1>
+          <p class="tagline">Your money, explained</p>
+        </div>
+      </div>
+      <p class="as-of" id="as-of"></p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p id="message" class="message" role="status"></p>
+
+    <section id="hub" hidden>
+      <div class="cards">
+        <article class="card balance">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2" /></svg></span>
+          <h2>Balance</h2><p class="big" id="balance"></p><p class="sub">in your current account</p>
+        </article>
+        <article class="card in">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></svg></span>
+          <h2>Money in</h2><p class="big" id="avg-in"></p><p class="sub">a month, on average</p>
+        </article>
+        <article class="card out">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></svg></span>
+          <h2>Money out</h2><p class="big" id="avg-out"></p><p class="sub">a month, on average</p>
+        </article>
+        <article class="card left">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg></span>
+          <h2>Left over</h2><p class="big" id="avg-left"></p><p class="sub" id="avg-saved">a month, on average</p>
+        </article>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="Money Hub views">
+        <button role="tab" id="tab-out" aria-selected="true" data-view="out">Money out</button>
+        <button role="tab" id="tab-in" aria-selected="false" data-view="in">Money in</button>
+        <button role="tab" id="tab-expected" aria-selected="false" data-view="expected">Expected</button>
+        <button role="tab" id="tab-transactions" aria-selected="false" data-view="transactions">Transactions</button>
+        <button role="tab" id="tab-goals" aria-selected="false" data-view="goals">Goals</button>
+      </nav>
+
+      <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
+        <div class="view-head"><h2>Where your money goes</h2><span class="pill" id="out-period"></span></div>
+        <div class="split-bar" aria-hidden="true"><span class="ess" id="split-ess"></span><span class="flex" id="split-flex"></span></div>
+        <p class="split" id="split"></p>
+        <div class="legend"><span class="chip ess">Bills and essentials</span><span class="chip flex">Spending you choose</span></div>
+        <p class="hint">A month, on average, by category.</p>
+        <ul class="bars" id="out-bars"></ul>
+        <h3>Your habits <span class="hint">spending you choose, a month on average</span></h3>
+        <ul class="habits" id="habits"></ul>
+      </section>
+
+      <section class="view" id="view-in" role="tabpanel" aria-labelledby="tab-in" hidden>
+        <div class="view-head"><h2>Where your money comes from</h2><span class="pill">a month, on average</span></div>
+        <ul class="bars in" id="in-bars"></ul>
+        <h3>By month</h3>
+        <table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
+          <tbody id="months"></tbody></table>
+      </section>
+
+      <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>
+        <div class="view-head"><h2>The months ahead</h2><span class="pill">an estimate from your past patterns</span></div>
+        <div class="forecast" id="forecast"></div>
+        <h3>Regular payments and income</h3>
+        <ul class="regular" id="regular"></ul>
+        <p class="hint" id="basis"></p>
+      </section>
+
+      <section class="view" id="view-transactions" role="tabpanel" aria-labelledby="tab-transactions" hidden>
+        <div class="view-head"><h2>Transactions</h2><span class="pill" id="tx-count"></span></div>
+        <form class="filters" id="filters">
+          <label class="search">Search
+            <span class="search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              <input id="f-merchant" type="search" placeholder="Shop or payee" maxlength="40">
+            </span>
+          </label>
+          <label>Show <select id="f-direction"><option value="">All</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
+          <label>Category <select id="f-category"><option value="">Any</option></select></label>
+        </form>
+        <p class="hint tx-tip">Tap a category to change it. Your Money Hub and the assistant use your choice.</p>
+        <ul class="tx" id="tx"></ul>
+        <button class="more" id="more" hidden>Show older</button>
+      </section>
+
+      <section class="view" id="view-goals" role="tabpanel" aria-labelledby="tab-goals" hidden>
+        <div class="view-head"><h2>Savings goals</h2><span class="pill">guidance, not advice</span></div>
+        <form class="goal-form" id="goal-form">
+          <h3>Add a goal</h3>
+          <label>Name <input id="g-name" required maxlength="40" placeholder="New car"></label>
+          <label>Target (£) <input id="g-target" type="number" min="1" step="1" required></label>
+          <label>By <input id="g-date" type="date" required></label>
+          <label>Already saved (£) <input id="g-saved" type="number" min="0" step="1" value="0"></label>
+          <button type="submit">Work it out and save</button>
+          <p class="hint" id="g-result"></p>
+        </form>
+        <h3>Your goals</h3>
+        <ul class="goals" id="goals"></ul>
+        <p class="hint">This is guidance based on your past spending, not financial advice.</p>
+      </section>
+    </section>
+  </main>
+
+  <!-- The assistant: a tag fixed at the bottom that opens an overlay. The page keeps scrolling behind it.
+       Phones get a bottom sheet with a drag handle; tablets and desktops a floating panel resized from its corner. -->
+  <button type="button" class="talk-launcher" id="talk-launcher" aria-controls="talk-panel" aria-expanded="false" hidden>
+    <span class="talk-dot" aria-hidden="true"></span>
+    <span class="talk-launcher-text">
+      <strong id="launcher-title">Ask about your money</strong>
+      <span id="launcher-context"></span>
+    </span>
+  </button>
+
+  <aside class="talk-panel" id="talk-panel" role="dialog" aria-modal="false" aria-labelledby="talk-title" hidden>
+    <div class="talk-grip" id="talk-grip" role="separator" tabindex="0" aria-orientation="horizontal"
+         aria-label="Resize the assistant. Use the arrow keys." aria-controls="talk-panel"><span></span></div>
+    <header class="talk-head">
+      <div>
+        <h2 id="talk-title">Money Hub assistant</h2>
+        <p class="talk-context" id="talk-context"></p>
+      </div>
+      <div class="talk-head-actions">
+        <button type="button" class="icon" id="talk-min" aria-label="Minimise the assistant" title="Minimise">&#8211;</button>
+        <button type="button" class="icon" id="talk-close" aria-label="Close the assistant" title="Close">&#215;</button>
+      </div>
+    </header>
+    <div class="talk-body" id="talk-body">
+      <div class="talk-start" id="talk-start">
+        <p>Chat or talk with our assistant. It works from the same figures as this page, starting with
+          <strong id="start-context"></strong>.</p>
+        <div class="talk-actions">
+          <button type="button" id="talk-chat">Chat</button>
+          <button type="button" id="talk-call">Call</button>
+        </div>
+        <p class="hint">This is guidance based on your past spending, not financial advice.</p>
+      </div>
+      <p class="talk-status" id="talk-status" role="status"></p>
+      <ol class="chat-log" id="chat-log" aria-live="polite" aria-label="Conversation"></ol>
+    </div>
+    <footer class="talk-foot" id="talk-foot" hidden>
+      <form class="chat-form" id="chat-form" hidden>
+        <input id="chat-input" maxlength="1024" autocomplete="off" aria-label="Your message" placeholder="Ask about your spending">
+        <button type="submit">Send</button>
+      </form>
+      <div class="call-controls" id="call-controls" hidden>
+        <button type="button" id="call-mute" aria-pressed="false">Mute</button>
+      </div>
+      <button type="button" class="end" id="talk-end">End</button>
+    </footer>
+    <audio id="talk-audio" autoplay></audio>
+  </aside>
+</body>
+</html>

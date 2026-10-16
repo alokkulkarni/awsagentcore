@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+build/
+scripts/backups/
+prompts/aria-prompt-with-money-hub.yaml
+
+# Built by scripts/build_chime.sh
+web/vendor/
+web/vendor-src/node_modules/

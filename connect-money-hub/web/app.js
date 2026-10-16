@@ -1,0 +1,308 @@
+// Money Hub page. Opened from a link whose secret is after "#" (never sent to a server or in a Referer).
+// The secret is read once, wiped from the address bar, and sent only in the body of this page's own calls.
+// Every value is written as text, never as HTML.
+import { setupTalk } from './talk.js';
+
+const $ = (id) => document.getElementById(id);
+const text = (id, value) => { $(id).textContent = value; };
+const gbp = (n) => `${Number(n) < 0 ? '−' : ''}£${Math.abs(Number(n)).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const day = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const monthName = (key) => new Date(`${key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+let token = new URLSearchParams(location.hash.slice(1)).get('k') || sessionStorage.getItem('moneyHub') || '';
+if (location.hash) history.replaceState(null, '', location.pathname);
+if (token) sessionStorage.setItem('moneyHub', token);
+
+let choices = { in: [], out: [] };
+let txPage = 1;
+let txLastDay = '';          // the day heading last drawn, so "Show older" carries on under it
+let lastDataDay = '';        // the Money Hub's today (the figures' as-of date)
+let logoFiles = {};          // merchant slug -> logo file name, for logos in web/logos (the page lists them)
+
+// A merchant's logo tile: its logo if there is one, otherwise its initials on a colour of its own.
+const slug = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function initials(name) {
+  const words = String(name || '?').replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?')[0]).toUpperCase();
+}
+function avatar(t) {
+  const tile = el('span', 'tx-logo');
+  tile.setAttribute('aria-hidden', 'true');
+  const key = slug(t.merchant);
+  if (logoFiles[key]) {
+    const img = el('img');
+    img.alt = '';
+    img.src = `/assets/logos/${logoFiles[key]}`;
+    tile.append(img);
+    return tile;
+  }
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  tile.dataset.tone = String(hash % 8);
+  tile.textContent = initials(t.merchantName || t.merchant);
+  return tile;
+}
+function dayHeading(iso) {
+  const date = new Date(`${iso}T12:00:00`);
+  const label = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  if (iso === lastDataDay) return `Today, ${label}`;
+  return `${date.toLocaleDateString('en-GB', { weekday: 'long' })}, ${label}`;
+}
+
+async function api(path, body = {}) {
+  const response = await fetch(`/api${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, token }),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json.message || `Something went wrong (${response.status}).`);
+  return json;
+}
+
+function el(tag, className, content) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (content !== undefined) node.textContent = content;
+  return node;
+}
+
+// Bars per month (the totals are for `months` months), so they read the same way as the habits below them.
+// How often, in words a customer would use: "about 5 payments a month", "about once every 3 months".
+function howOften(perMonth) {
+  if (perMonth < 0.75) return `About once every ${Math.max(2, Math.round(1 / perMonth))} months`;
+  if (perMonth < 1.5) return 'About once a month';
+  return `About ${Math.round(perMonth)} payments a month`;
+}
+const pounds = (n) => `£${Math.round(Number(n)).toLocaleString('en-GB')}`;
+
+function bars(listId, rows, months = 1) {
+  const perMonth = (r) => r.total / months;
+  const top = Math.max(...rows.map(perMonth), 1);
+  $(listId).replaceChildren(...rows.map((r) => {
+    const li = el('li', r.discretionary ? 'flex' : '');
+    const label = el('span', 'label', r.words);
+    const track = el('span', 'track');
+    const fill = el('span', 'fill');
+    fill.style.width = `${Math.max(2, Math.round((100 * perMonth(r)) / top))}%`;
+    track.append(fill);
+    li.append(label, track, el('span', 'value', gbp(perMonth(r))));
+    return li;
+  }));
+}
+
+function drawOverview(o, d) {
+  text('as-of', `Figures up to ${day(o.asOf)}`);
+  text('balance', gbp(o.balance));
+  text('avg-in', gbp(o.averageMonth.moneyIn));
+  text('avg-out', gbp(o.averageMonth.moneyOut));
+  text('avg-left', gbp(o.averageMonth.moneyIn - o.averageMonth.moneyOut));
+  text('avg-saved', o.averageMonth.movedToSavings
+    ? `a month, on average · ${gbp(o.averageMonth.movedToSavings)} of it to savings` : 'a month, on average');
+  text('out-period', `${monthName(o.months[0].month)} to ${monthName(o.months.at(-1).month)}`);
+  text('split', `Bills and essentials ${gbp(d.essentialPerMonth)} a month · spending you choose ${gbp(d.discretionaryPerMonth)} a month (${d.discretionaryShare}%)`);
+  $('split-ess').style.width = `${100 - d.discretionaryShare}%`;
+  $('split-flex').style.width = `${d.discretionaryShare}%`;
+  const months = Math.max(1, o.months.length);
+  bars('out-bars', o.topSpending, months);
+  bars('in-bars', o.moneyInSources, months);
+  $('habits').replaceChildren(...d.habits.filter((h) => h.discretionary).slice(0, 6).map((h) => {
+    const li = el('li');
+    li.append(el('strong', '', h.words), el('span', 'amount', `${gbp(h.perMonth)} a month`),
+      el('span', 'hint', `${howOften(h.timesPerMonth)}, around ${pounds(h.averageEach)} each`));
+    return li;
+  }));
+  $('months').replaceChildren(...o.months.map((m) => {
+    const tr = el('tr');
+    tr.append(el('td', '', monthName(m.month)), el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
+      el('td', '', gbp(m.movedToSavings)), el('td', '', gbp(m.moneyIn - m.moneyOut)));
+    return tr;
+  }));
+}
+
+function drawForecast(f, regular) {
+  $('forecast').replaceChildren(...f.months.map((m) => {
+    const card = el('article', 'card');
+    card.append(el('h3', '', monthName(m.month)), el('p', 'in', `In ${gbp(m.expectedIn)}`),
+      el('p', 'out', `Out ${gbp(m.expectedOut)}`), el('p', 'big', `Ends at ${gbp(m.endBalance)}`));
+    return card;
+  }));
+  $('regular').replaceChildren(...regular.map((r) => {
+    const li = el('li', r.direction === 'in' ? 'in' : '');
+    li.append(el('span', '', r.merchantName || r.merchant), el('span', 'hint', `${r.words} · next ${day(r.nextExpected)}`),
+      el('span', 'value', `${r.direction === 'in' ? '+' : '−'}${gbp(r.amount)}`));
+    return li;
+  }));
+  text('basis', f.basis);
+}
+
+function categorySelect(t) {
+  const select = el('select', 'chip-select');
+  select.setAttribute('aria-label', `Category for ${t.merchantName} on ${day(t.date)}`);
+  const options = t.direction === 'in' ? choices.in : choices.out;
+  for (const c of options) select.append(new Option(c.words, c.category, false, c.category === t.category));
+  select.addEventListener('change', async () => {
+    select.disabled = true;
+    try {
+      await api('/recategorise', { transactionId: t.transactionId, category: select.value });
+      text('message', `Moved ${t.merchantName} to ${select.selectedOptions[0].text}.`);
+      await load(false);
+    } catch (error) { text('message', error.message); }
+    select.disabled = false;
+  });
+  return select;
+}
+
+async function loadTransactions(reset = true) {
+  if (reset) { txPage = 1; txLastDay = ''; $('tx').replaceChildren(); }
+  const listed = await api('/transactions', {
+    page: txPage, direction: $('f-direction').value, category: $('f-category').value, merchant: $('f-merchant').value,
+  });
+  const rows = [];
+  for (const t of listed.transactions) {
+    if (t.date !== txLastDay) {
+      txLastDay = t.date;
+      rows.push(el('li', 'tx-day', dayHeading(t.date)));
+    }
+    const li = el('li', `tx-row${t.amount > 0 ? ' in' : ''}`);
+    const what = el('div', 'what');
+    const meta = el('div', 'tx-meta');
+    meta.append(categorySelect(t));
+    if (t.recategorised) meta.append(el('span', 'tx-mine', 'your category'));
+    what.append(el('strong', '', t.merchantName), meta);
+    li.append(avatar(t), what, el('span', 'value', `${t.amount > 0 ? '+' : '−'}${gbp(Math.abs(t.amount))}`));
+    rows.push(li);
+  }
+  $('tx').append(...rows);
+  if (!rows.length && reset) $('tx').append(el('li', 'tx-empty', 'No payments match. Try another search or category.'));
+  text('tx-count', listed.total ? `${listed.total} ${listed.total === 1 ? 'payment' : 'payments'}` : '');
+  $('more').hidden = !listed.hasMore;
+}
+
+const monthYear = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+const openGoals = new Set();   // goals the customer has opened, kept open when the page refreshes
+
+// A goal card: name, target and date, progress and status; opens to show the plan behind it.
+function goalCard(g) {
+  const li = el('li', 'goal');
+  const box = el('details');
+  box.open = openGoals.has(g.name);
+  box.addEventListener('toggle', () => { if (box.open) openGoals.add(g.name); else openGoals.delete(g.name); });
+  const plan = g.plan;
+  const share = Math.min(100, Math.round((100 * (g.saved || 0)) / g.target));
+
+  const summary = el('summary');
+  const head = el('div', 'goal-head');
+  head.append(el('strong', '', g.name), el('span', `goal-status ${plan ? (plan.onTrack ? 'ok' : 'gap') : 'past'}`,
+    plan ? (plan.onTrack ? 'On track' : 'Needs changes') : 'Date passed'));
+  const line = el('div', 'goal-line');
+  line.append(el('span', 'goal-target', `${gbp(g.target)} by ${day(g.byDate)} ${g.byDate.slice(0, 4)}`),
+    el('span', 'hint', `${gbp(g.neededPerMonth)} a month`));
+  const bar = el('div', 'goal-bar');
+  const fill = el('span');
+  fill.style.width = `${share}%`;
+  bar.append(fill);
+  summary.append(head, line, bar, el('span', 'hint goal-saved', `${gbp(g.saved || 0)} saved so far (${share}%)`));
+  box.append(summary);
+
+  const details = el('div', 'goal-details');
+  if (plan) {
+    const facts = el('dl', 'goal-facts');
+    const fact = (label, value) => { facts.append(el('dt', '', label), el('dd', '', value)); };
+    fact('Needed each month', `${gbp(plan.neededPerMonth)} for ${plan.months} ${plan.months === 1 ? 'month' : 'months'}`);
+    fact('Left over now', `${gbp(plan.leftOverPerMonth)} a month${plan.alreadyMovingToSavings ? `, ${gbp(plan.alreadyMovingToSavings)} of it to savings` : ''}`);
+    fact('Gap', plan.onTrack ? 'None: what you have left over covers it' : `${gbp(plan.gapPerMonth)} a month`);
+    if (plan.reachedAtCurrentRate) fact('At your current rate', `reached in ${monthYear(plan.reachedAtCurrentRate.date)}`);
+    if (!plan.onTrack && plan.reachedWithMix) fact('With the changes below', `reached in ${monthYear(plan.reachedWithMix.date)}`);
+    details.append(facts);
+    if (!plan.onTrack && plan.changes.length) {
+      details.append(el('p', 'goal-sub', 'Changes that would help (examples, your choice):'));
+      const list = el('ul', 'goal-changes');
+      for (const c of plan.changes) {
+        const item = el('li');
+        item.append(el('span', '', c.change), el('span', 'value', `+${gbp(c.savesPerMonth)} a month`));
+        list.append(item);
+      }
+      details.append(list);
+    }
+  } else {
+    details.append(el('p', 'hint', 'This date has passed. Remove the goal, or add it again with a later date.'));
+  }
+  const remove = el('button', 'link', 'Remove goal');
+  remove.type = 'button';
+  remove.addEventListener('click', async () => { await api('/goal/delete', { name: g.name }); await load(false); });
+  details.append(remove);
+  box.append(details);
+  li.append(box);
+  return li;
+}
+
+function drawGoals(goals) {
+  $('goals').replaceChildren(...goals.map(goalCard));
+  if (!goals.length) $('goals').append(el('li', 'hint goal-empty', 'No goals yet. Add one above, or ask the assistant to help you set one.'));
+}
+
+let knownGoals = null;      // goal names last drawn, to announce one the assistant adds
+let refreshTimer = 0;
+
+// While a conversation is going, the assistant can save goals or move payments: refresh shortly after it speaks.
+function refreshSoon() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => load(false).catch(() => {}), 1500);
+}
+
+async function load(all = true) {
+  const view = await api('/hub');
+  logoFiles = view.logos || {};
+  lastDataDay = view.overview.asOf;
+  const names = view.goals.map((g) => g.name);
+  const added = knownGoals ? names.filter((n) => !knownGoals.includes(n)) : [];
+  knownGoals = names;
+  if (added.length) text('message', `Your goal "${added.join('", "')}" is now on the Goals tab.`);
+  choices = view.choices;
+  drawOverview(view.overview, view.discretionary);
+  drawForecast(view.forecast, view.recurring);
+  drawGoals(view.goals);
+  if (all && view.talk) {
+    setupTalk({
+      api,
+      currentView: () => document.querySelector('[role=tab][aria-selected=true]').dataset.view,
+      onEnded: () => load(false).catch(() => {}),
+      onActivity: refreshSoon,
+    });
+  }
+  if (all) {
+    const known = new Set();
+    for (const c of [...choices.out, ...choices.in]) {
+      if (!known.has(c.category)) { known.add(c.category); $('f-category').append(new Option(c.words, c.category)); }
+    }
+    await loadTransactions();
+  }
+  $('hub').hidden = false;
+}
+
+for (const tab of document.querySelectorAll('[role=tab]')) {
+  tab.addEventListener('click', () => {
+    for (const t of document.querySelectorAll('[role=tab]')) {
+      t.setAttribute('aria-selected', String(t === tab));
+      $(`view-${t.dataset.view}`).hidden = t !== tab;
+    }
+  });
+}
+$('filters').addEventListener('input', () => { loadTransactions().catch((e) => text('message', e.message)); });
+$('filters').addEventListener('submit', (e) => e.preventDefault());
+$('more').addEventListener('click', () => { txPage += 1; loadTransactions(false).catch((e) => text('message', e.message)); });
+$('goal-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const saved = await api('/goal', { name: $('g-name').value, target: Number($('g-target').value),
+      byDate: $('g-date').value, saved: Number($('g-saved').value || 0) });
+    const p = saved.plan;
+    text('g-result', p.onTrack
+      ? `On track: ${gbp(p.neededPerMonth)} a month, and you have about ${gbp(p.leftOverPerMonth)} left over.`
+      : `${gbp(p.neededPerMonth)} a month needed; about ${gbp(p.gapPerMonth)} a month more than you have left over now. Open the goal below for ideas.`);
+    $('goal-form').reset();          // ready for the next one; the result line stays
+    await load(false);
+  } catch (error) { text('g-result', error.message); }
+});
+
+if (!token) text('message', 'Open your Money Hub from the link we gave you.');
+else load().catch((error) => text('message', error.message));
