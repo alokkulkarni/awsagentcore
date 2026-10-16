@@ -145,8 +145,11 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
   async function startCall() {
     begin('call'); status('Starting your call…');
     try {
-      // Ask for the microphone first, so a refusal costs nothing.
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Ask for the microphone first, so a refusal costs nothing. Echo cancellation keeps the assistant's voice from
+      // the speakers out of the microphone: otherwise Connect hears it as the customer interrupting.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       const started = await api('/contact/call', { view: currentView() });
       const chime = await import('/assets/chime.js');
       const logger = new chime.ConsoleLogger('call', chime.LogLevel.WARN);
@@ -157,8 +160,8 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
       const av = session.audioVideo;
       if (started.transcript) live.transcript = setInterval(() => readTranscript(started.contactId), TRANSCRIPT_EVERY_MS);
       av.addObserver({
-        audioVideoDidStart: () => status(started.transcript ? 'Connected. Speak when you\'re ready; what\'s said appears below.'
-          : 'Connected. Speak when you\'re ready.'),
+        audioVideoDidStart: () => status(`Connected. Speak when you're ready${started.transcript ? '; what\'s said appears below' : ''}.`
+          + ' Headphones give the clearest call.'),
         audioVideoDidStop: () => { if (live && live.kind === 'call') finish('The call has ended.'); },
       });
       await av.startAudioInput(stream);
