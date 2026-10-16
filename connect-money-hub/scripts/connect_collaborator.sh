@@ -64,11 +64,23 @@ done
 
 for tool in aws python3; do command -v "$tool" >/dev/null || die "${tool} not found on PATH."; done
 # External A2A collaborators are new: older CLIs lack these two options (2.35.11 did). Check before changing anything.
-aws appintegrations create-application help 2>/dev/null | col -b | grep -q -- "--auth-config" \
-    && aws connect update-security-profile help 2>/dev/null | col -b | grep -q -- "--allowed-ai-agents" \
-    || die "Your AWS CLI ($(aws --version 2>&1 | cut -d' ' -f1)) is too old for A2A collaborators: it lacks\n" \
-           "  appintegrations create-application --auth-config and connect update-security-profile --allowed-ai-agents.\n" \
-           "  Update it (macOS: brew upgrade awscli, or the AWS installer), then run this again."
+cli_ok() {
+    "$1" appintegrations create-application help 2>/dev/null | col -b | grep -q -- "--auth-config" \
+        && "$1" connect update-security-profile help 2>/dev/null | col -b | grep -q -- "--allowed-ai-agents"
+}
+if ! cli_ok aws; then
+    # A common cause: the installer put a newer CLI somewhere later on PATH (for example ~/.local/bin).
+    for other in $(which -a aws | awk '!seen[$0]++' | tail -n +2); do
+        if cli_ok "$other"; then
+            die "The AWS CLI Terminal runs first ($(command -v aws), $(aws --version 2>&1 | cut -d' ' -f1)) is too old,\n" \
+                "  but a newer one at ${other} ($("$other" --version 2>&1 | cut -d' ' -f1)) has what's needed.\n" \
+                "  Put it first and run this again:  export PATH=\"$(dirname "$other"):\$PATH\""
+        fi
+    done
+    die "Your AWS CLI ($(aws --version 2>&1 | cut -d' ' -f1)) is too old for A2A collaborators: it lacks\n" \
+        "  appintegrations create-application --auth-config and connect update-security-profile --allowed-ai-agents.\n" \
+        "  Update it (macOS: brew upgrade awscli, or the AWS installer), then run this again."
+fi
 CALLER=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || die "Sign in with the AWS CLI first."
 [[ "$CALLER" == "$ACCOUNT_ID" ]] || die "Signed in to ${CALLER}, but the target is ${ACCOUNT_ID}."
 if $APPLY; then run() { "$@"; }; else warn "DRY RUN: nothing will change. Add --apply to do it."; run() { echo "  [would run] $*"; }; fi
