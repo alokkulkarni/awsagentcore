@@ -125,7 +125,8 @@ if $DO_TALK; then ok "Role ready: one table, and starting chats and calls in one
 else ok "Role ready: read and write single items in one table."; fi
 
 header "Step 3 - Lambda ${FUNCTION_NAME}"
-if $DO_TALK && [[ ! -f "$ROOT/web/vendor/chime.js" ]]; then
+if $DO_TALK; then
+    # Always rebuilt (a few seconds), so a fix to the build never leaves an old bundle behind.
     step "Building the Chime SDK bundle for the call button..."
     "$SCRIPT_DIR/build_chime.sh" || die "Could not build web/vendor/chime.js. Install Node.js, or use --no-talk."
 fi

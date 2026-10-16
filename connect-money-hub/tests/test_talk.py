@@ -161,6 +161,13 @@ class PageContacts(unittest.TestCase):
         self.assertNotIn("ConnectParticipant: true", source,
                          "a websocket customer must not send it (Connect answers 400 ValidationException)")
 
+    def test_the_call_bundle_is_built_for_browsers(self):
+        build = (FOLDER / "scripts" / "build_chime.sh").read_text()
+        self.assertIn("--define:global=globalThis", build, "the SDK uses Node's global; browsers have none")
+        self.assertIn("still uses Node's 'global'", build, "the build refuses a bundle that would fail on Call")
+        deploy = (FOLDER / "scripts" / "deploy_money_hub.sh").read_text()
+        self.assertNotIn('! -f "$ROOT/web/vendor/chime.js"', deploy, "every deploy rebuilds the bundle")
+
     def test_the_assistant_overlay_is_served_and_stores_only_its_size(self):
         reply = api.lambda_handler({"requestContext": {"http": {"method": "GET"}}, "rawPath": "/assets/dock.js"}, None)
         self.assertEqual(reply["statusCode"], 200)

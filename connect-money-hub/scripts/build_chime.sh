@@ -7,7 +7,7 @@
 # web/vendor-src/package-lock.json). The page serves it itself, so its strict
 # content security policy needs no script hosts.
 #
-# Changes nothing in AWS. deploy_money_hub.sh runs it when the file is missing.
+# Changes nothing in AWS. deploy_money_hub.sh runs it on every deploy.
 #
 # Usage:   ./connect-money-hub/scripts/build_chime.sh
 # Needs:   Node.js 18+ and npm
@@ -29,10 +29,14 @@ ESBUILD="$(find "$SRC/node_modules/@esbuild" -path '*/bin/esbuild' -type f 2>/de
 
 mkdir -p "$(dirname "$OUT")"
 (cd "$SRC" && "$ESBUILD" entry.js --bundle --format=esm --minify --platform=browser --target=es2020 \
-    --legal-comments=none --log-level=warning \
+    --legal-comments=none --log-level=warning --define:global=globalThis \
     --alias:@aws-sdk/client-chime-sdk-messaging=./messaging-stub.cjs --outfile="$OUT")
 
 if grep -q 'from"node:\|require("node:' "$OUT"; then
     echo "[FAIL] The bundle still refers to Node modules; it would not load in a browser." >&2; exit 1
+fi
+# The SDK uses Node's `global` (browsers have none); --define swaps it for globalThis. None may be left.
+if grep -q '[^A-Za-z0-9_.$]global[^A-Za-z0-9_$]' "$OUT"; then
+    echo "[FAIL] The bundle still uses Node's 'global'; a call would fail with 'global is not defined'." >&2; exit 1
 fi
 echo "[ OK ] Built web/vendor/chime.js ($(wc -c < "$OUT" | tr -d ' ') bytes)."
