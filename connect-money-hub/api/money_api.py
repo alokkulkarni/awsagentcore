@@ -15,7 +15,9 @@ it asks for (the dispute service's pattern):
 
 The page can also start a call or a chat with ARIA (moneyhub/contact.py):
 /api/contact/call and /api/contact/chat start the contact in Amazon Connect and
-return only what the browser needs to join it.
+return only what the browser needs to join it. /api/contact/transcript returns
+what has been said on a call so far (moneyhub/transcript.py), only for a contact
+the same link started.
 
 ENVIRONMENT VARIABLES
     MONEY_HUB_TABLE      DynamoDB table. Unset = in memory, for local runs only
@@ -23,12 +25,15 @@ ENVIRONMENT VARIABLES
     CONNECT_INSTANCE_ID  Connect instance for calls and chats from the page.
     CONTACT_FLOW_ID      The flow they start in (conversation bot flow).
                          Either unset = the page offers no call or chat.
+    QCONNECT_ASSISTANT_ID The Amazon Q in Connect assistant behind ARIA, for
+                         call transcripts. Unset = calls show no transcript.
     LOG_LEVEL            default INFO
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -37,7 +42,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from moneyhub import contact
+from moneyhub import contact, transcript
 from moneyhub.service import MoneyHub, MoneyHubError
 from moneyhub.store import DynamoStore, MemoryStore
 
@@ -57,6 +62,8 @@ ASSETS = {"styles.css": ("styles.css", "text/css"), "app.js": ("app.js", "text/j
 REGION = os.environ.get("AWS_REGION", "eu-west-2")
 CONNECT_INSTANCE_ID = os.environ.get("CONNECT_INSTANCE_ID", "")
 CONTACT_FLOW_ID = os.environ.get("CONTACT_FLOW_ID", "")
+ASSISTANT_ID = os.environ.get("QCONNECT_ASSISTANT_ID", "")
+TALK_SECONDS = 4 * 60 * 60          # how long a link remembers the contacts it started
 # Calls need the Chime SDK's media and signalling hosts; chats need the Connect Participant Service and its websocket.
 _TALK_HOSTS = (f"https://participant.connect.{REGION}.amazonaws.com wss://*.transport.connect.{REGION}.amazonaws.com "
                "https://*.chime.aws wss://*.chime.aws https://*.ingest.chime.aws")
@@ -68,6 +75,7 @@ SECURITY_HEADERS = {
     "permissions-policy": "microphone=(self), camera=(), geolocation=()",
 }
 _connect = None
+_qconnect = None
 
 
 def connect_client():
@@ -79,7 +87,54 @@ def connect_client():
     return _connect
 
 
-def start_contact(kind: str, session: dict, view: str) -> dict:
+def qconnect_client():
+    """Amazon Q in Connect, created on first use (replaced in tests)."""
+    global _qconnect
+    if _qconnect is None:
+        import boto3
+        _qconnect = boto3.client("qconnect", region_name=REGION)
+    return _qconnect
+
+
+def _talk_key(token: str) -> str:
+    return f"talk#{hashlib.sha256(token.encode()).hexdigest()}"
+
+
+def _remember_contact(token: str, contact_id: str) -> None:
+    """The contacts this link started: the only ones it may read a transcript for."""
+    item = hub.store.get(_talk_key(token)) or {}
+    contacts = [c for c in item.get("contacts", []) if c != contact_id][-9:] + [contact_id]
+    hub.store.put(_talk_key(token), {"contacts": contacts, "sessions": item.get("sessions", {}),
+                                     "expiresAt": hub.clock() + TALK_SECONDS})
+
+
+def call_transcript(token: str, contact_id: str) -> dict:
+    """What has been said on a call this link started: {lines: [{at, who, text}], ended}."""
+    item = hub.store.get(_talk_key(token)) or {}
+    if not contact_id or contact_id not in item.get("contacts", []):
+        raise MoneyHubError("not_found", "That conversation isn't available.", 404)
+    if not (ASSISTANT_ID and CONNECT_INSTANCE_ID):
+        return {"lines": [], "ended": False}
+    described = connect_client().describe_contact(InstanceId=CONNECT_INSTANCE_ID, ContactId=contact_id)["Contact"]
+    ended = bool(described.get("DisconnectTimestamp"))
+    session_arn = (described.get("WisdomInfo") or {}).get("SessionArn", "")
+    if not session_arn:                     # the flow hasn't reached ARIA yet
+        return {"lines": [], "ended": ended}
+    client = qconnect_client()
+    if not hasattr(client, "list_messages"):     # the Lambda runtime's AWS SDK predates Q in Connect messages
+        logger.warning("transcript unavailable: this boto3 has no qconnect list_messages")
+        return {"lines": [], "ended": ended, "unavailable": True}
+    messages, kwargs = [], {"assistantId": ASSISTANT_ID, "sessionId": session_arn.rsplit("/", 1)[-1], "maxResults": 100}
+    for _ in range(5):                      # at most 500 messages
+        page = client.list_messages(**kwargs)
+        messages += page.get("messages", [])
+        if not page.get("nextToken"):
+            break
+        kwargs["nextToken"] = page["nextToken"]
+    return {"lines": transcript.to_lines(messages), "ended": ended}
+
+
+def start_contact(kind: str, session: dict, view: str, token: str) -> dict:
     """Start a call or chat with ARIA for the page link's customer; only what the browser needs comes back."""
     if not (CONNECT_INSTANCE_ID and CONTACT_FLOW_ID):
         raise MoneyHubError("talk_unavailable", "Calls and chats aren't set up for this page yet.", 503)
@@ -89,10 +144,13 @@ def start_contact(kind: str, session: dict, view: str) -> dict:
     try:
         response = client.start_web_rtc_contact(**request) if kind == "call" else client.start_chat_contact(**request)
     except Exception as error:                                     # botocore ClientError and connection errors
-        logger.warning("start %s failed: %s", kind, type(error).__name__)
+        logger.warning("start %s failed: %s", kind, type(error).__name__)                  # never the request
         raise MoneyHubError("talk_failed", "We couldn't connect you just now. Try again in a minute.", 502)
-    return {**contact.browser_reply(kind, response), "region": REGION,
-            "verified": contact.verified_level(session["loa"])}
+    reply = contact.browser_reply(kind, response)
+    if reply.get("contactId"):
+        _remember_contact(token, reply["contactId"])
+    return {**reply, "region": REGION, "verified": contact.verified_level(session["loa"]),
+            "transcript": kind == "call" and bool(ASSISTANT_ID)}
 TOOLS = ("get_money_hub_summary", "get_money_hub_forecast")
 
 
@@ -166,7 +224,9 @@ def web(event: dict) -> dict:
         elif path == "/api/goal/delete":
             reply = hub.delete_goal(customer, _s(body, "name"))
         elif path in ("/api/contact/call", "/api/contact/chat"):
-            reply = start_contact(path.rsplit("/", 1)[-1], session, _s(body, "view"))
+            reply = start_contact(path.rsplit("/", 1)[-1], session, _s(body, "view"), _s(body, "token"))
+        elif path == "/api/contact/transcript":
+            reply = call_transcript(_s(body, "token"), _s(body, "contactId"))
         else:
             return _response(404, "Not found", "text/plain")
         status, outcome = 200, "ok"

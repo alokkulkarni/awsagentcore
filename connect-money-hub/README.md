@@ -294,6 +294,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | Type `What's my biggest regular payment?` | A short answer with the figure |
 | Move a payment to another category in the chat, then click **End chat** | The chat ends. The page refreshes and shows the new category |
 | Click **Call** | Your browser asks to use the microphone: **Allow**. `Connected. Speak when you're ready.` ARIA greets you; say *"Where does my money go?"* and the answer is short, in ARIA's voice |
+| Talk for a minute on the call | What you and the assistant say appears in the panel as text, a few seconds behind, labelled **You** and **Assistant** (read from ARIA's Amazon Q in Connect session; there's no Contact Lens real-time transcript before a person joins) |
 | Click **Mute**, then **Unmute** | The button changes and your voice stops, then starts, reaching the call |
 | Click **–** during a call | The assistant shrinks to the tag, which says **Call in progress**; the call carries on. Click the tag to return |
 | Click **End call** | `You ended the call.` The contact ends in Connect (not after a timeout) |
@@ -321,6 +322,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | `connect_collaborator.sh` fails creating the security profile, naming the permission | The script asks for `BasicAgentAccess`, the usual name for **Access Contact Control Panel**. In the Connect admin website, open **Users → Security profiles → ARIA AI agent collaborators** and tick **Contact Control Panel (CCP) → Access CCP** by hand, then run the script again |
 | The test turn in `deploy_agent.sh` fails with "endpoint" or "not found" | The script calls the runtime's DEFAULT endpoint, which normally exists. If not: `aws bedrock-agentcore-control create-agent-runtime-endpoint --agent-runtime-id <id> --name DEFAULT`, wait for READY, run again |
 | The page says "This link has expired" | Links last 24 hours. Run `deploy_money_hub.sh` for a new demo link, or ask the agent in chat |
+| A call connects but no transcript appears | In `/aws/lambda/aria-money-hub-api`: `transcript unavailable` means the Lambda's built-in AWS SDK is too old for Q in Connect messages; an `AccessDenied` error means `deploy_money_hub.sh` hasn't been run since the transcript permissions were added |
 | No **Chat** or **Call** buttons on the page | The page Lambda has no Connect settings. Run `deploy_money_hub.sh` without `--no-talk` |
 | "We couldn't connect you just now" when you click Chat or Call | Connect refused to start the contact. In `/aws/lambda/aria-money-hub-api`, look for `start call failed:` or `start chat failed:` with the error type. `AccessDeniedException`: run `deploy_money_hub.sh` again (it sets the permission). `InvalidRequestException` on a call: check that in-app and web calling is available for the instance, as the Live Sync widget uses it |
 | "We couldn't connect the conversation (403)" | The browser reached Connect but the contact had already ended or the token was refused. Click Chat again |

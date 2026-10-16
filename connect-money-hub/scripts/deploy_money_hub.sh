@@ -48,6 +48,7 @@ DRY_RUN=false
 DO_TALK=true
 VERIFIED_DEMO=false
 INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
+ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"         # Amazon Q in Connect assistant behind ARIA (call transcripts)
 CONTACT_FLOW_ID="f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"      # conversation bot flow
 
 TABLE_NAME="aria-money-hub"
@@ -66,6 +67,7 @@ while [[ $# -gt 0 ]]; do
         --skip-gateway) DO_GATEWAY=false; shift ;;
         --instance-id)  INSTANCE_ID="$2"; shift 2 ;;
         --contact-flow-id) CONTACT_FLOW_ID="$2"; shift 2 ;;
+        --assistant-id) ASSISTANT_ID="$2"; shift 2 ;;
         --no-talk)      DO_TALK=false; shift ;;
         --verified-demo) VERIFIED_DEMO=true; shift ;;
         --dry-run)      DRY_RUN=true; shift ;;
@@ -116,6 +118,8 @@ INSTANCE_ARN="arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}"
 TALK_STATEMENT=""
 if $DO_TALK; then
     TALK_STATEMENT=",{\"Sid\":\"StartContactsFromThePage\",\"Effect\":\"Allow\",\"Action\":[\"connect:StartWebRTCContact\",\"connect:StartChatContact\"],\"Resource\":[\"${INSTANCE_ARN}\",\"${INSTANCE_ARN}/contact-flow/${CONTACT_FLOW_ID}\",\"${INSTANCE_ARN}/contact/*\"]}"
+    # Call transcripts: read the contact (to find its Q in Connect session) and that session's messages.
+    TALK_STATEMENT+=",{\"Sid\":\"ReadCallTranscripts\",\"Effect\":\"Allow\",\"Action\":\"connect:DescribeContact\",\"Resource\":\"${INSTANCE_ARN}/contact/*\"},{\"Sid\":\"ReadCallTranscriptMessages\",\"Effect\":\"Allow\",\"Action\":\"wisdom:ListMessages\",\"Resource\":\"arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*\"}"
 fi
 cat > "$BUILD/policy.json" <<POLICY
 {"Version":"2012-10-17","Statement":[{"Sid":"MoneyHubTable","Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem"],"Resource":"${TABLE_ARN}"}${TALK_STATEMENT}]}
@@ -136,10 +140,10 @@ cp "$ROOT"/web/*.html "$ROOT"/web/*.js "$ROOT"/web/*.css "$BUILD/pkg/web/"
 ! $DO_TALK || cp "$ROOT/web/vendor/chime.js" "$BUILD/pkg/web/vendor/"
 find "$BUILD/pkg" -name '__pycache__' -prune -exec rm -rf {} +
 (cd "$BUILD/pkg" && zip -qr "$BUILD/api.zip" .)
-TALK_INSTANCE=""; TALK_FLOW=""
-if $DO_TALK; then TALK_INSTANCE="$INSTANCE_ID"; TALK_FLOW="$CONTACT_FLOW_ID"; fi
-write_env() { python3 -c 'import json,sys; v={"MONEY_HUB_TABLE":sys.argv[1]}; sys.argv[2] and v.update(PUBLIC_BASE_URL=sys.argv[2]); sys.argv[3] and v.update(CONNECT_INSTANCE_ID=sys.argv[3], CONTACT_FLOW_ID=sys.argv[4]); print(json.dumps({"Variables":v}))' \
-    "$TABLE_NAME" "$1" "$TALK_INSTANCE" "$TALK_FLOW" > "$BUILD/env.json"; }
+TALK_INSTANCE=""; TALK_FLOW=""; TALK_ASSISTANT=""
+if $DO_TALK; then TALK_INSTANCE="$INSTANCE_ID"; TALK_FLOW="$CONTACT_FLOW_ID"; TALK_ASSISTANT="$ASSISTANT_ID"; fi
+write_env() { python3 -c 'import json,sys; v={"MONEY_HUB_TABLE":sys.argv[1]}; sys.argv[2] and v.update(PUBLIC_BASE_URL=sys.argv[2]); sys.argv[3] and v.update(CONNECT_INSTANCE_ID=sys.argv[3], CONTACT_FLOW_ID=sys.argv[4], QCONNECT_ASSISTANT_ID=sys.argv[5]); print(json.dumps({"Variables":v}))' \
+    "$TABLE_NAME" "$1" "$TALK_INSTANCE" "$TALK_FLOW" "$TALK_ASSISTANT" > "$BUILD/env.json"; }
 write_env ""
 if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
     run aws lambda update-function-code --function-name "$FUNCTION_NAME" --region "$REGION" \

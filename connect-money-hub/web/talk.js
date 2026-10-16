@@ -12,6 +12,8 @@ const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
 // ARIA only hears messages sent after its bot block has joined. The flow announces that with a (blank)
 // message; if none arrives, the opener is sent anyway after this long.
 const READY_WAIT_MS = 20000;
+// A call is audio only: what's said on it is read back from the page Lambda this often, to show as text.
+const TRANSCRIPT_EVERY_MS = 2000;
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
@@ -37,10 +39,15 @@ export function setupTalk({ api, currentView, onEnded }) {
     return response.json().catch(() => ({}));
   }
 
+  // role: CUSTOMER (the customer) or anything else (the assistant: ARIA or the Money Hub agent, one voice to them).
   function show(role, words) {
     const li = document.createElement('li');
-    li.className = role === 'CUSTOMER' ? 'me' : role === 'SYSTEM' ? 'system' : 'them';
-    li.textContent = plain(words);
+    const me = role === 'CUSTOMER';
+    li.className = me ? 'me' : 'them';
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = me ? 'You' : 'Assistant';
+    li.append(who, document.createTextNode(plain(words)));
     $('chat-log').append(li);
     $('talk-body').scrollTop = $('talk-body').scrollHeight;     // the overlay scrolls, never the page
   }
@@ -147,8 +154,10 @@ export function setupTalk({ api, currentView, onEnded }) {
       const session = new chime.DefaultMeetingSession(config, logger, devices);
       live = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream };
       const av = session.audioVideo;
+      if (started.transcript) live.transcript = setInterval(() => readTranscript(started.contactId), TRANSCRIPT_EVERY_MS);
       av.addObserver({
-        audioVideoDidStart: () => status('Connected. Speak when you\'re ready.'),
+        audioVideoDidStart: () => status(started.transcript ? 'Connected. Speak when you\'re ready; what\'s said appears below.'
+          : 'Connected. Speak when you\'re ready.'),
         audioVideoDidStop: () => { if (live && live.kind === 'call') finish('The call has ended.'); },
       });
       await av.startAudioInput(stream);
@@ -159,6 +168,23 @@ export function setupTalk({ api, currentView, onEnded }) {
         ? 'To call, allow this page to use your microphone.' : (error.message || 'The call could not start.');
       finish(words);
     }
+  }
+
+  // New lines of the call's transcript, each shown once, oldest first.
+  async function readTranscript(contactId) {
+    if (!live || live.kind !== 'call' || live.reading) return;
+    live.reading = true;
+    try {
+      const said = await api('/contact/transcript', { contactId });
+      if (said.unavailable) clearInterval(live.transcript);      // this deployment can't read transcripts
+      for (const line of said.lines || []) {
+        const key = `${line.at}|${line.who}|${line.text}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        show(line.who === 'customer' ? 'CUSTOMER' : 'ASSISTANT', line.text);
+      }
+    } catch { /* try again on the next tick */ }
+    if (live) live.reading = false;
   }
 
   function toggleMute() {
@@ -187,6 +213,7 @@ export function setupTalk({ api, currentView, onEnded }) {
     live = null;
     if (current) {
       clearInterval(current.heartbeat);
+      clearInterval(current.transcript);
       clearTimeout(current.openerTimer);
       try { current.socket && current.socket.close(); } catch { /* already closed */ }
       try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }

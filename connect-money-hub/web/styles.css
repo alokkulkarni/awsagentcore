@@ -140,3 +140,4 @@ html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /*
 @media (prefers-reduced-motion: reduce) {
   .talk-panel, .talk-launcher.live .talk-dot { animation: none; }
 }
+.chat-log li .who { display: block; font-size: .72rem; font-weight: 600; letter-spacing: .02em; opacity: .7; margin-bottom: 2px; }

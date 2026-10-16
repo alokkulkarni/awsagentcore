@@ -40,6 +40,15 @@ class FakeConnect:
                                                "MediaPlacement": {"SignalingUrl": "wss://signal.example.chime.aws"}},
                                    "Attendee": {"AttendeeId": "a-1", "JoinToken": "join-secret"}}}
 
+    def describe_contact(self, InstanceId, ContactId):
+        self.calls.append(("describe", ContactId))
+        contact = {"Id": ContactId}
+        if getattr(self, "session", ""):
+            contact["WisdomInfo"] = {"SessionArn": f"arn:aws:wisdom:eu-west-2:1:session/asst/{self.session}"}
+        if getattr(self, "ended", False):
+            contact["DisconnectTimestamp"] = "2026-10-16T14:03:43Z"
+        return {"Contact": contact}
+
     def start_chat_contact(self, **request):
         self._reply("chat", request)
         return {"ContactId": "c-2", "ParticipantId": "p-2", "ParticipantToken": "pt-chat-secret"}
@@ -93,7 +102,8 @@ class PageContacts(unittest.TestCase):
 
     def test_a_call_returns_only_what_the_browser_needs_to_join(self):
         _, reply = self.post("/api/contact/call", token=self.verified, view="out")
-        self.assertEqual(set(reply), {"contactId", "participantToken", "meeting", "attendee", "region", "verified"})
+        self.assertEqual(set(reply), {"contactId", "participantToken", "meeting", "attendee", "region", "verified",
+                                      "transcript"})
         self.assertEqual(reply["attendee"]["JoinToken"], "join-secret")
         self.assertEqual(reply["region"], api.REGION)
         self.assertNotIn("AllowedCapabilities", self.connect.calls[0][1], "audio only")
@@ -103,7 +113,8 @@ class PageContacts(unittest.TestCase):
         request = self.connect.calls[0][1]
         self.assertEqual(request["SupportedMessagingContentTypes"], ["text/plain", "text/markdown"])
         self.assertNotIn("InitialMessage", request, "not documented to reach a Lex bot; the page sends it instead")
-        self.assertEqual(set(reply), {"contactId", "participantToken", "region", "verified"})
+        self.assertEqual(set(reply), {"contactId", "participantToken", "region", "verified", "transcript"})
+        self.assertFalse(reply["transcript"], "a chat has its own messages; only calls need the transcript")
         source = (FOLDER / "web" / "talk.js").read_text()
         self.assertIn("I'm on my Money Hub page, on the ${tab} tab", source)
         self.assertIn("keepalive: true", source)
@@ -181,6 +192,67 @@ class PageContacts(unittest.TestCase):
         self.assertIn('id="talk-launcher"', page)
         self.assertIn('aria-modal="false"', page, "not modal: the page keeps scrolling behind it")
         self.assertIn('role="separator"', page, "the resize handle works from the keyboard too")
+
+
+class FakeQConnect:
+    def __init__(self):
+        self.asked = []
+
+    def list_messages(self, **kwargs):
+        self.asked.append(kwargs)
+        if "nextToken" not in kwargs:
+            return {"nextToken": "page-2", "messages": [
+                {"participant": "BOT", "timestamp": "2026-10-16T14:00:46Z", "value": {"text": {"value": "\nOf course, James.\n"}}},
+                {"participant": "CUSTOMER", "timestamp": "2026-10-16T14:00:42Z",
+                 "value": {"text": {"value": "where does my money go"}}}]}
+        return {"messages": [{"participant": "BOT", "timestamp": "2026-10-16T14:01:00Z", "value": {"text": {"value": "  "}}},
+                             {"participant": "BOT", "timestamp": "2026-10-16T14:01:01Z",
+                              "value": {"text": {"value": "About £3,158 a month."}}}]}
+
+
+class CallTranscript(unittest.TestCase):
+
+    def setUp(self):
+        api.hub = MoneyHub(MemoryStore(lambda: NOW), lambda: NOW, page_url="https://hub.example")
+        api.CONNECT_INSTANCE_ID, api.CONTACT_FLOW_ID, api.ASSISTANT_ID = "inst-1", "flow-1", "asst"
+        api._connect, api._qconnect = FakeConnect(), FakeQConnect()
+        self.connect, self.q = api._connect, api._qconnect
+        self.verified = api.hub.mint_link(JAMES, "2").split("#k=")[1]
+        self.demo = api.hub.mint_link(JAMES).split("#k=")[1]
+        _, self.started = self.post("/api/contact/call", token=self.verified, view="out")
+
+    def tearDown(self):
+        api.CONNECT_INSTANCE_ID = api.CONTACT_FLOW_ID = api.ASSISTANT_ID = ""
+        api._connect = api._qconnect = None
+
+    def post(self, path, **body):
+        reply = api.lambda_handler(http(path, body), None)
+        return reply["statusCode"], json.loads(reply["body"])
+
+    def test_lines_come_oldest_first_with_who_said_them(self):
+        self.assertTrue(self.started["transcript"])
+        self.connect.session = "sess-1"
+        status, reply = self.post("/api/contact/transcript", token=self.verified, contactId="c-1")
+        self.assertEqual(status, 200)
+        self.assertEqual([(l["who"], l["text"]) for l in reply["lines"]],
+                         [("customer", "where does my money go"), ("assistant", "Of course, James."),
+                          ("assistant", "About £3,158 a month.")], "blank lines dropped, both pages read")
+        self.assertEqual(self.q.asked[0]["sessionId"], "sess-1")
+        self.assertFalse(reply["ended"])
+
+    def test_before_aria_joins_there_is_nothing_yet_and_the_end_is_reported(self):
+        _, reply = self.post("/api/contact/transcript", token=self.verified, contactId="c-1")
+        self.assertEqual(reply, {"lines": [], "ended": False})
+        self.connect.ended = True
+        self.assertTrue(self.post("/api/contact/transcript", token=self.verified, contactId="c-1")[1]["ended"])
+
+    def test_a_link_reads_only_the_calls_it_started(self):
+        self.connect.session = "sess-1"
+        for token, contact_id in ((self.demo, "c-1"), (self.verified, "c-other"), (self.verified, "")):
+            status, reply = self.post("/api/contact/transcript", token=token, contactId=contact_id)
+            self.assertEqual((status, reply["error"]), (404, "not_found"))
+        self.assertEqual(self.q.asked, [], "nothing was read for them")
+        self.assertEqual(self.post("/api/contact/transcript", token="made-up", contactId="c-1")[0], 403)
 
 
 class ContactRules(unittest.TestCase):
