@@ -12,7 +12,8 @@
     "cardType": "debit or credit: which card. Leave empty for both.",
     "page": "Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones.",
     "fromDate": "Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none.",
-    "toDate": "End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none."
+    "toDate": "End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none.",
+    "orderReplacement": "yes if the customer also wants a new card sent, no if not."
   },
   "dataRequests": [
     {
@@ -153,12 +154,13 @@
     },
     {
       "name": "blockCard",
-      "purpose": "blocks a card",
-      "description": "Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.",
+      "purpose": "blocks a card and, if the customer wants, orders its replacement in the same call",
+      "description": "Blocks the customer's debit or credit card at once. orderReplacement yes also orders a new card. Only after the customer agrees. Then say the confirmation from the reply, word for word.",
       "request": {
         "operation": "blockCard",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
-        "cardType": "debit"
+        "cardType": "debit",
+        "orderReplacement": "yes"
       },
       "response": {
         "ok": true,
@@ -166,13 +168,17 @@
         "message": "",
         "cardType": "debit",
         "cardLastFour": "4821",
-        "reference": "BLOCK-4821-ABC234"
+        "reference": "BLOCK-4821-ABC234",
+        "replacementOrdered": true,
+        "replacementReference": "REPL-4821-XYZ789",
+        "arrivesInWorkingDays": "3 to 5",
+        "confirmation": "Your debit card ending 4821 is now blocked, so it can't be used again. Your reference is BLOCK-4821-ABC234. A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-XYZ789."
       }
     },
     {
       "name": "orderReplacementCard",
       "purpose": "orders a replacement for a blocked card",
-      "description": "Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.",
+      "description": "Orders a replacement for a card already blocked (cardType), when blockCard did not. Only after the customer agrees. Then say the confirmation from the reply, word for word.",
       "request": {
         "operation": "orderReplacementCard",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -185,7 +191,8 @@
         "cardType": "debit",
         "cardLastFour": "4821",
         "reference": "REPL-4821-ABC234",
-        "arrivesInWorkingDays": "3 to 5"
+        "arrivesInWorkingDays": "3 to 5",
+        "confirmation": "A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-ABC234."
       }
     },
     {

@@ -333,13 +333,13 @@ The same two samples, for reference only (nothing more to do):
 
 #### `blockCard`
 
-Data request 5 of 7. This one blocks a card.
+Data request 5 of 7. This one blocks a card and, if the customer wants, orders its replacement in the same call.
 
 1. Left menu → **Resources** → **Data requests** → **New data request**.
 2. **Name**: `blockCard`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.
+   Blocks the customer's debit or credit card at once. orderReplacement yes also orders a new card. Only after the customer agrees. Then say the confirmation from the reply, word for word.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -350,26 +350,27 @@ Data request 5 of 7. This one blocks a card.
       then `card_dispute_api_key`. It becomes a chip.
 5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
    ```json
-   {"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}
+   {"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit","orderReplacement":"yes"}
    ```
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"BLOCK-4821-ABC234"}
+   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"BLOCK-4821-ABC234","replacementOrdered":true,"replacementReference":"REPL-4821-XYZ789","arrivesInWorkingDays":"3 to 5","confirmation":"Your debit card ending 4821 is now blocked, so it can't be used again. Your reference is BLOCK-4821-ABC234. A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-XYZ789."}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
       - `operation`: `blockCard`
       - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
       - `cardType`: `debit`
+      - `orderReplacement`: `yes`
 
    ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
    verified customer), and proves it reached the service. ❌ `401`: redo step 4.5.
 
 The same two samples, for reference only (nothing more to do):
 
-| Request sample | `{"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}` |
+| Request sample | `{"operation":"blockCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit","orderReplacement":"yes"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"BLOCK-4821-ABC234"}` |
+| Response sample | `{"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"BLOCK-4821-ABC234","replacementOrdered":true,"replacementReference":"REPL-4821-XYZ789","arrivesInWorkingDays":"3 to 5","confirmation":"Your debit card ending 4821 is now blocked, so it can't be used again. Your reference is BLOCK-4821-ABC234. A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-XYZ789."}` |
 
 #### `orderReplacementCard`
 
@@ -379,7 +380,7 @@ Data request 6 of 7. This one orders a replacement for a blocked card.
 2. **Name**: `orderReplacementCard`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.
+   Orders a replacement for a card already blocked (cardType), when blockCard did not. Only after the customer agrees. Then say the confirmation from the reply, word for word.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -394,7 +395,7 @@ Data request 6 of 7. This one orders a replacement for a blocked card.
    ```
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"REPL-4821-ABC234","arrivesInWorkingDays":"3 to 5"}
+   {"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"REPL-4821-ABC234","arrivesInWorkingDays":"3 to 5","confirmation":"A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-ABC234."}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
@@ -409,7 +410,7 @@ The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"orderReplacementCard","contactId":"0a1b2c3d-1111-2222-3333-444455556666","cardType":"debit"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"REPL-4821-ABC234","arrivesInWorkingDays":"3 to 5"}` |
+| Response sample | `{"ok":true,"reason":"","message":"","cardType":"debit","cardLastFour":"4821","reference":"REPL-4821-ABC234","arrivesInWorkingDays":"3 to 5","confirmation":"A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-ABC234."}` |
 
 #### `sendFormLink`
 
@@ -618,46 +619,61 @@ Before anything else
   Escalation requested.
 - Never give a full card number; "your debit card ending 4821" is fine.
 
-Follow these steps in this order. Ask one question per turn. Never skip step 3 or step 4.
+Follow these steps in this order. Ask one question per turn. Protecting the card comes before the
+dispute form. Never skip step 3 or step 5.
 
-Step 1. Find the payment by showing it, not by asking for it
+Step 1. Which card
+- Call listCardsAndPayments with page 1, to see their cards.
+- If they have more than one card and have not said which, your next message must be this question,
+  naming each card, before you show any payments: "Is it your debit card ending 4821 or your credit
+  card ending 2291?" Never show payments from more than one card unless they say they aren't sure.
+- If they have only one card, don't ask; use it.
+
+Step 2. Find the payment by showing it, not by asking for it
 - Customers rarely remember the exact shop or amount. Never ask them for the shop name or amount.
-- First, which card. Call listCardsAndPayments with page 1 to see their cards. If they have more
-  than one card and have not said which, ask before showing any payments, naming each card, for
-  example: "Is it your debit card ending 4821 or your credit card ending 2291?" If they have only
-  one card, don't ask; use it. If they aren't sure, show both.
-- From then on, call listCardsAndPayments with that cardType (debit or credit), so they only see
-  that card's payments.
-- If they give a rough time ("last week", "early October", "since the 1st"), work out fromDate and
-  toDate as YYYY-MM-DD using today from your last listCardsAndPayments reply, and call
-  listCardsAndPayments with them, the cardType and page 1. Otherwise call it with the cardType,
-  page 1 and no dates.
+- Call listCardsAndPayments with that card's cardType (debit or credit) and page 1. If they gave a
+  rough time ("last week", "early October", "since the 1st"), also give fromDate and toDate as
+  YYYY-MM-DD, worked out from today in the last reply.
 - Show every payment in the reply, in the order given (newest first), with its number:
   - On CHAT: one per line, exactly "number. label", for example
     "1. 11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821".
   - On VOICE: read them briefly, for example "Number 1: Amazon, eighty-nine pounds ninety-nine,
-    on the 11th of October, on your debit card."
+    on the 11th of October."
   Then ask which one they want to dispute. If hasMore is true, add that they can say "more" to see
   older payments, or give a date.
-- If they say "more" or "older", call listCardsAndPayments with page plus one (and the same
-  cardType and dates).
-  If they give a period, call it with those dates and page 1.
-- When they choose, by number, shop, amount or date, use that payment's transactionId. If their
-  answer fits more than one, ask one question to tell them apart.
-- If ARIA's summary already named one payment clearly, you may show the page and ask them to
-  confirm that one.
+- If they say "more" or "older", call it again with page plus one, the same cardType and dates. If
+  they give a period, call it with those dates and page 1.
+- When they choose, by number, shop, amount or date, note that payment's transactionId (its number
+  also works). If their answer fits more than one, ask one question to tell them apart.
 - If they cannot find it in any page or period, say you can't see it and use Escalation requested.
 
-Step 2. Start the dispute, and save what you already know
+Step 3. Did they make it? If not, protect the card first
 - Ask whether they made or agreed to the payment, unless they have already said.
-- Call startDispute with the payment's transactionId (its number also works) and disputeType:
-  unauthorised if they did not make it or do not recognise it; merchant if they made it but
-  something went wrong.
-- Straight away, call updateDispute with everything they have already told ARIA and you: for
-  example reasonCode not_recognised if they don't recognise it, cardInPossession yes if they still
-  have the card, and narrative in their own words. Don't ask for these first.
+- If they did not make it, don't recognise it, or say the card is lost, stolen or being used by
+  someone else, protect the card now, before anything else:
+  - If listCardsAndPayments shows the card's status as blocked already, say so, and offer only the
+    replacement (orderReplacementCard).
+  - Otherwise ask one question: "Would you like me to block your <debit/credit> card ending <last
+    four> now, so it can't be used again, and send you a replacement?"
+  - With their yes, call blockCard with that cardType and orderReplacement yes. If they want it
+    blocked but no new card, use orderReplacement no.
+  - When blockCard replies ok true, tell them its confirmation, word for word: it says the card is
+    blocked, when the new card will arrive, and both references. Never say a card is blocked or
+    ordered unless blockCard or orderReplacementCard replied ok true in this conversation.
+  - If it replies ok false, tell them it hasn't been done and a colleague will do it, and carry on.
+  - With their no, remember it: in step 4, save cardBlocked no.
+- If they made the payment but something went wrong, skip protecting the card unless they ask.
 
-Step 3. Offer the form (always, straight after step 2)
+Step 4. Start the dispute, and save what you already know
+- Call startDispute with the transactionId and disputeType: unauthorised if they did not make it or
+  do not recognise it; merchant if they made it but something went wrong. If you blocked the card in
+  step 3, the dispute already says so.
+- Straight away, call updateDispute with everything they have told ARIA and you: for example
+  reasonCode not_recognised if they don't recognise it, cardInPossession yes if they still have the
+  card, cardBlocked no if they said not to block it, and narrative in their own words. Don't ask
+  for these first.
+
+Step 5. Offer the form (always, straight after step 4)
 - Ask: "Would you like to see the dispute form, so you can watch it being filled in as we go?"
 - With their yes, call sendFormLink.
   - On VOICE: say it has been texted to sentTo. Never read out a link or a number.
@@ -669,37 +685,17 @@ Step 3. Offer the form (always, straight after step 2)
   getDispute to see what they typed. Saving with updateDispute is enough; you never fill in the page
   yourself.
 
-Step 4. Protect the card
-- Do this when disputeType is unauthorised, or when they say the card is lost, stolen or being used
-  by someone else. For a merchant dispute, skip it unless they ask.
-- If listCardsAndPayments shows the card's status as blocked already, say so, and only offer the
-  replacement.
-- Otherwise ask one question, using the card the payment was on: "Would you like me to block your
-  <debit/credit> card ending <last four> now, so it can't be used again, and send you a
-  replacement?"
-- With their yes, do all of this in the same turn, before you say anything:
-  1. call blockCard with that cardType;
-  2. call orderReplacementCard with the same cardType;
-  3. then tell them both results, with the references, for example: "Done. Your debit card ending
-     4821 is blocked, reference BLOCK-4821-ABC234. A new card is on its way and should arrive in
-     3 to 5 working days, reference REPL-4821-XYZ789."
-- If they want it blocked but no replacement, call only blockCard and give its reference.
-- With their no, save cardBlocked no with updateDispute.
-- If a call replies ok false, tell them it hasn't been done, say a colleague will do it, and carry
-  on with the dispute.
-
-Step 5. Fill in the rest
-- Call updateDispute for anything new they have said, then ask only for what the reply's missing
-  field lists, one question at a time, and save each answer with updateDispute as soon as you have
-  it. Keep going until complete is true.
+Step 6. Fill in the rest
+- Ask only for what the last reply's missing field lists, one question at a time, and save each
+  answer with updateDispute as soon as you have it. Keep going until complete is true.
 - For the reason, choose from reasonsAllowed using their words; never show or say the codes. Write
   narrative in their own words; do not improve it.
 - Never say you have saved something unless updateDispute replied ok=true.
 
-Step 6. Finish
-- When complete is true, sum up in one or two sentences: the payment, what happened, any card you
-  blocked or replaced (with references), and whether they have the form. Ask if it is right.
-  Correct anything with updateDispute.
+Step 7. Finish
+- When complete is true, sum up in one or two sentences: the payment, what happened, the card you
+  blocked and the replacement (with references), and whether they have the form. Ask if it is
+  right. Correct anything with updateDispute.
 - Then use Escalation requested. A colleague checks it with them and submits it.
 
 When you may use Escalation requested
@@ -827,13 +823,13 @@ Tone
 
    5. **Save** the tool (or close its panel), and check `getDispute` now appears in the Tools list.
 
-   **Tool 5 of 7: `blockCard`** (blocks a card)
+   **Tool 5 of 7: `blockCard`** (blocks a card and, if the customer wants, orders its replacement in the same call)
 
    1. In the **Tools** section, click **Add tool** (or **+**). Choose type **Data request**.
    2. Pick **`blockCard`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.
+      Blocks the customer's debit or credit card at once. orderReplacement yes also orders a new card. Only after the customer agrees. Then say the confirmation from the reply, word for word.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -843,6 +839,7 @@ Tone
       | `operation` | **Explicit text** | type exactly: `blockCard` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
       | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
+      | `orderReplacement` | **LLM prompt** | if there's a description box: yes if the customer also wants a new card sent, no if not. |
 
    5. **Save** the tool (or close its panel), and check `blockCard` now appears in the Tools list.
 
@@ -852,7 +849,7 @@ Tone
    2. Pick **`orderReplacementCard`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.
+      Orders a replacement for a card already blocked (cardType), when blockCard did not. Only after the customer agrees. Then say the confirmation from the reply, word for word.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:

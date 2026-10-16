@@ -29,7 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from dispute_service import ASSISTANT_DISPUTE, FORM_LINK_SECONDS, DisputeError, DisputeService
+from dispute_service import (ASSISTANT_DISPUTE, FORM_LINK_SECONDS, REPLACEMENT_WORKING_DAYS as REPLACEMENT_DAYS,
+                             DisputeError, DisputeService)
 
 logger = logging.getLogger()
 
@@ -71,8 +72,10 @@ ACXD_OPERATIONS = {
     "startDispute": ASSISTANT_DISPUTE,
     "updateDispute": ASSISTANT_DISPUTE,
     "getDispute": ASSISTANT_DISPUTE,
-    "blockCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": ""},
-    "orderReplacementCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": "", "arrivesInWorkingDays": ""},
+    "blockCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": "", "replacementOrdered": False,
+                  "replacementReference": "", "arrivesInWorkingDays": "", "confirmation": ""},
+    "orderReplacementCard": {**_STATUS, "cardType": "", "cardLastFour": "", "reference": "", "arrivesInWorkingDays": "",
+                             "confirmation": ""},
     "sendFormLink": {**_STATUS, "sent": False, "sentTo": "", "link": ""},     # link: on chat only
 }
 # Request field -> dispute field, for updateDispute. Nothing else can be set. "reason"
@@ -214,11 +217,29 @@ def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: 
         return service.assistant_update(customer_id, dispute_id, fields)
     if operation == "getDispute":
         return service.assistant_get(customer_id, dispute_id)
-    if operation in ("blockCard", "orderReplacementCard"):
-        action = "blocked" if operation == "blockCard" else "replacement_ordered"
-        done = service.card_action(customer_id, _text(body, "cardType").strip().lower(), action)
-        extra = {"arrivesInWorkingDays": "3 to 5"} if action == "replacement_ordered" else {}
-        return {"cardType": done["cardType"], "cardLastFour": done["cardLastFour"], "reference": done["reference"], **extra}
+    if operation == "blockCard":
+        # One call blocks the card and, if asked, orders its replacement, so the assistant has
+        # no second tool to forget. "confirmation" is the sentence to say, with every reference.
+        card_type = _text(body, "cardType").strip().lower()
+        blocked = service.card_action(customer_id, card_type, "blocked")
+        card = f"{blocked['cardType']} card ending {blocked['cardLastFour']}"
+        reply = {"cardType": blocked["cardType"], "cardLastFour": blocked["cardLastFour"], "reference": blocked["reference"],
+                 "confirmation": f"Your {card} is now blocked, so it can't be used again. "
+                                 f"Your reference is {blocked['reference']}."}
+        if _text(body, "orderReplacement").strip().lower() in ("yes", "true", "y"):
+            replaced = service.card_action(customer_id, card_type, "replacement_ordered")
+            reply.update({"replacementOrdered": True, "replacementReference": replaced["reference"],
+                          "arrivesInWorkingDays": REPLACEMENT_DAYS,
+                          "confirmation": reply["confirmation"] + f" A replacement {blocked['cardType']} card is on its "
+                                          f"way and should arrive in {REPLACEMENT_DAYS} working days. Its reference is "
+                                          f"{replaced['reference']}."})
+        return reply
+    if operation == "orderReplacementCard":
+        done = service.card_action(customer_id, _text(body, "cardType").strip().lower(), "replacement_ordered")
+        return {"cardType": done["cardType"], "cardLastFour": done["cardLastFour"], "reference": done["reference"],
+                "arrivesInWorkingDays": REPLACEMENT_DAYS,
+                "confirmation": f"A replacement {done['cardType']} card is on its way and should arrive in "
+                                f"{REPLACEMENT_DAYS} working days. Its reference is {done['reference']}."}
     return _send_form_link(service, doors, customer_id, contact_id, dispute_id)          # sendFormLink
 
 

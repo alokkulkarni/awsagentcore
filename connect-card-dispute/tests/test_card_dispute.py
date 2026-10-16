@@ -726,6 +726,23 @@ class DisputesAgentInCxDesigner(Base):
         self.service.adviser_open(token)
         self.assertEqual(self.op("updateDispute", disputeId=dispute_id, narrative="later")["reason"], "with_adviser")   # R1
 
+    def test_one_block_call_can_order_the_replacement_and_says_what_to_tell_the_customer(self):
+        both = self.op("blockCard", cardType="debit", orderReplacement="yes")
+        self.assertEqual((both["ok"], both["replacementOrdered"], both["arrivesInWorkingDays"]), (True, True, "3 to 5"))
+        self.assertTrue(both["replacementReference"].startswith("REPL-4821-"))
+        for said in ("debit card ending 4821 is now blocked", both["reference"], "3 to 5 working days",
+                     both["replacementReference"]):
+            self.assertIn(said, both["confirmation"])
+        dispute = self.op("startDispute", transactionId=AMAZON, disputeType="unauthorised")
+        self.assertEqual(dispute["cardBlocked"], "yes", "blocked before the dispute: the form says so")
+        only = self.op("blockCard", cardType="credit", orderReplacement="no")
+        self.assertEqual((only["replacementOrdered"], only["replacementReference"]), (False, ""))
+        self.assertNotIn("replacement", only["confirmation"])
+        later = self.op("orderReplacementCard", cardType="credit")
+        self.assertIn(later["reference"], later["confirmation"])
+        self.assertEqual(self.op("blockCard", cardType="debit", orderReplacement="yes")["replacementReference"],
+                         both["replacementReference"], "asking again never orders a second card")
+
     def test_card_actions_happen_once_and_only_on_the_customers_own_cards(self):
         first = self.op("blockCard", cardType="debit")
         again = self.op("blockCard", cardType="DEBIT")
@@ -1000,7 +1017,7 @@ class CxDesignerConfiguration(unittest.TestCase):
     # The fields the door reads for each operation (dispute_web._acxd_operation).
     READS = {"listCardsAndPayments": {"page", "fromDate", "toDate", "cardType"}, "startDispute": {"transactionId", "disputeType"},
              "updateDispute": {"disputeId", *dispute_web._UPDATABLE}, "getDispute": {"disputeId"},
-             "blockCard": {"cardType"}, "orderReplacementCard": {"cardType"}, "sendFormLink": {"disputeId"}}
+             "blockCard": {"cardType", "orderReplacement"}, "orderReplacementCard": {"cardType"}, "sendFormLink": {"disputeId"}}
 
     def setUp(self):
         sys.path.insert(0, str(FOLDER / "flows"))
@@ -1103,15 +1120,20 @@ class CxDesignerConfiguration(unittest.TestCase):
 
     def test_the_prompt_makes_the_form_and_card_steps_unmissable(self):
         prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
-        for must in ("Never skip step 3 or step 4", "Step 3. Offer the form (always, straight after step 2)",
-                     "Step 4. Protect the card", "Never ask them for the shop name or amount", "hasMore",
-                     "Straight away, call updateDispute", "call orderReplacementCard with the same cardType",
-                     "with the references", "Never use it to pass on something you have a tool for",
-                     "First, which card", "Is it your debit card ending 4821 or your credit card ending 2291?"):
+        for must in ("Never skip step 3 or step 5", "Protecting the card comes before the\ndispute form",
+                     "Step 1. Which card", "Is it your debit card ending 4821 or your credit\n  card ending 2291?",
+                     "Never ask them for the shop name or amount", "hasMore",
+                     "call blockCard with that cardType and orderReplacement yes",
+                     "tell them its confirmation, word for word",
+                     "Never say a card is blocked or\n    ordered unless blockCard or orderReplacementCard replied ok true",
+                     "Step 5. Offer the form (always, straight after step 4)", "Straight away, call updateDispute",
+                     "Never use it to pass on something you have a tool for"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)
         self.assertNotIn("a reference you were not asked for", prompt, "references are given now")
+        self.assertLess(prompt.index("call blockCard"), prompt.index("call sendFormLink"), "card before form")
+        self.assertLess(prompt.index("call blockCard"), prompt.index("Call startDispute"), "block first, so the form says so")
 
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
