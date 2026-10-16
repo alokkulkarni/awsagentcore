@@ -1,7 +1,7 @@
 {
   "_about": "The seven CX designer Data requests. scripts/build_cx_guide.py writes acxd/disputes-assistant.md Part 2c and Part 3b step 7 from this file. Edit here, then run it.",
   "inputHints": {
-    "transactionId": "The transactionId, from listCardsAndPayments, of the payment the customer chose.",
+    "transactionId": "The transactionId of the payment the customer chose, from listCardsAndPayments. Its number (for example 3) also works.",
     "disputeType": "unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong.",
     "disputeId": "The disputeId from startDispute.",
     "reasonCode": "One of reasonsAllowed from the last dispute reply, matching what the customer said.",
@@ -60,7 +60,7 @@
     {
       "name": "startDispute",
       "purpose": "starts the dispute for the payment the customer chose",
-      "description": "Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).",
+      "description": "Starts the dispute for the chosen payment. transactionId: its ID or its number from listCardsAndPayments. disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).",
       "request": {
         "operation": "startDispute",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -154,7 +154,7 @@
     {
       "name": "blockCard",
       "purpose": "blocks a card",
-      "description": "Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.",
+      "description": "Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.",
       "request": {
         "operation": "blockCard",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -172,7 +172,7 @@
     {
       "name": "orderReplacementCard",
       "purpose": "orders a replacement for a blocked card",
-      "description": "Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.",
+      "description": "Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.",
       "request": {
         "operation": "orderReplacementCard",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",

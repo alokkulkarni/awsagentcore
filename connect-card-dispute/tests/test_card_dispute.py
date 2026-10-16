@@ -665,6 +665,19 @@ class DisputesAgentInCxDesigner(Base):
         beyond = self.op("listCardsAndPayments", page=9)
         self.assertEqual((beyond["ok"], beyond["payments"], beyond["message"]), (True, [], "No more payments."))
 
+    def test_a_payment_keeps_its_number_in_any_view_and_the_number_starts_the_dispute(self):
+        everything = {p["transactionId"]: p["number"] for page in (1, 2, 3, 4)
+                      for p in self.op("listCardsAndPayments", page=page)["payments"]}
+        credit = self.op("listCardsAndPayments", cardType="credit")["payments"]
+        self.assertTrue(all(p["number"] == everything[p["transactionId"]] for p in credit), "same number when filtered")
+        third = next(t for t, n in everything.items() if n == 3)
+        for said in ("3", "number 3", "#3", " 3 "):
+            self.assertEqual(self.op("startDispute", transactionId=said, disputeType="unauthorised")["payment"][:13],
+                             "TRAINLINE.COM", said)
+        self.assertEqual(third, "TXN-4821-20261009-6420")
+        self.assertEqual(self.op("startDispute", transactionId="99", disputeType="unauthorised")["reason"],
+                         "transaction_not_found")
+
     def test_payments_can_be_narrowed_by_dates_and_card(self):
         october = self.op("listCardsAndPayments", fromDate="2026-10-01", toDate="2026-10-09", cardType="debit")
         self.assertEqual(october["totalPayments"], 6)
@@ -1090,11 +1103,14 @@ class CxDesignerConfiguration(unittest.TestCase):
 
     def test_the_prompt_makes_the_form_and_card_steps_unmissable(self):
         prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
-        for must in ("Never skip step 3 or step 4", "Step 3. Offer the form (always, straight after startDispute)",
-                     "Step 4. Protect the card", "Never ask them for the shop name or amount", "hasMore"):
+        for must in ("Never skip step 3 or step 4", "Step 3. Offer the form (always, straight after step 2)",
+                     "Step 4. Protect the card", "Never ask them for the shop name or amount", "hasMore",
+                     "Straight away, call updateDispute", "call orderReplacementCard with the same cardType",
+                     "with the references", "Never use it to pass on something you have a tool for"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)
+        self.assertNotIn("a reference you were not asked for", prompt, "references are given now")
 
     def test_nothing_the_assistant_has_can_confirm_or_submit(self):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})

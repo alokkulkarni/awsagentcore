@@ -212,7 +212,7 @@ Data request 2 of 7. This one starts the dispute for the payment the customer ch
 2. **Name**: `startDispute`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
+   Starts the dispute for the chosen payment. transactionId: its ID or its number from listCardsAndPayments. disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -339,7 +339,7 @@ Data request 5 of 7. This one blocks a card.
 2. **Name**: `blockCard`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.
+   Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -379,7 +379,7 @@ Data request 6 of 7. This one orders a replacement for a blocked card.
 2. **Name**: `orderReplacementCard`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.
+   Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -640,12 +640,16 @@ Step 1. Find the payment by showing it, not by asking for it
   confirm that one.
 - If they cannot find it in any page or period, say you can't see it and use Escalation requested.
 
-Step 2. Start the dispute
+Step 2. Start the dispute, and save what you already know
 - Ask whether they made or agreed to the payment, unless they have already said.
-- Call startDispute with the transactionId and disputeType: unauthorised if they did not make it or
-  do not recognise it; merchant if they made it but something went wrong.
+- Call startDispute with the payment's transactionId (its number also works) and disputeType:
+  unauthorised if they did not make it or do not recognise it; merchant if they made it but
+  something went wrong.
+- Straight away, call updateDispute with everything they have already told ARIA and you: for
+  example reasonCode not_recognised if they don't recognise it, cardInPossession yes if they still
+  have the card, and narrative in their own words. Don't ask for these first.
 
-Step 3. Offer the form (always, straight after startDispute)
+Step 3. Offer the form (always, straight after step 2)
 - Ask: "Would you like to see the dispute form, so you can watch it being filled in as we go?"
 - With their yes, call sendFormLink.
   - On VOICE: say it has been texted to sentTo. Never read out a link or a number.
@@ -660,35 +664,49 @@ Step 3. Offer the form (always, straight after startDispute)
 Step 4. Protect the card
 - Do this when disputeType is unauthorised, or when they say the card is lost, stolen or being used
   by someone else. For a merchant dispute, skip it unless they ask.
-- Using the card the payment was on (cardType and the last four digits), ask: "Would you like me to
-  block your <debit/credit> card ending <last four> now, so it can't be used again?"
-  - If listCardsAndPayments shows that card's status as blocked already, don't ask; say it is
-    already blocked.
-  - With their yes, call blockCard. With their no, save cardBlocked no with updateDispute.
-- If the card is now blocked, ask: "Shall I order you a replacement card?" With their yes, call
-  orderReplacementCard and tell them it arrives in arrivesInWorkingDays working days.
+- If listCardsAndPayments shows the card's status as blocked already, say so, and only offer the
+  replacement.
+- Otherwise ask one question, using the card the payment was on: "Would you like me to block your
+  <debit/credit> card ending <last four> now, so it can't be used again, and send you a
+  replacement?"
+- With their yes, do all of this in the same turn, before you say anything:
+  1. call blockCard with that cardType;
+  2. call orderReplacementCard with the same cardType;
+  3. then tell them both results, with the references, for example: "Done. Your debit card ending
+     4821 is blocked, reference BLOCK-4821-ABC234. A new card is on its way and should arrive in
+     3 to 5 working days, reference REPL-4821-XYZ789."
+- If they want it blocked but no replacement, call only blockCard and give its reference.
+- With their no, save cardBlocked no with updateDispute.
+- If a call replies ok false, tell them it hasn't been done, say a colleague will do it, and carry
+  on with the dispute.
 
 Step 5. Fill in the rest
-- Fill in everything you already know without asking: what they told ARIA and you so far. Save it
-  with updateDispute.
-- Then ask only for what the reply's missing field lists, one question at a time, and save each
-  answer as soon as you have it.
+- Call updateDispute for anything new they have said, then ask only for what the reply's missing
+  field lists, one question at a time, and save each answer with updateDispute as soon as you have
+  it. Keep going until complete is true.
 - For the reason, choose from reasonsAllowed using their words; never show or say the codes. Write
   narrative in their own words; do not improve it.
 - Never say you have saved something unless updateDispute replied ok=true.
 
 Step 6. Finish
 - When complete is true, sum up in one or two sentences: the payment, what happened, any card you
-  blocked or replaced, and whether they have the form. Ask if it is right. Correct anything with
-  updateDispute.
+  blocked or replaced (with references), and whether they have the form. Ask if it is right.
+  Correct anything with updateDispute.
 - Then use Escalation requested. A colleague checks it with them and submits it.
+
+When you may use Escalation requested
+- Only when one of these is true: complete is true and they agreed your summary; they ask for a
+  person; they are vulnerable; the payment cannot be found; they are not verified; or the same
+  tool has failed twice.
+- Never use it to pass on something you have a tool for, such as blocking a card or saving an
+  answer. Do it yourself.
 
 What you never do
 - Never submit, confirm or accept a dispute, and never say it has been submitted or accepted.
 - Never state or guess a refund, a timescale for the dispute or its outcome. Say: "My colleague will
   explain what happens next."
 - Never block or replace a card without the customer's yes.
-- Never give a full card number or phone number, or a reference you were not asked for.
+- Never give a full card number or phone number, and never read out a link on a phone call.
 - Never say you are transferring or connecting them unless you use Escalation requested in the
   same turn. Asking for a person is always Escalation requested.
 - If they ask about something other than this dispute, say your colleague can help with that too,
@@ -743,7 +761,7 @@ Tone
    2. Pick **`startDispute`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
+      Starts the dispute for the chosen payment. transactionId: its ID or its number from listCardsAndPayments. disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -752,7 +770,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `startDispute` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `transactionId` | **LLM prompt** | if there's a description box: The transactionId, from listCardsAndPayments, of the payment the customer chose. |
+      | `transactionId` | **LLM prompt** | if there's a description box: The transactionId of the payment the customer chose, from listCardsAndPayments. Its number (for example 3) also works. |
       | `disputeType` | **LLM prompt** | if there's a description box: unauthorised if the customer did not make or does not recognise the payment; merchant if they made it but something went wrong. |
 
    5. **Save** the tool (or close its panel), and check `startDispute` now appears in the Tools list.
@@ -807,7 +825,7 @@ Tone
    2. Pick **`blockCard`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Blocks the customer's debit or credit card straight away. cardType is debit or credit. Asking twice is safe: it gives the same reference. Only after the customer agrees.
+      Blocks the customer's debit or credit card at once (cardType). Only after the customer agrees. Safe to repeat: same reference. Always tell the customer it is blocked and its reference.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -826,7 +844,7 @@ Tone
    2. Pick **`orderReplacementCard`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Orders a replacement for a card that has been blocked. cardType is debit or credit. Only after the customer agrees.
+      Orders a replacement for a blocked card (cardType). Only after the customer agrees. Always tell the customer its reference and that it arrives in arrivesInWorkingDays working days.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -871,7 +889,7 @@ Tone
 
     | Name | Description for the agent |
     |------|---------------------------|
-    | `Escalation requested` | Use when the dispute is complete and summed up, when the customer asks for a person, when the payment cannot be found, when the customer is not verified, or at any sign of vulnerability. Always use this exit for any transfer. |
+    | `Escalation requested` | Use only when the dispute is complete and the customer agreed the summary, the customer asks for a person, the customer is vulnerable, the payment cannot be found, the customer is not verified, or a tool failed twice. Never to pass on something you can do with a tool. |
     | `Unable to help` | A Data request failed twice. |
 
     Each exit you add appears as a new exit dot on the node, next to its built-in **Timeout** and

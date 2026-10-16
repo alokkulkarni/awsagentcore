@@ -14,6 +14,7 @@ except to the one caller entitled to it.
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from datetime import datetime, timezone
 from typing import Callable
@@ -386,11 +387,14 @@ class DisputeService:
             page = max(1, int(page or 1))
         except (TypeError, ValueError):
             raise ValueError("page must be a whole number, starting at 1")
+        # A payment's number is its place in ALL the customer's payments, newest first, so it is
+        # the same on every page and in every date range, and startDispute accepts it.
+        numbers = {t["transaction_id"]: i + 1 for i, t in enumerate(model.card_transactions(customer_id))}
         chosen = [t for t in model.card_transactions(customer_id, card_type)
                   if (not from_date or t["date"] >= from_date) and (not to_date or t["date"] <= to_date)]
         pages = max(1, -(-len(chosen) // PAYMENTS_PER_PAGE))
         first = (page - 1) * PAYMENTS_PER_PAGE
-        payments = [{"number": first + i + 1, "transactionId": t["transaction_id"], "date": t["date"],
+        payments = [{"number": numbers[t["transaction_id"]], "transactionId": t["transaction_id"], "date": t["date"],
                      "merchant": t["merchant"], "amount": t["amount"], "cardType": t["card_type"],
                      "cardLastFour": t["card_last_four"],
                      "label": f"{_day_words(t['date'])}, {t['merchant']}, £{t['amount']}, "
@@ -401,9 +405,25 @@ class DisputeService:
                 "cards": cards, "payments": payments, "page": page, "totalPages": pages,
                 "totalPayments": len(chosen), "hasMore": page < pages, "message": message}
 
+    def _chosen_payment(self, customer_id: str, choice: str) -> str:
+        """
+        The transactionId for what the assistant sent: the ID itself, or the payment's
+        number from listCardsAndPayments ("3", "number 3", "#3"). Assistants often
+        send the number the customer said rather than the long ID.
+        """
+        choice = (choice or "").strip()
+        if model.find_transaction(customer_id, choice):
+            return choice
+        digits = re.fullmatch(r"(?:no\.?|number|#)?\s*(\d{1,3})", choice, re.I)
+        everything = model.card_transactions(customer_id)
+        if digits and 1 <= int(digits.group(1)) <= len(everything):
+            return everything[int(digits.group(1)) - 1]["transaction_id"]
+        return choice
+
     def assistant_start(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
         fields = model.check_fields({"disputeType": dispute_type}) if dispute_type else {}
-        return self._assistant_reply(self._create(customer_id, transaction_id, "assistant", fields))
+        chosen = self._chosen_payment(customer_id, transaction_id)
+        return self._assistant_reply(self._create(customer_id, chosen, "assistant", fields))
 
     def assistant_update(self, customer_id: str, dispute_id: str, fields: dict) -> dict:
         self._owned(customer_id, dispute_id)
