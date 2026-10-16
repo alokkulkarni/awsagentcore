@@ -98,13 +98,15 @@ class PageContacts(unittest.TestCase):
         self.assertEqual(reply["region"], api.REGION)
         self.assertNotIn("AllowedCapabilities", self.connect.calls[0][1], "audio only")
 
-    def test_a_chat_opens_with_the_customers_first_message_about_the_page(self):
+    def test_a_chat_opens_with_a_message_the_page_sends_after_arias_greeting(self):
         _, reply = self.post("/api/contact/chat", token=self.verified, view="transactions")
         request = self.connect.calls[0][1]
         self.assertEqual(request["SupportedMessagingContentTypes"], ["text/plain", "text/markdown"])
-        self.assertEqual(request["InitialMessage"], {"ContentType": "text/plain", "Content":
-                         "I'm on my Money Hub page, on the Transactions tab, and I'd like some help understanding my money."})
+        self.assertNotIn("InitialMessage", request, "not documented to reach a Lex bot; the page sends it instead")
         self.assertEqual(set(reply), {"contactId", "participantToken", "region", "verified"})
+        source = (FOLDER / "web" / "talk.js").read_text()
+        self.assertIn("I'm on my Money Hub page, on the ${tab} tab", source)
+        self.assertIn("keepalive: true", source)
 
     def test_every_contact_is_a_new_one(self):
         self.post("/api/contact/chat", token=self.verified)

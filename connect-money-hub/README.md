@@ -279,7 +279,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | You do | You should see |
 |---|---|
 | Open the page | A **Questions about your money?** box with **Chat** and **Call**, above the tabs |
-| Click **Expected**, then **Chat** | `Connecting you…`, then your first message (*"I'm on my Money Hub page, on the Expected tab…"*). Then an answer about the coming months, with no "transferring" |
+| Click **Expected**, then **Chat** | `Connecting you…`, ARIA's greeting, then a message the page sends for you (*"I'm on my Money Hub page, on the Expected tab…"*). Then an answer about the coming months, with no "transferring" |
 | Type `What's my biggest regular payment?` | A short answer with the figure |
 | Move a payment to another category in the chat, then click **End** | The chat ends. The page refreshes and shows the new category |
 | Click **Call** | Your browser asks to use the microphone: **Allow**. `Connected. Speak when you're ready.` ARIA greets you; say *"Where does my money go?"* and the answer is short, in ARIA's voice |

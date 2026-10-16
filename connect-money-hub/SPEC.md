@@ -108,7 +108,8 @@ injector already passes through to ARIA unchanged. Any other link, including the
 starts an anonymous contact and ARIA verifies the customer as usual. Otherwise a 24-hour link would become a
 Level 2 credential for a new channel without a verified contact behind it. Every page contact carries
 `entry=money_hub` and `moneyHubView` (the open tab). The bridge passes the tab to the agent, which starts from
-it. A chat opens with a first customer message naming the tab. The Chime SDK is bundled from pinned versions
+it. In a chat the page sends a first customer message naming the tab once ARIA has greeted (not
+`InitialMessage`, which isn't documented to reach a Lex bot). The Chime SDK is bundled from pinned versions
 and served by the page itself, so the content security policy names no script hosts.
 
 ## 4. Components

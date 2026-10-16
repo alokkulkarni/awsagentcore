@@ -16,7 +16,8 @@ server, never from the browser:
   - any other link (a demo link, or one from a contact without a level) starts
     an anonymous contact, and ARIA verifies the customer as it normally would.
 The page's current view goes along as moneyHubView, so the agent knows where
-the customer was looking.
+the customer was looking. In a chat, the page also opens with a customer
+message naming the tab, so ARIA knows at once what the chat is about.
 """
 
 from __future__ import annotations
@@ -47,12 +48,9 @@ def start_request(kind: str, customer_id: str, loa: str, view: str, instance_id:
                "Attributes": attributes(customer_id, loa, view)}
     if kind == "call":
         return request                  # no AllowedCapabilities: audio only, no video or screen sharing
+    # No InitialMessage: it isn't documented to reach a Lex bot, so the page sends its opening line as an
+    # ordinary customer message once ARIA has greeted (web/talk.js).
     request["SupportedMessagingContentTypes"] = ["text/plain", "text/markdown"]
-    tab = VIEWS.get(view, VIEWS["out"])
-    # The chat's first customer message, so ARIA knows at once what this chat is about.
-    request["InitialMessage"] = {"ContentType": "text/plain",
-                                 "Content": f"I'm on my Money Hub page, on the {tab} tab, and I'd like some help "
-                                            "understanding my money."}
     return request
 
 

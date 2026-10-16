@@ -7,6 +7,10 @@
 const PARTICIPANT = (region) => `https://participant.connect.${region}.amazonaws.com/participant`;
 const HEARTBEAT_MS = 10000;
 const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
+const OPENER_WAIT_MS = 4000;
+const TABS = { out: 'Money out', in: 'Money in', expected: 'Expected', transactions: 'Transactions', goals: 'Goals' };
+// Markdown emphasis shown as plain text (every message is written as text, never HTML).
+const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
 export function setupTalk({ api, currentView, onEnded }) {
   const $ = (id) => document.getElementById(id);
@@ -19,6 +23,7 @@ export function setupTalk({ api, currentView, onEnded }) {
   async function participant(region, path, bearer, body) {
     const response = await fetch(`${PARTICIPANT(region)}/${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'X-Amz-Bearer': bearer }, body: JSON.stringify(body),
+      keepalive: true,                  // so leaving the page still ends the contact
     });
     if (!response.ok) throw new Error(`We couldn't connect the conversation (${response.status}). Please try again.`);
     return response.json().catch(() => ({}));
@@ -27,7 +32,7 @@ export function setupTalk({ api, currentView, onEnded }) {
   function show(role, words) {
     const li = document.createElement('li');
     li.className = role === 'CUSTOMER' ? 'me' : role === 'SYSTEM' ? 'system' : 'them';
-    li.textContent = words;
+    li.textContent = plain(words);
     $('chat-log').append(li);
     li.scrollIntoView({ block: 'nearest' });
   }
@@ -35,7 +40,10 @@ export function setupTalk({ api, currentView, onEnded }) {
   function onChatItem(item) {
     if (!item || (item.Id && seen.has(item.Id))) return;
     if (item.Id) seen.add(item.Id);
-    if (item.Type === 'MESSAGE' && item.Content) show(item.ParticipantRole, item.Content);
+    if (item.Type === 'MESSAGE' && item.Content) {
+      show(item.ParticipantRole, item.Content);
+      if (item.ParticipantRole !== 'CUSTOMER') sendOpener();
+    }
     if (item.Type === 'EVENT' && item.ContentType === CHAT_ENDED) finish('The chat has ended.');
   }
 
@@ -50,11 +58,24 @@ export function setupTalk({ api, currentView, onEnded }) {
     $('talk-end').textContent = 'End';
   }
 
+  // The first thing the customer says: which tab they're on. Sent once ARIA has greeted (or after a short wait),
+  // as an ordinary message, so ARIA can let the Money Hub agent take over straight away.
+  function sendOpener() {
+    if (!live || live.kind !== 'chat' || live.opened || !live.connectionToken) return;
+    live.opened = true;
+    clearTimeout(live.openerTimer);
+    const tab = TABS[live.view] || TABS.out;
+    participant(live.region, 'message', live.connectionToken, { ContentType: 'text/plain', ClientToken: crypto.randomUUID(),
+      Content: `I'm on my Money Hub page, on the ${tab} tab, and I'd like some help understanding my money.` })
+      .catch((error) => status(error.message));
+  }
+
   async function startChat() {
     busy(true); open('chat'); status('Connecting you…');
     try {
-      const started = await api('/contact/chat', { view: currentView() });
-      live = { kind: 'chat', region: started.region, participantToken: started.participantToken };
+      const view = currentView();
+      const started = await api('/contact/chat', { view });
+      live = { kind: 'chat', region: started.region, participantToken: started.participantToken, view };
       const joined = await participant(started.region, 'connection', started.participantToken,
         { Type: ['WEBSOCKET', 'CONNECTION_CREDENTIALS'], ConnectParticipant: true });
       live.connectionToken = joined.ConnectionCredentials.ConnectionToken;
@@ -69,6 +90,7 @@ export function setupTalk({ api, currentView, onEnded }) {
         const transcript = await participant(live.region, 'transcript', live.connectionToken,
           { MaxResults: 100, ScanDirection: 'FORWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
         (transcript.Transcript || []).forEach(onChatItem);
+        if (live) live.openerTimer = setTimeout(sendOpener, OPENER_WAIT_MS);
       });
       socket.addEventListener('message', (event) => {
         let frame;
@@ -146,6 +168,7 @@ export function setupTalk({ api, currentView, onEnded }) {
     live = null;
     if (current) {
       clearInterval(current.heartbeat);
+      clearTimeout(current.openerTimer);
       try { current.socket && current.socket.close(); } catch { /* already closed */ }
       try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }
       (current.stream ? current.stream.getTracks() : []).forEach((track) => track.stop());
