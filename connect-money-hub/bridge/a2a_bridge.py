@@ -203,6 +203,8 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
 #     to nothing (WAIT_REPLY, default "."), rather than the answer a second time;
 #   - otherwise, on a call the first silence gets a short "Take your time." (SILENCE_REPLY), and a second in a
 #     row the gentle re-prompt; chat re-prompts at once.
+PAGE_TABS = {"out": "Money out", "in": "Money in", "expected": "Expected", "transactions": "Transactions",
+             "goals": "Goals"}
 REPROMPT_AFTER = 2
 REPROMPT = "Are you still there? Take your time; I'm here when you're ready."
 INFLIGHT_WAIT_SECONDS = 20
@@ -266,10 +268,16 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
             return reply, finish, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now,
                                    "endNs": time.time_ns(), "tools": [], "model": "none", "silence": True,
                                    "outcome": "waited"}
-        reply = _silence_reply(session)
-        return reply, None, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now, "endNs": now, "tools": [],
-                             "model": "none", "silence": True,
-                             "outcome": "reprompt" if reply == REPROMPT else "pause"}
+        if session.get("pageView") and not session.get("lastAnswer"):
+            # Handed over before the customer said anything (a contact from the Money Hub page): they came to
+            # look at a tab, so the agent starts there, as the page's chat opener does.
+            text = (f"I'm on my Money Hub page, on the {PAGE_TABS.get(session['pageView'], 'Money out')} tab, and "
+                    "I'd like some help understanding my money.")
+        else:
+            reply = _silence_reply(session)
+            return reply, None, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now, "endNs": now,
+                                 "tools": [], "model": "none", "silence": True,
+                                 "outcome": "reprompt" if reply == REPROMPT else "pause"}
     session["silences"] = 0
     started = time.time_ns()
     history, text = with_unanswered(session.get("transcript", []), text)

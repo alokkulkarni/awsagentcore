@@ -232,6 +232,15 @@ class Bridge(unittest.TestCase):
         self.assertEqual(bridge_.with_unanswered([{"role": "user", "text": "first"}], "second"), ([], "first second"),
                          "an unanswered piece is never lost")
 
+    def test_handed_over_before_the_customer_spoke_the_agent_starts_with_their_tab(self):
+        self.attributes = {**VERIFIED, "channel": "VOICE", "entry": "money_hub", "moneyHubView": "expected", "LoA": "2"}
+        self.start()
+        _, body, _ = self.post(turn(""))
+        self.assertEqual(self.calls[-1][0]["input"],
+                         "I'm on my Money Hub page, on the Expected tab, and I'd like some help understanding my money.")
+        self.post(turn("", rid="s2"))
+        self.assertEqual(len(self.calls), 1, "only the first empty turn starts the agent; later ones are pauses")
+
     def test_silence_carries_across_connects_per_turn_sessions(self):
         self.attributes = {**VERIFIED, "channel": "VOICE"}
         self.start()
