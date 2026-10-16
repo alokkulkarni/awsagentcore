@@ -1,0 +1,70 @@
+[
+  {
+    "name": "list_card_transactions",
+    "description": "Lists the customer's recent debit and credit card transactions, each with a transaction_id. Use it to find the transaction the customer wants to dispute. Do not read the whole list out",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {"type": "string", "description": "Customer ID from the session context, never one the customer says"},
+        "card_type": {"type": "string", "description": "Optional. 'debit' or 'credit' to list one card type only"}
+      },
+      "required": ["customer_id"]
+    }
+  },
+  {
+    "name": "start_card_dispute",
+    "description": "Starts a draft dispute for one card transaction. Returns dispute_id, what is still missing, and the handover details to use when escalating. Starting never submits anything",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {"type": "string", "description": "Customer ID from the session context"},
+        "transaction_id": {"type": "string", "description": "The transaction_id from list_card_transactions, unchanged"},
+        "dispute_type": {"type": "string", "description": "'unauthorised' if the customer did not make or authorise the payment. 'merchant' if they made it but there is a problem with it"}
+      },
+      "required": ["customer_id", "transaction_id", "dispute_type"]
+    }
+  },
+  {
+    "name": "update_card_dispute",
+    "description": "Fills in or corrects fields on a draft dispute. Send only the fields you have an answer for. Returns what is still missing. Cannot confirm or submit a dispute",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {"type": "string", "description": "Customer ID from the session context"},
+        "dispute_id": {"type": "string", "description": "The dispute_id returned by start_card_dispute"},
+        "dispute_type": {"type": "string", "description": "'unauthorised' or 'merchant'"},
+        "reason": {"type": "string", "description": "For unauthorised: card_lost_or_stolen, card_details_used_without_card, not_recognised. For merchant: goods_not_received, not_as_described, charged_twice, wrong_amount, cancelled_subscription, refund_not_received"},
+        "card_in_possession": {"type": "string", "description": "'yes' or 'no'. Unauthorised disputes only: does the customer still have the card"},
+        "card_blocked": {"type": "string", "description": "'yes' if the card was blocked on this contact, otherwise 'no'"},
+        "contacted_merchant": {"type": "string", "description": "'yes' or 'no'. Merchant disputes only: has the customer contacted the retailer"},
+        "narrative": {"type": "string", "description": "What happened, in the customer's own words, in one to three sentences"}
+      },
+      "required": ["customer_id", "dispute_id"]
+    }
+  },
+  {
+    "name": "get_card_dispute",
+    "description": "Reads a card dispute: its status, what has been filled in, what is still missing, whether the customer has confirmed it, any card blocked or replacement ordered on the call (card_actions) and the phone assistant's note (assistant_note). Without dispute_id, returns the customer's latest open dispute. Read only. When a handover summary begins 'Card dispute', call this before advising, and say what is still missing",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {"type": "string", "description": "Customer ID from the session or handover context"},
+        "dispute_id": {"type": "string", "description": "Optional. A reference such as DSP-AB12CD34"}
+      },
+      "required": ["customer_id"]
+    }
+  },
+  {
+    "name": "attach_dispute_screen",
+    "description": "Shows the dispute on the customer's own screen. The customer opens the card dispute page, which displays a 6-digit code, and reads that code out. Pass exactly the digits the customer says",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {"type": "string", "description": "Customer ID from the session context"},
+        "dispute_id": {"type": "string", "description": "The dispute_id returned by start_card_dispute"},
+        "code": {"type": "string", "description": "The 6 digits the customer read from their screen"}
+      },
+      "required": ["customer_id", "dispute_id", "code"]
+    }
+  }
+]

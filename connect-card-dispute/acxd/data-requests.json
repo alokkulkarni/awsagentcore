@@ -1,0 +1,223 @@
+{
+  "_about": "The seven CX designer Data requests. scripts/build_cx_guide.py writes acxd/disputes-assistant.md Part 2c and Part 3b step 7 from this file. Edit here, then run it.",
+  "inputHints": {
+    "transactionId": "The transactionId of the payment the customer chose, from listCardsAndPayments. Its number (for example 3) also works.",
+    "disputeType": "unauthorised if the customer did not make or does not recognise the payment (fraud); scam if they made it but were tricked; merchant if they made it but something went wrong.",
+    "disputeId": "The disputeId from startDispute.",
+    "reasonCode": "One of reasonsAllowed from the last dispute reply, matching what the customer said.",
+    "cardInPossession": "yes or no: does the customer still have the card?",
+    "cardBlocked": "yes or no: is the card blocked?",
+    "contactedMerchant": "yes or no: has the customer contacted the retailer?",
+    "narrative": "What happened, in the customer's own words.",
+    "cardType": "debit or credit: the card the customer chose. both only if they aren't sure. Empty on the very first call, to see their cards.",
+    "page": "Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones.",
+    "fromDate": "Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none.",
+    "toDate": "End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none.",
+    "orderReplacement": "yes if the customer also wants a new card sent, no if not."
+  },
+  "dataRequests": [
+    {
+      "name": "listCardsAndPayments",
+      "purpose": "looks up the customer's cards and one page of their recent payments",
+      "description": "Customer's cards and a page of 5 payments, newest first. With 2 cards, give cardType (debit, credit or both) or you get none: ask which card first. page 2, 3 = older. Optional fromDate/toDate.",
+      "request": {
+        "operation": "listCardsAndPayments",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "page": 1,
+        "fromDate": "2026-10-01",
+        "toDate": "2026-10-15",
+        "cardType": "debit"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "today": "2026-10-15",
+        "cards": [
+          {
+            "cardType": "debit",
+            "cardLastFour": "4821",
+            "status": "active"
+          }
+        ],
+        "payments": [
+          {
+            "number": 1,
+            "transactionId": "TXN-4821-20261011-8999",
+            "date": "2026-10-11",
+            "merchant": "AMAZON.CO.UK",
+            "amount": "89.99",
+            "cardType": "debit",
+            "cardLastFour": "4821",
+            "label": "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"
+          }
+        ],
+        "page": 1,
+        "totalPages": 2,
+        "totalPayments": 8,
+        "hasMore": true
+      }
+    },
+    {
+      "name": "startDispute",
+      "purpose": "starts the dispute for the payment the customer chose",
+      "description": "Starts the case for the chosen payment (transactionId or its number). disputeType: unauthorised (fraud: not made), scam (made, but tricked) or merchant (made, but went wrong).",
+      "request": {
+        "operation": "startDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "transactionId": "TXN-4821-20261011-8999",
+        "disputeType": "unauthorised"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "caseType": "Fraud",
+        "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "updateDispute",
+      "purpose": "saves the customer's answers on the dispute",
+      "description": "Saves the customer's answers. Send only fields you have. reasonCode: one of reasonsAllowed. cardInPossession, cardBlocked, contactedMerchant: yes or no. narrative: their own words.",
+      "request": {
+        "operation": "updateDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345",
+        "disputeType": "unauthorised",
+        "reasonCode": "card_details_used_without_card",
+        "cardInPossession": "yes",
+        "cardBlocked": "yes",
+        "contactedMerchant": "no",
+        "narrative": "I have never ordered from Amazon."
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "caseType": "Fraud",
+        "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "getDispute",
+      "purpose": "reads the dispute back, including anything the customer typed on the form",
+      "description": "The dispute as it stands, including anything the customer typed on the form themselves. Leave disputeId empty for the customer's latest open dispute.",
+      "request": {
+        "operation": "getDispute",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "disputeId": "DSP-ABCD2345",
+        "status": "draft",
+        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "disputeType": "unauthorised",
+        "caseType": "Fraud",
+        "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",
+        "reasonCode": "",
+        "reasonsAllowed": "card_lost_or_stolen, card_details_used_without_card, not_recognised",
+        "cardInPossession": "",
+        "cardBlocked": "",
+        "contactedMerchant": "",
+        "narrative": "",
+        "missing": "Reason, Customer still has the card, In the customer's words",
+        "complete": false,
+        "customerWatching": false,
+        "linkSent": false
+      }
+    },
+    {
+      "name": "blockCard",
+      "purpose": "blocks a card and, if the customer wants, orders its replacement in the same call",
+      "description": "Blocks the customer's debit or credit card at once. orderReplacement yes also orders a new card. Only after the customer agrees. Then say the confirmation from the reply, word for word.",
+      "request": {
+        "operation": "blockCard",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "cardType": "debit",
+        "orderReplacement": "yes"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "cardType": "debit",
+        "cardLastFour": "4821",
+        "reference": "BLOCK-4821-ABC234",
+        "replacementOrdered": true,
+        "replacementReference": "REPL-4821-XYZ789",
+        "arrivesInWorkingDays": "3 to 5",
+        "confirmation": "Your debit card ending 4821 is now blocked, so it can't be used again. Your reference is BLOCK-4821-ABC234. A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-XYZ789."
+      }
+    },
+    {
+      "name": "orderReplacementCard",
+      "purpose": "orders a replacement for a blocked card",
+      "description": "Orders a replacement for a card already blocked (cardType), when blockCard did not. Only after the customer agrees. Then say the confirmation from the reply, word for word.",
+      "request": {
+        "operation": "orderReplacementCard",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "cardType": "debit"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "cardType": "debit",
+        "cardLastFour": "4821",
+        "reference": "REPL-4821-ABC234",
+        "arrivesInWorkingDays": "3 to 5",
+        "confirmation": "A replacement debit card is on its way and should arrive in 3 to 5 working days. Its reference is REPL-4821-ABC234."
+      }
+    },
+    {
+      "name": "sendFormLink",
+      "purpose": "texts the form (phone) or gives a link to post (chat)",
+      "description": "Shares the dispute form, joined to this conversation, when the customer wants it. Phone: it is texted; say only sentTo. Chat: post the link from the reply exactly as given.",
+      "request": {
+        "operation": "sendFormLink",
+        "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
+        "disputeId": "DSP-ABCD2345"
+      },
+      "response": {
+        "ok": true,
+        "reason": "",
+        "message": "",
+        "sent": true,
+        "sentTo": "the mobile ending 123",
+        "link": ""
+      }
+    }
+  ]
+}

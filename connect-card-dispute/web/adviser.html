@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card dispute: adviser</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Card dispute: adviser review</h1>
+    <p>Staff only. Review with the customer, then submit.</p>
+  </header>
+  <main>
+    <section class="card" id="closed" hidden>
+      <h2>This link cannot be used</h2>
+      <p id="closed-why">Open the dispute again from the contact's screen pop.</p>
+    </section>
+
+    <section class="card" id="form" hidden>
+      <h2>Dispute <span id="reference"></span> <span class="status" id="status"></span></h2>
+      <p class="muted" id="watching"></p>
+      <table class="rows"><tbody id="rows"></tbody></table>
+    </section>
+
+    <section class="card" id="edit" hidden>
+      <h2>Complete the form</h2>
+      <label class="field" for="disputeType">What happened</label>
+      <select id="disputeType"></select>
+      <label class="field" for="reason">Reason</label>
+      <select id="reason"></select>
+      <label class="field" for="cardInPossession" id="cardInPossession-label">Customer still has the card</label>
+      <select id="cardInPossession"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+      <label class="field" for="contactedMerchant" id="contactedMerchant-label">Customer has contacted the retailer</label>
+      <select id="contactedMerchant"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+      <label class="field" for="cardBlocked">Card blocked</label>
+      <select id="cardBlocked"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+      <label class="field" for="narrative">In the customer's words</label>
+      <textarea id="narrative" maxlength="600"></textarea>
+      <p class="missing" id="missing" hidden></p>
+    </section>
+
+    <section class="card" id="submit-box" hidden>
+      <h2>Confirm and submit</h2>
+      <p id="confirm-state"></p>
+      <label class="check"><input type="checkbox" id="verbal"> <span>The customer confirmed these details to me on this contact.</span></label>
+      <div class="actions"><button id="submit" disabled>Submit dispute</button> <span class="muted" id="saved"></span></div>
+      <p class="error" id="error" role="alert"></p>
+    </section>
+
+    <section class="card" id="submitted" hidden>
+      <h2 class="done">Submitted</h2>
+      <p>Reference <strong id="submitted-reference"></strong>. Give this reference to the customer.</p>
+    </section>
+  </main>
+  <script type="module" src="/assets/adviser.js"></script>
+</body>
+</html>

@@ -1,0 +1,466 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "LoggingOff",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 200
+    },
+    "ActionMetadata": {
+      "LoggingOff": {
+        "position": {
+          "x": 200,
+          "y": 200
+        }
+      },
+      "GetBriefing": {
+        "position": {
+          "x": 320,
+          "y": 380
+        }
+      },
+      "CheckDispute": {
+        "position": {
+          "x": 440,
+          "y": 560
+        }
+      },
+      "DisputeView": {
+        "position": {
+          "x": 700,
+          "y": 560
+        }
+      },
+      "CheckTopic": {
+        "position": {
+          "x": 440,
+          "y": 200
+        }
+      },
+      "HandoffView": {
+        "position": {
+          "x": 700,
+          "y": 320
+        }
+      },
+      "MortgageApplicationView": {
+        "position": {
+          "x": 700,
+          "y": 60
+        }
+      },
+      "End": {
+        "position": {
+          "x": 960,
+          "y": 200
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "ARIA-Agent-Screen-Pop-Flow",
+    "description": "Agent screen pop: ARIA handoff summary and the assistant's arrival briefing.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "LoggingOff",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Disabled"
+      },
+      "Transitions": {
+        "NextAction": "GetBriefing"
+      }
+    },
+    {
+      "Identifier": "GetBriefing",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-agent-assist-injector",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "get_briefing"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "CheckDispute",
+        "Errors": [
+          {
+            "NextAction": "CheckTopic",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckDispute",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.External.hasDispute"
+      },
+      "Transitions": {
+        "NextAction": "CheckTopic",
+        "Conditions": [
+          {
+            "NextAction": "DisputeView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "true"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "CheckTopic",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "DisputeView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "Card dispute",
+          "AttributeBar": [
+            {
+              "Label": "Dispute reference",
+              "Value": "$.External.disputeId",
+              "Copyable": true
+            },
+            {
+              "Label": "Dispute form",
+              "Value": "Open the dispute form",
+              "LinkType": "external",
+              "Url": "$.External.disputeUrl"
+            }
+          ],
+          "Sections": [
+            {
+              "TemplateString": "**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n- $.External.dispute3\n- $.External.dispute4\n- $.External.dispute5\n- $.External.dispute6"
+            },
+            {
+              "TemplateString": "[Open the dispute form]($.External.disputeUrl)"
+            },
+            {
+              "Items": [
+                {
+                  "Label": "Customer Intent",
+                  "Value": "$.Attributes.ariaCustomerIntent"
+                },
+                {
+                  "Label": "Escalation Reason",
+                  "Value": "$.Attributes.ariaEscalationReason"
+                },
+                {
+                  "Label": "Summary",
+                  "Value": "$.Attributes.ariaSummary"
+                }
+              ]
+            },
+            {
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
+            }
+          ],
+          "Actions": [
+            "Refresh briefing"
+          ],
+          "Back": {
+            "Label": "Got it"
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "GetBriefing",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckTopic",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.topicCategory"
+      },
+      "Transitions": {
+        "NextAction": "HandoffView",
+        "Conditions": [
+          {
+            "NextAction": "MortgageApplicationView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_application"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "HandoffView",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "HandoffView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "ARIA Handoff Summary",
+          "Sections": [
+            {
+              "Items": [
+                {
+                  "Label": "Customer Intent",
+                  "Value": "$.Attributes.ariaCustomerIntent"
+                },
+                {
+                  "Label": "Escalation Reason",
+                  "Value": "$.Attributes.ariaEscalationReason"
+                },
+                {
+                  "Label": "Summary",
+                  "Value": "$.Attributes.ariaSummary"
+                }
+              ]
+            },
+            {
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
+            }
+          ],
+          "Actions": [
+            "Refresh briefing"
+          ],
+          "Back": {
+            "Label": "Got it"
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "GetBriefing",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "MortgageApplicationView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "Mortgage application",
+          "AttributeBar": [
+            {
+              "Label": "Application ID",
+              "Value": "$.Attributes.applicationId",
+              "Copyable": true
+            },
+            {
+              "Label": "Stage reached",
+              "Value": "$.Attributes.stage"
+            },
+            {
+              "Label": "Decision in Principle",
+              "Value": "$.Attributes.dipDecision"
+            },
+            {
+              "Label": "Product selected",
+              "Value": "$.Attributes.productId"
+            },
+            {
+              "Label": "Documents outstanding",
+              "Value": "$.Attributes.docsOutstanding"
+            }
+          ],
+          "Sections": [
+            {
+              "TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"
+            },
+            {
+              "TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"
+            },
+            {
+              "TemplateString": "$.Attributes.ariaSummary"
+            },
+            {
+              "TemplateString": "**Application form**\n\n- $.External.app1\n- $.External.app2\n- $.External.app3\n- $.External.app4\n- $.External.app5\n- $.External.app6"
+            },
+            {
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
+            }
+          ],
+          "Actions": [
+            "Refresh briefing"
+          ],
+          "Back": {
+            "Label": "Got it"
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "GetBriefing",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "End",
+      "Type": "EndFlowExecution",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

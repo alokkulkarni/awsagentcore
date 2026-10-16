@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card dispute</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Nationwide Building Society</h1>
+    <p>Your card dispute</p>
+  </header>
+  <main>
+    <section class="card" id="waiting">
+      <h2>Read this code to us</h2>
+      <p>While you are on the phone or in a chat with us, read out this code. Your dispute will then appear here, and you can watch it being filled in.</p>
+      <p class="code" id="code" aria-live="polite">······</p>
+      <p class="muted" id="code-note">Getting a code…</p>
+      <button class="secondary" id="new-code" hidden>Get a new code</button>
+    </section>
+
+    <section class="card" id="edit" hidden>
+      <h2>Your card dispute</h2>
+      <p class="muted" id="edit-intro">This fills in as you talk to us. You can also type in it yourself.</p>
+      <form id="dispute-form" novalidate>
+        <label class="field" for="transactionId">Which payment is this about?</label>
+        <select id="transactionId" name="transactionId"></select>
+        <label class="field" for="disputeType">Did you make this payment?</label>
+        <select id="disputeType" name="disputeType"></select>
+        <label class="field" for="reason">What went wrong?</label>
+        <select id="reason" name="reason"></select>
+        <label class="field" for="cardInPossession" id="cardInPossession-label">Do you still have the card?</label>
+        <select id="cardInPossession" name="cardInPossession"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+        <label class="field" for="contactedMerchant" id="contactedMerchant-label">Have you contacted the retailer?</label>
+        <select id="contactedMerchant" name="contactedMerchant"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+        <label class="field" for="narrative">What happened, in your own words</label>
+        <textarea id="narrative" name="narrative" maxlength="600"></textarea>
+      </form>
+      <p class="muted" id="edit-saved"></p>
+      <p class="missing" id="edit-missing" hidden></p>
+      <p class="muted" id="edit-sync"></p>
+    </section>
+
+    <section class="card" id="form" hidden>
+      <h2>Dispute <span id="reference"></span> <span class="status" id="status"></span></h2>
+      <p class="muted" id="intro">This fills in as we talk. You do not need to type anything.</p>
+      <table class="rows"><tbody id="rows"></tbody></table>
+      <p class="missing" id="missing" hidden></p>
+      <div id="confirm-box" hidden>
+        <p>Please check the details above. If they are right, confirm them and your adviser will submit the dispute.</p>
+        <div class="actions"><button id="confirm">These details are correct</button></div>
+      </div>
+      <p class="done" id="confirmed" hidden>You have confirmed these details.</p>
+      <p class="done" id="submitted" hidden></p>
+      <p class="error" id="error" role="alert"></p>
+    </section>
+  </main>
+  <script type="module" src="/assets/customer.js"></script>
+</body>
+</html>
