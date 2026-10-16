@@ -1,0 +1,604 @@
+- generic [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - heading "Money Hub" [level=1] [ref=f1e4]
+      - paragraph [ref=f1e5]: Figures up to 15 Oct
+  - main [ref=f1e6]:
+    - status [ref=f1e7]
+    - generic [ref=f1e8]:
+      - generic [ref=f1e9]:
+        - article [ref=f1e10]:
+          - heading "Balance" [level=2] [ref=f1e11]
+          - paragraph [ref=f1e12]: £2,828.80
+        - article [ref=f1e13]:
+          - heading "Money in a month, on average" [level=2] [ref=f1e14]
+          - paragraph [ref=f1e15]: £3,367.91
+        - article [ref=f1e16]:
+          - heading "Money out a month, on average" [level=2] [ref=f1e17]
+          - paragraph [ref=f1e18]: £3,158.01
+        - article [ref=f1e19]:
+          - heading "Left over a month, on average" [level=2] [ref=f1e20]
+          - paragraph [ref=f1e21]: £209.90
+      - tablist "Money Hub views" [ref=f1e22]:
+        - tab "Money out" [ref=f1e23] [cursor=pointer]
+        - tab "Money in" [ref=f1e24] [cursor=pointer]
+        - tab "Expected" [ref=f1e25] [cursor=pointer]
+        - tab "Transactions" [active] [selected] [ref=f1e26] [cursor=pointer]
+        - tab "Goals" [ref=f1e27] [cursor=pointer]
+      - tabpanel "Transactions" [ref=f1e28]:
+        - heading "Transactions" [level=2] [ref=f1e29]
+        - generic [ref=f1e30]:
+          - generic [ref=f1e31]:
+            - text: Show
+            - combobox "Show" [ref=f1e32]:
+              - option "All" [selected]
+              - option "Money out"
+              - option "Money in"
+          - generic [ref=f1e33]:
+            - text: Category
+            - combobox "Category" [ref=f1e34]:
+              - option "Any" [selected]
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+              - option "Salary"
+              - option "Other income"
+              - option "Refunds"
+              - option "Transfers in"
+          - generic [ref=f1e35]:
+            - text: Search
+            - searchbox "Search" [ref=f1e36]
+        - paragraph [ref=f1e37]: Choose a different category for any payment. Your Money Hub and the assistant use your choice.
+        - list [ref=f1e38]:
+          - listitem [ref=f1e39]:
+            - generic [ref=f1e40]:
+              - strong [ref=f1e41]: Amazon
+              - generic [ref=f1e42]: 15 Oct
+            - combobox "Category for Amazon on 15 Oct" [ref=f1e43]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping" [selected]
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e44]: −£32.45
+          - listitem [ref=f1e45]:
+            - generic [ref=f1e46]:
+              - strong [ref=f1e47]: Just Eat
+              - generic [ref=f1e48]: 15 Oct
+            - combobox "Category for Just Eat on 15 Oct" [ref=f1e49]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways" [selected]
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e50]: −£26.10
+          - listitem [ref=f1e51]:
+            - generic [ref=f1e52]:
+              - strong [ref=f1e53]: Amazon Prime
+              - generic [ref=f1e54]: 14 Oct
+            - combobox "Category for Amazon Prime on 14 Oct" [ref=f1e55]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions" [selected]
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e56]: −£8.99
+          - listitem [ref=f1e57]:
+            - generic [ref=f1e58]:
+              - strong [ref=f1e59]: Starbucks
+              - generic [ref=f1e60]: 14 Oct
+            - combobox "Category for Starbucks on 14 Oct" [ref=f1e61]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks" [selected]
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e62]: −£4.77
+          - listitem [ref=f1e63]:
+            - generic [ref=f1e64]:
+              - strong [ref=f1e65]: Aldi
+              - generic [ref=f1e66]: 13 Oct
+            - combobox "Category for Aldi on 13 Oct" [ref=f1e67]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries" [selected]
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e68]: −£91.78
+          - listitem [ref=f1e69]:
+            - generic [ref=f1e70]:
+              - strong [ref=f1e71]: Aldi
+              - generic [ref=f1e72]: 13 Oct
+            - combobox "Category for Aldi on 13 Oct" [ref=f1e73]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries" [selected]
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e74]: −£83.37
+          - listitem [ref=f1e75]:
+            - generic [ref=f1e76]:
+              - strong [ref=f1e77]: Uber Trip
+              - generic [ref=f1e78]: 13 Oct
+            - combobox "Category for Uber Trip on 13 Oct" [ref=f1e79]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport" [selected]
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e80]: −£11.97
+          - listitem [ref=f1e81]:
+            - generic [ref=f1e82]:
+              - strong [ref=f1e83]: Etsy Payout
+              - generic [ref=f1e84]: 13 Oct
+            - combobox "Category for Etsy Payout on 13 Oct" [ref=f1e85]:
+              - option "Salary"
+              - option "Other income" [selected]
+              - option "Refunds"
+              - option "Transfers in"
+            - generic [ref=f1e86]: +£61.14
+          - listitem [ref=f1e87]:
+            - generic [ref=f1e88]:
+              - strong [ref=f1e89]: United Utilities Water
+              - generic [ref=f1e90]: 12 Oct
+            - combobox "Category for United Utilities Water on 12 Oct" [ref=f1e91]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities" [selected]
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e92]: −£38.40
+          - listitem [ref=f1e93]:
+            - generic [ref=f1e94]:
+              - strong [ref=f1e95]: Just Eat
+              - generic [ref=f1e96]: 11 Oct
+            - combobox "Category for Just Eat on 11 Oct" [ref=f1e97]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways" [selected]
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e98]: −£20.34
+          - listitem [ref=f1e99]:
+            - generic [ref=f1e100]:
+              - strong [ref=f1e101]: Amazon
+              - generic [ref=f1e102]: 10 Oct
+            - combobox "Category for Amazon on 10 Oct" [ref=f1e103]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping" [selected]
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e104]: −£49.05
+          - listitem [ref=f1e105]:
+            - generic [ref=f1e106]:
+              - strong [ref=f1e107]: Ticketmaster
+              - generic [ref=f1e108]: 10 Oct
+            - combobox "Category for Ticketmaster on 10 Oct" [ref=f1e109]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment" [selected]
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e110]: −£38.44
+          - listitem [ref=f1e111]:
+            - generic [ref=f1e112]:
+              - strong [ref=f1e113]: Apple iCloud
+              - generic [ref=f1e114]: 10 Oct
+            - combobox "Category for Apple iCloud on 10 Oct" [ref=f1e115]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions" [selected]
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e116]: −£2.99
+          - listitem [ref=f1e117]:
+            - generic [ref=f1e118]:
+              - strong [ref=f1e119]: Aviva Car Insurance
+              - generic [ref=f1e120]: 9 Oct
+            - combobox "Category for Aviva Car Insurance on 9 Oct" [ref=f1e121]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance" [selected]
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e122]: −£61.20
+          - listitem [ref=f1e123]:
+            - generic [ref=f1e124]:
+              - strong [ref=f1e125]: Uber Trip
+              - generic [ref=f1e126]: 9 Oct
+            - combobox "Category for Uber Trip on 9 Oct" [ref=f1e127]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport" [selected]
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e128]: −£8.39
+          - listitem [ref=f1e129]:
+            - generic [ref=f1e130]:
+              - strong [ref=f1e131]: Netflix
+              - generic [ref=f1e132]: 8 Oct
+            - combobox "Category for Netflix on 8 Oct" [ref=f1e133]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions" [selected]
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e134]: −£10.99
+          - listitem [ref=f1e135]:
+            - generic [ref=f1e136]:
+              - strong [ref=f1e137]: Starbucks
+              - generic [ref=f1e138]: 8 Oct
+            - combobox "Category for Starbucks on 8 Oct" [ref=f1e139]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks" [selected]
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e140]: −£5.07
+          - listitem [ref=f1e141]:
+            - generic [ref=f1e142]:
+              - strong [ref=f1e143]: Starbucks
+              - generic [ref=f1e144]: 6 Oct
+            - combobox "Category for Starbucks on 6 Oct" [ref=f1e145]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks" [selected]
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e146]: −£5.09
+          - listitem [ref=f1e147]:
+            - generic [ref=f1e148]:
+              - strong [ref=f1e149]: Octopus Energy
+              - generic [ref=f1e150]: 5 Oct
+            - combobox "Category for Octopus Energy on 5 Oct" [ref=f1e151]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities" [selected]
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e152]: −£118.00
+          - listitem [ref=f1e153]:
+            - generic [ref=f1e154]:
+              - strong [ref=f1e155]: Trainline
+              - generic [ref=f1e156]: 5 Oct
+            - combobox "Category for Trainline on 5 Oct" [ref=f1e157]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport" [selected]
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e158]: −£37.81
+          - listitem [ref=f1e159]:
+            - generic [ref=f1e160]:
+              - strong [ref=f1e161]: Costa Coffee
+              - generic [ref=f1e162]: 5 Oct
+            - combobox "Category for Costa Coffee on 5 Oct" [ref=f1e163]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks" [selected]
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e164]: −£4.10
+          - listitem [ref=f1e165]:
+            - generic [ref=f1e166]:
+              - strong [ref=f1e167]: Starbucks
+              - generic [ref=f1e168]: 5 Oct
+            - combobox "Category for Starbucks on 5 Oct" [ref=f1e169]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks" [selected]
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e170]: −£4.09
+          - listitem [ref=f1e171]:
+            - generic [ref=f1e172]:
+              - strong [ref=f1e173]: Bp
+              - generic [ref=f1e174]: 4 Oct
+            - combobox "Category for Bp on 4 Oct" [ref=f1e175]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport" [selected]
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e176]: −£66.90
+          - listitem [ref=f1e177]:
+            - generic [ref=f1e178]:
+              - strong [ref=f1e179]: Manchester City Council Tax
+              - generic [ref=f1e180]: 3 Oct
+            - combobox "Category for Manchester City Council Tax on 3 Oct" [ref=f1e181]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities" [selected]
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport"
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e182]: −£168.00
+          - listitem [ref=f1e183]:
+            - generic [ref=f1e184]:
+              - strong [ref=f1e185]: Trainline
+              - generic [ref=f1e186]: 3 Oct
+            - combobox "Category for Trainline on 3 Oct" [ref=f1e187]:
+              - option "Mortgage or rent"
+              - option "Bills and utilities"
+              - option "Insurance"
+              - option "Groceries"
+              - option "Transport" [selected]
+              - option "Subscriptions"
+              - option "Eating out"
+              - option "Takeaways"
+              - option "Coffee and snacks"
+              - option "Shopping"
+              - option "Entertainment"
+              - option "Holidays and travel"
+              - option "Health and fitness"
+              - option "Gifts and charity"
+              - option "Cash withdrawals"
+              - option "Moved to savings"
+            - generic [ref=f1e188]: −£53.44
+        - button "Show older" [ref=f1e189] [cursor=pointer]
