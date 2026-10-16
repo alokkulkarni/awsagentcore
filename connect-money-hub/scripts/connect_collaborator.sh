@@ -124,15 +124,20 @@ verify_links() {
         --security-profile-id "$profile_id" --query 'AllowedAIAgents[].Arn' --output text | tr '\t' '\n' | grep -qx "$app_arn" \
         && ok "The profile allows the ${APP_NAME} application." \
         || { warn "The profile does not allow the ${APP_NAME} application."; missing=1; }
+    # Every profile ARIA has (Admin and Agent carry its banking tools) plus ours; a version must carry them all.
+    local wanted have pid
+    wanted=$( { aws connect list-entity-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" --entity-type AI_AGENT \
+        --entity-arn "$ARIA_ARN" --query 'SecurityProfiles[].Id' --output text; echo "$profile_id"; } | tr -s '[:space:]' '\n' | sort -u)
     for arn in "$ARIA_ARN" ${version:+"${ARIA_ARN}:${version}"}; do
-        if aws connect list-entity-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" --entity-type AI_AGENT \
-            --entity-arn "$arn" --query 'SecurityProfiles[].Id' --output text | tr '\t' '\n' | grep -qx "$profile_id"; then
-            ok "Linked: ${arn##*/}"
-        else
-            warn "NOT linked: ${arn##*/}. Fix:"
-            echo "    aws connect associate-security-profiles --instance-id ${INSTANCE_ID} --region ${REGION} --entity-type AI_AGENT --entity-arn ${arn} --security-profiles Id=${profile_id}"
+        have=$(aws connect list-entity-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" --entity-type AI_AGENT \
+            --entity-arn "$arn" --query 'SecurityProfiles[].Id' --output text | tr -s '[:space:]' '\n')
+        for pid in $wanted; do
+            if grep -qx "$pid" <<<"$have"; then continue; fi
+            warn "NOT linked: profile ${pid} on ${arn##*/}. Fix:"
+            echo "    aws connect associate-security-profiles --instance-id ${INSTANCE_ID} --region ${REGION} --entity-type AI_AGENT --entity-arn ${arn} --security-profiles Id=${pid}"
             missing=1
-        fi
+        done
+        [[ $missing == 1 ]] || ok "Linked: ${arn##*/} ($(wc -w <<<"$wanted" | tr -d ' ') profiles, including '${PROFILE_NAME}')"
     done
     return $missing
 }
@@ -140,7 +145,7 @@ verify_links() {
 if $CHECK; then
     header "Check ARIA's link to '${PROFILE_NAME}'${CHECK_VERSION:+ (version ${CHECK_VERSION})}"
     if verify_links "$CHECK_VERSION"; then ok "ARIA may hand over to the Money Hub agent."; exit 0; fi
-    die "ARIA can't hand over until the links above are fixed (run the commands shown, or run --apply again)."
+    die "ARIA's tools and the hand-over can fail until the links above are fixed (run the commands shown)."
 fi
 
 URL=$({ aws lambda get-function-url-config --function-name "$BRIDGE_FUNCTION" --region "$REGION" --query FunctionUrl --output text 2>/dev/null || true; } | first_value)
@@ -235,11 +240,17 @@ if $APPLY; then
     VERSION=$(aws qconnect create-ai-agent-version --assistant-id "$ASSISTANT_ID" --ai-agent-id "$ARIA_ID" --region "$REGION" \
         --query versionNumber --output text)
     if ! $REMOVE; then
-        aws connect associate-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" \
-            --entity-arn "${ARIA_ARN}:${VERSION}" --entity-type AI_AGENT --security-profiles "Id=${PROFILE_ID}" >/dev/null
+        # A version published through the API gets no profiles of its own: copy all of ARIA's (Admin and Agent
+        # carry its banking tools; without them every tool call fails and the flow hangs up), plus ours.
+        for pid in $( { aws connect list-entity-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" \
+                --entity-type AI_AGENT --entity-arn "$ARIA_ARN" --query 'SecurityProfiles[].Id' --output text; \
+                echo "$PROFILE_ID"; } | tr -s '[:space:]' '\n' | sort -u); do
+            aws connect associate-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" \
+                --entity-arn "${ARIA_ARN}:${VERSION}" --entity-type AI_AGENT --security-profiles "Id=${pid}" >/dev/null
+        done
     fi
     ok "Published ARIA version ${VERSION}."
-    $REMOVE || verify_links "$VERSION" || die "ARIA was published but isn't linked to the profile; run the commands above."
+    $REMOVE || verify_links "$VERSION" || die "ARIA was published but is missing profiles; run the commands above."
 else
     echo "  [would run] qconnect create-ai-agent-version, then associate the profile with the versioned ARN"
     VERSION="(new version)"
