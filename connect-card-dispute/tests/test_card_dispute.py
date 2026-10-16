@@ -1083,6 +1083,7 @@ class CxDesignerConfiguration(unittest.TestCase):
                          "run scripts/build_cx_guide.py after editing acxd/data-requests.json")
         for d in data["dataRequests"]:
             self.assertEqual(set(d["response"]), set(dispute_web.ACXD_OPERATIONS[d["name"]]), d["name"])
+            self.assertLessEqual(len(d["description"]), 200, f"{d['name']}: the CX designer allows 200 characters")
             for field in d["request"]:
                 if field not in ("operation", "contactId"):
                     self.assertIn(field, data["inputHints"], f"{d['name']}.{field} needs a hint")

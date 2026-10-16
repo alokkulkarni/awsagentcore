@@ -18,7 +18,7 @@
     {
       "name": "listCardsAndPayments",
       "purpose": "looks up the customer's cards and one page of their recent payments",
-      "description": "The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.",
+      "description": "Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.",
       "request": {
         "operation": "listCardsAndPayments",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -60,7 +60,7 @@
     {
       "name": "startDispute",
       "purpose": "starts the dispute for the payment the customer chose",
-      "description": "Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).",
+      "description": "Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).",
       "request": {
         "operation": "startDispute",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -90,7 +90,7 @@
     {
       "name": "updateDispute",
       "purpose": "saves the customer's answers on the dispute",
-      "description": "Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.",
+      "description": "Saves the customer's answers. Send only fields you have. reasonCode: one of reasonsAllowed. cardInPossession, cardBlocked, contactedMerchant: yes or no. narrative: their own words.",
       "request": {
         "operation": "updateDispute",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
@@ -191,7 +191,7 @@
     {
       "name": "sendFormLink",
       "purpose": "texts the form (phone) or gives a link to post (chat)",
-      "description": "Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.",
+      "description": "Shares the dispute form, joined to this conversation, when the customer wants it. Phone: it is texted; say only sentTo. Chat: post the link from the reply exactly as given.",
       "request": {
         "operation": "sendFormLink",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",

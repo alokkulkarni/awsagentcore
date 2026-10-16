@@ -168,7 +168,7 @@ Data request 1 of 7. This one looks up the customer's cards and one page of thei
 2. **Name**: `listCardsAndPayments`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.
+   Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -212,7 +212,7 @@ Data request 2 of 7. This one starts the dispute for the payment the customer ch
 2. **Name**: `startDispute`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).
+   Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -253,7 +253,7 @@ Data request 3 of 7. This one saves the customer's answers on the dispute.
 2. **Name**: `updateDispute`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.
+   Saves the customer's answers. Send only fields you have. reasonCode: one of reasonsAllowed. cardInPossession, cardBlocked, contactedMerchant: yes or no. narrative: their own words.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -419,7 +419,7 @@ Data request 7 of 7. This one texts the form (phone) or gives a link to post (ch
 2. **Name**: `sendFormLink`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.
+   Shares the dispute form, joined to this conversation, when the customer wants it. Phone: it is texted; say only sentTo. Chat: post the link from the reply exactly as given.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -721,7 +721,7 @@ Tone
    2. Pick **`listCardsAndPayments`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      The customer's cards (with whether each is blocked) and one page of five of their card payments, newest first, each numbered. page 1 is the newest five; ask for page 2, 3 and so on for older ones. To show a period instead, give fromDate and toDate as YYYY-MM-DD, using today from the reply. cardType debit or credit narrows it to one card. Call it before asking which payment, and show the customer the list.
+      Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -743,7 +743,7 @@ Tone
    2. Pick **`startDispute`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Starts the dispute for one payment, or returns the one already started for it. transactionId must come from listCardsAndPayments. disputeType is unauthorised (the customer did not make the payment or does not recognise it) or merchant (they made it, but something went wrong).
+      Starts the dispute for the payment the customer chose (transactionId from listCardsAndPayments). disputeType: unauthorised (not made or not recognised) or merchant (made, but went wrong).
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -763,7 +763,7 @@ Tone
    2. Pick **`updateDispute`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Saves the customer's answers on the dispute. Send only the fields you have answers for. reasonCode must be one of reasonsAllowed. cardInPossession, cardBlocked and contactedMerchant are yes or no. narrative is what happened, in the customer's own words. The reply's missing field says what is still needed.
+      Saves the customer's answers. Send only fields you have. reasonCode: one of reasonsAllowed. cardInPossession, cardBlocked, contactedMerchant: yes or no. narrative: their own words.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -845,7 +845,7 @@ Tone
    2. Pick **`sendFormLink`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Shares this dispute's form with the customer, joined to this conversation, only when they want to see it. On a phone call it is texted to the mobile they are calling from: say only sentTo, never a number, and link is empty. On chat it comes back in link: post it in your message exactly as given.
+      Shares the dispute form, joined to this conversation, when the customer wants it. Phone: it is texted; say only sentTo. Chat: post the link from the reply exactly as given.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
