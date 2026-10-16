@@ -308,6 +308,88 @@ class NeverBlocksTheCustomer(Harness):
         self.assertTrue(all(isinstance(v, str) and "\n" not in v for v in lines.values()))
         self.assertEqual((self.injected, self.messages, self.session_updates), ({}, [], []), "read-only")
 
+    def test_screen_pop_includes_an_open_card_dispute_when_that_service_is_deployed(self):
+        asked = []
+        real = assist._invoke_dispute_lambda, assist.DISPUTE_FUNCTION_NAME
+        try:
+            # Not deployed: nothing is asked and the answer is "no dispute".
+            assist.DISPUTE_FUNCTION_NAME = ""
+            assist._invoke_dispute_lambda = lambda payload: asked.append(payload)
+            self.assertEqual(self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})["hasDispute"],
+                             "false")
+            self.assertEqual(asked, [])
+            # Deployed, with an open dispute.
+            assist.DISPUTE_FUNCTION_NAME = "aria-card-dispute"
+            assist._invoke_dispute_lambda = lambda payload: asked.append(payload) or {
+                "hasDispute": "true", "disputeId": "DSP-AB12CD34", "disputeUrl": "https://p/adviser#t",
+                "dispute1": "one", "dispute2": "two", "dispute3": "three", "dispute4": "four", "dispute6": "six",
+                "extra": "ignored"}
+            lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+            self.assertEqual(asked, [{"operation": "screen_pop", "customerId": JAMES}])
+            self.assertEqual((lines["hasDispute"], lines["disputeId"], lines["dispute4"]), ("true", "DSP-AB12CD34", "four"))
+            self.assertEqual((lines["dispute5"], lines["dispute6"]), ("—", "six"), "a line not sent shows a dash")
+            self.assertNotIn("extra", lines)
+            # Deployed, but it fails: the screen pop still opens, without a dispute.
+            def boom(payload):
+                raise RuntimeError("AccessDenied")
+            assist._invoke_dispute_lambda = boom
+            lines = self.invoke({"customerId": JAMES}, parameters={"operation": "get_briefing"})
+            self.assertEqual((lines["hasDispute"], lines["dispute1"]), ("false", "—"))
+        finally:
+            assist._invoke_dispute_lambda, assist.DISPUTE_FUNCTION_NAME = real
+
+    def test_screen_pop_shows_the_saved_mortgage_application_a_contact_carries(self):
+        saved = {"found": True, "applicationId": "MA-ABC12345", "stage": "documents", "submitted": False,
+                 "reference": None, "updatedAt": "2026-10-13T12:00:00.000Z", "documents": ["payslips"],
+                 "answers": {"fullName": "Priya Shah", "dateOfBirth": "1990-03-14", "employmentStatus": "employed",
+                             "annualIncome": "62000", "propertyValue": "300000", "deposit": "60000",
+                             "termYears": "25", "buyerType": "first_time", "dipDecision": "Accept"}}
+        asked = []
+        real = assist._invoke_lambda, assist.LIVESYNC_FUNCTION_NAME
+        try:
+            assist.LIVESYNC_FUNCTION_NAME = "mortgage-livesync-api"
+            assist._invoke_lambda = lambda name, payload: asked.append((name, payload)) or {
+                "statusCode": 200, "body": json.dumps(saved)}
+            lines = self.invoke({"customerId": JAMES, "applicationId": "MA-ABC12345"},
+                                parameters={"operation": "get_briefing"})
+            self.assertEqual(asked, [("mortgage-livesync-api",
+                                      {"operation": "getApplication", "payload": {"applicationId": "MA-ABC12345"}})])
+            self.assertEqual(lines["hasApplication"], "true")
+            self.assertTrue(lines["app1"].startswith(
+                "**MA-ABC12345** · **Not submitted** · reached **Documents** · last changed 2026-10-13 · "))
+            # The contact's application ID picks the form, and on the web it comes from the browser.
+            self.assertIn("not by a verified customer", lines["app1"])
+            self.assertEqual(lines["app2"], "**About you:** **Priya Shah**, date of birth **given**, **employed**, income **£62,000**")
+            self.assertNotIn("1990-03-14", json.dumps(lines), "an adviser verifies by asking for it")
+            self.assertEqual(lines["app3"], "**Property and loan:** property **£300,000**, deposit **£60,000**, "
+                                            "term **25 years**, **first-time buyer**")
+            self.assertEqual(lines["app5"], "**Documents:** **payslips**")
+            self.assertEqual(lines["app6"], "**Still to fill in:** monthly commitments, product, bank statement, photo ID.")
+            self.assertTrue(all("\n" not in value for value in lines.values()))
+
+            # Not saved yet, an ID that is not an application ID, and a failure: the screen pop still opens.
+            assist._invoke_lambda = lambda name, payload: {"statusCode": 200, "body": '{"found": false}'}
+            unsaved = self.invoke({"applicationId": "MA-ABC12345"}, parameters={"operation": "get_briefing"})
+            self.assertEqual(unsaved["hasApplication"], "false")
+            self.assertIn("has not been saved yet", unsaved["app1"])
+            asked.clear()
+            assist._invoke_lambda = lambda name, payload: asked.append(payload)
+            self.assertEqual(self.invoke({"applicationId": "../../etc"}, parameters={"operation": "get_briefing"})["app1"], "—")
+            self.assertEqual(asked, [], "only a well-formed application ID is ever sent")
+
+            def boom(name, payload):
+                raise RuntimeError("AccessDenied")
+            assist._invoke_lambda = boom
+            self.assertEqual(self.invoke({"applicationId": "MA-ABC12345"},
+                                         parameters={"operation": "get_briefing"})["hasApplication"], "false")
+        finally:
+            assist._invoke_lambda, assist.LIVESYNC_FUNCTION_NAME = real
+
+    def test_screen_pop_flow_does_not_log_what_it_shows(self):
+        pop = json.loads((FOLDER / "flows" / "aria-agent-screen-pop-flow.json").read_text())
+        first = next(a for a in pop["Actions"] if a["Identifier"] == pop["StartAction"])
+        self.assertEqual((first["Type"], first["Parameters"]), ("UpdateFlowLoggingBehavior", {"FlowLoggingBehavior": "Disabled"}))
+
     def test_progress_notes_are_not_mistaken_for_the_briefing(self):
         # Seen live: two plain progress notes arrived first and one was shown as the briefing.
         self.asked("Getting James&#39;s mortgage details together now. ", "Here&#39;s your brief. ")
@@ -434,10 +516,20 @@ class FlowAndPromptAgreeWithTheLambda(unittest.TestCase):
             returned = set(assist.get_briefing("s/x", {}, "voice")) - {"ready"}
         finally:
             assist._briefing_answer = real
-        for name in ("HandoffView", "MortgageApplicationView"):
-            templates = " ".join(section.get("TemplateString", "")
-                                 for section in blocks[name]["Parameters"]["ViewData"]["Sections"])
-            self.assertEqual(set(re.findall(r"\$\.External\.([A-Za-z0-9]+)", templates)), returned)
+        dispute_keys = set(assist.card_dispute_lines(""))
+        application_keys = set(assist.mortgage_application_lines(""))
+        briefing_keys = returned - dispute_keys - application_keys
+        for name, expected in (("HandoffView", briefing_keys),
+                               ("MortgageApplicationView", briefing_keys | application_keys - {"hasApplication"}),
+                               ("DisputeView", briefing_keys | dispute_keys - {"hasDispute"})):
+            used = set(re.findall(r"\$\.External\.([A-Za-z0-9]+)", json.dumps(blocks[name]["Parameters"]["ViewData"])))
+            self.assertEqual(used, expected, name)
+        # The dispute view is chosen only when the Lambda says there is an open dispute.
+        choice = blocks["CheckDispute"]
+        self.assertEqual(choice["Parameters"]["ComparisonValue"], "$.External.hasDispute")
+        self.assertEqual((choice["Transitions"]["Conditions"][0]["Condition"]["Operands"],
+                          choice["Transitions"]["Conditions"][0]["NextAction"], choice["Transitions"]["NextAction"]),
+                         (["true"], "DisputeView", "CheckTopic"))
         # The button refreshes; the Back link ends the flow. No block has to read which button it was.
         for name in ("HandoffView", "MortgageApplicationView"):
             data, branches = blocks[name]["Parameters"]["ViewData"], blocks[name]["Transitions"]["Conditions"]

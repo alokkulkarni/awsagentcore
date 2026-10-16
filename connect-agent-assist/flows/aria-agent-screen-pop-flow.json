@@ -1,13 +1,13 @@
 {
   "Version": "2019-10-30",
-  "StartAction": "EnableLogging",
+  "StartAction": "LoggingOff",
   "Metadata": {
     "entryPointPosition": {
       "x": 40,
       "y": 200
     },
     "ActionMetadata": {
-      "EnableLogging": {
+      "LoggingOff": {
         "position": {
           "x": 200,
           "y": 200
@@ -17,6 +17,18 @@
         "position": {
           "x": 320,
           "y": 380
+        }
+      },
+      "CheckDispute": {
+        "position": {
+          "x": 440,
+          "y": 560
+        }
+      },
+      "DisputeView": {
+        "position": {
+          "x": 700,
+          "y": 560
         }
       },
       "CheckTopic": {
@@ -52,10 +64,10 @@
   },
   "Actions": [
     {
-      "Identifier": "EnableLogging",
+      "Identifier": "LoggingOff",
       "Type": "UpdateFlowLoggingBehavior",
       "Parameters": {
-        "FlowLoggingBehavior": "Enabled"
+        "FlowLoggingBehavior": "Disabled"
       },
       "Transitions": {
         "NextAction": "GetBriefing"
@@ -76,11 +88,146 @@
         }
       },
       "Transitions": {
-        "NextAction": "CheckTopic",
+        "NextAction": "CheckDispute",
         "Errors": [
           {
             "NextAction": "CheckTopic",
             "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckDispute",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.External.hasDispute"
+      },
+      "Transitions": {
+        "NextAction": "CheckTopic",
+        "Conditions": [
+          {
+            "NextAction": "DisputeView",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "true"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "CheckTopic",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "DisputeView",
+      "Type": "ShowView",
+      "Parameters": {
+        "ViewResource": {
+          "Id": "arn:aws:connect:eu-west-2:aws:view/detail:1"
+        },
+        "InvocationTimeLimitSeconds": "600",
+        "ViewData": {
+          "Heading": "Card dispute",
+          "AttributeBar": [
+            {
+              "Label": "Dispute reference",
+              "Value": "$.External.disputeId",
+              "Copyable": true
+            },
+            {
+              "Label": "Dispute form",
+              "Value": "Open the dispute form",
+              "LinkType": "external",
+              "Url": "$.External.disputeUrl"
+            }
+          ],
+          "Sections": [
+            {
+              "TemplateString": "**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n- $.External.dispute3\n- $.External.dispute4\n- $.External.dispute5\n- $.External.dispute6"
+            },
+            {
+              "TemplateString": "[Open the dispute form]($.External.disputeUrl)"
+            },
+            {
+              "Items": [
+                {
+                  "Label": "Customer Intent",
+                  "Value": "$.Attributes.ariaCustomerIntent"
+                },
+                {
+                  "Label": "Escalation Reason",
+                  "Value": "$.Attributes.ariaEscalationReason"
+                },
+                {
+                  "Label": "Summary",
+                  "Value": "$.Attributes.ariaSummary"
+                }
+              ]
+            },
+            {
+              "TemplateString": "**Do first**\n\n$.External.first"
+            },
+            {
+              "TemplateString": "**Verification**\n\n$.External.verification"
+            },
+            {
+              "TemplateString": "**Likely reasons**\n\n- $.External.reason1\n- $.External.reason2"
+            },
+            {
+              "TemplateString": "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3"
+            },
+            {
+              "TemplateString": "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2"
+            }
+          ],
+          "Actions": [
+            "Refresh briefing"
+          ],
+          "Back": {
+            "Label": "Got it"
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "End",
+        "Conditions": [
+          {
+            "NextAction": "GetBriefing",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ActionSelected"
+              ]
+            }
+          },
+          {
+            "NextAction": "End",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Back"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "End",
+            "ErrorType": "TimeLimitExceeded"
           }
         ]
       }
@@ -243,6 +390,9 @@
             },
             {
               "TemplateString": "$.Attributes.ariaSummary"
+            },
+            {
+              "TemplateString": "**Application form**\n\n- $.External.app1\n- $.External.app2\n- $.External.app3\n- $.External.app4\n- $.External.app5\n- $.External.app6"
             },
             {
               "TemplateString": "**Do first**\n\n$.External.first"

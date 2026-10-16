@@ -460,7 +460,7 @@ The usual handoff summary with the five lines under it, and two controls:
 | Where to look | What you should see |
 |---|---|
 | Log group `/aws/lambda/aria-agent-assist-injector` | `"briefing": "requested"` on the contact's line, then `"status": "briefing_read"` each time the screen pop opens or refreshes, with `"ready": "true"` once the assistant has answered |
-| Log group `/aws/connect/conversationalbot` | The screen-pop flow's blocks |
+| Log group `/aws/connect/conversationalbot` | Nothing for the screen pop. Its logging is off on purpose: a flow's log records the whole view it shows, including personal data |
 
 > **Why one button and one link.** A view reports a pressed button only as "a button was pressed".
 > Telling two buttons apart needs a deeper path that the designer's **Check contact attributes**

@@ -1,0 +1,314 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "RecordChannel",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 20,
+      "y": 100
+    },
+    "ActionMetadata": {
+      "RecordChannel": {
+        "position": {
+          "x": 160,
+          "y": 100
+        },
+        "parameters": {
+          "Attributes": {
+            "disputeChannel": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "disputeChannel"
+        ]
+      },
+      "CardDisputeAssistant": {
+        "position": {
+          "x": 420,
+          "y": 100
+        },
+        "parameters": {
+          "AgentConfiguration": {
+            "ContextVariables": {
+              "entry": {
+                "displayName": "entry",
+                "useDynamic": true
+              },
+              "contactId": {
+                "displayName": "contactId",
+                "useDynamic": true
+              },
+              "firstName": {
+                "displayName": "firstName",
+                "useDynamic": true
+              },
+              "handoverSummary": {
+                "displayName": "handoverSummary",
+                "useDynamic": true
+              },
+              "channel": {
+                "displayName": "channel",
+                "useDynamic": true
+              }
+            }
+          },
+          "IdleChatTimeoutSeconds": {
+            "unit": 60
+          }
+        }
+      },
+      "BuildHandover": {
+        "position": {
+          "x": 700,
+          "y": 100
+        },
+        "parameters": {
+          "LambdaFunctionARN": {
+            "displayName": "aria-card-dispute"
+          },
+          "LambdaInvocationAttributes": {
+            "assistantSummary": {
+              "useDynamic": true
+            },
+            "assistantReason": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicMetadata": {
+          "operation": false,
+          "assistantSummary": true,
+          "assistantReason": true
+        }
+      },
+      "SetHandover": {
+        "position": {
+          "x": 980,
+          "y": 20
+        },
+        "parameters": {
+          "Attributes": {
+            "topicCategory": {
+              "useDynamic": true
+            },
+            "customerIntent": {
+              "useDynamic": true
+            },
+            "escalationReason": {
+              "useDynamic": true
+            },
+            "conversationSummary": {
+              "useDynamic": true
+            },
+            "disputeId": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "topicCategory",
+          "customerIntent",
+          "escalationReason",
+          "conversationSummary",
+          "disputeId"
+        ]
+      },
+      "HandoverUnavailable": {
+        "position": {
+          "x": 980,
+          "y": 240
+        },
+        "dynamicParams": []
+      },
+      "ToHumanHandover": {
+        "position": {
+          "x": 1260,
+          "y": 100
+        }
+      },
+      "Disconnect": {
+        "position": {
+          "x": 1540,
+          "y": 100
+        }
+      }
+    },
+    "Annotations": [],
+    "name": "Card dispute assistant",
+    "description": "ARIA hands a card dispute to the CX designer disputes assistant, which does it end to end; then the call goes to an adviser through ARIA human handover.",
+    "type": "contactFlow",
+    "status": "saved"
+  },
+  "Actions": [
+    {
+      "Identifier": "RecordChannel",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "disputeChannel": "$.Channel"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "CardDisputeAssistant",
+        "Errors": [
+          {
+            "NextAction": "CardDisputeAssistant",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CardDisputeAssistant",
+      "Type": "ConnectParticipantWithAgenticCX",
+      "Parameters": {
+        "AgentConfiguration": {
+          "WorkspaceId": "55c49fa0-22f3-4dd3-823d-e353f4aee139",
+          "ContextVariables": {
+            "entry": "$.Attributes.entry",
+            "contactId": "$.ContactId",
+            "firstName": "$.Attributes.preferredName",
+            "handoverSummary": "$.Attributes.handoverSummary",
+            "channel": "$.Channel"
+          },
+          "ApplicationId": "CHOOSE-IN-THE-BLOCK",
+          "Alias": "CHOOSE-IN-THE-BLOCK"
+        },
+        "SpeechRecognitionConfiguration": {
+          "SpeechRecognitionEngine": "AMAZON_AGENTIC_VOICE"
+        },
+        "AudioFillerConfiguration": {
+          "Enabled": true,
+          "AudioType": "TYPING_QUIET_QWERTY",
+          "StartDelayInMilliseconds": 2500,
+          "MinimumPlayDurationInMilliseconds": 3000,
+          "ResponseDeliveryDelayInMilliseconds": 500
+        },
+        "IdleChatTimeoutSeconds": 600
+      },
+      "Transitions": {
+        "NextAction": "BuildHandover",
+        "Conditions": [
+          {
+            "NextAction": "BuildHandover",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Escalation"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "BuildHandover",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "BuildHandover",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "InputTimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "BuildHandover",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-card-dispute",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "LambdaInvocationAttributes": {
+          "operation": "handover",
+          "assistantSummary": "$.AgenticCX.ContextVariables.summary",
+          "assistantReason": "$.AgenticCX.ContextVariables.escalationReason"
+        },
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "SetHandover",
+        "Errors": [
+          {
+            "NextAction": "HandoverUnavailable",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetHandover",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "$.External.topicCategory",
+          "customerIntent": "$.External.customerIntent",
+          "escalationReason": "$.External.escalationReason",
+          "conversationSummary": "$.External.conversationSummary",
+          "disputeId": "$.External.disputeId"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToHumanHandover",
+        "Errors": [
+          {
+            "NextAction": "HandoverUnavailable",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "HandoverUnavailable",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "fraud_security",
+          "customerIntent": "Dispute a card transaction",
+          "escalationReason": "tool_failure",
+          "conversationSummary": "Card dispute: the hand-over summary could not be built. The details the assistant saved are on the dispute form; open it from this screen pop."
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToHumanHandover",
+        "Errors": [
+          {
+            "NextAction": "ToHumanHandover",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ToHumanHandover",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

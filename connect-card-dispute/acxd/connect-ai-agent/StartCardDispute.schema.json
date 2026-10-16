@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "handoverSummary": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Everything the customer has already said about the payment they want to dispute, in one sentence: the retailer, roughly how much, when, which card, whether they made the payment, whether they still have the card. No card numbers. 'Wants to dispute a card payment.' if they have said nothing yet."
+    }
+  },
+  "required": ["handoverSummary"]
+}

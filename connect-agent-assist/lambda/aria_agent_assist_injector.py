@@ -114,6 +114,12 @@ Required:
     ASSISTANT_ID       Q Connect assistant ID
 Optional:
     BRIEFING_ENABLED     "false" switches the arrival briefing off
+    DISPUTE_FUNCTION_NAME  The card dispute Lambda, if deployed. The screen pop
+                         then shows a customer's open dispute and a link to it
+    LIVESYNC_FUNCTION_NAME Live Sync's main Lambda, if it can save applications.
+                         The screen pop then shows the mortgage form the
+                         customer has filled in, for a contact that carries
+                         its applicationId
     BRIEFING_AI_AGENT_ARN  The fast briefing AI agent's version ARN, used only
                          when the flow does not pass "briefingAgentArn"
     CLI_MATCH_LOA        The level ARIA's injector gives a caller recognised by
@@ -130,6 +136,8 @@ IAM PERMISSIONS REQUIRED
     wisdom:UpdateSession         on the assistant and its sessions
     wisdom:SendMessage           on the assistant and its sessions
     wisdom:ListMessages          on the assistant and its sessions
+    lambda:InvokeFunction        on the card dispute Lambda and on Live Sync's
+                                 main Lambda, when they are deployed
     wisdom:UpdateSessionData     on the assistant and its sessions
     qconnect:UpdateSessionData   (same resources; the newer action name)
 """
@@ -161,6 +169,30 @@ BRIEFING_FIELD_MAX_CHARS = 400
 # How many bullet lines the screen pop's view has for each list.
 BRIEFING_SLOTS = {"reason": 2, "product": 3, "guidance": 2}
 BRIEFING_EMPTY_SLOT = "—"
+# The card dispute Lambda (connect-card-dispute), asked whether the customer has
+# an open dispute. Unset = that feature is not deployed; the screen pop says no.
+DISPUTE_FUNCTION_NAME: str = os.environ.get("DISPUTE_FUNCTION_NAME", "")
+DISPUTE_LINES = 6        # dispute1..6 in the screen pop: reference, payment, form, screen, cards, note
+# Live Sync's main Lambda (connect-livesync-mortgage), asked for a saved mortgage
+# application. Unset = not available; the screen pop shows a dash.
+LIVESYNC_FUNCTION_NAME: str = os.environ.get("LIVESYNC_FUNCTION_NAME", "")
+APPLICATION_LINES = 6
+# The form is found by the application ID the contact carried, which on the web
+# journey comes from the customer's browser. Nothing ties it to a verified customer.
+APPLICATION_CAUTION = ("**Found by application ID, not by a verified customer:** confirm identity before "
+                       "reading any of it back.")
+_APPLICATION_ID = re.compile(r"MA-[A-Z0-9]{6,12}")
+_APPLICATION_STAGES = {"about_you": "About you", "property_loan": "Property and loan",
+                       "dip_result": "Decision in Principle", "product_selection": "Choosing a product",
+                       "documents": "Documents", "review_submit": "Review and submit"}
+_APPLICATION_FIELD_LABELS = {
+    "fullName": "full name", "dateOfBirth": "date of birth", "employmentStatus": "employment",
+    "annualIncome": "income", "commitmentsMonthly": "monthly commitments", "propertyValue": "property value",
+    "deposit": "deposit", "termYears": "term", "buyerType": "buyer type",
+    "dipDecision": "Decision in Principle", "productId": "product"}
+_APPLICATION_DOCUMENTS = {"payslips": "payslips", "bank_statement": "bank statement", "photo_id": "photo ID"}
+_EMPLOYMENT = {"employed": "employed", "self_employed": "self-employed", "other": "other employment"}
+_BUYER = {"first_time": "first-time buyer", "home_mover": "home mover", "remortgage": "remortgage"}
 BRIEFING_PENDING_TEXT = "*Still being prepared. Press Refresh briefing in a few seconds.*"
 BRIEFING_FAILED_TEXT = "*Not available. Ask in the Connect assistant panel.*"
 ARRIVAL_BRIEFING_REQUEST = (
@@ -493,13 +525,121 @@ def get_briefing(session_arn: str, attrs: dict, channel: str) -> dict[str, str]:
         **_slots("product", found.get("product", []), BRIEFING_SLOTS["product"], BRIEFING_PENDING_TEXT),
         **_slots("guidance", found.get("guidance", []), BRIEFING_SLOTS["guidance"], BRIEFING_PENDING_TEXT),
         "ready": "true" if found else "false",
+        **card_dispute_lines(customer_id),
+        **mortgage_application_lines(str(attrs.get("applicationId") or "")),
     }
+    return lines
+
+
+def card_dispute_lines(customer_id: str) -> dict[str, str]:
+    """
+    Whether this customer has an open card dispute, and if so the lines and the
+    adviser link for the screen pop. Asks the card dispute Lambda
+    (connect-card-dispute). Always returns the same keys, as text, and never
+    raises: a screen pop must open whatever happens here.
+    """
+    lines = {"hasDispute": "false", "disputeId": BRIEFING_EMPTY_SLOT, "disputeUrl": BRIEFING_EMPTY_SLOT,
+             **{f"dispute{number}": BRIEFING_EMPTY_SLOT for number in range(1, DISPUTE_LINES + 1)}}
+    if not (DISPUTE_FUNCTION_NAME and customer_id):
+        return lines
+    try:
+        answer = _invoke_dispute_lambda({"operation": "screen_pop", "customerId": customer_id})
+    except Exception:
+        logger.exception("Could not ask %s about a card dispute. Check the lambda:InvokeFunction "
+                         "permission on this Lambda's role.", DISPUTE_FUNCTION_NAME)
+        return lines
+    if isinstance(answer, dict) and answer.get("hasDispute") == "true":
+        lines.update({key: str(answer[key]) for key in lines if answer.get(key)})
+    return lines
+
+
+def _invoke_lambda(function_name: str, payload: dict) -> Any:
+    import boto3
+    response = boto3.client("lambda", region_name=injector.AWS_REGION).invoke(
+        FunctionName=function_name, InvocationType="RequestResponse", Payload=json.dumps(payload).encode())
+    return json.loads(response["Payload"].read() or b"{}")
+
+
+def _invoke_dispute_lambda(payload: dict) -> Any:
+    return _invoke_lambda(DISPUTE_FUNCTION_NAME, payload)
+
+
+def _money(value: str) -> str:
+    digits = value.replace(",", "").replace("£", "").strip()
+    return f"£{int(float(digits)):,}" if re.fullmatch(r"\d+(\.\d+)?", digits) else value
+
+
+def describe_application(application: dict) -> list[str]:
+    """
+    A saved mortgage application as the lines the screen pop shows: status, each
+    stage's answers, the documents, and what is still to fill in. One line each.
+    """
+    answers, uploaded = application.get("answers") or {}, application.get("documents") or []
+
+    def said(name: str, words: dict | None = None, money: bool = False) -> str:
+        value = str(answers.get(name) or "").strip()
+        if not value:
+            return ""
+        return (words or {}).get(value, value) if not money else _money(value)
+
+    def line(heading: str, parts: list[tuple[str, str]]) -> str:
+        filled = [f"{label} **{value}**" if label else f"**{value}**" for label, value in parts if value]
+        return f"**{heading}:** " + (", ".join(filled) if filled else "nothing filled in yet")
+
+    state = (f"**Submitted**, reference {application.get('reference')}" if application.get("submitted")
+             else "**Not submitted**")
+    stage = _APPLICATION_STAGES.get(application.get("stage", ""), application.get("stage", ""))
+    missing = [label for name, label in _APPLICATION_FIELD_LABELS.items() if not str(answers.get(name) or "").strip()]
+    missing += [words for doc, words in _APPLICATION_DOCUMENTS.items() if doc not in uploaded]
+    return [
+        f"**{application.get('applicationId', '')}** · {state} · reached **{stage}** · "
+        f"last changed {str(application.get('updatedAt', ''))[:10]} · " + APPLICATION_CAUTION,
+        # The date of birth is not shown: an adviser checks identity by asking for it,
+        # so it must not be on a screen that the caller's own application ID selected.
+        line("About you", [("", said("fullName")), ("date of birth", said("dateOfBirth") and "given"),
+                           ("", said("employmentStatus", _EMPLOYMENT)), ("income", said("annualIncome", money=True)),
+                           ("monthly commitments", said("commitmentsMonthly", money=True))]),
+        line("Property and loan", [("property", said("propertyValue", money=True)), ("deposit", said("deposit", money=True)),
+                                   ("term", said("termYears") and f"{said('termYears')} years"),
+                                   ("", said("buyerType", _BUYER))]),
+        line("Decision and product", [("Decision in Principle", said("dipDecision")),
+                                      ("maximum loan", said("maxLoan", money=True)), ("product", said("productId"))]),
+        "**Documents:** " + (", ".join(f"**{_APPLICATION_DOCUMENTS[d]}**" for d in uploaded if d in _APPLICATION_DOCUMENTS)
+                             or "none uploaded yet"),
+        ("**Still to fill in:** " + ", ".join(missing) + ".") if missing else "**Every answer is filled in.**",
+    ]
+
+
+def mortgage_application_lines(application_id: str) -> dict[str, str]:
+    """
+    The customer's saved mortgage application, for the screen pop. Reads it from
+    Live Sync's main Lambda (operation getApplication, which has no internet
+    route). Always returns the same keys, as text, and never raises.
+    """
+    lines = {"hasApplication": "false",
+             **{f"app{number}": BRIEFING_EMPTY_SLOT for number in range(1, APPLICATION_LINES + 1)}}
+    if not (LIVESYNC_FUNCTION_NAME and _APPLICATION_ID.fullmatch(application_id or "")):
+        return lines
+    try:
+        reply = _invoke_lambda(LIVESYNC_FUNCTION_NAME, {"operation": "getApplication",
+                                                        "payload": {"applicationId": application_id}})
+        application = json.loads(reply["body"]) if isinstance(reply.get("body"), str) else reply
+    except Exception:
+        logger.exception("Could not read the mortgage application from %s. Check the lambda:InvokeFunction "
+                         "permission on this Lambda's role.", LIVESYNC_FUNCTION_NAME)
+        return lines
+    if not application.get("found"):
+        lines["app1"] = "The form has not been saved yet. It is saved as the customer fills it in on the web page."
+        return lines
+    lines["hasApplication"] = "true"
+    lines.update({f"app{number}": text for number, text in enumerate(describe_application(application), start=1)})
     return lines
 
 
 def _briefing_unavailable() -> dict[str, str]:
     """The same set of lines, for when the session could not be read at all."""
     return {"first": BRIEFING_FAILED_TEXT, "verification": BRIEFING_FAILED_TEXT, "ready": "false",
+            **card_dispute_lines(""), **mortgage_application_lines(""),
             **{key: value for name, count in BRIEFING_SLOTS.items()
                for key, value in _slots(name, [], count, BRIEFING_FAILED_TEXT).items()}}
 

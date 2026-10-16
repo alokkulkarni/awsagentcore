@@ -16,6 +16,10 @@ operation = "get_briefing" before it shows the view. "Refresh briefing" calls
 it again, for the case where the agent accepted before the assistant had
 finished writing. "Got it" is the view's Back link and ends the flow.
 
+A third view, "Card dispute", is shown instead when the customer has an open
+card dispute (connect-card-dispute). It adds the dispute's summary and a link
+that opens the adviser's dispute form.
+
 This script only writes a local file. It never calls AWS.
 
 Usage:
@@ -45,6 +49,24 @@ BRIEFING_SECTIONS = [
     "**Product details**\n\n- $.External.product1\n- $.External.product2\n- $.External.product3",
     "**Related guidance**\n\n- $.External.guidance1\n- $.External.guidance2",
 ]
+
+
+# Shown only when the customer has an open card dispute (connect-card-dispute).
+DISPUTE_SECTION = ("**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n"
+                   "- $.External.dispute3\n- $.External.dispute4\n- $.External.dispute5\n- $.External.dispute6")
+# The link to the adviser's dispute form, two ways, because which of them a
+# view will open has not been proven on a live contact: a link button in the
+# bar at the top, and a link in the text.
+DISPUTE_LINK_SECTION = "[Open the dispute form]($.External.disputeUrl)"
+DISPUTE_BAR = [
+    {"Label": "Dispute reference", "Value": "$.External.disputeId", "Copyable": True},
+    {"Label": "Dispute form", "Value": "Open the dispute form", "LinkType": "external",
+     "Url": "$.External.disputeUrl"},
+]
+
+
+# The mortgage form the customer has filled in, read from Live Sync's saved copy.
+APPLICATION_SECTION = ("**Application form**\n\n" + "\n".join(f"- $.External.app{n}" for n in range(1, 7)))
 
 
 def build() -> dict:
@@ -86,9 +108,12 @@ def build() -> dict:
 
     laid_out = [
         ({
-            "Identifier": "EnableLogging",
+            # Off, on purpose. A flow's log records the whole view it shows, and
+            # these views carry the adviser's dispute link and, for a mortgage
+            # application, the customer's date of birth and income.
+            "Identifier": "LoggingOff",
             "Type": "UpdateFlowLoggingBehavior",
-            "Parameters": {"FlowLoggingBehavior": "Enabled"},
+            "Parameters": {"FlowLoggingBehavior": "Disabled"},
             "Transitions": {"NextAction": "GetBriefing"},
         }, 200, 200),
         ({
@@ -102,9 +127,24 @@ def build() -> dict:
                 "LambdaInvocationAttributes": {"operation": "get_briefing"},
                 "ResponseValidation": {"ResponseType": "STRING_MAP"},
             },
-            "Transitions": {"NextAction": "CheckTopic",
+            "Transitions": {"NextAction": "CheckDispute",
                             "Errors": [{"NextAction": "CheckTopic", "ErrorType": "NoMatchingError"}]},
         }, 320, 380),
+        (choose("CheckDispute", "$.External.hasDispute", "true", "DisputeView", "CheckTopic"), 440, 560),
+        (view("DisputeView", {
+            "Heading": "Card dispute",
+            "AttributeBar": DISPUTE_BAR,
+            "Sections": [
+                {"TemplateString": DISPUTE_SECTION},
+                {"TemplateString": DISPUTE_LINK_SECTION},
+                {"Items": [
+                    {"Label": "Customer Intent", "Value": "$.Attributes.ariaCustomerIntent"},
+                    {"Label": "Escalation Reason", "Value": "$.Attributes.ariaEscalationReason"},
+                    {"Label": "Summary", "Value": "$.Attributes.ariaSummary"},
+                ]},
+                *briefing,
+            ],
+        }), 700, 560),
         (choose("CheckTopic", "$.Attributes.topicCategory", "mortgage_application",
                 "MortgageApplicationView", "HandoffView"), 440, 200),
         (view("HandoffView", {
@@ -131,6 +171,7 @@ def build() -> dict:
                 {"TemplateString": "**Arrived via:** $.Attributes.entry ($.Channel)"},
                 {"TemplateString": "**Why transferred:** $.Attributes.ariaEscalationReason"},
                 {"TemplateString": "$.Attributes.ariaSummary"},
+                {"TemplateString": APPLICATION_SECTION},
                 *briefing,
             ],
         }), 700, 60),
@@ -139,7 +180,7 @@ def build() -> dict:
 
     return {
         "Version": "2019-10-30",
-        "StartAction": "EnableLogging",
+        "StartAction": "LoggingOff",
         "Metadata": {
             "entryPointPosition": {"x": 40, "y": 200},
             "ActionMetadata": {a["Identifier"]: {"position": {"x": x, "y": y}} for a, x, y in laid_out},
