@@ -1178,11 +1178,13 @@ class CxDesignerConfiguration(unittest.TestCase):
                      "Never use it to pass on something you have a tool for",
                      "Step 3. Decide what kind of case it is: fraud, scam or dispute",
                      "SCAM (disputeType scam)", "For a DISPUTE, don't block or replace the card",
-                     "tell them whatHappensNext from your last dispute reply, word for word"):
+                     "tell them whatHappensNext from your last dispute reply, word for word",
+                     "Never say them to the\n  customer", "To protect you from any further payments"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)
         self.assertNotIn("a reference you were not asked for", prompt, "references are given now")
+        self.assertNotIn("This sounds like fraud", prompt, "labels are for the record, not the customer")
         self.assertLess(prompt.index("call blockCard"), prompt.index("call sendFormLink"), "card before form")
         self.assertLess(prompt.index("call blockCard"), prompt.index("Call startDispute"), "block first, so the form says so")
 
