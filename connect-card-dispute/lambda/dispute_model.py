@@ -11,8 +11,15 @@ ALL TRANSACTIONS ARE FICTIONAL TEST DATA. Never put real customer data here.
 
 from __future__ import annotations
 
-UNAUTHORISED, MERCHANT = "unauthorised", "merchant"
-DISPUTE_TYPES = (UNAUTHORISED, MERCHANT)
+# Three kinds of case, each a dispute on the record:
+#   unauthorised  FRAUD    the customer did not make the payment (or the card was lost or stolen)
+#   scam          SCAM     the customer made it, but was tricked into it
+#   merchant      DISPUTE  the customer made it, and something went wrong with what they paid for
+UNAUTHORISED, SCAM, MERCHANT = "unauthorised", "scam", "merchant"
+DISPUTE_TYPES = (UNAUTHORISED, SCAM, MERCHANT)
+CASE_WORDS = {UNAUTHORISED: "Fraud", SCAM: "Scam", MERCHANT: "Dispute"}
+# Fraud and scam cases block the card; a dispute with a retailer does not.
+CARD_AT_RISK = (UNAUTHORISED, SCAM)
 
 # The reasons a customer can give, by type, with the words shown on screen.
 REASONS: dict[str, dict[str, str]] = {
@@ -20,6 +27,12 @@ REASONS: dict[str, dict[str, str]] = {
         "card_lost_or_stolen": "Card was lost or stolen",
         "card_details_used_without_card": "Card details used without the card",
         "not_recognised": "Customer does not recognise the payment",
+    },
+    SCAM: {
+        "fake_seller_or_website": "Paid a fake seller or website",
+        "impersonation": "Tricked by someone pretending to be a company, the police or the bank",
+        "investment_or_romance": "Investment or romance scam",
+        "other_scam": "Another kind of scam",
     },
     MERCHANT: {
         "goods_not_received": "Goods or services not received",
@@ -30,7 +43,20 @@ REASONS: dict[str, dict[str, str]] = {
         "refund_not_received": "Refund not received",
     },
 }
-TYPE_WORDS = {UNAUTHORISED: "Payment the customer did not make", MERCHANT: "Problem with a payment the customer made"}
+TYPE_WORDS = {UNAUTHORISED: "Payment the customer did not make", SCAM: "Customer was tricked into making the payment",
+              MERCHANT: "Problem with a payment the customer made"}
+
+# What the assistant tells the customer happens next, by case. It says only this,
+# word for word, so it never invents a timescale or promises an outcome.
+# PLACEHOLDER WORDING: replace with your bank's approved text before real use.
+WHAT_HAPPENS_NEXT = {
+    UNAUTHORISED: ("Our fraud team will investigate this payment. Fraud cases are usually looked into within "
+                   "15 working days, and we'll keep you updated. A colleague will now check the details with you."),
+    SCAM: ("Our fraud team will review what happened. Scam cases are usually reviewed within 15 working days, and "
+           "whether any money can be recovered depends on the case. A colleague will now check the details with you."),
+    MERCHANT: ("We'll ask the retailer to respond on your behalf. Most card disputes are settled within 8 weeks, and "
+               "it can take longer if the retailer challenges it. A colleague will now check the details with you."),
+}
 YES_NO = ("yes", "no")
 
 DRAFT, WITH_ADVISER, SUBMITTED, WITHDRAWN = "draft", "with_adviser", "submitted", "withdrawn"
@@ -71,14 +97,34 @@ _CARDS = {
     "CUST-004": (("debit", "7734"),),
     "CUST-005": (("debit", "1155"),),
 }
-_SPENDING = (
+# Enough payments for several pages of five, so paging can be tried. The first
+# entries of each list are the ones the tests and earlier disputes use; keep them.
+_DEBIT_SPENDING = (
     ("2026-10-11", "AMAZON.CO.UK", "89.99"),
     ("2026-10-10", "TESCO STORES 2041", "42.50"),
     ("2026-10-09", "TRAINLINE.COM", "64.20"),
     ("2026-10-08", "NETFLIX.COM", "10.99"),
+    ("2026-10-07", "SHELL MANCHESTER", "55.10"),
+    ("2026-10-05", "PRET A MANGER", "8.45"),
+    ("2026-10-03", "ARGOS LTD", "129.99"),
+    ("2026-10-01", "UBER TRIP", "18.60"),
+    ("2026-09-29", "SAINSBURYS S/MKT", "63.27"),
+    ("2026-09-27", "SPOTIFY UK", "11.99"),
+    ("2026-09-24", "BOOTS 1132", "22.40"),
+    ("2026-09-20", "ASOS.COM", "74.00"),
+)
+_CREDIT_SPENDING = (
+    ("2026-10-08", "NETFLIX.COM", "10.99"),
     ("2026-10-06", "ELECTROWORLD ONLINE", "349.00"),
     ("2026-10-04", "SUNSHINE VILLAS BOOKING", "612.00"),
+    ("2026-09-30", "BRITISH AIRWAYS", "245.60"),
+    ("2026-09-22", "JOHN LEWIS", "189.00"),
 )
+
+
+def customer_cards(customer_id: str) -> list[dict]:
+    """The customer's cards, as the bank holds them. A card can only be blocked or replaced if it is here."""
+    return [{"card_type": kind, "card_last_four": last_four} for kind, last_four in _CARDS.get(customer_id, ())]
 
 
 def card_transactions(customer_id: str, card_type: str = "") -> list[dict]:
@@ -87,9 +133,7 @@ def card_transactions(customer_id: str, card_type: str = "") -> list[dict]:
     for kind, last_four in _CARDS.get(customer_id, ()):
         if card_type and kind != card_type:
             continue
-        # A credit card shows the second half of the list, so the two cards differ.
-        spending = _SPENDING[3:] if kind == "credit" else _SPENDING[:4]
-        for date, merchant, amount in spending:
+        for date, merchant, amount in (_CREDIT_SPENDING if kind == "credit" else _DEBIT_SPENDING):
             transactions.append({
                 "transaction_id": f"TXN-{last_four}-{date.replace('-', '')}-{amount.replace('.', '')}",
                 "date": date, "merchant": merchant, "amount": amount, "currency": "GBP",
@@ -106,7 +150,7 @@ def find_transaction(customer_id: str, transaction_id: str) -> dict | None:
 def missing(dispute: dict) -> list[str]:
     """Labels of what still has to be filled in before the dispute can be submitted."""
     needed = ["disputeType", "reason", "narrative"]
-    if dispute.get("disputeType") == UNAUTHORISED:
+    if dispute.get("disputeType") in CARD_AT_RISK:
         needed.append("cardInPossession")
     elif dispute.get("disputeType") == MERCHANT:
         needed.append("contactedMerchant")
@@ -140,6 +184,14 @@ def check_fields(fields: dict) -> dict:
     return clean
 
 
+def payment_words(dispute: dict) -> str:
+    """'AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821', or '' before a payment is chosen."""
+    if not dispute.get("transactionId"):
+        return ""
+    return (f"{dispute['merchant']}, £{dispute['amount']} on {dispute['transactionDate']}, "
+            f"{dispute['cardType']} card ending {dispute['cardLastFour']}")
+
+
 def view(dispute: dict) -> dict:
     """The dispute as the pages and the tools see it: readable, and without internal fields."""
     kind = dispute.get("disputeType", "")
@@ -158,6 +210,8 @@ def view(dispute: dict) -> dict:
         "currency": dispute.get("currency", ""),
         "disputeType": kind,
         "disputeTypeWords": TYPE_WORDS.get(kind, ""),
+        "caseType": CASE_WORDS.get(kind, ""),
+        "whatHappensNext": WHAT_HAPPENS_NEXT.get(kind, ""),
         "reason": dispute.get("reason", ""),
         "reasonWords": REASONS.get(kind, {}).get(dispute.get("reason", ""), ""),
         "cardInPossession": dispute.get("cardInPossession", ""),

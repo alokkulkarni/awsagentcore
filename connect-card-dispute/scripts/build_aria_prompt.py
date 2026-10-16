@@ -6,9 +6,16 @@ Builds ARIA's orchestration prompt with the card dispute instructions added.
 
 It starts from the prompt that is live in your Connect instance today, not from
 a copy in this repository, so nothing you have changed in the console is lost.
-It then inserts prompts/card-disputes-block.txt straight after the
-</assurance_levels> section and writes the whole prompt to a file for you to
-paste.
+It then inserts a dispute section straight after the </assurance_levels>
+section and writes the whole prompt to a file for you to paste. Which section
+depends on --mode:
+
+    cx       ARIA checks, then hands the call to the CX designer disputes
+             assistant, which does the rest (prompts/card-disputes-cx-designer-block.txt).
+             The current design (SPEC Part 4). The default.
+    direct   ARIA drafts the dispute itself (prompts/card-disputes-block.txt)
+    agents   ARIA hands it to an in-instance disputes agent (prompts/card-disputes-agents-block.txt).
+             Earlier designs, kept for reference.
 
 It only READS from AWS (one `aws qconnect get-ai-prompt` call). It changes
 nothing there. Run it again at any time: an existing dispute section is replaced,
@@ -16,6 +23,7 @@ never duplicated.
 
 Usage:
     python3 connect-card-dispute/scripts/build_aria_prompt.py
+    python3 connect-card-dispute/scripts/build_aria_prompt.py --mode cx
     python3 connect-card-dispute/scripts/build_aria_prompt.py --from-file my-export.yaml
 """
 
@@ -27,7 +35,14 @@ import sys
 from pathlib import Path
 
 FOLDER = Path(__file__).resolve().parents[1]
-BLOCK_FILE = FOLDER / "prompts" / "card-disputes-block.txt"
+# Which dispute section ARIA gets:
+#   direct  ARIA drafts the dispute itself with the five tools (SPEC Part 1).
+#   agents  ARIA hands the dispute to the disputes agent, or to the Live Sync
+#           page when the customer has it open (SPEC Part 3). Much shorter.
+#   cx      ARIA hands the dispute to the CX designer disputes assistant (SPEC Part 4).
+BLOCK_FILES = {"cx": FOLDER / "prompts" / "card-disputes-cx-designer-block.txt",
+               "direct": FOLDER / "prompts" / "card-disputes-block.txt",
+               "agents": FOLDER / "prompts" / "card-disputes-agents-block.txt"}
 OUTPUT_FILE = FOLDER / "prompts" / "aria-orchestration-prompt-with-disputes.yaml"
 
 REGION = "eu-west-2"
@@ -85,6 +100,9 @@ def check(prompt: str) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Add the card dispute instructions to ARIA's live prompt.")
+    parser.add_argument("--mode", choices=sorted(BLOCK_FILES), default="cx",
+                        help="cx: ARIA hands the dispute to the CX designer disputes assistant. direct and "
+                             "agents: earlier designs (default: %(default)s)")
     parser.add_argument("--from-file", help="Use this exported prompt instead of reading from AWS")
     parser.add_argument("--region", default=REGION)
     parser.add_argument("--assistant-id", default=ASSISTANT_ID)
@@ -95,14 +113,14 @@ def main() -> None:
     prompt = Path(args.from_file).read_text() if args.from_file \
         else live_prompt(args.region, args.assistant_id, args.prompt_id)
     try:
-        built = add_disputes(prompt, BLOCK_FILE.read_text())
+        built = add_disputes(prompt, BLOCK_FILES[args.mode].read_text())
     except ValueError as error:
         sys.exit(str(error))
     problems = check(built)
     if problems:
         sys.exit("The new prompt would be rejected by Connect:\n- " + "\n- ".join(problems))
     Path(args.output).write_text(built)
-    print(f"Wrote {args.output}")
+    print(f"Wrote {args.output} (mode: {args.mode})")
     print(f"  {len(built.splitlines())} lines, {len(built):,} characters. Paste the whole file into the AI prompt.")
 
 

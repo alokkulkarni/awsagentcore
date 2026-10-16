@@ -13,7 +13,7 @@ export const $ = (id) => document.getElementById(id);
 export const show = (id, visible) => { $(id).hidden = !visible; };
 export const text = (id, value) => { $(id).textContent = value; };
 
-const WHO = { aria: 'Assistant', adviser: 'Adviser' };
+const WHO = { aria: 'Assistant', assistant: 'Assistant', adviser: 'Adviser', page: 'On your screen' };
 const yesNo = (v) => ({ yes: 'Yes', no: 'No' }[v] ?? '');
 const money = (d) => (d.amount ? `£${d.amount}` : '');
 
@@ -22,10 +22,11 @@ export function rowsOf(d) {
   const rows = [
     ['transaction', 'Transaction', d.merchant ? `${d.merchant}, ${money(d)} on ${d.transactionDate}` : ''],
     ['card', 'Card', d.cardLastFour ? `${d.cardType} card ending ${d.cardLastFour}` : ''],
+    ['caseType', 'Type of case', d.caseType],
     ['disputeType', 'What happened', d.disputeTypeWords],
     ['reason', 'Reason', d.reasonWords],
   ];
-  if (d.disputeType === 'unauthorised') rows.push(['cardInPossession', 'You still have the card', yesNo(d.cardInPossession)]);
+  if (d.disputeType === 'unauthorised' || d.disputeType === 'scam') rows.push(['cardInPossession', 'You still have the card', yesNo(d.cardInPossession)]);
   if (d.disputeType === 'merchant') rows.push(['contactedMerchant', 'You have contacted the retailer', yesNo(d.contactedMerchant)]);
   rows.push(['cardBlocked', 'Card blocked', yesNo(d.cardBlocked)], ['narrative', 'In your words', d.narrative]);
   return rows;

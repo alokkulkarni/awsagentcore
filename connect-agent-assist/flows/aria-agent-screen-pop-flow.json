@@ -149,7 +149,7 @@
           ],
           "Sections": [
             {
-              "TemplateString": "**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n- $.External.dispute3\n- $.External.dispute4"
+              "TemplateString": "**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n- $.External.dispute3\n- $.External.dispute4\n- $.External.dispute5\n- $.External.dispute6"
             },
             {
               "TemplateString": "[Open the dispute form]($.External.disputeUrl)"

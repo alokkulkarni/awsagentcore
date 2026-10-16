@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Built, not deployed. Part 1 (card disputes) is in this folder. Part 2 (mortgage application) is in Live Sync PR #9 and `connect-agent-assist/`; section 12 says what is and is not done |
+| Status | Built, not deployed. **Part 4 (15 October 2026) is the current design for card disputes; Parts 1 and 3 are earlier designs kept in the code.** Part 1 (card disputes) is in this folder. Part 2 (mortgage application) is in Live Sync PR #9 and `connect-agent-assist/`; section 12 says what is and is not done |
 | Date | 13 October 2026 |
 | Depends on | `connect-agent-assist/` (PR #31): the agent-assist flow, its Lambda and the screen pop |
 | Related repo | `connect-livesync-mortgage` (the mortgage application journey) |
@@ -315,3 +315,261 @@ reference.
 - The view is read-only, and nothing the adviser does changes the customer's page (finding 2).
 - The assistant panel cannot yet answer questions about the application (M3).
 - "Bring it forward" is the screen pop showing it. Nothing opens the customer's page for the adviser.
+
+---
+
+# Part 3 — A disputes agent, and a Live Sync dispute page
+
+Part 1 has ARIA do everything itself. Part 3 moves the dispute conversation out of ARIA, two ways.
+Both keep Part 1's record, rules and adviser page unchanged.
+
+## 13. Why
+
+ARIA's prompt is at 81,000 of 100,000 characters, at its limit of 19 custom variables, and carries
+23 tools. Every journey added to it slows every turn and leaves less room for the next.
+
+## 14. Two routes, and which one ARIA takes
+
+| | Route 1: disputes agent | Route 3: Live Sync page |
+|---|---|---|
+| What it is | A second Connect AI agent, added to ARIA as a collaborator | A CX designer agent that drives a dispute form on the customer's screen |
+| Mechanism | Agent-to-agent hand-off (A2A), run by Connect | Return-to-Control tool, then the Agentic CX flow block |
+| Who talks to the customer | The disputes agent, as ARIA | The CX designer agent |
+| The customer's screen | Optional, read-only, as in Part 1 | Required. The form fills in as they speak, and they can type in it |
+| Tools | The five tools from Part 1 | One Data request, `attachToScreen`. The page saves the form |
+| ARIA resumes afterwards | Yes, and transfers to the adviser | No. The Agentic CX block's Escalation branch transfers |
+
+**D1. Who does what on a dispute call (decided 15 October 2026).**
+
+- **ARIA does the initial checks and hands over.** It confirms the customer is authenticated at
+  Level 2 or above (stepping up first if not), deals with any vulnerability as it always does, and
+  asks nothing about the payment, the page or a code.
+- **The disputes agent handles the dispute end to end**, from the context ARIA passes: which
+  payment, whether the customer made it, every field, blocking the card, offering the screen and
+  attaching it, reading it back.
+- **It hands back to ARIA**, which escalates to an adviser for the final check and submission.
+- **ARIA keeps the context.** Connect merges the disputes agent's conversation into ARIA's session
+  when it hands back. ARIA never asks again for anything already said. If the customer turns to
+  something else and later returns to the dispute, ARIA hands over again with the dispute's
+  reference, and the disputes agent carries on with that dispute rather than starting another.
+
+**Consequence for route 3.** A dispute call no longer reaches the Live Sync page, because only ARIA
+could start it (with its Return-to-Control tool) and ARIA no longer asks about the page. On a call,
+the customer still sees the form fill in live: the disputes agent attaches their page as a view
+(Part 1). Route 3 stays built, for an entry that starts from the web page itself, which is not yet
+wired up.
+
+**D2. One voice, no joins showing.** The customer must not hear a hand-off in either direction on
+route 1:
+
+- The disputes agent speaks as ARIA. It never introduces itself, greets again, or says the customer
+  has been passed to anyone.
+- ARIA hands off without announcing it, and when the conversation comes back it does not greet or
+  recap. Its next words are the transfer line.
+- A collaborator in the same instance has no voice of its own. Its text goes out through the same
+  Lex bot and the same text-to-speech as ARIA's, so the voice is the same by construction. What
+  could still show a join is the wording on the hand-off turn, which the two prompts control, and
+  a pause while the second agent starts, which is the first thing to time on a live call.
+- The disputes agent hands back by calling Escalate with every field ARIA's own Escalate needs
+  (topic, reason, intent, summary). A reserved tool call with a field missing fails.
+
+Route 3 is a different agent with its own turn-taking, so a join there is expected. Its opening line
+acknowledges what ARIA was told.
+
+**D3. What passes between ARIA and the disputes agent.**
+
+- *Into the hand-off.* Whether a collaborator receives ARIA's session values is not documented. So
+  the disputes agent's prompt reads them itself, and ARIA is also told to state the customer ID,
+  the verification level and what the customer said. The first live call shows which arrived.
+- *Back to ARIA.* The disputes agent ends with its Escalate tool and a reason in a fixed form that
+  ARIA copies into its own Escalate call:
+  `Card dispute DSP-XXXXXXXX drafted. topicCategory=<topic>. <retailer>, <amount>, <kind>. Missing: <list or none>.`
+  The topic comes from the `handover` field the dispute tools already return.
+- If the disputes agent cannot draft a dispute, the reason begins `Card dispute not drafted.` and
+  ARIA transfers with what it has.
+
+**D4. Where the level of assurance is checked.**
+
+- *Route 3: in the Lambda.* `attachToScreen` already reads the contact's own attributes from
+  Connect, so it also requires `authStatus` to be `authenticated` and, where an ID&V flow set a
+  level, Level 2 or above. An unverified caller's page is never attached, whatever the agent is
+  persuaded to try.
+- *Routes 1 and Part 1: in the prompts.* A tool call carries no contact, so the Lambda cannot tell
+  how that customer was verified. ARIA hands off only at Level 2 or above, and the disputes agent
+  refuses below it.
+- A caller recognised by phone number alone counts as authenticated when ARIA's injector is set to
+  treat them so (`CLI_MATCH_LOA`). That is this instance's choice, and it applies to every route.
+
+## 15. Route 3 changes the page from a view into a form
+
+In Part 1 a page attaches to a dispute that already exists. For Live Sync to fill a form there must
+be a form before there is a dispute, as in the mortgage journey. So:
+
+1. The page shows its code, as now.
+2. `attachToScreen` attaches the **contact** to the page, with no dispute yet. The Lambda finds the
+   customer from that contact's own attributes; it never takes a customer ID from the agent.
+3. The page now shows an empty form and the customer's recent card transactions to choose from,
+   and starts Live Sync bound to that contact.
+4. The CX designer agent fills the fields as the customer speaks. The customer can type too.
+5. The page saves the form to the Lambda a moment after each change, using its own secret. The
+   first save that names a transaction creates the dispute.
+6. On escalation the adviser gets the screen pop and the adviser page exactly as in Part 1, and the
+   customer's page follows the adviser's changes.
+
+**New rules.**
+
+- R7. `attachToScreen` takes a contact ID and a code. The customer is whoever that contact's
+  `customerId` attribute says, read by the Lambda from Connect.
+- R8. A page may save only while its session is attached to a contact, and only a dispute that is
+  a draft. Once an adviser has it, the page is read-only again.
+- R9. A page save can set the transaction (one of that customer's own) and the Part 1 fields. It
+  can never confirm or submit. Confirmation is still the customer's own button, after the adviser
+  has the dispute.
+- R10. Fields set through the page are recorded as filled by `page`. The page cannot tell the
+  agent's typing from the customer's, and does not claim to.
+
+**A fourth way into the Lambda.** CX designer tools call an HTTPS address with a key, not the MCP
+gateway. `POST /acxd/ops` on the same HTTP API accepts `attachToScreen` only, and only with the key
+held in Secrets Manager. It is a web request, so it can never reach the internal screen-pop
+operation or a tool.
+
+**Live Sync actions.** None beyond Touchpoint's own form fill. There is one page, so there is no
+navigation, and there is no action that confirms or submits.
+
+## 16. What is built and what you configure
+
+| Piece | Built here | You do |
+|---|---|---|
+| Disputes agent prompt | `prompts/disputes-agent-prompt-v1.yaml` | Create the prompt and agent in the console |
+| ARIA's shorter dispute section | `prompts/card-disputes-collaborator-block.txt`, `build_aria_prompt.py --mode collaborator` | Paste and publish |
+| Attaching the collaborator | `scripts/attach_disputes_collaborator.sh` | Run it. There is no console screen for this |
+| Lambda: attach a contact, page save, CX designer door | `lambda/` | Run the deploy script |
+| The form page with Live Sync | `web/` | Nothing |
+| CX designer configuration | `acxd/` | Build the application in the designer from it |
+| Hand-over tool for ARIA | `acxd/connect-ai-agent/StartCardDispute.schema.json` | Create the tool in the console |
+| Hand-over flow | `flows/` | Import it, and add one branch to the bot flow |
+
+## 17. Known gaps (Part 3)
+
+- **Nothing here has run on a live contact**, including the A2A hand-off itself.
+- **"Connect Customer" tier.** Agent-to-agent collaboration needs it. The attach script will fail
+  if the instance is not on it; that is how you find out.
+- **Card blocking on route 3.** The CX designer agent has no tool to block a card. It tells the
+  customer the adviser will do it.
+- **Route 3 on chat** is not built. Live Sync here binds to a phone call by code.
+- **The Touchpoint library is served by the Lambda** (3.6 MB). Fine for a demo; use a CDN in
+  production.
+- **Live Sync on this page is copied from the mortgage page's working pattern**, but that pattern
+  took many live fixes there. Expect the same here.
+
+---
+
+# Part 4 — The CX designer disputes assistant does the dispute end to end
+
+Decided 15 October 2026. It replaces D1 and route 1 of Part 3 for dispute calls.
+
+## 18. What is wanted
+
+> ARIA, on a dispute or a payment the customer does not recognise, calls the disputes agent in the
+> CX designer, which handles everything end to end, including Live Sync: it completes the form on
+> the customer's behalf, asking what it needs and prefilling everything else, and if the customer
+> wants to see the form it sends them the link. Then it hands over to ARIA to be transferred to a
+> human agent for final verification before the form is submitted, with the entire summary (cards
+> blocked, cards ordered, the form) in the screen pop. Agent assist gets the tools already
+> described. Ignore the AI agent created in Connect for disputes.
+
+## 19. Decisions
+
+**D5. ARIA checks and starts; the CX designer assistant does everything else.** ARIA confirms the
+caller is verified at Level 2 or above and handles any vulnerability, then calls the
+Return-to-Control tool `StartCardDispute` with one sentence of what the customer already said. It
+asks nothing about the payment, the card, a form or a code. The bot flow transfers to the flow
+`Card dispute assistant`, whose Agentic CX block runs the CX designer application `Card dispute`.
+
+**D6. "Hands back to ARIA" is ARIA's own hand-over path.** ARIA's Escalate tool only sets four
+attributes, and the bot flow then runs `ARIA human handover`. The disputes flow ends on the same
+flow with the same four attributes. Re-entering ARIA's Lex block would add a turn of silence,
+because the bot waits for the caller to speak first, and ARIA would have nothing to add.
+
+**D7. The hand-over is built from the record.** After the Agentic CX block, the flow calls
+`aria-card-dispute` with `operation=handover`. The Lambda builds the team (`fraud_security` for a
+payment the customer did not make, otherwise the card's team or `MERCHANT_DISPUTE_TOPIC`), the
+summary and the dispute reference from what was saved, not from what the assistant remembers. The
+summary starts "Card dispute …" so the briefing agent reads the dispute. The assistant adds only a
+one-sentence note and a reason, stripped of formatting before it reaches the screen pop. If the
+Lambda fails, the call still goes to `fraud_security` with a fixed summary.
+
+**D8. Seven Data requests, identity from Connect.** `listCardsAndPayments`, `startDispute`,
+`updateDispute`, `getDispute`, `blockCard`, `orderReplacementCard`, `sendFormLink`, all on
+`POST /acxd/ops` with the key. None takes a customer ID or phone number: the Lambda reads the
+contact's attributes (`customerId`, `authStatus`, `LoA`, `customerPhone`) from Connect and applies
+the verification gate (rule R7) on every call. A refusal is HTTP 200 with `ok:false`, a reason
+and a message, so the assistant can read it and carry on. Every reply always has every field.
+
+**D9. Card actions.** Block and replacement work only on the customer's own cards, are idempotent
+(a repeated call returns the first reference), and a replacement needs the card blocked. They are
+kept on the customer, not the contact, because the screen pop runs under a different contact. A
+block sets "card blocked: yes" on an open draft for that card. The cards are test data; a real
+deployment calls the card system in `DisputeService.card_action`.
+
+**D10. The form link, on phone and chat.** The flow records the channel (`disputeChannel` =
+`$.Channel`) before the assistant starts, and passes it to the assistant as `channel`. On a call,
+`sendFormLink` texts the number the customer is calling from (UK mobiles only by default) through
+AWS End User Messaging. On chat, it returns the link for the assistant to post in the chat: the
+customer is already in that verified conversation, and a chat has no number to text. The chat
+transcript then holds a link that works for two hours and five opens. The link carries its secret after `#`, so
+it never reaches a server log. Opening it gives a page session already joined to the call and the
+dispute, so Live Sync starts with no code. It works for two hours and five opens, and can be sent
+three times per dispute. On a call the assistant never sees the link. Without an SMS sender configured, the
+assistant is told it cannot text and carries on by voice.
+
+**D11. The assistant saves; the page shows.** The assistant writes every answer with
+`updateDispute`. The page shows the saved record within two seconds and saves what the customer
+types, so both always agree. Live Sync lets the assistant see the page; it does not need to fill
+the page itself.
+
+**D12. Same voice.** ARIA's last words are one neutral sentence; the assistant never introduces
+itself, and its opening, built before the assistant node, asks about the payment. The CX designer
+application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice block does not change it.
+
+**D13. Fraud, scam or dispute (decided 16 October 2026).** Every case is a dispute on the record,
+with one of three types: `unauthorised` (FRAUD: the customer did not make it), `scam` (SCAM: they
+made it but were tricked) or `merchant` (DISPUTE: they made it and something went wrong). The
+assistant decides which from what the customer says, tells them, and:
+- for FRAUD and SCAM, blocks the card and orders a replacement first (with the customer's yes),
+  then raises the case; both go to `fraud_security`;
+- for a DISPUTE, does not touch the card; it goes to the card's team.
+The case is shown as the first word of the screen pop, in the hand-over summary ("Case: FRAUD."),
+in a case-specific escalation reason (`fraud_ready_for_review`, `scam_incomplete`, …) and intent.
+The customer is told what happens next from `WHAT_HAPPENS_NEXT` in `dispute_model.py`, word for
+word, so no timescale is invented. **That wording is a placeholder for the bank's approved text.**
+
+## 20. New rules
+
+| # | Rule | Enforced in |
+|---|---|---|
+| R11 | The CX designer door acts only for a verified caller, found from Connect's record of the contact | `dispute_web._acxd`, `aria_card_dispute.verified_customer` |
+| R12 | A card can be blocked or replaced only if it is the customer's own; each at most once | `DisputeService.card_action` |
+| R13 | A form link goes only to the number the customer is calling from, or into the chat they are in; at most three times per dispute | `dispute_web._send_form_link`, `DisputeService.mint_form_link` |
+| R14 | A Connect flow event is accepted only when it is not a tool call; its reply holds no link or secret | `aria_card_dispute.lambda_handler` |
+
+## 21. Known gaps (Part 4)
+
+- **The "what happens next" timescales are placeholders** (15 working days for fraud and scam, 8
+  weeks for disputes). Replace them in `dispute_model.WHAT_HAPPENS_NEXT` with approved wording.
+- **Fraud, scam or dispute is the assistant's judgement** from the conversation. The adviser sees the
+  case type and can change it on the form before submitting.
+
+- **Nothing here has run on a live contact.** The CX designer steps follow the mortgage build, which
+  works, but this application is new.
+- **The opening question** is generated from ARIA's one-sentence summary. If ARIA's summary is
+  thin, the first question is generic.
+- **SMS** needs an End User Messaging sender and, until production access, verified destination
+  numbers. UK sender rules are to be checked in the console.
+- **Chat links sit in the transcript** for their two hours. Anyone who can read the transcript in
+  that time could open the form (view and type, never confirm or submit).
+- **Contact attributes are cached for 30 seconds** in the Lambda, so a verification made during the
+  dispute is seen up to 30 seconds late.
+- **The adviser's own tools** (blocking, refunds) are outside this work; the screen pop says what the
+  assistant did.
+

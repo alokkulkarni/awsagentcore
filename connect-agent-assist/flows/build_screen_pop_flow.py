@@ -53,7 +53,7 @@ BRIEFING_SECTIONS = [
 
 # Shown only when the customer has an open card dispute (connect-card-dispute).
 DISPUTE_SECTION = ("**Card dispute**\n\n- $.External.dispute1\n- $.External.dispute2\n"
-                   "- $.External.dispute3\n- $.External.dispute4")
+                   "- $.External.dispute3\n- $.External.dispute4\n- $.External.dispute5\n- $.External.dispute6")
 # The link to the adviser's dispute form, two ways, because which of them a
 # view will open has not been proven on a live contact: a link button in the
 # bar at the top, and a link in the text.
