@@ -351,6 +351,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | Path | What it is |
 |---|---|
 | [SPEC.md](SPEC.md) | Design, decisions, the Connect contract, rules, open questions |
+| [docs/diagrams/](docs/diagrams/) | Architecture, sequence and AWS infrastructure diagrams (PNG and PDF, editable in draw.io); `build_diagrams.py --export` rebuilds them |
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
 | [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |
 | [bridge/](bridge/) | The Connect A2A bridge: `a2a_bridge.py`, `protocol.py` |
