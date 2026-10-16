@@ -168,7 +168,7 @@ Data request 1 of 7. This one looks up the customer's cards and one page of thei
 2. **Name**: `listCardsAndPayments`
 3. **Description**: copy and paste this (the assistant reads it, so don't change it):
    ```text
-   Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.
+   Customer's cards and a page of 5 payments, newest first. With 2 cards, give cardType (debit, credit or both) or you get none: ask which card first. page 2, 3 = older. Optional fromDate/toDate.
    ```
 4. Open the **Implementation** tab and choose **External** (not Static).
    1. **Method**: `POST`.
@@ -623,11 +623,12 @@ Follow these steps in this order. Ask one question per turn. Protecting the card
 dispute form. Never skip step 3 or step 5.
 
 Step 1. Which card
-- Call listCardsAndPayments with page 1, to see their cards.
-- If they have more than one card and have not said which, your next message must be this question,
-  naming each card, before you show any payments: "Is it your debit card ending 4821 or your credit
-  card ending 2291?" Never show payments from more than one card unless they say they aren't sure.
-- If they have only one card, don't ask; use it.
+- Call listCardsAndPayments with page 1 and no cardType, to see their cards.
+- If its message tells you to ask which card, your next message must be exactly that question,
+  for example "Is it your debit card ending 4821 or your credit card ending 2291?", and nothing
+  else. You have no payments to show until they answer.
+- If they say they aren't sure, use cardType both. If they have only one card, the reply already
+  has its payments: go straight to showing them.
 
 Step 2. Find the payment by showing it, not by asking for it
 - Customers rarely remember the exact shop or amount. Never ask them for the shop name or amount.
@@ -759,7 +760,7 @@ Tone
    2. Pick **`listCardsAndPayments`** from the list.
    3. **Tool prompt** (some screens say **Description** or **Instructions**): paste
       ```text
-      Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.
+      Customer's cards and a page of 5 payments, newest first. With 2 cards, give cardType (debit, credit or both) or you get none: ask which card first. page 2, 3 = older. Optional fromDate/toDate.
       ```
    4. The tool lists its **inputs**, one for each field below. For each input, open its source
       drop-down and choose as shown:
@@ -771,7 +772,7 @@ Tone
       | `page` | **LLM prompt** | if there's a description box: Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones. |
       | `fromDate` | **LLM prompt** | if there's a description box: Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none. |
       | `toDate` | **LLM prompt** | if there's a description box: End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none. |
-      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: the card the customer chose. both only if they aren't sure. Empty on the very first call, to see their cards. |
 
    5. **Save** the tool (or close its panel), and check `listCardsAndPayments` now appears in the Tools list.
 
@@ -854,7 +855,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `blockCard` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: the card the customer chose. both only if they aren't sure. Empty on the very first call, to see their cards. |
       | `orderReplacement` | **LLM prompt** | if there's a description box: yes if the customer also wants a new card sent, no if not. |
 
    5. **Save** the tool (or close its panel), and check `blockCard` now appears in the Tools list.
@@ -874,7 +875,7 @@ Tone
       |-------|--------|-------|
       | `operation` | **Explicit text** | type exactly: `orderReplacementCard` |
       | `contactId` | **Variable** | pick the context variable `contactId` from the list |
-      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: which card. Leave empty for both. |
+      | `cardType` | **LLM prompt** | if there's a description box: debit or credit: the card the customer chose. both only if they aren't sure. Empty on the very first call, to see their cards. |
 
    5. **Save** the tool (or close its panel), and check `orderReplacementCard` now appears in the Tools list.
 

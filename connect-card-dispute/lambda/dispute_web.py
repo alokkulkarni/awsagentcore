@@ -322,6 +322,11 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
             body = _body(event) if reply["statusCode"] not in (401, 503) else {}   # parsed once already
             asked = body.get("operation")
             outcome = f"{asked if asked in ACXD_OPERATIONS else '-'}:{outcome}"
+            if asked == "listCardsAndPayments" and answer.get("ok"):
+                # Which card and page were asked for: plain words from a fixed set, never customer data.
+                card = str(body.get("cardType") or "none").lower()
+                outcome += f":card={card if card in ('debit', 'credit', 'both', 'none') else 'other'}"
+                outcome += f":page={body.get('page') if str(body.get('page') or '').isdigit() else '1'}"
             if outcome.endswith("contact_not_recognised"):
                 outcome += f":{_contact_id_shape(body.get('contactId'))}"
         else:

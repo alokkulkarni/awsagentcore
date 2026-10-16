@@ -386,12 +386,22 @@ class DisputeService:
         for name, value in (("fromDate", from_date), ("toDate", to_date)):
             if value and not _is_date(value):
                 raise ValueError(f"{name} must be a date written YYYY-MM-DD, for example 2026-10-01")
-        if card_type and card_type not in ("debit", "credit"):
-            raise ValueError("cardType must be debit or credit, or empty for both")
+        if card_type and card_type not in ("debit", "credit", "both"):
+            raise ValueError("cardType must be debit, credit or both")
         try:
             page = max(1, int(page or 1))
         except (TypeError, ValueError):
             raise ValueError("page must be a whole number, starting at 1")
+        if not card_type and len(cards) > 1:
+            # Enforced here, not left to the prompt: with payments from both cards in hand, an
+            # assistant shows them. So until it says which card, it gets none.
+            choice = " or ".join(f"your {c['cardType']} card ending {c['cardLastFour']}" for c in cards)
+            return {"today": datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y-%m-%d"),
+                    "cards": cards, "payments": [], "page": 1, "totalPages": 1, "totalPayments": 0, "hasMore": False,
+                    "message": f"Ask the customer which card before showing any payments: \"Is it {choice}?\" "
+                               "Then call again with cardType debit or credit, or both if they aren't sure."}
+        if card_type == "both":
+            card_type = ""
         # A payment's number is its place in ALL the customer's payments, newest first, so it is
         # the same on every page and in every date range, and startDispute accepts it.
         numbers = {t["transaction_id"]: i + 1 for i, t in enumerate(model.card_transactions(customer_id))}

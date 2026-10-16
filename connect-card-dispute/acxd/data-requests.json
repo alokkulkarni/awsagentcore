@@ -9,7 +9,7 @@
     "cardBlocked": "yes or no: is the card blocked?",
     "contactedMerchant": "yes or no: has the customer contacted the retailer?",
     "narrative": "What happened, in the customer's own words.",
-    "cardType": "debit or credit: which card. Leave empty for both.",
+    "cardType": "debit or credit: the card the customer chose. both only if they aren't sure. Empty on the very first call, to see their cards.",
     "page": "Which page of five payments: 1 for the newest, then 2, 3 and so on when the customer asks for older ones.",
     "fromDate": "Start of the period the customer gave, as YYYY-MM-DD, worked out from today in the last reply. Empty if they gave none.",
     "toDate": "End of the period the customer gave, as YYYY-MM-DD. Empty if they gave none.",
@@ -19,7 +19,7 @@
     {
       "name": "listCardsAndPayments",
       "purpose": "looks up the customer's cards and one page of their recent payments",
-      "description": "Customer's cards and one page of 5 card payments, newest first, numbered. page 1 is newest; 2, 3 are older. Optional fromDate/toDate (YYYY-MM-DD) and cardType. Show the list to the customer.",
+      "description": "Customer's cards and a page of 5 payments, newest first. With 2 cards, give cardType (debit, credit or both) or you get none: ask which card first. page 2, 3 = older. Optional fromDate/toDate.",
       "request": {
         "operation": "listCardsAndPayments",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",

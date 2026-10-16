@@ -615,7 +615,7 @@ class DisputesAgentInCxDesigner(Base):
         return self.op("startDispute", transactionId=AMAZON, disputeType=kind)
 
     def test_the_whole_journey_ends_in_a_hand_over_built_from_the_record(self):
-        listed = self.op("listCardsAndPayments")
+        listed = self.op("listCardsAndPayments", cardType="debit")
         self.assertEqual({c["cardLastFour"]: c["status"] for c in listed["cards"]}, {"4821": "active", "2291": "active"})
         self.assertIn(AMAZON, [p["transactionId"] for p in listed["payments"]])
         started = self.started()
@@ -631,7 +631,7 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual(self.op("getDispute", disputeId=dispute_id)["cardBlocked"], "yes", "the form says so")
         replaced = self.op("orderReplacementCard", cardType="debit")
         self.assertEqual((replaced["ok"], replaced["arrivesInWorkingDays"]), (True, "3 to 5"))
-        self.assertEqual(self.op("listCardsAndPayments")["cards"][0]["status"], "blocked")
+        self.assertEqual(self.op("listCardsAndPayments", cardType="debit")["cards"][0]["status"], "blocked")
 
         handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover",
                                                  assistantSummary="Customer **was** upset [link](http://x)"), None)
@@ -655,21 +655,21 @@ class DisputesAgentInCxDesigner(Base):
         self.assertTrue(all("\n" not in v for v in pop.values()))
 
     def test_payments_come_five_a_page_newest_first_numbered_across_pages(self):
-        first = self.op("listCardsAndPayments", page=1)
+        first = self.op("listCardsAndPayments", page=1, cardType="both")
         self.assertEqual((first["page"], first["totalPayments"], first["totalPages"], first["hasMore"]), (1, 17, 4, True))
         self.assertEqual([p["number"] for p in first["payments"]], [1, 2, 3, 4, 5])
         dates = [p["date"] for p in first["payments"]]
         self.assertEqual(dates, sorted(dates, reverse=True))
         self.assertEqual(first["payments"][0]["label"], "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821")
         self.assertEqual(first["today"], "2027-01-15", "the service's own clock, for working out 'last week'")
-        last = self.op("listCardsAndPayments", page="4")
+        last = self.op("listCardsAndPayments", page="4", cardType="both")
         self.assertEqual(([p["number"] for p in last["payments"]], last["hasMore"]), ([16, 17], False))
-        beyond = self.op("listCardsAndPayments", page=9)
+        beyond = self.op("listCardsAndPayments", page=9, cardType="both")
         self.assertEqual((beyond["ok"], beyond["payments"], beyond["message"]), (True, [], "No more payments."))
 
     def test_a_payment_keeps_its_number_in_any_view_and_the_number_starts_the_dispute(self):
         everything = {p["transactionId"]: p["number"] for page in (1, 2, 3, 4)
-                      for p in self.op("listCardsAndPayments", page=page)["payments"]}
+                      for p in self.op("listCardsAndPayments", page=page, cardType="both")["payments"]}
         credit = self.op("listCardsAndPayments", cardType="credit")["payments"]
         self.assertTrue(all(p["number"] == everything[p["transactionId"]] for p in credit), "same number when filtered")
         third = next(t for t, n in everything.items() if n == 3)
@@ -680,12 +680,22 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual(self.op("startDispute", transactionId="99", disputeType="unauthorised")["reason"],
                          "transaction_not_found")
 
+    def test_with_two_cards_no_payments_are_given_until_the_card_is_chosen(self):
+        asked = self.op("listCardsAndPayments", page=1)
+        self.assertEqual((asked["ok"], asked["payments"], asked["hasMore"]), (True, [], False))
+        self.assertEqual(len(asked["cards"]), 2, "the cards come back, so the assistant can name them")
+        self.assertIn('"Is it your debit card ending 4821 or your credit card ending 2291?"', asked["message"])
+        debit = self.op("listCardsAndPayments", cardType="debit")["payments"]
+        self.assertTrue(debit and all(p["cardType"] == "debit" for p in debit))
+        entry.doors.customer_of_contact = lambda contact: SARAH          # one card: no question needed
+        self.assertTrue(self.op("listCardsAndPayments")["payments"])
+
     def test_payments_can_be_narrowed_by_dates_and_card(self):
         october = self.op("listCardsAndPayments", fromDate="2026-10-01", toDate="2026-10-09", cardType="debit")
         self.assertEqual(october["totalPayments"], 6)
         self.assertTrue(all("2026-10-01" <= p["date"] <= "2026-10-09" and p["cardType"] == "debit"
                             for p in october["payments"]))
-        none = self.op("listCardsAndPayments", fromDate="2025-01-01", toDate="2025-01-31")
+        none = self.op("listCardsAndPayments", fromDate="2025-01-01", toDate="2025-01-31", cardType="both")
         self.assertEqual((none["payments"], none["message"], none["hasMore"]), ([], "No payments in that period.", False))
         for bad in ({"fromDate": "01/10/2026"}, {"toDate": "yesterday"}, {"page": "two"}, {"cardType": "amex"}):
             reply = self.op("listCardsAndPayments", **bad)
@@ -1158,7 +1168,8 @@ class CxDesignerConfiguration(unittest.TestCase):
     def test_the_prompt_makes_the_form_and_card_steps_unmissable(self):
         prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
         for must in ("Never skip step 3 or step 5", "Protecting the card comes before the\ndispute form",
-                     "Step 1. Which card", "Is it your debit card ending 4821 or your credit\n  card ending 2291?",
+                     "Step 1. Which card", "If its message tells you to ask which card",
+                     "Is it your debit card ending 4821 or your credit card ending 2291?",
                      "Never ask them for the shop name or amount", "hasMore",
                      "call blockCard with that cardType and orderReplacement yes",
                      "tell them its confirmation, word for word",
