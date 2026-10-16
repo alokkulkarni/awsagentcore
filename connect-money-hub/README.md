@@ -18,7 +18,7 @@ page itself. That conversation goes through ARIA to the same agent, which knows 
 This guide is for someone doing this for the first time. Do the steps in order. Each says what you should
 see when it worked.
 
-> **Nothing here has run on a live call or chat yet.** There are 76 automatic tests, and the agent was checked
+> **Nothing here has run on a live call or chat yet.** There are 77 automatic tests, and the agent was checked
 > on real Bedrock turns on a laptop. The first live contact is the real test. SPEC.md section 9 lists the two
 > protocol details that contact will confirm.
 
@@ -207,7 +207,11 @@ tools, remove the `aria-mcp-agentcore-gateway-server` integration, add it back, 
 
 ### Step 9 — Chat and call from the Money Hub page (10 minutes)
 
-The page gets two buttons, **Chat** and **Call**. Each one starts a conversation with ARIA, in
+A tag fixed at the bottom of the page, **Ask about your money**, opens the assistant over the page. It shows
+the tab you're on. On a phone it's a sheet from the bottom whose height you drag with its handle; on a tablet
+or computer it's a panel at the bottom right that you resize by dragging its top-left corner. The page keeps
+scrolling behind it. **–** minimises it back to the tag (a conversation carries on); **×** closes it and ends
+any conversation. Inside are two buttons, **Chat** and **Call**. Each one starts a conversation with ARIA, in
 `conversation bot flow`, from the browser. A call uses your computer's microphone and speaker; no phone is
 needed. When the customer asks about their money, ARIA hands over to the Money Hub agent as usual. The agent
 knows which tab of the page they were looking at.
@@ -278,13 +282,15 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 
 | You do | You should see |
 |---|---|
-| Open the page | A **Questions about your money?** box with **Chat** and **Call**, above the tabs |
-| Click **Expected**, then **Chat** | `Connecting you…`, ARIA's greeting, then a message the page sends for you (*"I'm on my Money Hub page, on the Expected tab…"*). Then an answer about the coming months, with no "transferring" |
+| Open the page | A tag at the bottom, **Ask about your money**, naming the tab you're on |
+| Click **Expected**, then the tag | The assistant opens over the page, *About Expected*. On a phone, drag its handle up and down; on a computer, drag its top-left corner. Scroll the page above or beside it |
+| Click **Chat** | `Connecting you…`, ARIA's greeting, then a message the page sends for you (*"I'm on my Money Hub page, on the Expected tab…"*). Then an answer about the coming months, with no "transferring" |
 | Type `What's my biggest regular payment?` | A short answer with the figure |
-| Move a payment to another category in the chat, then click **End** | The chat ends. The page refreshes and shows the new category |
+| Move a payment to another category in the chat, then click **End chat** | The chat ends. The page refreshes and shows the new category |
 | Click **Call** | Your browser asks to use the microphone: **Allow**. `Connected. Speak when you're ready.` ARIA greets you; say *"Where does my money go?"* and the answer is short, in ARIA's voice |
 | Click **Mute**, then **Unmute** | The button changes and your voice stops, then starts, reaching the call |
-| Click **End** | `You ended the call.` The contact ends in Connect (not after a timeout) |
+| Click **–** during a call | The assistant shrinks to the tag, which says **Call in progress**; the call carries on. Click the tag to return |
+| Click **End call** | `You ended the call.` The contact ends in Connect (not after a timeout) |
 | Open an ordinary (not verified) demo link and click **Chat** | ARIA asks you to verify first, then hands over |
 
 ### Check it in the logs
@@ -336,9 +342,9 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
 | [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |
 | [bridge/](bridge/) | The Connect A2A bridge: `a2a_bridge.py`, `protocol.py` |
-| [api/](api/), [web/](web/) | The Money Hub page and its Lambda. `web/talk.js` is the chat and call client |
+| [api/](api/), [web/](web/) | The Money Hub page and its Lambda. `web/talk.js` is the chat and call client; `web/dock.js` the bottom tag and the overlay |
 | [moneyhub/contact.py](moneyhub/contact.py) | What a chat or call from the page tells Connect, from the link's record |
 | [web/vendor-src/](web/vendor-src/) | Pinned Amazon Chime SDK version; `scripts/build_chime.sh` builds `web/vendor/chime.js` (not in git) |
 | [prompts/money-hub-aria-block.txt](prompts/money-hub-aria-block.txt) | The section added to ARIA's prompt |
 | [scripts/](scripts/) | Deploy (steps 2 to 4), collaborator (step 6), prompt builder (step 5), local preview, Chime build (step 9) |
-| [tests/](tests/) | 76 automatic tests |
+| [tests/](tests/) | 77 automatic tests |

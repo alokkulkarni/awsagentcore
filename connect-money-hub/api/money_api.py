@@ -52,7 +52,8 @@ WEB_DIR = next(d for d in (Path(__file__).parent / "web", Path(__file__).parent.
 MAX_BODY_BYTES = 4096
 # chime.js is the Amazon Chime SDK, built by scripts/build_chime.sh (not in git).
 ASSETS = {"styles.css": ("styles.css", "text/css"), "app.js": ("app.js", "text/javascript"),
-          "talk.js": ("talk.js", "text/javascript"), "chime.js": ("vendor/chime.js", "text/javascript")}
+          "talk.js": ("talk.js", "text/javascript"), "dock.js": ("dock.js", "text/javascript"),
+          "chime.js": ("vendor/chime.js", "text/javascript")}
 REGION = os.environ.get("AWS_REGION", "eu-west-2")
 CONNECT_INSTANCE_ID = os.environ.get("CONNECT_INSTANCE_ID", "")
 CONTACT_FLOW_ID = os.environ.get("CONTACT_FLOW_ID", "")

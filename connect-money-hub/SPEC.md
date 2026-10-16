@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Built and unit-tested (76 tests). Agent checked on real Bedrock turns locally; the page's chat and call client checked in a browser against a stand-in for Connect. **Not deployed; nothing has run on a live contact.** |
+| Status | Built and unit-tested (77 tests). Agent checked on real Bedrock turns locally; the page's chat and call client checked in a browser against a stand-in for Connect. **Not deployed; nothing has run on a live contact.** |
 | Date | 16 October 2026 |
 | Depends on | ARIA (`my-conversation-agent`) and `conversation bot flow`; the ARIA MCP gateway (optional, for agent assist) |
 | Built with | Strands Agents, `strands-agents-tools` (calculator), Amazon Bedrock AgentCore Runtime, Amazon Connect agent-to-agent (A2A) collaboration, Amazon Chime SDK for JavaScript (calls from the page), Connect Participant Service (chats from the page) |
@@ -110,7 +110,10 @@ Level 2 credential for a new channel without a verified contact behind it. Every
 `entry=money_hub` and `moneyHubView` (the open tab). The bridge passes the tab to the agent, which starts from
 it. In a chat the page sends a first customer message naming the tab once ARIA has greeted (not
 `InitialMessage`, which isn't documented to reach a Lex bot). The Chime SDK is bundled from pinned versions
-and served by the page itself, so the content security policy names no script hosts.
+and served by the page itself, so the content security policy names no script hosts. On the page the
+assistant is a tag fixed at the bottom that opens a non-modal overlay (`web/dock.js`), so the page keeps
+scrolling behind it: a bottom sheet with a drag handle on phones, a floating panel resized from its corner on
+tablets and desktops. It shows the tab it was opened from, which is the context sent to Connect.
 
 ## 4. Components
 

@@ -3,22 +3,23 @@
 //   chat  through the Amazon Connect Participant Service (HTTPS + a websocket), with the participant token
 //   call  through the Amazon Chime SDK (loaded only when a call starts), with the meeting and attendee
 // The participant and connection tokens live only in this module's memory. Every message is written as text.
+// Where it sits on the page (the bottom tag and the overlay) is dock.js.
+import { TABS, setupDock } from './dock.js';
 
 const PARTICIPANT = (region) => `https://participant.connect.${region}.amazonaws.com/participant`;
 const HEARTBEAT_MS = 10000;
 const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
 const OPENER_WAIT_MS = 4000;
-const TABS = { out: 'Money out', in: 'Money in', expected: 'Expected', transactions: 'Transactions', goals: 'Goals' };
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
 export function setupTalk({ api, currentView, onEnded }) {
   const $ = (id) => document.getElementById(id);
+  const dock = setupDock({ currentView });
   let live = null;          // { kind, region, participantToken, connectionToken, socket, heartbeat, session, stream }
   const seen = new Set();
 
   const status = (words) => { $('talk-status').textContent = words; };
-  const busy = (on) => { $('talk-chat').disabled = on; $('talk-call').disabled = on; };
 
   async function participant(region, path, bearer, body) {
     const response = await fetch(`${PARTICIPANT(region)}/${path}`, {
@@ -34,7 +35,7 @@ export function setupTalk({ api, currentView, onEnded }) {
     li.className = role === 'CUSTOMER' ? 'me' : role === 'SYSTEM' ? 'system' : 'them';
     li.textContent = plain(words);
     $('chat-log').append(li);
-    li.scrollIntoView({ block: 'nearest' });
+    $('talk-body').scrollTop = $('talk-body').scrollHeight;     // the overlay scrolls, never the page
   }
 
   function onChatItem(item) {
@@ -47,15 +48,17 @@ export function setupTalk({ api, currentView, onEnded }) {
     if (item.Type === 'EVENT' && item.ContentType === CHAT_ENDED) finish('The chat has ended.');
   }
 
-  function open(kind) {
-    $('talk-panel').hidden = false;
+  function begin(kind) {
     $('chat-log').replaceChildren();
     seen.clear();
+    $('talk-start').hidden = true;
+    $('talk-foot').hidden = false;
     $('chat-form').hidden = kind !== 'chat';
     $('call-controls').hidden = kind !== 'call';
     $('call-mute').textContent = 'Mute';
     $('call-mute').setAttribute('aria-pressed', 'false');
-    $('talk-end').textContent = 'End';
+    $('talk-end').textContent = kind === 'call' ? 'End call' : 'End chat';
+    dock.live(kind);               // remembers the tab it started from
   }
 
   // The first thing the customer says: which tab they're on. Sent once ARIA has greeted (or after a short wait),
@@ -71,7 +74,7 @@ export function setupTalk({ api, currentView, onEnded }) {
   }
 
   async function startChat() {
-    busy(true); open('chat'); status('Connecting you…');
+    begin('chat'); status('Connecting you…');
     try {
       const view = currentView();
       const started = await api('/contact/chat', { view });
@@ -85,7 +88,7 @@ export function setupTalk({ api, currentView, onEnded }) {
         socket.send(JSON.stringify({ topic: 'aws/subscribe', content: { topics: ['aws/chat'] } }));
         live.heartbeat = setInterval(() => socket.send(JSON.stringify({ topic: 'aws/heartbeat' })), HEARTBEAT_MS);
         status('Connected. Type your question below.');
-        $('chat-input').focus();
+        $('chat-input').focus({ preventScroll: true });
         // Anything said before the websocket was listening (your first message, the greeting).
         const transcript = await participant(live.region, 'transcript', live.connectionToken,
           { MaxResults: 100, ScanDirection: 'FORWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
@@ -116,7 +119,7 @@ export function setupTalk({ api, currentView, onEnded }) {
   }
 
   async function startCall() {
-    busy(true); open('call'); status('Starting your call…');
+    begin('call'); status('Starting your call…');
     try {
       // Ask for the microphone first, so a refusal costs nothing.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -173,11 +176,10 @@ export function setupTalk({ api, currentView, onEnded }) {
       try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }
       (current.stream ? current.stream.getTracks() : []).forEach((track) => track.stop());
     }
-    $('chat-form').hidden = true;
-    $('call-controls').hidden = true;
-    $('talk-end').textContent = 'Close';
+    $('talk-foot').hidden = true;
+    $('talk-start').hidden = false;
+    dock.live('');
     status(words);
-    busy(false);
     if (current) onEnded();       // the assistant may have changed categories or goals
   }
 
@@ -185,6 +187,8 @@ export function setupTalk({ api, currentView, onEnded }) {
   $('talk-call').addEventListener('click', startCall);
   $('chat-form').addEventListener('submit', sendChat);
   $('call-mute').addEventListener('click', toggleMute);
-  $('talk-end').addEventListener('click', () => { if (live) hangUp(); else $('talk-panel').hidden = true; });
+  $('talk-end').addEventListener('click', hangUp);
+  // Closing ends any conversation; minimising (in dock.js) keeps it going behind the bottom tag.
+  $('talk-close').addEventListener('click', () => { if (live) hangUp(); dock.hide(); });
   window.addEventListener('pagehide', () => { if (live) hangUp(); });
 }

@@ -159,6 +159,18 @@ class PageContacts(unittest.TestCase):
             self.assertNotIn(banned, source)
         self.assertIn("aws/subscribe", source)
 
+    def test_the_assistant_overlay_is_served_and_stores_only_its_size(self):
+        reply = api.lambda_handler({"requestContext": {"http": {"method": "GET"}}, "rawPath": "/assets/dock.js"}, None)
+        self.assertEqual(reply["statusCode"], 200)
+        dock = (FOLDER / "web" / "dock.js").read_text()
+        for banned in ("innerHTML", "insertAdjacentHTML", "sessionStorage", "token"):
+            self.assertNotIn(banned, dock)
+        self.assertEqual(dock.count("localStorage."), 2, "one read and one write, of the size only")
+        page = (FOLDER / "web" / "index.html").read_text()
+        self.assertIn('id="talk-launcher"', page)
+        self.assertIn('aria-modal="false"', page, "not modal: the page keeps scrolling behind it")
+        self.assertIn('role="separator"', page, "the resize handle works from the keyboard too")
+
 
 class ContactRules(unittest.TestCase):
 

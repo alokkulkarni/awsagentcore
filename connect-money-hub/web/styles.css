@@ -69,23 +69,74 @@ input, select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 
   .big { font-size: 1.2rem; }
 }
 
-.talk { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
-.talk-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
-.talk h2 { margin: 0; font-size: 1.05rem; }
-.talk .hint { margin: 2px 0 0; }
-.talk-actions { display: flex; gap: 8px; }
-.talk-actions button, .chat-form button, .call-controls button, .talk .end { padding: 9px 16px; border: 0; border-radius: 8px;
-  background: var(--brand); color: #fff; cursor: pointer; }
-.talk-actions button:disabled { opacity: .5; cursor: default; }
-.talk .end { background: var(--out); margin-top: 8px; }
-.talk-panel { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+/* ── The assistant: a tag fixed at the bottom, opening an overlay (dock.js) ─────────────────────── */
+:root { --talk-z: 20; }
+body { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }          /* room for the bottom tag */
+html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /* phone: room for the sheet */
+[hidden] { display: none !important; }
+
+.talk-launcher { position: fixed; z-index: var(--talk-z); bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 12px; right: 12px; display: flex; align-items: center; gap: 12px; padding: 12px 18px; border: 0;
+  border-radius: 999px; background: var(--brand); color: #fff; font: inherit; text-align: left; cursor: pointer;
+  box-shadow: 0 6px 24px rgba(27, 31, 59, .28); }
+.talk-launcher-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.talk-launcher-text span { font-size: .85rem; opacity: .85; }
+.talk-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; background: #7fe0b8; }
+.talk-launcher.live .talk-dot { background: #ff8a65; animation: talk-pulse 1.4s ease-in-out infinite; }
+@keyframes talk-pulse { 50% { box-shadow: 0 0 0 6px rgba(255, 138, 101, .25); } }
+
+.talk-panel { position: fixed; z-index: var(--talk-z); display: flex; flex-direction: column; background: var(--card);
+  color: var(--ink); box-shadow: 0 -8px 32px rgba(27, 31, 59, .22); overflow: hidden;
+  animation: talk-in .18s ease-out; }
+@keyframes talk-in { from { transform: translateY(16px); opacity: 0; } }
+.talk-panel.resizing { user-select: none; }
+.talk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 6px 14px 10px;
+  border-bottom: 1px solid var(--line); }
+.talk-head h2 { margin: 0; font-size: 1.05rem; }
+.talk-context { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+.talk-head-actions { display: flex; gap: 4px; }
+.icon { width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--bg); color: var(--ink);
+  font-size: 1.2rem; line-height: 1; cursor: pointer; }
+.talk-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 12px 14px; }
+.talk-start p { margin: 0 0 10px; }
+.talk-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.talk-actions button, .chat-form button, .call-controls button, .talk-foot .end { padding: 10px 18px; border: 0;
+  border-radius: 8px; background: var(--brand); color: #fff; font: inherit; cursor: pointer; }
+.talk-actions button { flex: 1; }
 .talk-status { margin: 0 0 8px; color: var(--muted); min-height: 1.4em; }
-.chat-log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .chat-log li { max-width: 85%; padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-log li.them { background: var(--bg); align-self: flex-start; }
 .chat-log li.me { background: var(--brand); color: #fff; align-self: flex-end; }
 .chat-log li.system { align-self: center; color: var(--muted); font-size: .85rem; }
-.chat-form { display: flex; gap: 8px; margin-top: 10px; }
+.talk-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line); }
+.chat-form { display: flex; gap: 8px; flex: 1 1 100%; }
 .chat-form input { flex: 1; min-width: 0; }
-.call-controls { margin-top: 6px; }
 .call-controls button[aria-pressed="true"] { background: var(--flex); }
+.talk-foot .end { background: var(--out); margin-left: auto; }
+.talk-grip { touch-action: none; }
+.talk-grip:focus-visible { outline: 3px solid var(--essential); outline-offset: -3px; }
+
+/* Phone: a bottom sheet across the full width. Drag the handle to change its height. */
+@media (max-width: 639px) {
+  .talk-panel { left: 0; right: 0; bottom: 0; height: var(--talk-h, 55vh); border-radius: 16px 16px 0 0; }
+  .talk-grip { display: flex; justify-content: center; align-items: center; height: 26px; flex: 0 0 auto; cursor: ns-resize; }
+  .talk-grip span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
+}
+
+/* Tablet and desktop: a floating panel at the bottom right. Drag its top-left corner to resize. */
+@media (min-width: 640px) {
+  .talk-launcher { left: auto; right: 24px; bottom: 24px; max-width: 320px; }
+  .talk-panel { right: 24px; bottom: 24px; width: var(--talk-w, 380px); height: var(--talk-h, 560px);
+    border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(27, 31, 59, .25); }
+  .talk-grip { position: absolute; top: 0; left: 0; width: 22px; height: 22px; cursor: nwse-resize; z-index: 1;
+    background: linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 5px, var(--muted) 5px 7px, transparent 7px) top left / 10px 10px no-repeat;
+    opacity: .6; border-top-left-radius: 14px; }
+  .talk-grip:hover { opacity: 1; }
+  .talk-head { padding-top: 12px; padding-left: 26px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-panel, .talk-launcher.live .talk-dot { animation: none; }
+}

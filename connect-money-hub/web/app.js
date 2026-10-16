@@ -136,7 +136,6 @@ async function load(all = true) {
   drawForecast(view.forecast, view.recurring);
   drawGoals(view.goals);
   if (all && view.talk) {
-    $('talk').hidden = false;
     setupTalk({
       api,
       currentView: () => document.querySelector('[role=tab][aria-selected=true]').dataset.view,
