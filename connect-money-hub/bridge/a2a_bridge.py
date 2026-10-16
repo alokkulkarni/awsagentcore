@@ -198,8 +198,9 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
 # Silence. Connect sends it as <EMPTY_USER_INPUT>, and on calls also as an empty turn when the customer hasn't
 # started speaking a few seconds after a reply finished playing, and whenever the bot block restarts (the flow's
 # retry loop). Connect needs text on every turn: a turn without it errors the bot block and, three times over,
-# ends the call. And Connect plays only the reply to its newest turn, so:
-#   - if a real turn is still being answered, the silence waits for that answer and returns it;
+# ends the call. Connect speaks every reply it gets (its Q in Connect record can show fewer), so:
+#   - if a real turn is still being answered, the silence waits for it (keeping the order) and then says next
+#     to nothing (WAIT_REPLY, default "."), rather than the answer a second time;
 #   - otherwise, on a call the first silence gets a short "Take your time." (SILENCE_REPLY), and a second in a
 #     row the gentle re-prompt; chat re-prompts at once.
 REPROMPT_AFTER = 2
@@ -260,9 +261,8 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
             {"input": text, "reply": reply, "startNs": now, "endNs": now, "tools": [], "model": "none"}
     if not text.strip() or text.strip() == protocol.EMPTY_INPUT:
         now = time.time_ns()
-        waited = _answer_in_flight(context_id)
-        if waited and waited[0]:
-            reply, finish = waited
+        if _answer_in_flight(context_id):
+            reply, finish = os.environ.get("WAIT_REPLY") or ".", None     # the real turn carries the answer
             return reply, finish, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now,
                                    "endNs": time.time_ns(), "tools": [], "model": "none", "silence": True,
                                    "outcome": "waited"}

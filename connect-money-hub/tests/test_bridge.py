@@ -242,7 +242,7 @@ class Bridge(unittest.TestCase):
                  if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK" for p in a["parts"]]
         self.assertEqual(texts, ["Take your time."], "the count carried over, so not the re-prompt yet")
 
-    def test_silence_while_an_answer_is_on_its_way_returns_that_answer(self):
+    def test_silence_while_an_answer_is_on_its_way_waits_and_says_next_to_nothing(self):
         self.attributes = {**VERIFIED, "channel": "VOICE"}
         self.start()
         key = bridge._session_key("ctx-1")
@@ -264,7 +264,7 @@ class Bridge(unittest.TestCase):
             bridge.sleep = __import__("time").sleep
         texts = [p["text"] for a in body["result"]["task"]["artifacts"]
                  if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK" for p in a["parts"]]
-        self.assertEqual(texts, ["About £3,158 a month."], "the real answer is what Connect plays")
+        self.assertEqual(texts, ["."], "Connect speaks every reply: the answer comes once, from its own turn")
         self.assertEqual(waits, [1])
         self.assertEqual(self.calls, [], "the agent isn't asked twice")
 
