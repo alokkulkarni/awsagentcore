@@ -1,0 +1,12 @@
+[
+  {
+    "name": "get_money_hub_summary",
+    "description": "Read-only. The customer's Money Hub at a glance: balance, average money in and out a month, biggest spending categories, essential versus discretionary spending per month, and saved goals. For agent assist; facts only, never advice.",
+    "inputSchema": {"type": "object", "properties": {"customer_id": {"type": "string", "description": "The customer ID from session context"}}, "required": ["customer_id"]}
+  },
+  {
+    "name": "get_money_hub_forecast",
+    "description": "Read-only. The next three months expected from the customer's past patterns: money in, money out and month-end balance. An estimate, not a promise.",
+    "inputSchema": {"type": "object", "properties": {"customer_id": {"type": "string", "description": "The customer ID from session context"}}, "required": ["customer_id"]}
+  }
+]
