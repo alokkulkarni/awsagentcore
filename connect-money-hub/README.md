@@ -155,8 +155,9 @@ the keyed test is skipped; that's expected.
 4. **Edit**, select all, delete, and paste the whole of
    `connect-money-hub/prompts/aria-prompt-with-money-hub.yaml`. Check the first line is `system: |`.
 5. **Save**, then **Publish** (this publishes the *prompt*).
-6. **AI agents** → `my-conversation-agent` → **Edit** → choose the prompt version you just published →
-   **Save**. **Don't publish the agent yet**: step 6 publishes one version with the prompt and the collaborator.
+6. **Don't change ARIA in the AI agent designer.** Step 6's script points ARIA at the newest published prompt
+   (and guardrail) version and publishes one ARIA version with them and the collaborator. The console's agent
+   **Save** doesn't reach the configuration the script works from, and it can drop ARIA's security profiles.
 
 ### Step 6 — Make the Money Hub agent ARIA's collaborator (5 minutes)
 
@@ -180,9 +181,12 @@ It:
 4. sets up the security profile;
 5. publishes a new ARIA version.
 
+Step 3 of its output shows `Prompt version: X -> Y` (and the guardrail): check Y is the version you just
+published. To choose another, add `--prompt-version N` or `--guardrail-version N`; `--keep-versions` leaves them.
+
 ✅ It ends with **ARIA version to use: N** and `Linked:` lines for ARIA and version N. Write N down.
 
-> **Don't save ARIA in the AI agent designer after this step.** Saving it there can replace its security profiles and silently stop the hand-over. If you do change ARIA in the console (for example a new prompt version), run this step again afterwards and use the new version it prints. `connect_collaborator.sh --check --version N` confirms the links at any time.
+> **Don't save ARIA in the AI agent designer after this step.** Saving it there can replace its security profiles and silently stop the hand-over. For a new prompt or guardrail version, publish it, then run this step again and use the new ARIA version it prints. `connect_collaborator.sh --check --version N` confirms the links at any time.
 ❌ A message about the tier means your instance isn't on Connect Customer.
 
 ### Step 7 — Point the bot flow at ARIA's new version (10 minutes)
