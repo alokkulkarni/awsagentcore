@@ -207,6 +207,29 @@ class Bridge(unittest.TestCase):
         self.assertNotIn("", history)
         self.assertNotIn(protocol.EMPTY_INPUT, history, "silences aren't part of the conversation the agent sees")
 
+    def test_a_sentence_split_by_a_pause_is_answered_as_one(self):
+        said = "can you revise that goal and put the realistic figure I can save each month"
+        history = [{"messageId": "h1", "role": "ROLE_AGENT", "parts": [{"text": "Your Car goal is saved."}]},
+                   {"messageId": "h2", "role": "ROLE_USER", "parts": [{"text": said}]},
+                   {"messageId": "h3", "role": "ROLE_USER", "parts": [{"text": "to reach the goal"}]}]
+        self.attributes = {**VERIFIED, "channel": "VOICE"}
+        self.post(init_session(history=history))
+        self.post(channel_ready("ctx-1"))
+        self.post(turn("to reach the goal"))
+        payload = self.calls[-1][0]
+        self.assertEqual(payload["input"], f"{said} to reach the goal")
+        self.assertEqual(payload["history"][-1], {"role": "assistant", "text": "Your Car goal is saved."},
+                         "the agent's history ends with its last answer, not the pieces again")
+
+    def test_a_normal_turn_is_not_doubled(self):
+        bridge_ = bridge
+        history = [{"role": "assistant", "text": "About £3,158 a month."}, {"role": "user", "text": "And next month?"}]
+        self.assertEqual(bridge_.with_unanswered(history, "And next month?"),
+                         ([{"role": "assistant", "text": "About £3,158 a month."}], "And next month?"))
+        self.assertEqual(bridge_.with_unanswered([], "Hello"), ([], "Hello"))
+        self.assertEqual(bridge_.with_unanswered([{"role": "user", "text": "first"}], "second"), ([], "first second"),
+                         "an unanswered piece is never lost")
+
     def test_silence_carries_across_connects_per_turn_sessions(self):
         self.attributes = {**VERIFIED, "channel": "VOICE"}
         self.start()

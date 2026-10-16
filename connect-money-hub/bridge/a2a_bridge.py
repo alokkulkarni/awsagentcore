@@ -210,6 +210,22 @@ def _silence_reply(session: dict) -> str:
     return REPROMPT
 
 
+def with_unanswered(history: list[dict], text: str) -> tuple[list[dict], str]:
+    """
+    (history, input) with any customer words that never got a reply folded into the input.
+
+    On a call Connect ends a customer's turn at the first pause, so one sentence can arrive as two turns a
+    second or two apart. Connect keeps only the reply to the newest, so the first is never answered, and
+    its history then ends with both pieces. Joined, the agent answers the whole sentence once.
+    """
+    kept, pending = list(history), []
+    while kept and kept[-1].get("role") == "user":
+        pending.insert(0, str(kept.pop().get("text") or "").strip())
+    if pending and pending[-1] == text.strip():          # Connect's history already holds the current turn
+        pending.pop()
+    return kept, " ".join([p for p in pending if p] + [text.strip()]).strip()
+
+
 def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | None, dict]:
     """The agent's reply, its FINISH (or None), and the turn record for the trace."""
     if not session.get("customerId"):
@@ -226,8 +242,9 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
                              "model": "none", "silence": True}
     session["silences"] = 0
     started = time.time_ns()
+    history, text = with_unanswered(session.get("transcript", []), text)
     answer = invoke_agent({"customerId": session["customerId"], "channel": session["channel"],
-                           "firstName": session.get("firstName", ""), "history": session.get("transcript", []),
+                           "firstName": session.get("firstName", ""), "history": history,
                            "loa": session.get("loa", ""), "pageView": session.get("pageView", ""),
                            "input": text}, _runtime_session(context_id))
     reply = str(answer.get("reply") or "Sorry, I didn't catch that. Could you say it another way?")
