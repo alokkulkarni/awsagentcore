@@ -178,6 +178,11 @@ def discretionary(transactions: list[dict], months: int = 3) -> dict:
             "habits": habits}
 
 
+def month_words(day: date) -> str:
+    """'March 2028': how a person says a goal date."""
+    return day.strftime("%B %Y")
+
+
 def goal_plan(transactions: list[dict], target: float, months: int | None = None, saved: float = 0.0,
               by_date: str = "") -> dict:
     """
@@ -239,14 +244,27 @@ def goal_plan(transactions: list[dict], target: float, months: int | None = None
             return 0
         return None if per_month <= 0 else math.ceil(remaining / per_month)
 
+    # Dates are worked out here, from the Money Hub's today, so the agent never has to.
+    today = as_of()
+    target_day = date.fromisoformat(by_date) if by_date else add_months(today, months)
+    at_rate, with_mix = months_to(left_over), months_to(left_over + covered)
+
+    def reached(n: int | None) -> dict | None:
+        if n is None:
+            return None
+        day = add_months(today, n)
+        return {"date": day.isoformat(), "words": month_words(day)}
+
     return {
+        "today": today.isoformat(), "todayWords": today.strftime("%-d %B %Y"),
+        "targetDate": target_day.isoformat(), "targetDateWords": month_words(target_day),
         "target": _r(target), "alreadySaved": _r(saved), "months": months,
         "neededPerMonth": _r(needed), "leftOverPerMonth": _r(left_over),
         "alreadyMovingToSavings": over.get("movedToSavings", 0.0),
         "gapPerMonth": _r(max(0.0, gap)), "onTrack": gap <= 0,
-        "monthsAtCurrentRate": months_to(left_over),
+        "monthsAtCurrentRate": at_rate, "reachedAtCurrentRate": reached(at_rate),
         "illustrativeMix": mix, "mixSavesPerMonth": _r(covered),
-        "monthsWithMix": months_to(left_over + covered),
+        "monthsWithMix": with_mix, "reachedWithMix": reached(with_mix),
         "allOptions": sorted(options, key=lambda o: -o["savesPerMonth"])[:12],
         "note": "Based on the last three complete months. These are illustrations, not advice.",
     }

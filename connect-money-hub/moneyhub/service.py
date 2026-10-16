@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable
 
 from . import analysis
@@ -25,6 +25,24 @@ from . import data
 LINK_SECONDS = 24 * 60 * 60
 MAX_GOALS = 5
 _GOAL_NAME = re.compile(r"^[\w £&'().,-]{1,40}$")
+
+
+def goal_date(value: str) -> str:
+    """A goal date as YYYY-MM-DD. A month alone (YYYY-MM) means its last day. It must be after today."""
+    text = str(value or "").strip()
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}", text):
+            year, month = map(int, text.split("-"))
+            day = data.add_months(date(year, month, 1), 1).replace(day=1) - timedelta(days=1)
+        else:
+            day = date.fromisoformat(text)
+    except (TypeError, ValueError):
+        raise MoneyHubError("bad_date", "Give the date as a month and year, for example 2028-03.")
+    today = data.as_of()
+    if day <= today:
+        raise MoneyHubError("date_not_ahead", f"Choose a date after {today.day} {today:%B %Y}, for example "
+                                              f"{data.add_months(today, 12):%B %Y}.")
+    return day.isoformat()
 
 
 class MoneyHubError(Exception):
@@ -117,8 +135,7 @@ class MoneyHub:
                   by_date: str = "") -> dict:
         if not (0 < float(target) <= 1_000_000):
             raise MoneyHubError("bad_target", "The target must be an amount of money above zero.")
-        if by_date and by_date <= data.as_of().isoformat():
-            raise MoneyHubError("bad_date", "The target date must be in the future.")
+        by_date = goal_date(by_date) if by_date else ""
         return analysis.goal_plan(self.transactions(customer_id), float(target), months, float(saved or 0), by_date)
 
     def compare(self, customer_id: str, month_a: str, month_b: str) -> dict:
@@ -133,10 +150,7 @@ class MoneyHub:
         name = " ".join(str(name or "").split())
         if not _GOAL_NAME.match(name):
             raise MoneyHubError("bad_name", "Give the goal a short name, up to 40 letters.")
-        try:
-            date.fromisoformat(by_date)
-        except (TypeError, ValueError):
-            raise MoneyHubError("bad_date", "The date must be written YYYY-MM-DD.")
+        by_date = goal_date(by_date)
         plan = self.goal_plan(customer_id, target, by_date=by_date, saved=saved)
         goals = [g for g in self.goals(customer_id) if g["name"].lower() != name.lower()]
         if len(goals) >= MAX_GOALS:

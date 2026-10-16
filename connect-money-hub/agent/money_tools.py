@@ -121,12 +121,17 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
                           already_saved: float = 0.0) -> dict:
         """What reaching a savings target takes, from the customer's own figures: the monthly amount needed, what
         is left over now, the gap, and illustrative changes to discretionary spending (with how much each frees
-        up) that would close it. target_date as YYYY-MM-DD, or months. These are illustrations, never advice."""
+        up) that would close it. target_date as YYYY-MM (a month) or YYYY-MM-DD, or months. The result gives
+        today, targetDateWords, and when they'd reach it at their current rate (reachedAtCurrentRate) and with the
+        changes (reachedWithMix), as dates in words: use those dates, never work dates out yourself. These are
+        illustrations, never advice."""
         return hub.goal_plan(customer_id, float(target_amount), int(months) or None, float(already_saved or 0),
                              target_date or "")
 
     def save_savings_goal(name: str, target_amount: float, target_date: str, already_saved: float = 0.0) -> dict:
-        """Save a savings goal to the customer's Money Hub, so it shows on their page. Only when they ask."""
+        """Save a savings goal to the customer's Money Hub, so it shows on their page. Only when they ask.
+        target_date as YYYY-MM (a month; saved as its last day) or YYYY-MM-DD, after today. To save it for when
+        they'd reach it, use the date in reachedWithMix (or reachedAtCurrentRate) from plan_savings_goal."""
         return hub.save_goal(customer_id, name, float(target_amount), target_date, float(already_saved or 0))["goal"]
 
     def compare_months(month_a: str, month_b: str) -> dict:

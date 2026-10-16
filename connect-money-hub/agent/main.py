@@ -38,6 +38,7 @@ from strands.models import BedrockModel
 
 from history import to_messages
 from money_tools import Recorder, build_tools
+from moneyhub import data
 from moneyhub.service import MoneyHub
 from moneyhub.store import DynamoStore, MemoryStore
 from prompt import system_prompt
@@ -79,7 +80,9 @@ def invoke(payload: dict) -> dict:
                 "usage": {}, "startNs": started, "endNs": time.time_ns()}
     recorder = Recorder()
     messages, preface = to_messages(payload.get("history") or [])
-    prompt = system_prompt(channel, str(payload.get("firstName") or ""), str(payload.get("pageView") or ""))
+    today = data.as_of()
+    prompt = system_prompt(channel, str(payload.get("firstName") or ""), str(payload.get("pageView") or ""),
+                           f"{today.day} {today:%B %Y}")
     if preface:
         prompt += f"\n\nEarlier, before you joined: {preface}"
     agent = Agent(model=model if channel == "CHAT" else voice_model, system_prompt=prompt, messages=messages,

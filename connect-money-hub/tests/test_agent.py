@@ -60,7 +60,18 @@ class Tools(unittest.TestCase):
         saved = self.tools["save_savings_goal"]("Car", 5000, "2027-06-30")
         self.assertEqual(saved["name"], "Car")
         bad = self.tools["plan_savings_goal"](5000, target_date="2020-01-01")
-        self.assertEqual(bad["reason"], "bad_date")
+        self.assertEqual(bad["reason"], "date_not_ahead")
+        self.assertIn("after 15 October 2026", bad["message"], "says what would work, not that something broke")
+
+    def test_goal_dates_come_from_the_tools_not_the_model(self):
+        plan = self.tools["plan_savings_goal"](10000, target_date="2027-03")
+        self.assertEqual((plan["today"], plan["targetDate"], plan["targetDateWords"]),
+                         ("2026-10-15", "2027-03-31", "March 2027"))
+        self.assertEqual(plan["reachedWithMix"]["date"][:7], "2028-03", "17 months from 15 October 2026")
+        self.assertEqual(plan["monthsWithMix"], 17)
+        saved = self.tools["save_savings_goal"]("Car deposit", 10000, plan["reachedWithMix"]["date"][:7])
+        self.assertEqual(saved["byDate"], "2028-03-31", "a month alone means its last day")
+        self.assertEqual(self.tools["save_savings_goal"]("Car", 10000, "March 27")["reason"], "bad_date")
 
     def test_every_call_is_recorded_for_connects_trace(self):
         self.tools["get_regular_payments"]()
@@ -95,6 +106,13 @@ class Prompt(unittest.TestCase):
                      "Every number comes from your tools", "Never name another company's product"):
             self.assertIn(must, text)
         self.assertIn("James", text)
+
+    def test_it_knows_today_and_never_blames_a_problem(self):
+        text = system_prompt("CHAT", "James", "", "15 October 2026")
+        self.assertIn("Today is 15 October 2026", text)
+        self.assertIn("never count months into a date yourself", text)
+        self.assertIn('Never\n  mention errors, issues, systems or problems "on my end"', text)
+        self.assertIn("March 2027 here", text)
 
     def test_voice_and_chat_get_their_own_rules(self):
         self.assertIn("ending 4 8 2 1", system_prompt("VOICE"))
