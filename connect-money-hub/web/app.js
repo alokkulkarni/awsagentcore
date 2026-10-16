@@ -5,7 +5,7 @@ import { setupTalk } from './talk.js';
 
 const $ = (id) => document.getElementById(id);
 const text = (id, value) => { $(id).textContent = value; };
-const gbp = (n) => `£${Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const gbp = (n) => `${Number(n) < 0 ? '−' : ''}£${Math.abs(Number(n)).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const day = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const monthName = (key) => new Date(`${key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
@@ -32,16 +32,18 @@ function el(tag, className, content) {
   return node;
 }
 
-function bars(listId, rows) {
-  const top = Math.max(...rows.map((r) => r.total), 1);
+// Bars per month (the totals are for `months` months), so they read the same way as the habits below them.
+function bars(listId, rows, months = 1) {
+  const perMonth = (r) => r.total / months;
+  const top = Math.max(...rows.map(perMonth), 1);
   $(listId).replaceChildren(...rows.map((r) => {
     const li = el('li', r.discretionary ? 'flex' : '');
     const label = el('span', 'label', r.words);
     const track = el('span', 'track');
     const fill = el('span', 'fill');
-    fill.style.width = `${Math.max(2, Math.round((100 * r.total) / top))}%`;
+    fill.style.width = `${Math.max(2, Math.round((100 * perMonth(r)) / top))}%`;
     track.append(fill);
-    li.append(label, track, el('span', 'value', gbp(r.total)));
+    li.append(label, track, el('span', 'value', gbp(perMonth(r))));
     return li;
   }));
 }
@@ -52,19 +54,25 @@ function drawOverview(o, d) {
   text('avg-in', gbp(o.averageMonth.moneyIn));
   text('avg-out', gbp(o.averageMonth.moneyOut));
   text('avg-left', gbp(o.averageMonth.moneyIn - o.averageMonth.moneyOut));
+  text('avg-saved', o.averageMonth.movedToSavings
+    ? `a month, on average · ${gbp(o.averageMonth.movedToSavings)} of it to savings` : 'a month, on average');
   text('out-period', `${monthName(o.months[0].month)} to ${monthName(o.months.at(-1).month)}`);
-  text('split', `Essentials ${gbp(d.essentialPerMonth)} a month · Discretionary ${gbp(d.discretionaryPerMonth)} a month (${d.discretionaryShare}%)`);
-  bars('out-bars', o.topSpending);
-  bars('in-bars', o.moneyInSources);
+  text('split', `Bills and essentials ${gbp(d.essentialPerMonth)} a month · spending you choose ${gbp(d.discretionaryPerMonth)} a month (${d.discretionaryShare}%)`);
+  $('split-ess').style.width = `${100 - d.discretionaryShare}%`;
+  $('split-flex').style.width = `${d.discretionaryShare}%`;
+  const months = Math.max(1, o.months.length);
+  bars('out-bars', o.topSpending, months);
+  bars('in-bars', o.moneyInSources, months);
   $('habits').replaceChildren(...d.habits.filter((h) => h.discretionary).slice(0, 6).map((h) => {
     const li = el('li');
-    li.append(el('strong', '', h.words), el('span', '', `${gbp(h.perMonth)} a month · ${h.timesPerMonth} ${h.timesPerMonth === 1 ? 'time' : 'times'} · ${gbp(h.averageEach)} each`));
+    li.append(el('strong', '', h.words), el('span', 'amount', `${gbp(h.perMonth)} a month`),
+      el('span', 'hint', `${h.timesPerMonth} ${h.timesPerMonth === 1 ? 'time' : 'times'} · ${gbp(h.averageEach)} each`));
     return li;
   }));
   $('months').replaceChildren(...o.months.map((m) => {
     const tr = el('tr');
     tr.append(el('td', '', monthName(m.month)), el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
-      el('td', '', gbp(m.movedToSavings)), el('td', '', gbp(m.net)));
+      el('td', '', gbp(m.movedToSavings)), el('td', '', gbp(m.moneyIn - m.moneyOut)));
     return tr;
   }));
 }
