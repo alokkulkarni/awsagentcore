@@ -39,11 +39,15 @@ NOTE_MAX_CHARS = 300
 CARD_ACTIONS = {"blocked": "BLOCK", "replacement_ordered": "REPL"}
 ESCALATION_REASONS = ("dispute_ready_for_review", "dispute_incomplete", "customer_request", "vulnerability",
                       "tool_failure", "other")
+# The assistant's generic "ready" or "incomplete" becomes the case's own: fraud_ready_for_review and so on.
+_GENERIC_REASONS = ("dispute_ready_for_review", "dispute_incomplete", "")
+_CASE_INTENT = {"unauthorised": "Report card fraud and dispute the payment",
+                "scam": "Report a scam and dispute the payment", "merchant": "Dispute a card transaction"}
 
 # What the CX designer agent gets back for a dispute. Every key, always: the CX
 # designer rejects a reply that lacks a field its sample had.
 ASSISTANT_DISPUTE = {"ok": False, "reason": "", "message": "", "disputeId": "", "status": "", "payment": "",
-                     "disputeType": "", "reasonCode": "", "reasonsAllowed": "", "cardInPossession": "",
+                     "disputeType": "", "caseType": "", "whatHappensNext": "", "reasonCode": "", "reasonsAllowed": "", "cardInPossession": "",
                      "cardBlocked": "", "contactedMerchant": "", "narrative": "", "missing": "", "complete": False,
                      "customerWatching": False, "linkSent": False}
 
@@ -139,7 +143,7 @@ class DisputeService:
         if dispute.get("disputeType") == model.MERCHANT:
             topic = self.merchant_topic or f"{dispute['cardType']}_card"
         else:
-            topic = "fraud_security"
+            topic = "fraud_security"                     # fraud and scam cases
         return {"topicCategory": topic,
                 "customerIntent": "Dispute a card transaction",
                 "summaryStartsWith": f"Card dispute {dispute['disputeId']} drafted."}
@@ -357,7 +361,8 @@ class DisputeService:
         shown = model.view(dispute)
         return {**ASSISTANT_DISPUTE, "ok": True,
                 "disputeId": shown["disputeId"], "status": shown["status"], "payment": model.payment_words(dispute),
-                "disputeType": shown["disputeType"], "reasonCode": shown["reason"],
+                "disputeType": shown["disputeType"], "caseType": shown["caseType"],
+                "whatHappensNext": shown["whatHappensNext"], "reasonCode": shown["reason"],
                 "reasonsAllowed": ", ".join(model.REASONS.get(shown["disputeType"], {})) or "set disputeType first",
                 "cardInPossession": shown["cardInPossession"], "cardBlocked": shown["cardBlocked"],
                 "contactedMerchant": shown["contactedMerchant"], "narrative": shown["narrative"],
@@ -561,16 +566,19 @@ class DisputeService:
         kind = f"{shown['disputeTypeWords']}" + (f" ({shown['reasonWords']})" if shown["reasonWords"] else "")
         summary = " ".join(part for part in [
             f"Card dispute {shown['disputeId']} drafted by the phone assistant.",
+            f"Case: {shown['caseType'].upper()}." if shown["caseType"] else "Case: not yet known.",
             f"{model.payment_words(dispute)}; {kind or 'type not given'}.",
             ("Still needed: " + ", ".join(shown["missing"]) + ".") if shown["missing"] else "All details filled in.",
             *done, screen,
             f"Assistant's note: {note}" if note else "",
             "Confirm the details with the customer before you submit."] if part)
-        default = "dispute_incomplete" if shown["missing"] else "dispute_ready_for_review"
+        case = (shown["caseType"] or "dispute").lower()
+        default = f"{case}_incomplete" if shown["missing"] else f"{case}_ready_for_review"
         return {"hasDispute": "true", "disputeId": shown["disputeId"],
                 "topicCategory": self._handover(dispute)["topicCategory"],
-                "customerIntent": "Dispute a card transaction",
-                "escalationReason": reason if reason in ESCALATION_REASONS else default,
+                "customerIntent": _CASE_INTENT.get(shown["disputeType"], "Dispute a card transaction"),
+                "escalationReason": reason if reason in ESCALATION_REASONS and reason not in _GENERIC_REASONS
+                                    else default,
                 "conversationSummary": summary}
 
     # ── the customer page ──────────────────────────────────────────────────────
@@ -718,7 +726,8 @@ class DisputeService:
             "hasDispute": "true",
             "disputeId": shown["disputeId"],
             "disputeUrl": self.mint_adviser_link(shown["disputeId"]),
-            "dispute1": f"**{shown['disputeId']}** · **{shown['disputeTypeWords']}** · {shown['statusWords']}",
+            "dispute1": f"**{shown['caseType'].upper() or 'CASE'}** · **{shown['disputeId']}** · "
+                        f"{shown['disputeTypeWords']} · {shown['statusWords']}",
             "dispute2": f"**{shown['merchant']}**, **£{shown['amount']}** on {day}, "
                         f"{shown['cardType']} card ending {shown['cardLastFour']}",
             "dispute3": ("**Still needed:** " + ", ".join(shown["missing"]) + ".") if shown["missing"]

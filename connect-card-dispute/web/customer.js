@@ -44,10 +44,12 @@ function drawChoices(status) {
   const changed = [
     options($('transactionId'), status.transactions.map((t) =>
       [t.transaction_id, `${t.merchant}, £${t.amount}, ${t.date}, ${t.card_type} card ending ${t.card_last_four}`]), 'Choose the payment…'),
-    options($('disputeType'), [['unauthorised', 'No, I did not make it'], ['merchant', 'Yes, but something went wrong']], 'Choose…'),
+    options($('disputeType'), [['unauthorised', 'No, I did not make it'], ['scam', 'Yes, but I was tricked into it'],
+      ['merchant', 'Yes, but something went wrong']], 'Choose…'),
     options($('reason'), Object.entries(status.choices.reason[type] ?? {}), type ? 'Choose…' : 'Answer the question above first'),
   ].some(Boolean);
-  show('cardInPossession', type === 'unauthorised'); show('cardInPossession-label', type === 'unauthorised');
+  const atRisk = type === 'unauthorised' || type === 'scam';   // fraud and scam ask whether they still have the card
+  show('cardInPossession', atRisk); show('cardInPossession-label', atRisk);
   show('contactedMerchant', type === 'merchant'); show('contactedMerchant-label', type === 'merchant');
   return changed;
 }

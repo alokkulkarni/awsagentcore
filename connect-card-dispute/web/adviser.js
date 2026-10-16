@@ -37,8 +37,8 @@ function draw(reply) {
     if (document.activeElement !== $(name)) $(name).value = d[name] ?? '';
   }
   if (document.activeElement !== $('narrative')) $('narrative').value = d.narrative ?? '';
-  const unauthorised = d.disputeType === 'unauthorised'; const merchant = d.disputeType === 'merchant';
-  show('cardInPossession', unauthorised); show('cardInPossession-label', unauthorised);
+  const atRisk = d.disputeType === 'unauthorised' || d.disputeType === 'scam'; const merchant = d.disputeType === 'merchant';
+  show('cardInPossession', atRisk); show('cardInPossession-label', atRisk);
   show('contactedMerchant', merchant); show('contactedMerchant-label', merchant);
 
   show('missing', d.missing.length > 0);

@@ -532,6 +532,18 @@ the page itself.
 itself, and its opening, built before the assistant node, asks about the payment. The CX designer
 application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice block does not change it.
 
+**D13. Fraud, scam or dispute (decided 16 October 2026).** Every case is a dispute on the record,
+with one of three types: `unauthorised` (FRAUD: the customer did not make it), `scam` (SCAM: they
+made it but were tricked) or `merchant` (DISPUTE: they made it and something went wrong). The
+assistant decides which from what the customer says, tells them, and:
+- for FRAUD and SCAM, blocks the card and orders a replacement first (with the customer's yes),
+  then raises the case; both go to `fraud_security`;
+- for a DISPUTE, does not touch the card; it goes to the card's team.
+The case is shown as the first word of the screen pop, in the hand-over summary ("Case: FRAUD."),
+in a case-specific escalation reason (`fraud_ready_for_review`, `scam_incomplete`, …) and intent.
+The customer is told what happens next from `WHAT_HAPPENS_NEXT` in `dispute_model.py`, word for
+word, so no timescale is invented. **That wording is a placeholder for the bank's approved text.**
+
 ## 20. New rules
 
 | # | Rule | Enforced in |
@@ -542,6 +554,11 @@ application's voice must be set to ARIA's (Amy, en-GB); Connect's Set voice bloc
 | R14 | A Connect flow event is accepted only when it is not a tool call; its reply holds no link or secret | `aria_card_dispute.lambda_handler` |
 
 ## 21. Known gaps (Part 4)
+
+- **The "what happens next" timescales are placeholders** (15 working days for fraud and scam, 8
+  weeks for disputes). Replace them in `dispute_model.WHAT_HAPPENS_NEXT` with approved wording.
+- **Fraud, scam or dispute is the assistant's judgement** from the conversation. The adviser sees the
+  case type and can change it on the form before submitting.
 
 - **Nothing here has run on a live contact.** The CX designer steps follow the mortgage build, which
   works, but this application is new.

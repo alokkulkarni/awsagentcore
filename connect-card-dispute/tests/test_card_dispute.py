@@ -637,9 +637,11 @@ class DisputesAgentInCxDesigner(Base):
                                                  assistantSummary="Customer **was** upset [link](http://x)"), None)
         self.assertTrue(all(isinstance(v, str) for v in handed.values()), "Connect reads a string map")
         self.assertEqual((handed["hasDispute"], handed["disputeId"], handed["topicCategory"], handed["escalationReason"]),
-                         ("true", dispute_id, "fraud_security", "dispute_ready_for_review"))
+                         ("true", dispute_id, "fraud_security", "fraud_ready_for_review"))
         summary = handed["conversationSummary"]
         self.assertTrue(summary.startswith(f"Card dispute {dispute_id} drafted"), "the briefing agent keys on this")
+        self.assertIn("Case: FRAUD.", summary)
+        self.assertEqual(handed["customerIntent"], "Report card fraud and dispute the payment")
         for expected in ("AMAZON.CO.UK, £89.99", "All details filled in.", "Debit card ending 4821 blocked (BLOCK-4821-",
                          "Debit card ending 4821 replacement ordered (REPL-4821-", "Confirm the details"):
             self.assertIn(expected, summary)
@@ -725,6 +727,40 @@ class DisputesAgentInCxDesigner(Base):
         token = self.adviser_token(dispute_id)
         self.service.adviser_open(token)
         self.assertEqual(self.op("updateDispute", disputeId=dispute_id, narrative="later")["reason"], "with_adviser")   # R1
+
+    def test_fraud_scam_and_dispute_are_each_marked_routed_and_explained(self):
+        cases = {"unauthorised": ("Fraud", "fraud_security", "fraud team", "Customer still has the card"),
+                 "scam": ("Scam", "fraud_security", "Scam cases", "Customer still has the card"),
+                 "merchant": ("Dispute", "debit_card", "retailer", "Customer has contacted the retailer")}
+        payments = ["TXN-4821-20261011-8999", "TXN-4821-20261010-4250", "TXN-4821-20261009-6420"]
+        for (kind, (case, team, next_words, asks)), payment in zip(cases.items(), payments):
+            started = self.op("startDispute", transactionId=payment, disputeType=kind)
+            self.assertEqual(started["caseType"], case, kind)
+            self.assertIn(next_words, started["whatHappensNext"], kind)
+            self.assertIn(asks, started["missing"], kind)
+            self.assertEqual(set(started["reasonsAllowed"].split(", ")), set(model.REASONS[kind]), kind)
+            dispute = self.service.get_card_dispute(JAMES, started["disputeId"])
+            self.assertEqual(dispute["handover"]["topicCategory"], team, kind)
+        scam = self.service.get_card_dispute(JAMES, self.op("startDispute", transactionId=payments[1],
+                                                            disputeType="scam")["disputeId"])
+        self.assertEqual(scam["dispute"]["caseType"], "Scam")
+        self.op("updateDispute", disputeId=scam["dispute_id"], reasonCode="fake_seller_or_website")
+        handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover"), None)
+        self.assertIn("Case: ", handed["conversationSummary"])
+        self.assertTrue(handed["escalationReason"].endswith(("_incomplete", "_ready_for_review")))
+        self.assertTrue(self.service.screen_pop(JAMES)["dispute1"].startswith("**"))
+        self.assertEqual(self.op("updateDispute", disputeId=scam["dispute_id"], reasonCode="charged_twice")["missing"]
+                         .count("does not fit"), 1, "a dispute reason on a scam case is flagged")
+
+    def test_the_assistants_generic_reason_becomes_the_cases_own(self):
+        self.op("startDispute", transactionId=AMAZON, disputeType="scam")
+        for given, expected in (("dispute_incomplete", "scam_incomplete"), ("", "scam_incomplete"),
+                                ("vulnerability", "vulnerability"), ("customer_request", "customer_request")):
+            handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover", assistantReason=given), None)
+            self.assertEqual(handed["escalationReason"], expected, given)
+            self.assertIn("Case: SCAM.", handed["conversationSummary"])
+            self.assertEqual(handed["customerIntent"], "Report a scam and dispute the payment")
+        self.assertTrue(self.service.screen_pop(JAMES)["dispute1"].startswith("**SCAM** · **DSP-"))
 
     def test_one_block_call_can_order_the_replacement_and_says_what_to_tell_the_customer(self):
         both = self.op("blockCard", cardType="debit", orderReplacement="yes")
@@ -906,7 +942,8 @@ class AriaPromptAndTools(unittest.TestCase):
         for name in tools:
             if name != "get_card_dispute":
                 self.assertIn(name, self.block)
-        for reason in model.EDITABLE["reason"]:
+        # The direct-mode block is an earlier design with the two original types; scam came later (SPEC Part 4).
+        for reason in (r for kind in (model.UNAUTHORISED, model.MERCHANT) for r in model.REASONS[kind]):
             self.assertIn(reason, tools["update_card_dispute"]["inputSchema"]["properties"]["reason"]["description"])
         for value in ("card_lost_or_stolen", "card_details_used_without_card", "not_recognised", "fraud_security",
                       "summaryStartsWith", "customer_page"):
@@ -1127,7 +1164,10 @@ class CxDesignerConfiguration(unittest.TestCase):
                      "tell them its confirmation, word for word",
                      "Never say a card is blocked or\n    ordered unless blockCard or orderReplacementCard replied ok true",
                      "Step 5. Offer the form (always, straight after step 4)", "Straight away, call updateDispute",
-                     "Never use it to pass on something you have a tool for"):
+                     "Never use it to pass on something you have a tool for",
+                     "Step 3. Decide what kind of case it is: fraud, scam or dispute",
+                     "SCAM (disputeType scam)", "For a DISPUTE, don't block or replace the card",
+                     "tell them whatHappensNext from your last dispute reply, word for word"):
             self.assertIn(must, prompt)
         opening = self.doc.split("**The opening.**")[1].split("**The assistant.**")[0]
         self.assertNotIn("the shop and roughly how much", opening)

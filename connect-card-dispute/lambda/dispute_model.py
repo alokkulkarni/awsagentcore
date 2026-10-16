@@ -11,8 +11,15 @@ ALL TRANSACTIONS ARE FICTIONAL TEST DATA. Never put real customer data here.
 
 from __future__ import annotations
 
-UNAUTHORISED, MERCHANT = "unauthorised", "merchant"
-DISPUTE_TYPES = (UNAUTHORISED, MERCHANT)
+# Three kinds of case, each a dispute on the record:
+#   unauthorised  FRAUD    the customer did not make the payment (or the card was lost or stolen)
+#   scam          SCAM     the customer made it, but was tricked into it
+#   merchant      DISPUTE  the customer made it, and something went wrong with what they paid for
+UNAUTHORISED, SCAM, MERCHANT = "unauthorised", "scam", "merchant"
+DISPUTE_TYPES = (UNAUTHORISED, SCAM, MERCHANT)
+CASE_WORDS = {UNAUTHORISED: "Fraud", SCAM: "Scam", MERCHANT: "Dispute"}
+# Fraud and scam cases block the card; a dispute with a retailer does not.
+CARD_AT_RISK = (UNAUTHORISED, SCAM)
 
 # The reasons a customer can give, by type, with the words shown on screen.
 REASONS: dict[str, dict[str, str]] = {
@@ -20,6 +27,12 @@ REASONS: dict[str, dict[str, str]] = {
         "card_lost_or_stolen": "Card was lost or stolen",
         "card_details_used_without_card": "Card details used without the card",
         "not_recognised": "Customer does not recognise the payment",
+    },
+    SCAM: {
+        "fake_seller_or_website": "Paid a fake seller or website",
+        "impersonation": "Tricked by someone pretending to be a company, the police or the bank",
+        "investment_or_romance": "Investment or romance scam",
+        "other_scam": "Another kind of scam",
     },
     MERCHANT: {
         "goods_not_received": "Goods or services not received",
@@ -30,7 +43,20 @@ REASONS: dict[str, dict[str, str]] = {
         "refund_not_received": "Refund not received",
     },
 }
-TYPE_WORDS = {UNAUTHORISED: "Payment the customer did not make", MERCHANT: "Problem with a payment the customer made"}
+TYPE_WORDS = {UNAUTHORISED: "Payment the customer did not make", SCAM: "Customer was tricked into making the payment",
+              MERCHANT: "Problem with a payment the customer made"}
+
+# What the assistant tells the customer happens next, by case. It says only this,
+# word for word, so it never invents a timescale or promises an outcome.
+# PLACEHOLDER WORDING: replace with your bank's approved text before real use.
+WHAT_HAPPENS_NEXT = {
+    UNAUTHORISED: ("Our fraud team will investigate this payment. Fraud cases are usually looked into within "
+                   "15 working days, and we'll keep you updated. A colleague will now check the details with you."),
+    SCAM: ("Our fraud team will review what happened. Scam cases are usually reviewed within 15 working days, and "
+           "whether any money can be recovered depends on the case. A colleague will now check the details with you."),
+    MERCHANT: ("We'll ask the retailer to respond on your behalf. Most card disputes are settled within 8 weeks, and "
+               "it can take longer if the retailer challenges it. A colleague will now check the details with you."),
+}
 YES_NO = ("yes", "no")
 
 DRAFT, WITH_ADVISER, SUBMITTED, WITHDRAWN = "draft", "with_adviser", "submitted", "withdrawn"
@@ -124,7 +150,7 @@ def find_transaction(customer_id: str, transaction_id: str) -> dict | None:
 def missing(dispute: dict) -> list[str]:
     """Labels of what still has to be filled in before the dispute can be submitted."""
     needed = ["disputeType", "reason", "narrative"]
-    if dispute.get("disputeType") == UNAUTHORISED:
+    if dispute.get("disputeType") in CARD_AT_RISK:
         needed.append("cardInPossession")
     elif dispute.get("disputeType") == MERCHANT:
         needed.append("contactedMerchant")
@@ -184,6 +210,8 @@ def view(dispute: dict) -> dict:
         "currency": dispute.get("currency", ""),
         "disputeType": kind,
         "disputeTypeWords": TYPE_WORDS.get(kind, ""),
+        "caseType": CASE_WORDS.get(kind, ""),
+        "whatHappensNext": WHAT_HAPPENS_NEXT.get(kind, ""),
         "reason": dispute.get("reason", ""),
         "reasonWords": REASONS.get(kind, {}).get(dispute.get("reason", ""), ""),
         "cardInPossession": dispute.get("cardInPossession", ""),
