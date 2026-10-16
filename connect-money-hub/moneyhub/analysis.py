@@ -101,7 +101,7 @@ def recurring(transactions: list[dict]) -> list[dict]:
             continue
         last = days[-1]
         found.append({
-            "merchant": merchant, "category": category, "words": cat.words(category),
+            "merchant": merchant, "merchantName": friendly(merchant), "category": category, "words": cat.words(category),
             "direction": cat.direction(category), "amount": _r(mean(amounts)),
             "dayOfMonth": round(mean(d.day for d in days)), "lastPaid": last.isoformat(),
             "nextExpected": add_months(last, 1).isoformat(), "discretionary": cat.is_discretionary(category),

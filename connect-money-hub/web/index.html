@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Money Hub</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>Money Hub</h1>
+      <p class="as-of" id="as-of"></p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p id="message" class="message" role="status"></p>
+
+    <section id="hub" hidden>
+      <div class="cards">
+        <article class="card"><h2>Balance</h2><p class="big" id="balance"></p></article>
+        <article class="card in"><h2>Money in <span class="hint">a month, on average</span></h2><p class="big" id="avg-in"></p></article>
+        <article class="card out"><h2>Money out <span class="hint">a month, on average</span></h2><p class="big" id="avg-out"></p></article>
+        <article class="card"><h2>Left over <span class="hint">a month, on average</span></h2><p class="big" id="avg-left"></p></article>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="Money Hub views">
+        <button role="tab" id="tab-out" aria-selected="true" data-view="out">Money out</button>
+        <button role="tab" id="tab-in" aria-selected="false" data-view="in">Money in</button>
+        <button role="tab" id="tab-expected" aria-selected="false" data-view="expected">Expected</button>
+        <button role="tab" id="tab-transactions" aria-selected="false" data-view="transactions">Transactions</button>
+        <button role="tab" id="tab-goals" aria-selected="false" data-view="goals">Goals</button>
+      </nav>
+
+      <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
+        <h2>Where your money goes <span class="hint" id="out-period"></span></h2>
+        <p class="split" id="split"></p>
+        <p class="hint">Totals for the three months, by category.</p>
+        <ul class="bars" id="out-bars"></ul>
+        <h3>Habits</h3>
+        <ul class="habits" id="habits"></ul>
+      </section>
+
+      <section class="view" id="view-in" role="tabpanel" aria-labelledby="tab-in" hidden>
+        <h2>Where your money comes from <span class="hint">last three months</span></h2>
+        <ul class="bars in" id="in-bars"></ul>
+        <h3>By month</h3>
+        <table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left</th></tr></thead>
+          <tbody id="months"></tbody></table>
+      </section>
+
+      <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>
+        <h2>The months ahead <span class="hint">an estimate from your past patterns</span></h2>
+        <div class="forecast" id="forecast"></div>
+        <h3>Regular payments and income</h3>
+        <ul class="regular" id="regular"></ul>
+        <p class="hint" id="basis"></p>
+      </section>
+
+      <section class="view" id="view-transactions" role="tabpanel" aria-labelledby="tab-transactions" hidden>
+        <h2>Transactions</h2>
+        <form class="filters" id="filters">
+          <label>Show <select id="f-direction"><option value="">All</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
+          <label>Category <select id="f-category"><option value="">Any</option></select></label>
+          <label>Search <input id="f-merchant" type="search" placeholder="Shop or payee" maxlength="40"></label>
+        </form>
+        <p class="hint">Choose a different category for any payment. Your Money Hub and the assistant use your choice.</p>
+        <ul class="tx" id="tx"></ul>
+        <button class="more" id="more" hidden>Show older</button>
+      </section>
+
+      <section class="view" id="view-goals" role="tabpanel" aria-labelledby="tab-goals" hidden>
+        <h2>Savings goals</h2>
+        <ul class="goals" id="goals"></ul>
+        <form class="goal-form" id="goal-form">
+          <h3>Add a goal</h3>
+          <label>Name <input id="g-name" required maxlength="40" placeholder="New car"></label>
+          <label>Target (£) <input id="g-target" type="number" min="1" step="1" required></label>
+          <label>By <input id="g-date" type="date" required></label>
+          <label>Already saved (£) <input id="g-saved" type="number" min="0" step="1" value="0"></label>
+          <button type="submit">Work it out and save</button>
+          <p class="hint" id="g-result"></p>
+        </form>
+        <p class="hint">Guidance based on your past spending, not financial advice.</p>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
