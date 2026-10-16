@@ -26,7 +26,12 @@ export function setupTalk({ api, currentView, onEnded }) {
       method: 'POST', headers: { 'content-type': 'application/json', 'X-Amz-Bearer': bearer }, body: JSON.stringify(body),
       keepalive: true,                  // so leaving the page still ends the contact
     });
-    if (!response.ok) throw new Error(`We couldn't connect the conversation (${response.status}). Please try again.`);
+    if (!response.ok) {
+      // Connect's own reason, for the browser console only (it never contains a token).
+      const reason = await response.json().then((j) => j.Message || j.message || '').catch(() => '');
+      console.warn(`Connect participant ${path} failed: ${response.status} ${reason}`);
+      throw new Error(`We couldn't connect the conversation (${response.status}). Please try again.`);
+    }
     return response.json().catch(() => ({}));
   }
 
@@ -80,7 +85,7 @@ export function setupTalk({ api, currentView, onEnded }) {
       const started = await api('/contact/chat', { view });
       live = { kind: 'chat', region: started.region, participantToken: started.participantToken, view };
       const joined = await participant(started.region, 'connection', started.participantToken,
-        { Type: ['WEBSOCKET', 'CONNECTION_CREDENTIALS'], ConnectParticipant: true });
+        { Type: ['WEBSOCKET', 'CONNECTION_CREDENTIALS'] });     // no ConnectParticipant: that's for streaming and agents
       live.connectionToken = joined.ConnectionCredentials.ConnectionToken;
       const socket = new WebSocket(joined.Websocket.Url);
       live.socket = socket;

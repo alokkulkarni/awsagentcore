@@ -158,6 +158,8 @@ class PageContacts(unittest.TestCase):
         for banned in ("innerHTML", "insertAdjacentHTML", "localStorage", "sessionStorage", "eval("):
             self.assertNotIn(banned, source)
         self.assertIn("aws/subscribe", source)
+        self.assertNotIn("ConnectParticipant: true", source,
+                         "a websocket customer must not send it (Connect answers 400 ValidationException)")
 
     def test_the_assistant_overlay_is_served_and_stores_only_its_size(self):
         reply = api.lambda_handler({"requestContext": {"http": {"method": "GET"}}, "rawPath": "/assets/dock.js"}, None)
