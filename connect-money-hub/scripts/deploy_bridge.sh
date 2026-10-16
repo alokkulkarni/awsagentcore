@@ -23,9 +23,9 @@
 #   ./connect-money-hub/scripts/deploy_bridge.sh [--region R] [--account-id A] [--instance-id ID]
 #                                                [--mode sync|poll] [--silence-reply TEXT] [--dry-run]
 #
-#   --silence-reply  what the agent says to a pause on a call that it would
-#                    otherwise let pass (default: nothing). Only if Connect
-#                    won't accept a turn without text, e.g. --silence-reply "Mm-hm."
+#   --silence-reply  what the agent says to the first pause on a call
+#                    (default "Take your time."). Connect needs text on every
+#                    turn, so it can't be empty.
 #
 # Requirements: AWS CLI v2.27+, python3, zip, curl. Run deploy_agent.sh first.
 # =============================================================================

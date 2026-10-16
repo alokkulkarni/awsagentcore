@@ -195,10 +195,11 @@ class Bridge(unittest.TestCase):
             texts = [p["text"] for a in task["artifacts"] if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK"
                      for p in a["parts"]]
             self.assertEqual(task["status"]["state"], "TASK_STATE_COMPLETED")
+            self.assertTrue(texts, "Connect needs text on every turn: a turn without it errors the bot block")
             if expected:
-                self.assertTrue(texts and texts[0].startswith(expected), "the second silence in a row re-prompts")
+                self.assertTrue(texts[0].startswith(expected), "the second silence in a row re-prompts")
             else:
-                self.assertEqual(texts, [], "no words over the answer they're listening to")
+                self.assertEqual(texts, ["Take your time."], "a short, easy reply to a pause")
             self.assertTrue(any(a["metadata"][f"{EXT}/eventType"] == "TRACING_SPAN" for a in task["artifacts"]),
                             "every turn still carries its trace")
         self.assertEqual(len(self.calls), 1, "silence never reaches the agent")
@@ -237,8 +238,35 @@ class Bridge(unittest.TestCase):
         self.post(turn("Where does my money go?"))
         self.post(init_session(history=[{"messageId": "h1", "role": "ROLE_USER", "parts": [{"text": ""}]}]))
         _, body, _ = self.post(turn("", rid="s1"))
-        self.assertEqual([a for a in body["result"]["task"]["artifacts"]
-                          if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK"], [])
+        texts = [p["text"] for a in body["result"]["task"]["artifacts"]
+                 if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK" for p in a["parts"]]
+        self.assertEqual(texts, ["Take your time."], "the count carried over, so not the re-prompt yet")
+
+    def test_silence_while_an_answer_is_on_its_way_returns_that_answer(self):
+        self.attributes = {**VERIFIED, "channel": "VOICE"}
+        self.start()
+        key = bridge._session_key("ctx-1")
+        session = bridge.store.get(key)
+        bridge.store.put(key, {**session, "inflight": {"id": "t1", "at": bridge.store.clock()}})
+        waits = []
+
+        def finish_the_answer(_):            # the real turn finishes while the silence waits
+            waits.append(1)
+            current = bridge.store.get(key)
+            current.pop("inflight", None)
+            bridge.store.put(key, {**current, "lastAnswer": {"id": "t1", "reply": "About £3,158 a month.",
+                                                            "finish": None}})
+        bridge.sleep = finish_the_answer
+        try:
+            self.post(init_session())                # Connect restarts the session for the silence turn
+            _, body, _ = self.post(turn("", rid="s1"))
+        finally:
+            bridge.sleep = __import__("time").sleep
+        texts = [p["text"] for a in body["result"]["task"]["artifacts"]
+                 if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK" for p in a["parts"]]
+        self.assertEqual(texts, ["About £3,158 a month."], "the real answer is what Connect plays")
+        self.assertEqual(waits, [1])
+        self.assertEqual(self.calls, [], "the agent isn't asked twice")
 
     def test_the_conversation_is_kept_and_chat_history_from_connect_is_the_record(self):
         self.start()

@@ -184,6 +184,9 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
         "transcript": history if history else existing.get("transcript", []),
         # Voice over HTTPS starts a session for every turn: keep how recently we spoke and how many silences in a row.
         "lastReplyAt": existing.get("lastReplyAt", 0), "silences": existing.get("silences", 0),
+        # A turn still being answered, and the last answer: a silence turn's session must not lose them.
+        **({"inflight": existing["inflight"]} if existing.get("inflight") else {}),
+        **({"lastAnswer": existing["lastAnswer"]} if existing.get("lastAnswer") else {}),
         "tasks": existing.get("tasks", {}),
     }
     _save(context_id, session)
@@ -193,20 +196,41 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
 
 
 # Silence. Connect sends it as <EMPTY_USER_INPUT>, and on calls also as an empty turn when the customer hasn't
-# started speaking a few seconds after the reply finished playing (Lex's start-silence threshold). The time a
-# reply takes to play isn't known here, so silence is counted, not timed: on a call the first silence after a
-# reply gets no reply (the customer is often just about to speak), and a second in a row gets a gentle
-# re-prompt. SILENCE_REPLY is what a "say nothing" turn says ("" = no text at all).
+# started speaking a few seconds after a reply finished playing, and whenever the bot block restarts (the flow's
+# retry loop). Connect needs text on every turn: a turn without it errors the bot block and, three times over,
+# ends the call. And Connect plays only the reply to its newest turn, so:
+#   - if a real turn is still being answered, the silence waits for that answer and returns it;
+#   - otherwise, on a call the first silence gets a short "Take your time." (SILENCE_REPLY), and a second in a
+#     row the gentle re-prompt; chat re-prompts at once.
 REPROMPT_AFTER = 2
 REPROMPT = "Are you still there? Take your time; I'm here when you're ready."
+INFLIGHT_WAIT_SECONDS = 20
+sleep = time.sleep                     # replaced in tests
 
 
 def _silence_reply(session: dict) -> str:
     session["silences"] = int(session.get("silences", 0)) + 1
     if session.get("channel") == "VOICE" and session["silences"] < REPROMPT_AFTER:
-        return os.environ.get("SILENCE_REPLY", "")
+        return os.environ.get("SILENCE_REPLY") or "Take your time."
     session["silences"] = 0
     return REPROMPT
+
+
+def _answer_in_flight(context_id: str) -> tuple[str, dict | None] | None:
+    """(reply, finish) of a real turn still being answered for this conversation, once it's ready; else None."""
+    current = _load(context_id) or {}
+    pending = current.get("inflight")
+    if not pending or store.clock() - float(pending.get("at") or 0) > INFLIGHT_WAIT_SECONDS:
+        return None
+    deadline = time.monotonic() + INFLIGHT_WAIT_SECONDS
+    while True:
+        done = current.get("lastAnswer") or {}
+        if done.get("id") == pending.get("id"):
+            return str(done.get("reply") or ""), done.get("finish")
+        if not current.get("inflight") or time.monotonic() > deadline:
+            return None
+        sleep(0.25)
+        current = _load(context_id) or {}
 
 
 def with_unanswered(history: list[dict], text: str) -> tuple[list[dict], str]:
@@ -235,13 +259,23 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
                                                      "contact. Verify them, then hand back if they still want it."}, \
             {"input": text, "reply": reply, "startNs": now, "endNs": now, "tools": [], "model": "none"}
     if not text.strip() or text.strip() == protocol.EMPTY_INPUT:
-        reply = _silence_reply(session)
         now = time.time_ns()
+        waited = _answer_in_flight(context_id)
+        if waited and waited[0]:
+            reply, finish = waited
+            return reply, finish, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now,
+                                   "endNs": time.time_ns(), "tools": [], "model": "none", "silence": True,
+                                   "outcome": "waited"}
+        reply = _silence_reply(session)
         return reply, None, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now, "endNs": now, "tools": [],
-                             "model": "none", "silence": True}
+                             "model": "none", "silence": True,
+                             "outcome": "reprompt" if reply == REPROMPT else "pause"}
     session["silences"] = 0
     started = time.time_ns()
     history, text = with_unanswered(session.get("transcript", []), text)
+    # Visible to a silence turn that arrives while this one is being answered (see _answer_in_flight).
+    inflight = {"id": secrets.token_hex(6), "at": store.clock()}
+    _save(context_id, {**session, "inflight": inflight})
     answer = invoke_agent({"customerId": session["customerId"], "channel": session["channel"],
                            "firstName": session.get("firstName", ""), "history": history,
                            "loa": session.get("loa", ""), "pageView": session.get("pageView", ""),
@@ -251,6 +285,9 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
     turn = {"input": text, "reply": reply, "model": answer.get("model", ""), "usage": answer.get("usage") or {},
             "tools": answer.get("tools") or [], "startNs": answer.get("startNs") or started,
             "endNs": answer.get("endNs") or time.time_ns()}
+    session["lastAnswer"] = {"id": inflight["id"], "reply": reply, "finish": finish, "at": store.clock()}
+    session.pop("inflight", None)
+    _save(context_id, session)
     return reply, finish, turn
 
 
@@ -274,8 +311,7 @@ def _answer(request_id, context_id: str, task_id: str, session: dict, text: str,
     if session.get("tracing", True):
         trace_id, parent = protocol.trace_context(headers)
         trace = protocol.build_trace(trace_id, parent, turn)
-    logger.info("event=TEXT outcome=%s tools=%d finish=%s ms=%d",
-                ("silent" if not reply.strip() else "reprompt") if turn.get("silence") else "ok",
+    logger.info("event=TEXT outcome=%s tools=%d finish=%s ms=%d", turn.get("outcome") or "ok",
                 len(turn.get("tools") or []), finish["type"] if finish else "-",
                 (turn["endNs"] - turn["startNs"]) // 1_000_000)
     return protocol.turn_task(request_id, context_id, task_id, reply, trace, finish)
