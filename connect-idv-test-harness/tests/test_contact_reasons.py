@@ -105,8 +105,25 @@ class BothInjectorsAgree(unittest.TestCase):
 
         verified = invoke({"customerId": SARAH, "authStatus": "authenticated", "LoA": "2"})
         self.assertEqual(verified["topContactReason"], "a payment that did not go through")
-        phone_only = invoke({"customerId": SARAH, "authStatus": "authenticated"})
-        self.assertEqual((phone_only["hasKnownContactReason"], phone_only["contactReasonSummary"]), ("false", ""))
+        # customerId supplied with no LoA and no phone match: nothing vouches for a level.
+        no_level = invoke({"customerId": SARAH, "authStatus": "authenticated"})
+        self.assertEqual((no_level["hasKnownContactReason"], no_level["contactReasonSummary"]), ("false", ""))
+
+    def test_plain_injector_needs_the_same_opt_in(self):
+        plain.ASSISTANT_ID = ""
+        event = {"Details": {"ContactData": {
+            "ContactId": "contact-1", "Channel": "VOICE",
+            "InstanceARN": "arn:aws:connect:eu-west-2:111122223333:instance/abc",
+            "CustomerEndpoint": {"Address": "+447765309252"}, "Attributes": {}}}}
+        self.assertEqual(plain.CLI_MATCH_LOA, "")
+        result = plain.lambda_handler(event, None)
+        self.assertEqual((result["customerId"], result["loa"], result["hasKnownContactReason"]), (JAMES, "", "false"))
+        plain.CLI_MATCH_LOA = "3"
+        try:
+            result = plain.lambda_handler(event, None)
+        finally:
+            plain.CLI_MATCH_LOA = ""
+        self.assertEqual((result["loa"], result["hasKnownContactReason"]), ("3", "true"))
 
 
 class EndToEndThroughTheHarness(base.SessionInjectorHandoff):
@@ -132,12 +149,23 @@ class EndToEndThroughTheHarness(base.SessionInjectorHandoff):
         self.assertEqual(result["topContactReason"], "card payments that were declined")
         self.assertNotIn("CARD_BLOCKED_FRAUD", self.injected["contactReasons"])
 
-    def test_direct_call_to_the_main_flow_gets_no_reasons(self):
+    def test_direct_call_gets_no_reasons_by_default(self):
         result = self.invoke({})                                     # James's real CLI, no harness
         self.assertEqual((result["customerId"], result["hasKnownContactReason"]), (JAMES, "false"))
-        # Empty values are dropped before the Q Connect call, so nothing is injected.
         self.assertEqual(self.injected["contactReasonSummary"], "")
-        self.assertEqual(self.injected["contactReasons"], "")
+
+    def test_opted_in_direct_call_gets_the_same_reasons_as_a_call_through_the_harness(self):
+        qconnect.CLI_MATCH_LOA = "3"
+        try:
+            direct = self.invoke({})
+        finally:
+            qconnect.CLI_MATCH_LOA = ""
+        self.assertEqual((direct["customerId"], direct["hasKnownContactReason"]), (JAMES, "true"))
+        call = base.Call()
+        call.press("1", base.line_key(JAMES))                        # quick select James
+        through_harness = self.invoke(call.attributes, cli="+447911000000")
+        for key in ("topContactReason", "contactReasonSummary", "loa"):
+            self.assertEqual(direct[key], through_harness[key], key)
 
     # The inherited tests run again here unchanged, which is intended.
 
