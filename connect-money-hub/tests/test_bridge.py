@@ -79,6 +79,37 @@ class Bridge(unittest.TestCase):
         bridge.api_key = lambda: ""
         self.assertEqual(self.post(init_session())[0], 503, "not set up: refuse rather than accept anything")
 
+    def test_a_failed_key_read_is_not_remembered(self):
+        import importlib
+        import os
+        import types
+        real = importlib.reload(bridge)            # the real api_key, not setUp's stand-in
+        calls = []
+
+        class Secrets:
+            def get_secret_value(self, SecretId):
+                calls.append(SecretId)
+                if len(calls) == 1:
+                    raise RuntimeError("AccessDeniedException: Access to KMS is not allowed")
+                return {"SecretString": "the-key"}
+
+        fake_boto3 = types.SimpleNamespace(client=lambda name: Secrets())
+        saved = sys.modules.get("boto3")
+        sys.modules["boto3"] = fake_boto3
+        os.environ["API_KEY_SECRET_ID"] = "test/secret"
+        try:
+            self.assertEqual(real.api_key(), "", "the first read fails (new permissions not there yet)")
+            self.assertEqual(real.api_key(), "the-key", "the next request tries again rather than reusing the failure")
+            self.assertEqual(real.api_key(), "the-key")
+            self.assertEqual(len(calls), 2, "a good key is kept")
+        finally:
+            os.environ.pop("API_KEY_SECRET_ID", None)
+            if saved is None:
+                sys.modules.pop("boto3", None)
+            else:
+                sys.modules["boto3"] = saved
+            real._secret_cache.clear()
+
     def test_init_session_is_answered_like_sample_a2(self):
         status, body, headers = self.post(init_session())
         self.assertEqual((status, body["id"]), (200, "1"))

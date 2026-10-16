@@ -64,7 +64,9 @@ _secret_cache: dict[str, tuple[float, str]] = {}
 # ── outside the Lambda (replaced in tests) ─────────────────────────────────────
 
 def api_key() -> str:
-    """The key Connect must present, read with this Lambda's role and kept five minutes. Never logged."""
+    """The key Connect must present, read with this Lambda's role and kept five minutes. Never logged.
+    A failed read is not kept, so the bridge recovers as soon as the permission works (for example a minute
+    after deployment, when a new role's permissions have reached every AWS endpoint)."""
     secret_id = os.environ.get("API_KEY_SECRET_ID", "")
     if not secret_id:
         return ""
@@ -76,8 +78,9 @@ def api_key() -> str:
         value = boto3.client("secretsmanager").get_secret_value(SecretId=secret_id).get("SecretString", "").strip()
     except Exception:
         logger.exception("Could not read the API key secret. Check secretsmanager:GetSecretValue and kms:Decrypt.")
-        value = ""
-    _secret_cache[secret_id] = (time.time() + SECRET_CACHE_SECONDS, value)
+        return ""
+    if value:
+        _secret_cache[secret_id] = (time.time() + SECRET_CACHE_SECONDS, value)
     return value
 
 

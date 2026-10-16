@@ -180,9 +180,17 @@ if $DRY_RUN; then warn "Skipped in dry-run."; else
         [[ "$code" == "200" ]] && break; sleep 3; done
     [[ "$code" == "200" ]] || die "The agent card did not load (HTTP ${code}). If 403, check the Function URL permissions."
     ok "The agent card loads."
-    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$URL" || true)
-    [[ "$code" == "401" ]] || die "A request without the key got HTTP ${code}; expected 401."
-    ok "A request without the key is refused."
+    # 401 means the bridge read its key and refused ours. 503 means it couldn't read the key yet: a new role's
+    # permissions can take a minute or two to reach every AWS endpoint, so keep trying for up to two minutes.
+    code=""
+    for attempt in $(seq 1 12); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$URL" || true)
+        [[ "$code" == "503" ]] || break
+        [[ "$attempt" == "1" ]] && step "The bridge can't read its key yet (new permissions take a minute or two). Waiting..."
+        sleep 10
+    done
+    [[ "$code" == "401" ]] || die "A request without the key got HTTP ${code}; expected 401. If 503: in CloudWatch, /aws/lambda/${FUNCTION_NAME} names the error (secretsmanager:GetSecretValue or kms:Decrypt)."
+    ok "A request without the key is refused (so the bridge can read its key)."
     if [[ -n "$NEW_KEY_FILE" ]]; then
         python3 - "$URL" "$NEW_KEY_FILE" <<'PY' || die "A session start with the right key failed."
 import json, sys, urllib.request

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Built and unit-tested (77 tests). Agent checked on real Bedrock turns locally; the page's chat and call client checked in a browser against a stand-in for Connect. **Not deployed; nothing has run on a live contact.** |
+| Status | Built and unit-tested (78 tests). Agent checked on real Bedrock turns locally; the page's chat and call client checked in a browser against a stand-in for Connect. **Not deployed; nothing has run on a live contact.** |
 | Date | 16 October 2026 |
 | Depends on | ARIA (`my-conversation-agent`) and `conversation bot flow`; the ARIA MCP gateway (optional, for agent assist) |
 | Built with | Strands Agents, `strands-agents-tools` (calculator), Amazon Bedrock AgentCore Runtime, Amazon Connect agent-to-agent (A2A) collaboration, Amazon Chime SDK for JavaScript (calls from the page), Connect Participant Service (chats from the page) |

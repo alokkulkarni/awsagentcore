@@ -18,7 +18,7 @@ page itself. That conversation goes through ARIA to the same agent, which knows 
 This guide is for someone doing this for the first time. Do the steps in order. Each says what you should
 see when it worked.
 
-> **Nothing here has run on a live call or chat yet.** There are 77 automatic tests, and the agent was checked
+> **Nothing here has run on a live call or chat yet.** There are 78 automatic tests, and the agent was checked
 > on real Bedrock turns on a laptop. The first live contact is the real test. SPEC.md section 9 lists the two
 > protocol details that contact will confirm.
 
@@ -307,6 +307,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 |---|---|
 | ARIA answers money questions itself | ARIA isn't on version N in both places (step 7), or step 6 wasn't applied |
 | The conversation goes to the flow's error path at the hand-over | Connect couldn't use the bridge. In `/aws/lambda/aria-money-hub-bridge`: no lines means Connect never called it (check the A2A application's address, step 6); `event=AUTH outcome=refused` means the key doesn't match (the secret was changed) |
+| `deploy_bridge.sh` stops with "A request without the key got HTTP 503" | The bridge couldn't read its key. Just after the role is created this is AWS taking a minute or two to apply the new permissions; the script now waits up to two minutes. If it still fails, `/aws/lambda/aria-money-hub-bridge` names the error. Running the script again is safe |
 | "I can't open your Money Hub on this conversation yet" | The customer isn't verified at Level 2 on the contact. ARIA verifies them, then hands over again |
 | Every turn fails with "The Money Hub agent is unavailable" | The runtime failed. Check its CloudWatch logs; often a model the account can't use (`--model`) |
 | Connect handled a turn but the reply never arrived | The HTTPS reply format (SPEC section 9). Redeploy the bridge with `--mode poll` and try again, then tell me what the bridge log shows |
@@ -347,4 +348,4 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | [web/vendor-src/](web/vendor-src/) | Pinned Amazon Chime SDK version; `scripts/build_chime.sh` builds `web/vendor/chime.js` (not in git) |
 | [prompts/money-hub-aria-block.txt](prompts/money-hub-aria-block.txt) | The section added to ARIA's prompt |
 | [scripts/](scripts/) | Deploy (steps 2 to 4), collaborator (step 6), prompt builder (step 5), local preview, Chime build (step 9) |
-| [tests/](tests/) | 77 automatic tests |
+| [tests/](tests/) | 78 automatic tests |
