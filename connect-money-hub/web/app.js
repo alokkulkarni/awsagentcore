@@ -15,6 +15,39 @@ if (token) sessionStorage.setItem('moneyHub', token);
 
 let choices = { in: [], out: [] };
 let txPage = 1;
+let txLastDay = '';          // the day heading last drawn, so "Show older" carries on under it
+let lastDataDay = '';        // the Money Hub's today (the figures' as-of date)
+let logoFiles = {};          // merchant slug -> logo file name, for logos in web/logos (the page lists them)
+
+// A merchant's logo tile: its logo if there is one, otherwise its initials on a colour of its own.
+const slug = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function initials(name) {
+  const words = String(name || '?').replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?')[0]).toUpperCase();
+}
+function avatar(t) {
+  const tile = el('span', 'tx-logo');
+  tile.setAttribute('aria-hidden', 'true');
+  const key = slug(t.merchant);
+  if (logoFiles[key]) {
+    const img = el('img');
+    img.alt = '';
+    img.src = `/assets/logos/${logoFiles[key]}`;
+    tile.append(img);
+    return tile;
+  }
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  tile.dataset.tone = String(hash % 8);
+  tile.textContent = initials(t.merchantName || t.merchant);
+  return tile;
+}
+function dayHeading(iso) {
+  const date = new Date(`${iso}T12:00:00`);
+  const label = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  if (iso === lastDataDay) return `Today, ${label}`;
+  return `${date.toLocaleDateString('en-GB', { weekday: 'long' })}, ${label}`;
+}
 
 async function api(path, body = {}) {
   const response = await fetch(`/api${path}`, {
@@ -102,7 +135,7 @@ function drawForecast(f, regular) {
 }
 
 function categorySelect(t) {
-  const select = el('select');
+  const select = el('select', 'chip-select');
   select.setAttribute('aria-label', `Category for ${t.merchantName} on ${day(t.date)}`);
   const options = t.direction === 'in' ? choices.in : choices.out;
   for (const c of options) select.append(new Option(c.words, c.category, false, c.category === t.category));
@@ -119,30 +152,92 @@ function categorySelect(t) {
 }
 
 async function loadTransactions(reset = true) {
-  if (reset) { txPage = 1; $('tx').replaceChildren(); }
+  if (reset) { txPage = 1; txLastDay = ''; $('tx').replaceChildren(); }
   const listed = await api('/transactions', {
     page: txPage, direction: $('f-direction').value, category: $('f-category').value, merchant: $('f-merchant').value,
   });
-  $('tx').append(...listed.transactions.map((t) => {
-    const li = el('li', t.amount > 0 ? 'in' : '');
+  const rows = [];
+  for (const t of listed.transactions) {
+    if (t.date !== txLastDay) {
+      txLastDay = t.date;
+      rows.push(el('li', 'tx-day', dayHeading(t.date)));
+    }
+    const li = el('li', `tx-row${t.amount > 0 ? ' in' : ''}`);
     const what = el('div', 'what');
-    what.append(el('strong', '', t.merchantName), el('span', 'hint', `${day(t.date)}${t.recategorised ? ' · your category' : ''}`));
-    li.append(what, categorySelect(t), el('span', 'value', `${t.amount > 0 ? '+' : '−'}${gbp(Math.abs(t.amount))}`));
-    return li;
-  }));
+    const meta = el('div', 'tx-meta');
+    meta.append(categorySelect(t));
+    if (t.recategorised) meta.append(el('span', 'tx-mine', 'your category'));
+    what.append(el('strong', '', t.merchantName), meta);
+    li.append(avatar(t), what, el('span', 'value', `${t.amount > 0 ? '+' : '−'}${gbp(Math.abs(t.amount))}`));
+    rows.push(li);
+  }
+  $('tx').append(...rows);
+  if (!rows.length && reset) $('tx').append(el('li', 'tx-empty', 'No payments match. Try another search or category.'));
+  text('tx-count', listed.total ? `${listed.total} ${listed.total === 1 ? 'payment' : 'payments'}` : '');
   $('more').hidden = !listed.hasMore;
 }
 
+const monthYear = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+const openGoals = new Set();   // goals the customer has opened, kept open when the page refreshes
+
+// A goal card: name, target and date, progress and status; opens to show the plan behind it.
+function goalCard(g) {
+  const li = el('li', 'goal');
+  const box = el('details');
+  box.open = openGoals.has(g.name);
+  box.addEventListener('toggle', () => { if (box.open) openGoals.add(g.name); else openGoals.delete(g.name); });
+  const plan = g.plan;
+  const share = Math.min(100, Math.round((100 * (g.saved || 0)) / g.target));
+
+  const summary = el('summary');
+  const head = el('div', 'goal-head');
+  head.append(el('strong', '', g.name), el('span', `goal-status ${plan ? (plan.onTrack ? 'ok' : 'gap') : 'past'}`,
+    plan ? (plan.onTrack ? 'On track' : 'Needs changes') : 'Date passed'));
+  const line = el('div', 'goal-line');
+  line.append(el('span', 'goal-target', `${gbp(g.target)} by ${day(g.byDate)} ${g.byDate.slice(0, 4)}`),
+    el('span', 'hint', `${gbp(g.neededPerMonth)} a month`));
+  const bar = el('div', 'goal-bar');
+  const fill = el('span');
+  fill.style.width = `${share}%`;
+  bar.append(fill);
+  summary.append(head, line, bar, el('span', 'hint goal-saved', `${gbp(g.saved || 0)} saved so far (${share}%)`));
+  box.append(summary);
+
+  const details = el('div', 'goal-details');
+  if (plan) {
+    const facts = el('dl', 'goal-facts');
+    const fact = (label, value) => { facts.append(el('dt', '', label), el('dd', '', value)); };
+    fact('Needed each month', `${gbp(plan.neededPerMonth)} for ${plan.months} ${plan.months === 1 ? 'month' : 'months'}`);
+    fact('Left over now', `${gbp(plan.leftOverPerMonth)} a month${plan.alreadyMovingToSavings ? `, ${gbp(plan.alreadyMovingToSavings)} of it to savings` : ''}`);
+    fact('Gap', plan.onTrack ? 'None: what you have left over covers it' : `${gbp(plan.gapPerMonth)} a month`);
+    if (plan.reachedAtCurrentRate) fact('At your current rate', `reached in ${monthYear(plan.reachedAtCurrentRate.date)}`);
+    if (!plan.onTrack && plan.reachedWithMix) fact('With the changes below', `reached in ${monthYear(plan.reachedWithMix.date)}`);
+    details.append(facts);
+    if (!plan.onTrack && plan.changes.length) {
+      details.append(el('p', 'goal-sub', 'Changes that would help (examples, your choice):'));
+      const list = el('ul', 'goal-changes');
+      for (const c of plan.changes) {
+        const item = el('li');
+        item.append(el('span', '', c.change), el('span', 'value', `+${gbp(c.savesPerMonth)} a month`));
+        list.append(item);
+      }
+      details.append(list);
+    }
+  } else {
+    details.append(el('p', 'hint', 'This date has passed. Remove the goal, or add it again with a later date.'));
+  }
+  const remove = el('button', 'link', 'Remove goal');
+  remove.type = 'button';
+  remove.addEventListener('click', async () => { await api('/goal/delete', { name: g.name }); await load(false); });
+  details.append(remove);
+  box.append(details);
+  li.append(box);
+  return li;
+}
+
 function drawGoals(goals) {
-  $('goals').replaceChildren(...goals.map((g) => {
-    const li = el('li');
-    const remove = el('button', 'link', 'Remove');
-    remove.addEventListener('click', async () => { await api('/goal/delete', { name: g.name }); await load(false); });
-    li.append(el('strong', '', `${g.name}: ${gbp(g.target)} by ${day(g.byDate)}`),
-      el('span', '', `${gbp(g.neededPerMonth)} a month · ${g.onTrack ? 'on track at your current rate' : 'needs changes to reach'}`), remove);
-    return li;
-  }));
-  if (!goals.length) $('goals').append(el('li', 'hint', 'No goals yet.'));
+  $('goals').replaceChildren(...goals.map(goalCard));
+  if (!goals.length) $('goals').append(el('li', 'hint goal-empty', 'No goals yet. Add one above, or ask the assistant to help you set one.'));
 }
 
 let knownGoals = null;      // goal names last drawn, to announce one the assistant adds
@@ -156,6 +251,8 @@ function refreshSoon() {
 
 async function load(all = true) {
   const view = await api('/hub');
+  logoFiles = view.logos || {};
+  lastDataDay = view.overview.asOf;
   const names = view.goals.map((g) => g.name);
   const added = knownGoals ? names.filter((n) => !knownGoals.includes(n)) : [];
   knownGoals = names;
@@ -201,7 +298,8 @@ $('goal-form').addEventListener('submit', async (e) => {
     const p = saved.plan;
     text('g-result', p.onTrack
       ? `On track: ${gbp(p.neededPerMonth)} a month, and you have about ${gbp(p.leftOverPerMonth)} left over.`
-      : `${gbp(p.neededPerMonth)} a month needed; about ${gbp(p.gapPerMonth)} a month more than you have left over now. Ask the assistant for ideas.`);
+      : `${gbp(p.neededPerMonth)} a month needed; about ${gbp(p.gapPerMonth)} a month more than you have left over now. Open the goal below for ideas.`);
+    $('goal-form').reset();          // ready for the next one; the result line stays
     await load(false);
   } catch (error) { text('g-result', error.message); }
 });

@@ -189,9 +189,26 @@ class MoneyHub:
     def customer_of_link(self, token: str) -> str:
         return self.link_session(token)["customerId"]
 
+    def goals_with_plans(self, customer_id: str) -> list[dict]:
+        """Each saved goal with its plan today (the same sums the agent explains), for the page's goal details."""
+        out = []
+        for goal in self.goals(customer_id):
+            try:
+                plan = self.goal_plan(customer_id, goal["target"], by_date=goal["byDate"], saved=goal.get("saved", 0))
+            except MoneyHubError:                       # the date has passed
+                out.append({**goal, "plan": None})
+                continue
+            out.append({**goal, "plan": {
+                k: plan[k] for k in ("months", "neededPerMonth", "leftOverPerMonth", "alreadyMovingToSavings",
+                                     "gapPerMonth", "onTrack", "reachedAtCurrentRate", "reachedWithMix",
+                                     "mixSavesPerMonth", "targetDateWords")}
+                | {"changes": [{"change": m["change"], "savesPerMonth": m["savesPerMonth"]}
+                               for m in plan["illustrativeMix"][:4]]}})
+        return out
+
     def page_view(self, customer_id: str) -> dict:
         """Everything the page shows on load, in one call."""
         return {"overview": self.overview(customer_id), "forecast": self.forecast(customer_id),
                 "recurring": self.recurring(customer_id), "discretionary": self.discretionary(customer_id),
-                "goals": self.goals(customer_id),
+                "goals": self.goals_with_plans(customer_id),
                 "choices": {"in": cat.choices_for(cat.IN), "out": cat.choices_for(cat.OUT) + cat.choices_for(cat.MOVE)}}

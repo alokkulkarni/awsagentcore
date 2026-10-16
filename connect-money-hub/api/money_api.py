@@ -35,6 +35,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import logging
 import os
 import time
@@ -76,6 +77,28 @@ SECURITY_HEADERS = {
 }
 _connect = None
 _qconnect = None
+LOGO_TYPES = {".svg": "image/svg+xml", ".png": "image/png"}
+_LOGO_NAME = re.compile(r"^[a-z0-9-]{1,60}\.(svg|png)$")
+
+
+def logo_files() -> dict:
+    """Merchant logos the page can show: {merchant slug: file name} for files in web/logos (svg or png)."""
+    folder = WEB_DIR / "logos"
+    if not folder.is_dir():
+        return {}
+    return {f.stem: f.name for f in sorted(folder.iterdir()) if _LOGO_NAME.match(f.name)}
+
+
+def _logo(name: str) -> dict:
+    """One logo file, or 404. Only plain names from web/logos: no paths, no other types."""
+    path = WEB_DIR / "logos" / name
+    if not (_LOGO_NAME.match(name) and path.is_file()):
+        return _response(404, "Not found", "text/plain")
+    headers = {**SECURITY_HEADERS, "content-type": LOGO_TYPES[path.suffix], "cache-control": "public, max-age=86400"}
+    if path.suffix == ".png":
+        return {"statusCode": 200, "isBase64Encoded": True, "headers": headers,
+                "body": base64.b64encode(path.read_bytes()).decode()}
+    return {"statusCode": 200, "headers": headers, "body": path.read_text(encoding="utf-8")}
 
 
 def connect_client():
@@ -200,6 +223,8 @@ def web(event: dict) -> dict:
         if path == "/":
             return _response(200, (WEB_DIR / "index.html").read_text(encoding="utf-8"), "text/html")
         name = path.removeprefix("/assets/")
+        if path.startswith("/assets/logos/"):
+            return _logo(path.removeprefix("/assets/logos/"))
         if path.startswith("/assets/") and name in ASSETS and (WEB_DIR / ASSETS[name][0]).is_file():
             file, content_type = ASSETS[name]
             return _response(200, (WEB_DIR / file).read_text(encoding="utf-8"), content_type)
@@ -211,7 +236,8 @@ def web(event: dict) -> dict:
         session = hub.link_session(_s(body, "token"))     # the page's own secret; nothing else names a customer
         customer = session["customerId"]
         if path == "/api/hub":
-            reply = {**hub.page_view(customer), "talk": bool(CONNECT_INSTANCE_ID and CONTACT_FLOW_ID)}
+            reply = {**hub.page_view(customer), "talk": bool(CONNECT_INSTANCE_ID and CONTACT_FLOW_ID),
+                     "logos": logo_files()}
         elif path == "/api/transactions":
             reply = hub.list_transactions(customer, _s(body, "from"), _s(body, "to"), _s(body, "category"),
                                           _s(body, "direction"), _s(body, "merchant"), int(_num(body, "page") or 1)

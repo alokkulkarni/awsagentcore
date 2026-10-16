@@ -137,6 +137,10 @@ fi
 mkdir -p "$BUILD/pkg/web/vendor"
 cp -R "$ROOT/moneyhub" "$BUILD/pkg/"; cp "$ROOT/api/money_api.py" "$BUILD/pkg/"
 cp "$ROOT"/web/*.html "$ROOT"/web/*.js "$ROOT"/web/*.css "$BUILD/pkg/web/"
+if compgen -G "$ROOT/web/logos/*.svg" >/dev/null || compgen -G "$ROOT/web/logos/*.png" >/dev/null; then
+    mkdir -p "$BUILD/pkg/web/logos"
+    find "$ROOT/web/logos" -maxdepth 1 \( -name '*.svg' -o -name '*.png' \) -exec cp {} "$BUILD/pkg/web/logos/" \;
+fi
 ! $DO_TALK || cp "$ROOT/web/vendor/chime.js" "$BUILD/pkg/web/vendor/"
 find "$BUILD/pkg" -name '__pycache__' -prune -exec rm -rf {} +
 (cd "$BUILD/pkg" && zip -qr "$BUILD/api.zip" .)

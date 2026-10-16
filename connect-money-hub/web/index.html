@@ -83,20 +83,24 @@
       </section>
 
       <section class="view" id="view-transactions" role="tabpanel" aria-labelledby="tab-transactions" hidden>
-        <h2>Transactions</h2>
+        <div class="view-head"><h2>Transactions</h2><span class="pill" id="tx-count"></span></div>
         <form class="filters" id="filters">
+          <label class="search">Search
+            <span class="search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              <input id="f-merchant" type="search" placeholder="Shop or payee" maxlength="40">
+            </span>
+          </label>
           <label>Show <select id="f-direction"><option value="">All</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
           <label>Category <select id="f-category"><option value="">Any</option></select></label>
-          <label>Search <input id="f-merchant" type="search" placeholder="Shop or payee" maxlength="40"></label>
         </form>
-        <p class="hint">Choose a different category for any payment. Your Money Hub and the assistant use your choice.</p>
+        <p class="hint tx-tip">Tap a category to change it. Your Money Hub and the assistant use your choice.</p>
         <ul class="tx" id="tx"></ul>
         <button class="more" id="more" hidden>Show older</button>
       </section>
 
       <section class="view" id="view-goals" role="tabpanel" aria-labelledby="tab-goals" hidden>
-        <h2>Savings goals</h2>
-        <ul class="goals" id="goals"></ul>
+        <div class="view-head"><h2>Savings goals</h2><span class="pill">guidance, not advice</span></div>
         <form class="goal-form" id="goal-form">
           <h3>Add a goal</h3>
           <label>Name <input id="g-name" required maxlength="40" placeholder="New car"></label>
@@ -106,6 +110,8 @@
           <button type="submit">Work it out and save</button>
           <p class="hint" id="g-result"></p>
         </form>
+        <h3>Your goals</h3>
+        <ul class="goals" id="goals"></ul>
         <p class="hint">This is guidance based on your past spending, not financial advice.</p>
       </section>
     </section>

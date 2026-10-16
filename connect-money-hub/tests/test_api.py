@@ -51,6 +51,40 @@ class Api(unittest.TestCase):
         for missing in ("/assets/../money_api.py", "/assets/secret.txt", "/admin"):
             self.assertEqual(api.lambda_handler(http("GET", missing), None)["statusCode"], 404)
 
+    def test_logos_are_listed_and_served_only_from_the_logos_folder(self):
+        import base64
+        import tempfile
+        saved_dir = api.WEB_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            web = Path(tmp)
+            (web / "logos").mkdir()
+            (web / "logos" / "aldi.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+            (web / "logos" / "just-eat.png").write_bytes(b"\x89PNG fake")
+            (web / "logos" / "notes.txt").write_text("not a logo")
+            (web / "logos" / "Bad Name.svg").write_text("<svg/>")
+            api.WEB_DIR = web
+            try:
+                self.assertEqual(api.logo_files(), {"aldi": "aldi.svg", "just-eat": "just-eat.png"})
+                svg = api.lambda_handler(http("GET", "/assets/logos/aldi.svg"), None)
+                self.assertEqual((svg["statusCode"], svg["headers"]["content-type"]), (200, "image/svg+xml"))
+                png = api.lambda_handler(http("GET", "/assets/logos/just-eat.png"), None)
+                self.assertTrue(png["isBase64Encoded"])
+                self.assertEqual(base64.b64decode(png["body"]), b"\x89PNG fake")
+                for bad in ("/assets/logos/notes.txt", "/assets/logos/../index.html", "/assets/logos/missing.svg",
+                            "/assets/logos/Bad%20Name.svg"):
+                    self.assertEqual(api.lambda_handler(http("GET", bad), None)["statusCode"], 404, bad)
+            finally:
+                api.WEB_DIR = saved_dir
+
+    def test_the_page_gets_each_goal_with_its_plan(self):
+        api.hub.save_goal(JAMES, "Car", 10000, "2027-07")
+        status, view = self.call("/api/hub")
+        goal = view["goals"][0]
+        self.assertEqual((goal["name"], goal["plan"]["targetDateWords"]), ("Car", "July 2027"))
+        self.assertIn("reachedWithMix", goal["plan"])
+        self.assertLessEqual(len(goal["plan"]["changes"]), 4)
+        self.assertIn("logos", view)
+
     def test_every_call_needs_a_live_link_and_only_sees_that_customer(self):
         status, view = self.call("/api/hub")
         self.assertEqual(status, 200)

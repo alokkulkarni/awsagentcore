@@ -19,6 +19,7 @@ Calls need web/vendor/chime.js (scripts/build_chime.sh).
 """
 
 import argparse
+import base64
 import json
 import sys
 import time
@@ -51,7 +52,7 @@ def main() -> None:
             event = {"requestContext": {"http": {"method": method}}, "rawPath": self.path.split("?")[0],
                      "body": self.rfile.read(length).decode() if length else None}
             reply = money_api.lambda_handler(event, None)
-            body = reply["body"].encode()
+            body = base64.b64decode(reply["body"]) if reply.get("isBase64Encoded") else reply["body"].encode()
             self.send_response(reply["statusCode"])
             for key, value in reply["headers"].items():
                 self.send_header(key, value)
