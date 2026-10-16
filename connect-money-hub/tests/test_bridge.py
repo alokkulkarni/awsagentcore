@@ -183,6 +183,39 @@ class Bridge(unittest.TestCase):
         self.assertIn("still there", body["result"]["task"]["artifacts"][0]["parts"][0]["text"])
         self.assertEqual(self.calls, [])
 
+    def test_on_a_call_silence_after_an_answer_says_nothing_then_reprompts(self):
+        self.attributes = {**VERIFIED, "channel": "VOICE"}
+        self.start()
+        self.post(turn("Where does my money go?"))
+        self.assertEqual(len(self.calls), 1)
+        for rid, expected in (("s1", None), ("s2", None), ("s3", "Are you still there?")):
+            _, body, _ = self.post(turn("", rid=rid))
+            task = body["result"]["task"]
+            texts = [p["text"] for a in task["artifacts"] if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK"
+                     for p in a["parts"]]
+            self.assertEqual(task["status"]["state"], "TASK_STATE_COMPLETED")
+            if expected:
+                self.assertTrue(texts and texts[0].startswith(expected), "the third silence in a row re-prompts")
+            else:
+                self.assertEqual(texts, [], "no words over the answer they're listening to")
+            self.assertTrue(any(a["metadata"][f"{EXT}/eventType"] == "TRACING_SPAN" for a in task["artifacts"]),
+                            "every turn still carries its trace")
+        self.assertEqual(len(self.calls), 1, "silence never reaches the agent")
+        self.post(turn(protocol.EMPTY_INPUT, rid="s4"))
+        self.post(turn("And next month?", rid="t2"))
+        history = [t["text"] for t in self.calls[-1][0]["history"]]
+        self.assertNotIn("", history)
+        self.assertNotIn(protocol.EMPTY_INPUT, history, "silences aren't part of the conversation the agent sees")
+
+    def test_silence_carries_across_connects_per_turn_sessions(self):
+        self.attributes = {**VERIFIED, "channel": "VOICE"}
+        self.start()
+        self.post(turn("Where does my money go?"))
+        self.post(init_session(history=[{"messageId": "h1", "role": "ROLE_USER", "parts": [{"text": ""}]}]))
+        _, body, _ = self.post(turn("", rid="s1"))
+        self.assertEqual([a for a in body["result"]["task"]["artifacts"]
+                          if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK"], [])
+
     def test_the_conversation_is_kept_and_chat_history_from_connect_is_the_record(self):
         self.start()
         self.post(turn("first question", rid="r1"))

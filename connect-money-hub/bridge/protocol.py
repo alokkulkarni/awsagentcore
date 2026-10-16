@@ -68,8 +68,8 @@ def history_of(init: dict) -> list[dict]:
     for m in init.get("history") or []:
         if not isinstance(m, dict):
             continue
-        text = text_of(m)
-        if text:
+        text = (text_of(m) or "").strip()
+        if text and text != EMPTY_INPUT:            # silence isn't conversation
             turns.append({"role": "user" if m.get("role") == "ROLE_USER" else "assistant", "text": text})
     return turns
 
@@ -126,9 +126,10 @@ def acknowledge(request_id, context_id: str, event: str) -> dict:
 
 def turn_task(request_id, context_id: str, task_id: str, reply: str, trace: dict | None = None,
               finish: dict | None = None) -> dict:
-    """One customer turn, answered: the reply, its trace, and a completed status (with FINISH to hand back)."""
+    """One customer turn, answered: the reply, its trace, and a completed status (with FINISH to hand back).
+    An empty reply sends no text at all: the turn closes without the agent saying anything (silence on a call)."""
     artifacts = [{"artifactId": f"resp-{task_id}", "parts": [{"text": reply, "mediaType": "text/plain"}],
-                  "metadata": {EVENT_TYPE: "TEXT_RESPONSE_CHUNK", "lastChunk": True}}]
+                  "metadata": {EVENT_TYPE: "TEXT_RESPONSE_CHUNK", "lastChunk": True}}] if reply else []
     if trace:
         artifacts.append({"artifactId": f"trace-{task_id}",
                           "parts": [{"data": {"tracingSpan": trace}, "mediaType": "application/json"}],

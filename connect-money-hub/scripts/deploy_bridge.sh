@@ -21,7 +21,11 @@
 #
 # Usage:
 #   ./connect-money-hub/scripts/deploy_bridge.sh [--region R] [--account-id A] [--instance-id ID]
-#                                                [--mode sync|poll] [--dry-run]
+#                                                [--mode sync|poll] [--silence-reply TEXT] [--dry-run]
+#
+#   --silence-reply  what the agent says to a pause on a call that it would
+#                    otherwise let pass (default: nothing). Only if Connect
+#                    won't accept a turn without text, e.g. --silence-reply "Mm-hm."
 #
 # Requirements: AWS CLI v2.27+, python3, zip, curl. Run deploy_agent.sh first.
 # =============================================================================
@@ -38,6 +42,7 @@ REGION="${AWS_REGION:-eu-west-2}"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
 INSTANCE_ID="${INSTANCE_ID:-f969d4b4-f716-4974-a325-bb7899f2f293}"
 MODE="sync"
+SILENCE_REPLY=""
 DRY_RUN=false
 KEY_ALIAS="alias/aria-money-hub-a2a"
 SECRET_NAME="aria-money-hub/a2a-api-key"
@@ -54,6 +59,7 @@ while [[ $# -gt 0 ]]; do
         --account-id)  ACCOUNT_ID="$2"; shift 2 ;;
         --instance-id) INSTANCE_ID="$2"; shift 2 ;;
         --mode)        MODE="$2"; shift 2 ;;
+        --silence-reply) SILENCE_REPLY="$2"; shift 2 ;;
         --dry-run)     DRY_RUN=true; shift ;;
         --help|-h)     sed -n '/^# Usage:/,/^# Requirements:/p' "$0" | sed -E 's/^# ?//'; exit 0 ;;
         *) die "Unknown argument: $1" ;;
@@ -147,8 +153,8 @@ mkdir -p "$BUILD/pkg"
 cp "$ROOT"/bridge/*.py "$BUILD/pkg/"; cp -R "$ROOT/moneyhub" "$BUILD/pkg/"
 find "$BUILD/pkg" -name '__pycache__' -prune -exec rm -rf {} +
 (cd "$BUILD/pkg" && zip -qr "$BUILD/bridge.zip" .)
-python3 -c 'import json,sys; print(json.dumps({"Variables":{"MONEY_HUB_TABLE":sys.argv[1],"AGENT_RUNTIME_ARN":sys.argv[2],"API_KEY_SECRET_ID":sys.argv[3],"CONNECT_INSTANCE_ID":sys.argv[4],"BRIDGE_MODE":sys.argv[5]}}))' \
-    "$TABLE_NAME" "${RUNTIME_ARN:-}" "$SECRET_NAME" "$INSTANCE_ID" "$MODE" > "$BUILD/env.json"
+python3 -c 'import json,sys; v={"MONEY_HUB_TABLE":sys.argv[1],"AGENT_RUNTIME_ARN":sys.argv[2],"API_KEY_SECRET_ID":sys.argv[3],"CONNECT_INSTANCE_ID":sys.argv[4],"BRIDGE_MODE":sys.argv[5]}; sys.argv[6] and v.update(SILENCE_REPLY=sys.argv[6]); print(json.dumps({"Variables":v}))' \
+    "$TABLE_NAME" "${RUNTIME_ARN:-}" "$SECRET_NAME" "$INSTANCE_ID" "$MODE" "$SILENCE_REPLY" > "$BUILD/env.json"
 if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
     run aws lambda update-function-code --function-name "$FUNCTION_NAME" --region "$REGION" --zip-file "fileb://$BUILD/bridge.zip" >/dev/null
     $DRY_RUN || aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"

@@ -182,12 +182,32 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
         "tracing": bool(init.get("subscribeToTracingEvents", True)),
         # Chat re-sends the whole history each time: it is the record. Voice keeps ours across a reconnect.
         "transcript": history if history else existing.get("transcript", []),
+        # Voice over HTTPS starts a session for every turn: keep how recently we spoke and how many silences in a row.
+        "lastReplyAt": existing.get("lastReplyAt", 0), "silences": existing.get("silences", 0),
         "tasks": existing.get("tasks", {}),
     }
     _save(context_id, session)
     logger.info("event=INIT_SESSION verified=%s channel=%s history=%d", bool(session["customerId"]),
                 session["channel"], len(history))
     return protocol.init_session_response(request_id, context_id)
+
+
+# Silence. Connect sends it as <EMPTY_USER_INPUT>, and on calls also as an empty turn every few seconds of quiet
+# (the bot block's no-input timeout), including while the customer is listening to an answer. Replying each time
+# talked over the answer, so on a call silence soon after a reply gets no reply; a long or repeated one gets a
+# gentle re-prompt. SILENCE_REPLY is what a "say nothing" turn says ("" = no text at all).
+QUIET_SECONDS = 20
+REPROMPT_AFTER = 3
+REPROMPT = "Are you still there? Take your time; I'm here when you're ready."
+
+
+def _silence_reply(session: dict) -> str:
+    session["silences"] = int(session.get("silences", 0)) + 1
+    recent = store.clock() - float(session.get("lastReplyAt") or 0) < QUIET_SECONDS
+    if session.get("channel") == "VOICE" and recent and session["silences"] < REPROMPT_AFTER:
+        return os.environ.get("SILENCE_REPLY", "")
+    session["silences"] = 0
+    return REPROMPT
 
 
 def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | None, dict]:
@@ -199,10 +219,12 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
         return reply, {"type": "COMPLETE", "reason": "Money Hub: the customer is not verified (Level 2) on this "
                                                      "contact. Verify them, then hand back if they still want it."}, \
             {"input": text, "reply": reply, "startNs": now, "endNs": now, "tools": [], "model": "none"}
-    if text.strip() == protocol.EMPTY_INPUT:
-        reply = "Are you still there? Take your time; I'm here when you're ready."
+    if not text.strip() or text.strip() == protocol.EMPTY_INPUT:
+        reply = _silence_reply(session)
         now = time.time_ns()
-        return reply, None, {"input": text, "reply": reply, "startNs": now, "endNs": now, "tools": [], "model": "none"}
+        return reply, None, {"input": protocol.EMPTY_INPUT, "reply": reply, "startNs": now, "endNs": now, "tools": [],
+                             "model": "none", "silence": True}
+    session["silences"] = 0
     started = time.time_ns()
     answer = invoke_agent({"customerId": session["customerId"], "channel": session["channel"],
                            "firstName": session.get("firstName", ""), "history": session.get("transcript", []),
@@ -227,14 +249,19 @@ def _answer(request_id, context_id: str, task_id: str, session: dict, text: str,
         finish = None
     if finish:
         finish = {"type": finish["type"], "reason": str(finish.get("reason") or "Money Hub conversation finished.")[:500]}
-    session["transcript"] = session.get("transcript", []) + [{"role": "user", "text": text},
-                                                             {"role": "assistant", "text": reply}]
+    if not turn.get("silence"):                 # silence isn't part of the conversation the agent sees
+        session["transcript"] = session.get("transcript", []) + [{"role": "user", "text": text},
+                                                                 {"role": "assistant", "text": reply}]
+    if reply.strip():
+        session["lastReplyAt"] = store.clock()
     trace = None
     if session.get("tracing", True):
         trace_id, parent = protocol.trace_context(headers)
         trace = protocol.build_trace(trace_id, parent, turn)
-    logger.info("event=TEXT outcome=ok tools=%d finish=%s ms=%d", len(turn.get("tools") or []),
-                finish["type"] if finish else "-", (turn["endNs"] - turn["startNs"]) // 1_000_000)
+    logger.info("event=TEXT outcome=%s tools=%d finish=%s ms=%d",
+                ("silent" if not reply.strip() else "reprompt") if turn.get("silence") else "ok",
+                len(turn.get("tools") or []), finish["type"] if finish else "-",
+                (turn["endNs"] - turn["startNs"]) // 1_000_000)
     return protocol.turn_task(request_id, context_id, task_id, reply, trace, finish)
 
 
