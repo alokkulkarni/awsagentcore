@@ -194,6 +194,10 @@ export function setupTalk({ api, currentView, onEnded }) {
     }
     $('talk-foot').hidden = true;
     $('talk-start').hidden = false;
+    // A finished conversation leaves the page: only a one-line note of how it ended stays.
+    $('chat-log').replaceChildren();
+    seen.clear();
+    $('chat-input').value = '';
     dock.live('');
     status(words);
     if (current) onEnded();       // the assistant may have changed categories or goals

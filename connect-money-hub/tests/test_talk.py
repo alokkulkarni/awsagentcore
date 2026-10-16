@@ -158,6 +158,8 @@ class PageContacts(unittest.TestCase):
         for banned in ("innerHTML", "insertAdjacentHTML", "localStorage", "sessionStorage", "eval("):
             self.assertNotIn(banned, source)
         self.assertIn("aws/subscribe", source)
+        finish = source[source.index("function finish("):]
+        self.assertIn("$('chat-log').replaceChildren()", finish, "ending a conversation clears it from the page")
         self.assertNotIn("ConnectParticipant: true", source,
                          "a websocket customer must not send it (Connect answers 400 ValidationException)")
 
