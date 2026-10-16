@@ -165,3 +165,9 @@ changing anything except categories and goals; adviser-facing views beyond the t
 - Forecasts are pattern-based estimates; they ignore one-offs by design.
 - `connect_collaborator.sh` needs a newer AWS CLI than 2.35.11.
 - The runtime uses PUBLIC network mode with IAM-only access; AWS recommends VPC mode for production.
+- The bridge keeps each conversation (the customer's words and the agent's replies) in DynamoDB for about two
+  hours, with the table's default encryption. Use a customer managed key and shorter retention for real data.
+- The bridge's Function URL has no built-in throttling (the page's HTTP API does). Every request still needs the
+  key; add reserved concurrency or a WAF if exposure matters.
+- `--permissions BasicAgentAccess` (Access Contact Control Panel) and the runtime's DEFAULT endpoint are assumed
+  rather than checked; the README troubleshooting table says what to do if either is wrong.

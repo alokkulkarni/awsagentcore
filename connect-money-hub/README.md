@@ -240,6 +240,8 @@ ARIA's voice, with an offer of more detail.
 | "I can't open your Money Hub on this conversation yet" | The customer isn't verified at Level 2 on the contact. ARIA verifies them, then hands over again |
 | Every turn fails with "The Money Hub agent is unavailable" | The runtime failed. Check its CloudWatch logs; often a model the account can't use (`--model`) |
 | Connect handled a turn but the reply never arrived | The HTTPS reply format (SPEC section 9). Redeploy the bridge with `--mode poll` and try again, then tell me what the bridge log shows |
+| `connect_collaborator.sh` fails creating the security profile, naming the permission | The script asks for `BasicAgentAccess`, the usual name for **Access Contact Control Panel**. In the Connect admin website, open **Users → Security profiles → ARIA AI agent collaborators** and tick **Contact Control Panel (CCP) → Access CCP** by hand, then run the script again |
+| The test turn in `deploy_agent.sh` fails with "endpoint" or "not found" | The script calls the runtime's DEFAULT endpoint, which normally exists. If not: `aws bedrock-agentcore-control create-agent-runtime-endpoint --agent-runtime-id <id> --name DEFAULT`, wait for READY, run again |
 | The page says "This link has expired" | Links last 24 hours. Run `deploy_money_hub.sh` for a new demo link, or ask the agent in chat |
 
 ---
@@ -260,7 +262,7 @@ ARIA's voice, with an offer of more detail.
 |---|---|
 | [SPEC.md](SPEC.md) | Design, decisions, the Connect contract, rules, open questions |
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
-| [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile |
+| [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |
 | [bridge/](bridge/) | The Connect A2A bridge: `a2a_bridge.py`, `protocol.py` |
 | [api/](api/), [web/](web/) | The Money Hub page and its Lambda |
 | [prompts/money-hub-aria-block.txt](prompts/money-hub-aria-block.txt) | The section added to ARIA's prompt |
