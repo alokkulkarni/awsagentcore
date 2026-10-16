@@ -180,7 +180,9 @@ It:
 4. sets up the security profile;
 5. publishes a new ARIA version.
 
-✅ It ends with **ARIA version to use: N**. Write N down.
+✅ It ends with **ARIA version to use: N** and `Linked:` lines for ARIA and version N. Write N down.
+
+> **Don't save ARIA in the AI agent designer after this step.** Saving it there can replace its security profiles and silently stop the hand-over. If you do change ARIA in the console (for example a new prompt version), run this step again afterwards and use the new version it prints. `connect_collaborator.sh --check --version N` confirms the links at any time.
 ❌ A message about the tier means your instance isn't on Connect Customer.
 
 ### Step 7 — Point the bot flow at ARIA's new version (10 minutes)
@@ -308,6 +310,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | ARIA answers money questions itself | ARIA isn't on version N in both places (step 7), or step 6 wasn't applied |
 | The conversation goes to the flow's error path at the hand-over | Connect couldn't use the bridge. In `/aws/lambda/aria-money-hub-bridge`: no lines means Connect never called it (check the A2A application's address, step 6); `event=AUTH outcome=refused` means the key doesn't match (the secret was changed) |
 | `deploy_bridge.sh` stops with "A request without the key got HTTP 503" | The bridge couldn't read its key. Just after the role is created this is AWS taking a minute or two to apply the new permissions; the script now waits up to two minutes. If it still fails, `/aws/lambda/aria-money-hub-bridge` names the error. Running the script again is safe |
+| The chat ends by itself just after ARIA says it can help (flow log: the Get customer input block returns `Error`; the bridge log is empty) | Connect refused the hand-over: ARIA isn't linked to the **ARIA AI agent collaborators** security profile. Saving ARIA in the AI agent designer can replace its profiles. Run `connect_collaborator.sh --check --version N` (N = the version in the flow); it prints the fix. Or run `connect_collaborator.sh --apply` again **after** your last change to ARIA in the console, and use the version it prints |
 | "I can't open your Money Hub on this conversation yet" | The customer isn't verified at Level 2 on the contact. ARIA verifies them, then hands over again |
 | Every turn fails with "The Money Hub agent is unavailable" | The runtime failed. Check its CloudWatch logs; often a model the account can't use (`--model`) |
 | Connect handled a turn but the reply never arrived | The HTTPS reply format (SPEC section 9). Redeploy the bridge with `--mode poll` and try again, then tell me what the bridge log shows |

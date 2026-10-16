@@ -9,7 +9,9 @@ import { TABS, setupDock } from './dock.js';
 const PARTICIPANT = (region) => `https://participant.connect.${region}.amazonaws.com/participant`;
 const HEARTBEAT_MS = 10000;
 const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
-const OPENER_WAIT_MS = 4000;
+// ARIA only hears messages sent after its bot block has joined. The flow announces that with a (blank)
+// message; if none arrives, the opener is sent anyway after this long.
+const READY_WAIT_MS = 20000;
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
@@ -46,9 +48,9 @@ export function setupTalk({ api, currentView, onEnded }) {
   function onChatItem(item) {
     if (!item || (item.Id && seen.has(item.Id))) return;
     if (item.Id) seen.add(item.Id);
-    if (item.Type === 'MESSAGE' && item.Content) {
-      show(item.ParticipantRole, item.Content);
-      if (item.ParticipantRole !== 'CUSTOMER') sendOpener();
+    if (item.Type === 'MESSAGE') {
+      if ((item.Content || '').trim()) show(item.ParticipantRole, item.Content);    // the flow's blank line isn't shown
+      if (item.ParticipantRole !== 'CUSTOMER') sendOpener();                       // ARIA is listening now
     }
     if (item.Type === 'EVENT' && item.ContentType === CHAT_ENDED) finish('The chat has ended.');
   }
@@ -66,8 +68,9 @@ export function setupTalk({ api, currentView, onEnded }) {
     dock.live(kind);               // remembers the tab it started from
   }
 
-  // The first thing the customer says: which tab they're on. Sent once ARIA has greeted (or after a short wait),
-  // as an ordinary message, so ARIA can let the Money Hub agent take over straight away.
+  // The first thing the customer says: which tab they're on. Sent as an ordinary message once ARIA is
+  // listening, so ARIA can let the Money Hub agent take over straight away. Until then the input stays off,
+  // so nothing the customer types is lost.
   function sendOpener() {
     if (!live || live.kind !== 'chat' || live.opened || !live.connectionToken) return;
     live.opened = true;
@@ -76,6 +79,14 @@ export function setupTalk({ api, currentView, onEnded }) {
     participant(live.region, 'message', live.connectionToken, { ContentType: 'text/plain', ClientToken: crypto.randomUUID(),
       Content: `I'm on my Money Hub page, on the ${tab} tab, and I'd like some help understanding my money.` })
       .catch((error) => status(error.message));
+    typing(true);
+    status('Connected.');
+  }
+
+  function typing(on) {
+    $('chat-input').disabled = !on;
+    $('chat-form').querySelector('button').disabled = !on;
+    if (on) $('chat-input').focus({ preventScroll: true });
   }
 
   async function startChat() {
@@ -92,13 +103,13 @@ export function setupTalk({ api, currentView, onEnded }) {
       socket.addEventListener('open', async () => {
         socket.send(JSON.stringify({ topic: 'aws/subscribe', content: { topics: ['aws/chat'] } }));
         live.heartbeat = setInterval(() => socket.send(JSON.stringify({ topic: 'aws/heartbeat' })), HEARTBEAT_MS);
-        status('Connected. Type your question below.');
-        $('chat-input').focus({ preventScroll: true });
+        status('Connecting you to our assistant…');
+        typing(false);
         // Anything said before the websocket was listening (your first message, the greeting).
         const transcript = await participant(live.region, 'transcript', live.connectionToken,
           { MaxResults: 100, ScanDirection: 'FORWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
         (transcript.Transcript || []).forEach(onChatItem);
-        if (live) live.openerTimer = setTimeout(sendOpener, OPENER_WAIT_MS);
+        if (live && !live.opened) live.openerTimer = setTimeout(sendOpener, READY_WAIT_MS);
       });
       socket.addEventListener('message', (event) => {
         let frame;

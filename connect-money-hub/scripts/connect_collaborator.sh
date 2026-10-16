@@ -20,8 +20,13 @@
 #   5. Publishes a new ARIA version and prints its number. You then point
 #      conversation bot flow at it (README step 6)
 #
+# --check only reads: it confirms ARIA (and a version, with --version N) is linked
+# to the collaborators profile and that the profile allows the application.
+# Saving ARIA in the AI agent designer can replace its security profiles, which
+# stops the hand-over (Connect refuses it and the chat ends); run --check after.
+#
 # Usage:
-#   ./connect-money-hub/scripts/connect_collaborator.sh [--apply] [--remove] [--region R]
+#   ./connect-money-hub/scripts/connect_collaborator.sh [--apply] [--remove] [--check [--version N]] [--region R]
 #       [--account-id A] [--instance-id ID] [--assistant-id ID] [--aria-agent-id ID]
 #
 # Requirements: AWS CLI v2.27+ (qconnect, appintegrations), python3.
@@ -42,6 +47,8 @@ ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"
 ARIA_ID="68179bd0-78d7-4298-8696-b3817a93b6c2"
 APPLY=false
 REMOVE=false
+CHECK=false
+CHECK_VERSION=""
 APP_NAME="aria-money-hub"
 PROFILE_NAME="ARIA AI agent collaborators"
 SECRET_NAME="aria-money-hub/a2a-api-key"
@@ -52,6 +59,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --apply)         APPLY=true; shift ;;
         --remove)        REMOVE=true; shift ;;
+        --check)         CHECK=true; shift ;;
+        --version)       CHECK_VERSION="$2"; shift 2 ;;
         --region)        REGION="$2"; shift 2 ;;
         --account-id)    ACCOUNT_ID="$2"; shift 2 ;;
         --instance-id)   INSTANCE_ID="$2"; shift 2 ;;
@@ -89,6 +98,38 @@ first_value() { tr -s '[:space:]' '\n' | grep -v -e '^None$' -e '^$' | head -n 1
 BUILD="$(mktemp -d)"; trap 'rm -rf "$BUILD"' EXIT
 INSTANCE_ARN="arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}"
 ARIA_ARN="arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:ai-agent/${ASSISTANT_ID}/${ARIA_ID}"
+
+# ARIA (and, if given, one version) must be linked to the collaborators profile, and the profile must allow
+# the application; otherwise Connect refuses the hand-over before it reaches the bridge.
+verify_links() {
+    local version="$1" profile_id app_arn arn missing=0
+    profile_id=$({ aws connect list-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" \
+        --query "SecurityProfileSummaryList[?Name=='${PROFILE_NAME}'].Id" --output text 2>/dev/null || true; } | first_value)
+    app_arn=$({ aws appintegrations list-applications --region "$REGION" --query "Applications[?Name=='${APP_NAME}'].Arn" \
+        --output text 2>/dev/null || true; } | first_value)
+    [[ -n "$profile_id" && -n "$app_arn" ]] || { warn "No '${PROFILE_NAME}' profile or ${APP_NAME} application yet."; return 1; }
+    aws connect list-security-profile-ai-agents --instance-id "$INSTANCE_ID" --region "$REGION" \
+        --security-profile-id "$profile_id" --query 'AllowedAIAgents[].Arn' --output text | tr '\t' '\n' | grep -qx "$app_arn" \
+        && ok "The profile allows the ${APP_NAME} application." \
+        || { warn "The profile does not allow the ${APP_NAME} application."; missing=1; }
+    for arn in "$ARIA_ARN" ${version:+"${ARIA_ARN}:${version}"}; do
+        if aws connect list-entity-security-profiles --instance-id "$INSTANCE_ID" --region "$REGION" --entity-type AI_AGENT \
+            --entity-arn "$arn" --query 'SecurityProfiles[].Id' --output text | tr '\t' '\n' | grep -qx "$profile_id"; then
+            ok "Linked: ${arn##*/}"
+        else
+            warn "NOT linked: ${arn##*/}. Fix:"
+            echo "    aws connect associate-security-profiles --instance-id ${INSTANCE_ID} --region ${REGION} --entity-type AI_AGENT --entity-arn ${arn} --security-profiles Id=${profile_id}"
+            missing=1
+        fi
+    done
+    return $missing
+}
+
+if $CHECK; then
+    header "Check ARIA's link to '${PROFILE_NAME}'${CHECK_VERSION:+ (version ${CHECK_VERSION})}"
+    if verify_links "$CHECK_VERSION"; then ok "ARIA may hand over to the Money Hub agent."; exit 0; fi
+    die "ARIA can't hand over until the links above are fixed (run the commands shown, or run --apply again)."
+fi
 
 URL=$({ aws lambda get-function-url-config --function-name "$BRIDGE_FUNCTION" --region "$REGION" --query FunctionUrl --output text 2>/dev/null || true; } | first_value)
 SECRET_ARN=$({ aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --region "$REGION" --query ARN --output text 2>/dev/null || true; } | first_value)
@@ -172,6 +213,7 @@ if $APPLY; then
             --entity-arn "${ARIA_ARN}:${VERSION}" --entity-type AI_AGENT --security-profiles "Id=${PROFILE_ID}" >/dev/null
     fi
     ok "Published ARIA version ${VERSION}."
+    $REMOVE || verify_links "$VERSION" || die "ARIA was published but isn't linked to the profile; run the commands above."
 else
     echo "  [would run] qconnect create-ai-agent-version, then associate the profile with the versioned ARN"
     VERSION="(new version)"
