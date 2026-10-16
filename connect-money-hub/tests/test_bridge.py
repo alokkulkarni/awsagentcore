@@ -177,25 +177,26 @@ class Bridge(unittest.TestCase):
         self.assertIn("not verified", status["message"]["parts"][0]["data"]["finish"]["reason"])
         self.assertEqual(self.calls, [], "no data is read for an unverified customer")
 
-    def test_silence_gets_a_gentle_reprompt_without_calling_the_agent(self):
+    def test_on_chat_silence_gets_a_gentle_reprompt_without_calling_the_agent(self):
+        self.attributes = {**VERIFIED, "channel": "CHAT"}
         self.start()
         _, body, _ = self.post(turn("<EMPTY_USER_INPUT>"))
         self.assertIn("still there", body["result"]["task"]["artifacts"][0]["parts"][0]["text"])
         self.assertEqual(self.calls, [])
 
-    def test_on_a_call_silence_after_an_answer_says_nothing_then_reprompts(self):
+    def test_on_a_call_one_silence_says_nothing_and_a_second_in_a_row_reprompts(self):
         self.attributes = {**VERIFIED, "channel": "VOICE"}
         self.start()
         self.post(turn("Where does my money go?"))
         self.assertEqual(len(self.calls), 1)
-        for rid, expected in (("s1", None), ("s2", None), ("s3", "Are you still there?")):
+        for rid, expected in (("s1", None), ("s2", "Are you still there?"), ("s3", None)):
             _, body, _ = self.post(turn("", rid=rid))
             task = body["result"]["task"]
             texts = [p["text"] for a in task["artifacts"] if a["metadata"][f"{EXT}/eventType"] == "TEXT_RESPONSE_CHUNK"
                      for p in a["parts"]]
             self.assertEqual(task["status"]["state"], "TASK_STATE_COMPLETED")
             if expected:
-                self.assertTrue(texts and texts[0].startswith(expected), "the third silence in a row re-prompts")
+                self.assertTrue(texts and texts[0].startswith(expected), "the second silence in a row re-prompts")
             else:
                 self.assertEqual(texts, [], "no words over the answer they're listening to")
             self.assertTrue(any(a["metadata"][f"{EXT}/eventType"] == "TRACING_SPAN" for a in task["artifacts"]),

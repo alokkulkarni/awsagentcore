@@ -192,19 +192,18 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
     return protocol.init_session_response(request_id, context_id)
 
 
-# Silence. Connect sends it as <EMPTY_USER_INPUT>, and on calls also as an empty turn every few seconds of quiet
-# (the bot block's no-input timeout), including while the customer is listening to an answer. Replying each time
-# talked over the answer, so on a call silence soon after a reply gets no reply; a long or repeated one gets a
-# gentle re-prompt. SILENCE_REPLY is what a "say nothing" turn says ("" = no text at all).
-QUIET_SECONDS = 20
-REPROMPT_AFTER = 3
+# Silence. Connect sends it as <EMPTY_USER_INPUT>, and on calls also as an empty turn when the customer hasn't
+# started speaking a few seconds after the reply finished playing (Lex's start-silence threshold). The time a
+# reply takes to play isn't known here, so silence is counted, not timed: on a call the first silence after a
+# reply gets no reply (the customer is often just about to speak), and a second in a row gets a gentle
+# re-prompt. SILENCE_REPLY is what a "say nothing" turn says ("" = no text at all).
+REPROMPT_AFTER = 2
 REPROMPT = "Are you still there? Take your time; I'm here when you're ready."
 
 
 def _silence_reply(session: dict) -> str:
     session["silences"] = int(session.get("silences", 0)) + 1
-    recent = store.clock() - float(session.get("lastReplyAt") or 0) < QUIET_SECONDS
-    if session.get("channel") == "VOICE" and recent and session["silences"] < REPROMPT_AFTER:
+    if session.get("channel") == "VOICE" and session["silences"] < REPROMPT_AFTER:
         return os.environ.get("SILENCE_REPLY", "")
     session["silences"] = 0
     return REPROMPT
