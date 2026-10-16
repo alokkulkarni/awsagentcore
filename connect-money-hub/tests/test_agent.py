@@ -44,6 +44,20 @@ class Tools(unittest.TestCase):
         self.assertEqual(len(months), 3)
         self.assertIn("endBalance", months[0])
 
+    def test_figures_are_per_month_and_left_over_means_what_the_page_says(self):
+        o = self.tools["get_money_overview"]()
+        page = self.hub.page_view(JAMES)["overview"]["averageMonth"]
+        self.assertAlmostEqual(o["averageMonth"]["leftOver"], round(page["moneyIn"] - page["moneyOut"], 2), places=2)
+        self.assertNotIn("net", o["averageMonth"], "no second meaning of left over")
+        self.assertIn("ofWhichMovedToSavings", o["averageMonth"])
+        habits = {h["words"]: h["perMonth"] for h in self.tools["get_spending_habits"]()["habits"]}
+        top = o["topSpendingPerMonth"][0]
+        self.assertAlmostEqual(top["perMonth"], habits[top["words"]], delta=1.0, msg="overview and habits agree per month")
+        cats = self.tools["get_spending_by_category"]("last_3_months")
+        self.assertEqual(cats["monthsInPeriod"], 3)
+        first = cats["categories"][0]
+        self.assertAlmostEqual(first["perMonth"] * 3, first["totalForPeriod"], delta=0.05)
+
     def test_finding_and_recategorising_a_transaction(self):
         found = self.tools["find_transactions"](category="coffee", period="last_month")
         self.assertTrue(found["transactions"])

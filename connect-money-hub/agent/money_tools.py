@@ -61,18 +61,35 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
 
     def get_money_overview() -> dict:
         """The customer's current balance, money in and money out this month so far, the last three complete
-        months, the monthly average, and their biggest spending categories. Start here for "how am I doing"."""
+        months, the monthly average, and their biggest spending categories (per month, on average). Start here
+        for "how am I doing"."""
         o = hub.overview(customer_id)
-        return {"asOf": o["asOf"], "balance": o["balance"], "thisMonthSoFar": o["thisMonthSoFar"],
-                "lastThreeMonths": o["months"], "averageMonth": o["averageMonth"],
-                "topSpending": [{k: c[k] for k in ("words", "total", "share", "discretionary")} for c in o["topSpending"]],
-                "moneyIn": [{k: c[k] for k in ("words", "total")} for c in o["moneyInSources"]]}
+        months = max(1, len(o["months"]))
+
+        def plain(m: dict) -> dict:
+            # One meaning of "left over" everywhere (the page, goals): money in minus money out. What they move
+            # to savings comes out of it, so it's shown as part of it, never taken off again.
+            return {**{k: m[k] for k in ("moneyIn", "moneyOut") if k in m},
+                    "leftOver": round(m.get("moneyIn", 0) - m.get("moneyOut", 0), 2),
+                    "ofWhichMovedToSavings": m.get("movedToSavings", 0), **({"month": m["month"]} if "month" in m else {})}
+        return {"asOf": o["asOf"], "balance": o["balance"], "thisMonthSoFar": plain(o["thisMonthSoFar"]),
+                "lastThreeMonths": [plain(m) for m in o["months"]], "averageMonth": plain(o["averageMonth"]),
+                "topSpendingPerMonth": [{"words": c["words"], "perMonth": round(c["total"] / months, 2),
+                                         "share": c["share"], "discretionary": c["discretionary"]}
+                                        for c in o["topSpending"]],
+                "moneyInPerMonth": [{"words": c["words"], "perMonth": round(c["total"] / months, 2)}
+                                    for c in o["moneyInSources"]]}
 
     def get_spending_by_category(period: str = "last_3_months", money: str = "out") -> dict:
-        """Totals by category for a period. period: this_month, last_month, last_3_months or last_6_months.
-        money: out (spending) or in (income)."""
+        """Spending (or income) by category for a period, as an amount per month (on average, for periods of
+        several months) and the total for the period. period: this_month, last_month, last_3_months or
+        last_6_months. money: out (spending) or in (income)."""
         result = hub.spending(customer_id, period, cat.IN if money == "in" else cat.OUT)
-        result["categories"] = [{k: c[k] for k in ("words", "category", "total", "count", "share", "discretionary")}
+        months = {"last_3_months": 3, "last_6_months": 6}.get(period, 1)
+        result["monthsInPeriod"] = months
+        result["categories"] = [{"words": c["words"], "category": c["category"],
+                                 "perMonth": round(c["total"] / months, 2), "totalForPeriod": c["total"],
+                                 "count": c["count"], "share": c["share"], "discretionary": c["discretionary"]}
                                 for c in result["categories"]]
         return result
 
@@ -163,10 +180,12 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
     def hand_back(outcome: str, reason: str) -> dict:
         """Hand the conversation back to ARIA. outcome: complete (their Money Hub questions are answered, or they
         asked about something else) or escalate (they want a person, ask for financial advice or show signs of
-        vulnerability or financial difficulty). reason: one or two sentences for ARIA, including what they want next."""
+        vulnerability or financial difficulty). reason: one or two sentences for ARIA, including what they want next;
+        start it "Finished:" if they said they need nothing else at all."""
         recorder.finish = {"type": "ESCALATE" if outcome.lower().startswith("esc") else "COMPLETE",
                            "reason": " ".join(str(reason).split())[:500] or "Money Hub conversation finished."}
-        return {"ok": True, "message": "Say one short closing sentence, without saying you are transferring."}
+        return {"ok": True, "message": "Say one short sentence, not a goodbye (ARIA closes), without saying you are "
+                                       "transferring."}
 
     tools = [get_money_overview, get_spending_by_category, find_transactions, get_regular_payments,
              get_expected_months, get_spending_habits, plan_savings_goal, save_savings_goal, compare_months,
