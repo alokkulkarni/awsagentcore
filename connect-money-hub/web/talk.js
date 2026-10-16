@@ -1,0 +1,167 @@
+// Chat or call with ARIA from the Money Hub page.
+// The page Lambda starts the contact (it alone knows who this is); the browser then joins it:
+//   chat  through the Amazon Connect Participant Service (HTTPS + a websocket), with the participant token
+//   call  through the Amazon Chime SDK (loaded only when a call starts), with the meeting and attendee
+// The participant and connection tokens live only in this module's memory. Every message is written as text.
+
+const PARTICIPANT = (region) => `https://participant.connect.${region}.amazonaws.com/participant`;
+const HEARTBEAT_MS = 10000;
+const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
+
+export function setupTalk({ api, currentView, onEnded }) {
+  const $ = (id) => document.getElementById(id);
+  let live = null;          // { kind, region, participantToken, connectionToken, socket, heartbeat, session, stream }
+  const seen = new Set();
+
+  const status = (words) => { $('talk-status').textContent = words; };
+  const busy = (on) => { $('talk-chat').disabled = on; $('talk-call').disabled = on; };
+
+  async function participant(region, path, bearer, body) {
+    const response = await fetch(`${PARTICIPANT(region)}/${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'X-Amz-Bearer': bearer }, body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`We couldn't connect the conversation (${response.status}). Please try again.`);
+    return response.json().catch(() => ({}));
+  }
+
+  function show(role, words) {
+    const li = document.createElement('li');
+    li.className = role === 'CUSTOMER' ? 'me' : role === 'SYSTEM' ? 'system' : 'them';
+    li.textContent = words;
+    $('chat-log').append(li);
+    li.scrollIntoView({ block: 'nearest' });
+  }
+
+  function onChatItem(item) {
+    if (!item || (item.Id && seen.has(item.Id))) return;
+    if (item.Id) seen.add(item.Id);
+    if (item.Type === 'MESSAGE' && item.Content) show(item.ParticipantRole, item.Content);
+    if (item.Type === 'EVENT' && item.ContentType === CHAT_ENDED) finish('The chat has ended.');
+  }
+
+  function open(kind) {
+    $('talk-panel').hidden = false;
+    $('chat-log').replaceChildren();
+    seen.clear();
+    $('chat-form').hidden = kind !== 'chat';
+    $('call-controls').hidden = kind !== 'call';
+    $('call-mute').textContent = 'Mute';
+    $('call-mute').setAttribute('aria-pressed', 'false');
+    $('talk-end').textContent = 'End';
+  }
+
+  async function startChat() {
+    busy(true); open('chat'); status('Connecting you…');
+    try {
+      const started = await api('/contact/chat', { view: currentView() });
+      live = { kind: 'chat', region: started.region, participantToken: started.participantToken };
+      const joined = await participant(started.region, 'connection', started.participantToken,
+        { Type: ['WEBSOCKET', 'CONNECTION_CREDENTIALS'], ConnectParticipant: true });
+      live.connectionToken = joined.ConnectionCredentials.ConnectionToken;
+      const socket = new WebSocket(joined.Websocket.Url);
+      live.socket = socket;
+      socket.addEventListener('open', async () => {
+        socket.send(JSON.stringify({ topic: 'aws/subscribe', content: { topics: ['aws/chat'] } }));
+        live.heartbeat = setInterval(() => socket.send(JSON.stringify({ topic: 'aws/heartbeat' })), HEARTBEAT_MS);
+        status('Connected. Type your question below.');
+        $('chat-input').focus();
+        // Anything said before the websocket was listening (your first message, the greeting).
+        const transcript = await participant(live.region, 'transcript', live.connectionToken,
+          { MaxResults: 100, ScanDirection: 'FORWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
+        (transcript.Transcript || []).forEach(onChatItem);
+      });
+      socket.addEventListener('message', (event) => {
+        let frame;
+        try { frame = JSON.parse(event.data); } catch { return; }
+        if (frame.topic !== 'aws/chat' || !frame.content) return;
+        try { onChatItem(JSON.parse(frame.content)); } catch { /* not a chat item */ }
+      });
+      socket.addEventListener('close', () => { if (live && live.kind === 'chat') finish('The chat has ended.'); });
+    } catch (error) {
+      finish(error.message);
+    }
+  }
+
+  async function sendChat(event) {
+    event.preventDefault();
+    const words = $('chat-input').value.trim();
+    if (!words || !live || !live.connectionToken) return;
+    $('chat-input').value = '';
+    try {
+      await participant(live.region, 'message', live.connectionToken,
+        { ContentType: 'text/plain', Content: words, ClientToken: crypto.randomUUID() });
+    } catch (error) { status(error.message); }
+  }
+
+  async function startCall() {
+    busy(true); open('call'); status('Starting your call…');
+    try {
+      // Ask for the microphone first, so a refusal costs nothing.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const started = await api('/contact/call', { view: currentView() });
+      const chime = await import('/assets/chime.js');
+      const logger = new chime.ConsoleLogger('call', chime.LogLevel.WARN);
+      const devices = new chime.DefaultDeviceController(logger);
+      const config = new chime.MeetingSessionConfiguration({ Meeting: started.meeting }, { Attendee: started.attendee });
+      const session = new chime.DefaultMeetingSession(config, logger, devices);
+      live = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream };
+      const av = session.audioVideo;
+      av.addObserver({
+        audioVideoDidStart: () => status('Connected. Speak when you\'re ready.'),
+        audioVideoDidStop: () => { if (live && live.kind === 'call') finish('The call has ended.'); },
+      });
+      await av.startAudioInput(stream);
+      await av.bindAudioElement($('talk-audio'));
+      av.start();
+    } catch (error) {
+      const words = error && error.name === 'NotAllowedError'
+        ? 'To call, allow this page to use your microphone.' : (error.message || 'The call could not start.');
+      finish(words);
+    }
+  }
+
+  function toggleMute() {
+    if (!live || !live.session) return;
+    const av = live.session.audioVideo;
+    const muted = av.realtimeIsLocalAudioMuted();
+    if (muted) av.realtimeUnmuteLocalAudio(); else av.realtimeMuteLocalAudio();
+    $('call-mute').textContent = muted ? 'Mute' : 'Unmute';
+    $('call-mute').setAttribute('aria-pressed', String(!muted));
+  }
+
+  // Leave properly, so Connect ends the contact rather than waiting for a timeout.
+  async function hangUp() {
+    if (!live) return;
+    const current = live;
+    try {
+      const token = current.connectionToken || (await participant(current.region, 'connection',
+        current.participantToken, { Type: ['CONNECTION_CREDENTIALS'] })).ConnectionCredentials.ConnectionToken;
+      await participant(current.region, 'disconnect', token, { ClientToken: crypto.randomUUID() });
+    } catch { /* the contact may already have ended */ }
+    finish(current.kind === 'call' ? 'You ended the call.' : 'You ended the chat.');
+  }
+
+  function finish(words) {
+    const current = live;
+    live = null;
+    if (current) {
+      clearInterval(current.heartbeat);
+      try { current.socket && current.socket.close(); } catch { /* already closed */ }
+      try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }
+      (current.stream ? current.stream.getTracks() : []).forEach((track) => track.stop());
+    }
+    $('chat-form').hidden = true;
+    $('call-controls').hidden = true;
+    $('talk-end').textContent = 'Close';
+    status(words);
+    busy(false);
+    if (current) onEnded();       // the assistant may have changed categories or goals
+  }
+
+  $('talk-chat').addEventListener('click', startChat);
+  $('talk-call').addEventListener('click', startCall);
+  $('chat-form').addEventListener('submit', sendChat);
+  $('call-mute').addEventListener('click', toggleMute);
+  $('talk-end').addEventListener('click', () => { if (live) hangUp(); else $('talk-panel').hidden = true; });
+  window.addEventListener('pagehide', () => { if (live) hangUp(); });
+}

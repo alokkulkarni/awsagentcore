@@ -13,13 +13,23 @@
 #      for agent assist), unless --skip-gateway
 #   6. Tests, and a demo link to James's Money Hub
 #
+# The page can start a chat or a call with ARIA (README step 9). For that the
+# page Lambda may start contacts in your Connect instance, in the conversation
+# bot flow. --no-talk leaves that out.
+#
 # It changes no AI agent, prompt or contact flow. Safe to run again.
 #
 # Usage:
 #   ./connect-money-hub/scripts/deploy_money_hub.sh [--region R] [--account-id A] [--env prod]
-#                                                   [--skip-gateway] [--dry-run]
+#        [--skip-gateway] [--instance-id ID] [--contact-flow-id ID] [--no-talk]
+#        [--verified-demo] [--dry-run]
 #
-# Requirements: AWS CLI v2.27+, python3, zip, curl.
+#   --verified-demo   the demo link counts as a Level 2 customer, so a chat or
+#                     call from it reaches the Money Hub agent without ID&V.
+#                     For testing only: anyone with that link is treated as James.
+#
+# Requirements: AWS CLI v2.27+, python3, zip, curl; Node.js 18+ and npm for the
+# call button (scripts/build_chime.sh).
 # =============================================================================
 set -euo pipefail
 
@@ -35,6 +45,10 @@ ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
 ENV_NAME="${ARIA_ENV:-prod}"
 DO_GATEWAY=true
 DRY_RUN=false
+DO_TALK=true
+VERIFIED_DEMO=false
+INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
+CONTACT_FLOW_ID="f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"      # conversation bot flow
 
 TABLE_NAME="aria-money-hub"
 FUNCTION_NAME="aria-money-hub-api"
@@ -50,8 +64,12 @@ while [[ $# -gt 0 ]]; do
         --account-id)   ACCOUNT_ID="$2"; shift 2 ;;
         --env)          ENV_NAME="$2"; shift 2 ;;
         --skip-gateway) DO_GATEWAY=false; shift ;;
+        --instance-id)  INSTANCE_ID="$2"; shift 2 ;;
+        --contact-flow-id) CONTACT_FLOW_ID="$2"; shift 2 ;;
+        --no-talk)      DO_TALK=false; shift ;;
+        --verified-demo) VERIFIED_DEMO=true; shift ;;
         --dry-run)      DRY_RUN=true; shift ;;
-        --help|-h)      sed -n '/^# Usage:/,/^# Requirements:/p' "$0" | sed -E 's/^# ?//'; exit 0 ;;
+        --help|-h)      sed -n '/^# Usage:/,/^# call button/p' "$0" | sed -E 's/^# ?//'; exit 0 ;;
         *) die "Unknown argument: $1" ;;
     esac
 done
@@ -94,19 +112,33 @@ if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
         --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
     $DRY_RUN || sleep 12
 fi
+INSTANCE_ARN="arn:aws:connect:${REGION}:${ACCOUNT_ID}:instance/${INSTANCE_ID}"
+TALK_STATEMENT=""
+if $DO_TALK; then
+    TALK_STATEMENT=",{\"Sid\":\"StartContactsFromThePage\",\"Effect\":\"Allow\",\"Action\":[\"connect:StartWebRTCContact\",\"connect:StartChatContact\"],\"Resource\":[\"${INSTANCE_ARN}\",\"${INSTANCE_ARN}/contact-flow/${CONTACT_FLOW_ID}\",\"${INSTANCE_ARN}/contact/*\"]}"
+fi
 cat > "$BUILD/policy.json" <<POLICY
-{"Version":"2012-10-17","Statement":[{"Sid":"MoneyHubTable","Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem"],"Resource":"${TABLE_ARN}"}]}
+{"Version":"2012-10-17","Statement":[{"Sid":"MoneyHubTable","Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem"],"Resource":"${TABLE_ARN}"}${TALK_STATEMENT}]}
 POLICY
 run aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name MoneyHubApi --policy-document "file://$BUILD/policy.json"
-ok "Role ready: read and write single items in one table."
+if $DO_TALK; then ok "Role ready: one table, and starting chats and calls in one flow."
+else ok "Role ready: read and write single items in one table."; fi
 
 header "Step 3 - Lambda ${FUNCTION_NAME}"
-mkdir -p "$BUILD/pkg/web"
-cp -R "$ROOT/moneyhub" "$BUILD/pkg/"; cp "$ROOT/api/money_api.py" "$BUILD/pkg/"; cp "$ROOT"/web/* "$BUILD/pkg/web/"
+if $DO_TALK && [[ ! -f "$ROOT/web/vendor/chime.js" ]]; then
+    step "Building the Chime SDK bundle for the call button..."
+    "$SCRIPT_DIR/build_chime.sh" || die "Could not build web/vendor/chime.js. Install Node.js, or use --no-talk."
+fi
+mkdir -p "$BUILD/pkg/web/vendor"
+cp -R "$ROOT/moneyhub" "$BUILD/pkg/"; cp "$ROOT/api/money_api.py" "$BUILD/pkg/"
+cp "$ROOT"/web/*.html "$ROOT"/web/*.js "$ROOT"/web/*.css "$BUILD/pkg/web/"
+! $DO_TALK || cp "$ROOT/web/vendor/chime.js" "$BUILD/pkg/web/vendor/"
 find "$BUILD/pkg" -name '__pycache__' -prune -exec rm -rf {} +
 (cd "$BUILD/pkg" && zip -qr "$BUILD/api.zip" .)
-write_env() { python3 -c 'import json,sys; v={"MONEY_HUB_TABLE":sys.argv[1]}; sys.argv[2] and v.update(PUBLIC_BASE_URL=sys.argv[2]); print(json.dumps({"Variables":v}))' \
-    "$TABLE_NAME" "$1" > "$BUILD/env.json"; }
+TALK_INSTANCE=""; TALK_FLOW=""
+if $DO_TALK; then TALK_INSTANCE="$INSTANCE_ID"; TALK_FLOW="$CONTACT_FLOW_ID"; fi
+write_env() { python3 -c 'import json,sys; v={"MONEY_HUB_TABLE":sys.argv[1]}; sys.argv[2] and v.update(PUBLIC_BASE_URL=sys.argv[2]); sys.argv[3] and v.update(CONNECT_INSTANCE_ID=sys.argv[3], CONTACT_FLOW_ID=sys.argv[4]); print(json.dumps({"Variables":v}))' \
+    "$TABLE_NAME" "$1" "$TALK_INSTANCE" "$TALK_FLOW" > "$BUILD/env.json"; }
 write_env ""
 if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
     run aws lambda update-function-code --function-name "$FUNCTION_NAME" --region "$REGION" \
@@ -172,7 +204,8 @@ if $DRY_RUN; then warn "Skipped in dry-run."; else
         [[ "$code" == "200" ]] && break; sleep 3; done
     [[ "$code" == "200" ]] && grep -q "Money Hub" "$BUILD/page.html" || die "The page did not load (HTTP ${code})."
     ok "The page loads."
-    echo '{"operation":"mint_link","customerId":"CUST-001"}' > "$BUILD/mint.json"
+    DEMO_LOA=""; ! $VERIFIED_DEMO || DEMO_LOA="2"
+    echo "{\"operation\":\"mint_link\",\"customerId\":\"CUST-001\",\"loa\":\"${DEMO_LOA}\"}" > "$BUILD/mint.json"
     aws lambda invoke --function-name "$FUNCTION_NAME" --region "$REGION" --cli-binary-format raw-in-base64-out \
         --payload "file://$BUILD/mint.json" "$BUILD/link.json" >/dev/null
     DEMO_LINK=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("link",""))' "$BUILD/link.json")
@@ -186,6 +219,8 @@ cat <<SUMMARY
   Money Hub page : ${PAGE_URL}/
   Demo link (James, CUST-001, works 24 hours; run again for a new one):
     ${DEMO_LINK:-run without --dry-run}
+  Chat and call from the page: $($DO_TALK && echo "on (needs in-app calling on the instance: README step 9)" || echo "off (--no-talk)")
+  Demo link verified (Level 2): $($VERIFIED_DEMO && echo "yes, for testing only" || echo "no: ARIA will verify the customer first")
 
   Next: ./connect-money-hub/scripts/deploy_agent.sh   (README step 3)
 SUMMARY

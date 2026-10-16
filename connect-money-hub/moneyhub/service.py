@@ -153,19 +153,27 @@ class MoneyHub:
 
     # ── page links ──────────────────────────────────────────────────────────────
 
-    def mint_link(self, customer_id: str) -> str:
-        """A link to this customer's Money Hub page. The secret is after '#', so it never reaches a server log."""
+    def mint_link(self, customer_id: str, loa: str = "") -> str:
+        """A link to this customer's Money Hub page. The secret is after '#', so it never reaches a server log.
+        loa is the assurance level of the contact that asked for the link ("" when none, as for a demo link);
+        a call or chat started from the page is treated as verified only when it is 2 or above."""
         if not data.generate(customer_id):
             raise MoneyHubError("customer_not_found", "No Money Hub for this customer.", 404)
         token = secrets.token_urlsafe(32)
-        self.store.put(f"link#{_hash(token)}", {"customerId": customer_id, "expiresAt": self.clock() + LINK_SECONDS})
+        level = str(loa).strip()
+        self.store.put(f"link#{_hash(token)}", {"customerId": customer_id, "loa": level if level.isdigit() else "",
+                                                "expiresAt": self.clock() + LINK_SECONDS})
         return f"{self.page_url}/#k={token}"
 
-    def customer_of_link(self, token: str) -> str:
+    def link_session(self, token: str) -> dict:
+        """{customerId, loa} for a live page link."""
         item = self.store.get(f"link#{_hash(token)}") if token else None
         if not item:
             raise MoneyHubError("link_expired", "This link has expired. Ask for a new one.", 403)
-        return item["customerId"]
+        return {"customerId": item["customerId"], "loa": str(item.get("loa") or "")}
+
+    def customer_of_link(self, token: str) -> str:
+        return self.link_session(token)["customerId"]
 
     def page_view(self, customer_id: str) -> dict:
         """Everything the page shows on load, in one call."""

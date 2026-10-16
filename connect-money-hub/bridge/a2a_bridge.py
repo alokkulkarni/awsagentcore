@@ -123,6 +123,19 @@ def verified_customer(attributes: dict) -> str:
     return str(attributes.get("customerId") or "")
 
 
+def _level(attributes: dict) -> str:
+    level = str(attributes.get("LoA") or attributes.get("loa") or "").strip()
+    return level if level.isdigit() else ""
+
+
+def _page_view(attributes: dict) -> str:
+    """Which Money Hub view the customer was on, when they started this contact from the page."""
+    if attributes.get("entry") != "money_hub":
+        return ""
+    view = str(attributes.get("moneyHubView") or "")
+    return view if view in ("out", "in", "expected", "transactions", "goals") else ""
+
+
 def _channel(init: dict, attributes: dict) -> str:
     raw = str((init.get("contactContext") or {}).get("channel") or attributes.get("channel") or "")
     return "CHAT" if "chat" in raw.lower() else "VOICE"
@@ -158,6 +171,8 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
     history = protocol.history_of(init)
     session = {
         "contactId": contact_id, "customerId": verified_customer(attributes),
+        "loa": _level(attributes) if verified_customer(attributes) else "",
+        "pageView": _page_view(attributes),
         "firstName": str(attributes.get("preferredName") or "")[:40], "channel": _channel(init, attributes),
         "finishTypes": [t for t in init.get("supportedFinishTypes") or ["COMPLETE", "ESCALATE"]
                         if t in ("COMPLETE", "ESCALATE")],
@@ -188,6 +203,7 @@ def _run_turn(context_id: str, session: dict, text: str) -> tuple[str, dict | No
     started = time.time_ns()
     answer = invoke_agent({"customerId": session["customerId"], "channel": session["channel"],
                            "firstName": session.get("firstName", ""), "history": session.get("transcript", []),
+                           "loa": session.get("loa", ""), "pageView": session.get("pageView", ""),
                            "input": text}, _runtime_session(context_id))
     reply = str(answer.get("reply") or "Sorry, I didn't catch that. Could you say it another way?")
     finish = answer.get("finish") if isinstance(answer.get("finish"), dict) else None

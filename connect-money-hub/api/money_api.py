@@ -9,13 +9,21 @@ it asks for (the dispute service's pattern):
               carries the page link's secret in the body, never in an address.
     Tool      the MCP gateway: get_money_hub_summary and get_money_hub_forecast,
               read-only, for ARIA's agent assist.
-    Internal  a direct invoke {"operation": "mint_link", "customerId"} from the
-              deploy script, for a demo link. A tool call can never reach it.
+    Internal  a direct invoke {"operation": "mint_link", "customerId", "loa"?}
+              from the deploy script, for a demo link. A tool call can never
+              reach it.
+
+The page can also start a call or a chat with ARIA (moneyhub/contact.py):
+/api/contact/call and /api/contact/chat start the contact in Amazon Connect and
+return only what the browser needs to join it.
 
 ENVIRONMENT VARIABLES
-    MONEY_HUB_TABLE    DynamoDB table. Unset = in memory, for local runs only
-    PUBLIC_BASE_URL    The page's address, for links
-    LOG_LEVEL          default INFO
+    MONEY_HUB_TABLE      DynamoDB table. Unset = in memory, for local runs only
+    PUBLIC_BASE_URL      The page's address, for links
+    CONNECT_INSTANCE_ID  Connect instance for calls and chats from the page.
+    CONTACT_FLOW_ID      The flow they start in (conversation bot flow).
+                         Either unset = the page offers no call or chat.
+    LOG_LEVEL            default INFO
 """
 
 from __future__ import annotations
@@ -25,9 +33,11 @@ import json
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
+from moneyhub import contact
 from moneyhub.service import MoneyHub, MoneyHubError
 from moneyhub.store import DynamoStore, MemoryStore
 
@@ -40,12 +50,48 @@ hub = MoneyHub(DynamoStore(_TABLE, time.time) if _TABLE else MemoryStore(time.ti
 
 WEB_DIR = next(d for d in (Path(__file__).parent / "web", Path(__file__).parent.parent / "web") if d.is_dir())
 MAX_BODY_BYTES = 4096
-ASSETS = {"styles.css": "text/css", "app.js": "text/javascript"}
+# chime.js is the Amazon Chime SDK, built by scripts/build_chime.sh (not in git).
+ASSETS = {"styles.css": ("styles.css", "text/css"), "app.js": ("app.js", "text/javascript"),
+          "talk.js": ("talk.js", "text/javascript"), "chime.js": ("vendor/chime.js", "text/javascript")}
+REGION = os.environ.get("AWS_REGION", "eu-west-2")
+CONNECT_INSTANCE_ID = os.environ.get("CONNECT_INSTANCE_ID", "")
+CONTACT_FLOW_ID = os.environ.get("CONTACT_FLOW_ID", "")
+# Calls need the Chime SDK's media and signalling hosts; chats need the Connect Participant Service and its websocket.
+_TALK_HOSTS = (f"https://participant.connect.{REGION}.amazonaws.com wss://*.transport.connect.{REGION}.amazonaws.com "
+               "https://*.chime.aws wss://*.chime.aws https://*.ingest.chime.aws")
 SECURITY_HEADERS = {
-    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+    "content-security-policy": f"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' {_TALK_HOSTS}; "
+                               "worker-src 'self' blob:; media-src 'self' blob: mediastream:; "
                                "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store",
+    "permissions-policy": "microphone=(self), camera=(), geolocation=()",
 }
+_connect = None
+
+
+def connect_client():
+    """Amazon Connect, created on first use (replaced in tests)."""
+    global _connect
+    if _connect is None:
+        import boto3
+        _connect = boto3.client("connect", region_name=REGION)
+    return _connect
+
+
+def start_contact(kind: str, session: dict, view: str) -> dict:
+    """Start a call or chat with ARIA for the page link's customer; only what the browser needs comes back."""
+    if not (CONNECT_INSTANCE_ID and CONTACT_FLOW_ID):
+        raise MoneyHubError("talk_unavailable", "Calls and chats aren't set up for this page yet.", 503)
+    request = contact.start_request(kind, session["customerId"], session["loa"], view, CONNECT_INSTANCE_ID,
+                                    CONTACT_FLOW_ID, str(uuid.uuid4()))
+    client = connect_client()
+    try:
+        response = client.start_web_rtc_contact(**request) if kind == "call" else client.start_chat_contact(**request)
+    except Exception as error:                                     # botocore ClientError and connection errors
+        logger.warning("start %s failed: %s", kind, type(error).__name__)
+        raise MoneyHubError("talk_failed", "We couldn't connect you just now. Try again in a minute.", 502)
+    return {**contact.browser_reply(kind, response), "region": REGION,
+            "verified": contact.verified_level(session["loa"])}
 TOOLS = ("get_money_hub_summary", "get_money_hub_forecast")
 
 
@@ -95,16 +141,18 @@ def web(event: dict) -> dict:
         if path == "/":
             return _response(200, (WEB_DIR / "index.html").read_text(encoding="utf-8"), "text/html")
         name = path.removeprefix("/assets/")
-        if path.startswith("/assets/") and name in ASSETS:
-            return _response(200, (WEB_DIR / name).read_text(encoding="utf-8"), ASSETS[name])
+        if path.startswith("/assets/") and name in ASSETS and (WEB_DIR / ASSETS[name][0]).is_file():
+            file, content_type = ASSETS[name]
+            return _response(200, (WEB_DIR / file).read_text(encoding="utf-8"), content_type)
         return _response(404, "Not found", "text/plain")
     if method != "POST" or not path.startswith("/api/"):
         return _response(404, "Not found", "text/plain")
     try:
         body = _body(event)
-        customer = hub.customer_of_link(_s(body, "token"))      # the page's own secret; nothing else names a customer
+        session = hub.link_session(_s(body, "token"))     # the page's own secret; nothing else names a customer
+        customer = session["customerId"]
         if path == "/api/hub":
-            reply = hub.page_view(customer)
+            reply = {**hub.page_view(customer), "talk": bool(CONNECT_INSTANCE_ID and CONTACT_FLOW_ID)}
         elif path == "/api/transactions":
             reply = hub.list_transactions(customer, _s(body, "from"), _s(body, "to"), _s(body, "category"),
                                           _s(body, "direction"), _s(body, "merchant"), int(_num(body, "page") or 1)
@@ -116,6 +164,8 @@ def web(event: dict) -> dict:
                                   _num(body, "saved") if "saved" in body else 0.0)
         elif path == "/api/goal/delete":
             reply = hub.delete_goal(customer, _s(body, "name"))
+        elif path in ("/api/contact/call", "/api/contact/chat"):
+            reply = start_contact(path.rsplit("/", 1)[-1], session, _s(body, "view"))
         else:
             return _response(404, "Not found", "text/plain")
         status, outcome = 200, "ok"
@@ -124,7 +174,7 @@ def web(event: dict) -> dict:
     except Exception:
         logger.exception("route=%s failed", path)
         reply, status, outcome = {"error": "error", "message": "Something went wrong. Try again."}, 500, "error"
-    logger.info("route=%s status=%s outcome=%s", path, status, outcome)      # never the body
+    logger.info("route=%s status=%s outcome=%s", path, status, outcome)      # never the body or a token
     return _json(status, reply)
 
 
@@ -173,7 +223,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
         return web(event)
     if event.get("operation") == "mint_link" and not _is_tool_call(event, context):
         try:
-            return {"link": hub.mint_link(str(event.get("customerId") or ""))}
+            return {"link": hub.mint_link(str(event.get("customerId") or ""), str(event.get("loa") or ""))}
         except MoneyHubError as error:
             return {"error": error.code}
     return _tool(event, context)

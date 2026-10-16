@@ -1,6 +1,8 @@
 // Money Hub page. Opened from a link whose secret is after "#" (never sent to a server or in a Referer).
 // The secret is read once, wiped from the address bar, and sent only in the body of this page's own calls.
 // Every value is written as text, never as HTML.
+import { setupTalk } from './talk.js';
+
 const $ = (id) => document.getElementById(id);
 const text = (id, value) => { $(id).textContent = value; };
 const gbp = (n) => `£${Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -133,6 +135,14 @@ async function load(all = true) {
   drawOverview(view.overview, view.discretionary);
   drawForecast(view.forecast, view.recurring);
   drawGoals(view.goals);
+  if (all && view.talk) {
+    $('talk').hidden = false;
+    setupTalk({
+      api,
+      currentView: () => document.querySelector('[role=tab][aria-selected=true]').dataset.view,
+      onEnded: () => load(false).catch(() => {}),
+    });
+  }
   if (all) {
     const known = new Set();
     for (const c of [...choices.out, ...choices.in]) {

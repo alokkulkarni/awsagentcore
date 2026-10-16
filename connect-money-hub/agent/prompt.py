@@ -83,6 +83,15 @@ _CHAT = """- This is a chat: you are writing. Keep messages short. A short list 
   figures. Use £ amounts and dates like "11 Oct". Post a link exactly as a tool gave it, on its own line."""
 
 
-def system_prompt(channel: str, first_name: str = "") -> str:
-    return _BASE.format(disclosure=GUIDANCE_DISCLOSURE, channel_rules=_VOICE if channel == "VOICE" else _CHAT,
-                        first_name=first_name or "not known")
+PAGE_VIEWS = {"out": "Money out", "in": "Money in", "expected": "Expected", "transactions": "Transactions",
+              "goals": "Goals"}
+
+
+def system_prompt(channel: str, first_name: str = "", page_view: str = "") -> str:
+    prompt = _BASE.format(disclosure=GUIDANCE_DISCLOSURE, channel_rules=_VOICE if channel == "VOICE" else _CHAT,
+                          first_name=first_name or "not known")
+    if page_view in PAGE_VIEWS:
+        prompt += (f"\nThey started this conversation from their Money Hub page, on the {PAGE_VIEWS[page_view]} tab, "
+                   "and can see the page now. Start with what that tab shows if they don't say otherwise. You can "
+                   "point to the page's tabs (Money out, Money in, Expected, Transactions, Goals); don't offer a link.")
+    return prompt

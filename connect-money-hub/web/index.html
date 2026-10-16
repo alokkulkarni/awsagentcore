@@ -27,6 +27,32 @@
         <article class="card"><h2>Left over <span class="hint">a month, on average</span></h2><p class="big" id="avg-left"></p></article>
       </div>
 
+      <section class="talk" id="talk" aria-labelledby="talk-title" hidden>
+        <div class="talk-bar">
+          <div>
+            <h2 id="talk-title">Questions about your money?</h2>
+            <p class="hint">Chat or talk with our assistant. It works from the same figures as this page.</p>
+          </div>
+          <div class="talk-actions">
+            <button type="button" id="talk-chat">Chat</button>
+            <button type="button" id="talk-call">Call</button>
+          </div>
+        </div>
+        <div class="talk-panel" id="talk-panel" hidden>
+          <p class="talk-status" id="talk-status" role="status"></p>
+          <ol class="chat-log" id="chat-log" aria-live="polite" aria-label="Conversation"></ol>
+          <form class="chat-form" id="chat-form" hidden>
+            <input id="chat-input" maxlength="1024" autocomplete="off" aria-label="Your message" placeholder="Ask about your spending">
+            <button type="submit">Send</button>
+          </form>
+          <div class="call-controls" id="call-controls" hidden>
+            <button type="button" id="call-mute" aria-pressed="false">Mute</button>
+          </div>
+          <button type="button" class="end" id="talk-end">End</button>
+          <audio id="talk-audio" autoplay></audio>
+        </div>
+      </section>
+
       <nav class="tabs" role="tablist" aria-label="Money Hub views">
         <button role="tab" id="tab-out" aria-selected="true" data-view="out">Money out</button>
         <button role="tab" id="tab-in" aria-selected="false" data-view="in">Money in</button>

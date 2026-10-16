@@ -79,12 +79,12 @@ def invoke(payload: dict) -> dict:
                 "usage": {}, "startNs": started, "endNs": time.time_ns()}
     recorder = Recorder()
     messages, preface = to_messages(payload.get("history") or [])
-    prompt = system_prompt(channel, str(payload.get("firstName") or ""))
+    prompt = system_prompt(channel, str(payload.get("firstName") or ""), str(payload.get("pageView") or ""))
     if preface:
         prompt += f"\n\nEarlier, before you joined: {preface}"
     agent = Agent(model=model if channel == "CHAT" else voice_model, system_prompt=prompt, messages=messages,
                   callback_handler=None,
-                  tools=[tool(t) for t in build_tools(hub, customer_id, channel, recorder)] + COMMUNITY_TOOLS)
+                  tools=[tool(t) for t in build_tools(hub, customer_id, channel, recorder, str(payload.get("loa") or ""))] + COMMUNITY_TOOLS)
     result = agent(text)
     reply = str(result).strip() or "Sorry, could you say that again?"
     logger.info("turn tools=%d finish=%s ms=%d", len(recorder.calls),

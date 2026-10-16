@@ -68,3 +68,24 @@ input, select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 
   .tx li select { grid-column: 1 / -1; grid-row: 2; }
   .big { font-size: 1.2rem; }
 }
+
+.talk { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+.talk-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.talk h2 { margin: 0; font-size: 1.05rem; }
+.talk .hint { margin: 2px 0 0; }
+.talk-actions { display: flex; gap: 8px; }
+.talk-actions button, .chat-form button, .call-controls button, .talk .end { padding: 9px 16px; border: 0; border-radius: 8px;
+  background: var(--brand); color: #fff; cursor: pointer; }
+.talk-actions button:disabled { opacity: .5; cursor: default; }
+.talk .end { background: var(--out); margin-top: 8px; }
+.talk-panel { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.talk-status { margin: 0 0 8px; color: var(--muted); min-height: 1.4em; }
+.chat-log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat-log li { max-width: 85%; padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-log li.them { background: var(--bg); align-self: flex-start; }
+.chat-log li.me { background: var(--brand); color: #fff; align-self: flex-end; }
+.chat-log li.system { align-self: center; color: var(--muted); font-size: .85rem; }
+.chat-form { display: flex; gap: 8px; margin-top: 10px; }
+.chat-form input { flex: 1; min-width: 0; }
+.call-controls { margin-top: 6px; }
+.call-controls button[aria-pressed="true"] { background: var(--flex); }

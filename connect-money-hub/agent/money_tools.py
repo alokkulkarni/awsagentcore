@@ -55,8 +55,9 @@ def _slim(t: dict) -> dict:
             "category": t["categoryWords"]}
 
 
-def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorder) -> list[Callable]:
-    """The tools for one conversation, with the customer bound in. Each records its call on the recorder."""
+def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorder, loa: str = "") -> list[Callable]:
+    """The tools for one conversation, with the customer bound in. Each records its call on the recorder.
+    loa is the contact's assurance level, recorded on any page link minted here."""
 
     def get_money_overview() -> dict:
         """The customer's current balance, money in and money out this month so far, the last three complete
@@ -147,7 +148,7 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         if channel != "CHAT":
             return {"link": "", "message": "On a phone call there is no way to send the link. Say they can ask for it "
                                            "in a chat with us."}
-        return {"link": hub.mint_link(customer_id), "message": "Post the link exactly as given, on its own line."}
+        return {"link": hub.mint_link(customer_id, loa), "message": "Post the link exactly as given, on its own line."}
 
     def hand_back(outcome: str, reason: str) -> dict:
         """Hand the conversation back to ARIA. outcome: complete (their Money Hub questions are answered, or they

@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Status | Built and unit-tested (61 tests). Agent checked on real Bedrock turns locally. **Not deployed; nothing has run on a live contact.** |
+| Status | Built and unit-tested (76 tests). Agent checked on real Bedrock turns locally; the page's chat and call client checked in a browser against a stand-in for Connect. **Not deployed; nothing has run on a live contact.** |
 | Date | 16 October 2026 |
 | Depends on | ARIA (`my-conversation-agent`) and `conversation bot flow`; the ARIA MCP gateway (optional, for agent assist) |
-| Built with | Strands Agents, `strands-agents-tools` (calculator), Amazon Bedrock AgentCore Runtime, Amazon Connect agent-to-agent (A2A) collaboration |
+| Built with | Strands Agents, `strands-agents-tools` (calculator), Amazon Bedrock AgentCore Runtime, Amazon Connect agent-to-agent (A2A) collaboration, Amazon Chime SDK for JavaScript (calls from the page), Connect Participant Service (chats from the page) |
 
 ## 1. What is wanted
 
@@ -31,7 +31,11 @@ Customer ─ phone or chat ─► ARIA (Connect AI agent, my-conversation-agent)
                               ▼
                       moneyhub package ── sample data, every calculation, the customer's categories and goals
                               ▲                                   (DynamoDB aria-money-hub)
-                      Money Hub page (Lambda + HTTP API) ── same data, same calculations, recategorise, goals
+                      Money Hub page (Lambda + HTTP API) ── same data, same calculations, recategorise, goals,
+                              │                                   and Chat / Call buttons
+                              ▼  StartChatContact / StartWebRTCContact (the page Lambda; attributes from the link's record)
+                      conversation bot flow ─► ARIA ─► Money Hub agent, as above
+                              (the browser joins: chat over the Participant Service, call with the Chime SDK)
 ```
 
 When the agent is done it sends FINISH (COMPLETE or ESCALATE, with a reason). ARIA is invoked again with
@@ -93,6 +97,20 @@ account" when tried. Configurable with `--model`.
 takeaways, eating out, transport, shopping, a summer holiday). "Today" for every analysis is 15 October 2026,
 the end of the data, so forecasts always look forward from it.
 
+**M11. Chat and call from the page go through ARIA, with identity from the link's record.** The page's Chat
+and Call buttons ask the page Lambda to start a contact (`StartChatContact`, or `StartWebRTCContact` for a
+call the browser joins with the Amazon Chime SDK) in `conversation bot flow`, so the customer meets ARIA and
+the same collaborator hand-over as on the phone. Nothing in the browser decides who the customer is: the
+contact's attributes come from the page link's record. A link records the assurance level of the contact that
+asked for it. Only a link minted at Level 2 or above starts a verified contact (`customerId`,
+`authStatus=authenticated`, `idvStatus=verified`, `LoA`, `idvMethod=money_hub_link`), which the session
+injector already passes through to ARIA unchanged. Any other link, including the deploy script's demo link,
+starts an anonymous contact and ARIA verifies the customer as usual. Otherwise a 24-hour link would become a
+Level 2 credential for a new channel without a verified contact behind it. Every page contact carries
+`entry=money_hub` and `moneyHubView` (the open tab). The bridge passes the tab to the agent, which starts from
+it. A chat opens with a first customer message naming the tab. The Chime SDK is bundled from pinned versions
+and served by the page itself, so the content security policy names no script hosts.
+
 ## 4. Components
 
 | Path | What | Talks to |
@@ -100,7 +118,9 @@ the end of the data, so forecasts always look forward from it.
 | `moneyhub/` | Data, categories, analysis, store, service | DynamoDB `aria-money-hub` |
 | `agent/` | Strands agent: `main.py` (AgentCore entrypoint), `money_tools.py` (12 tools), `prompt.py`, `history.py`, Dockerfile | Bedrock, DynamoDB |
 | `bridge/` | `a2a_bridge.py` (Lambda), `protocol.py` (A2A frames, OTLP trace) | Connect, Secrets Manager, AgentCore Runtime, DynamoDB |
-| `api/` + `web/` | Page Lambda and the responsive page; two read-only gateway tools | DynamoDB |
+| `api/` + `web/` | Page Lambda and the responsive page (`talk.js`: chat and call); two read-only gateway tools | DynamoDB, Connect (start contacts) |
+| `moneyhub/contact.py` | Builds a page contact's request and attributes from the link's record | — |
+| `web/vendor-src/` | Pinned Chime SDK sources; `scripts/build_chime.sh` builds `web/vendor/chime.js` | — |
 | `scripts/` | Deploy and configure; `collaborator.py`, `build_aria_prompt.py`, `local_preview.py` | AWS (only when you run them) |
 
 ## 5. The Connect contract, as implemented
@@ -133,12 +153,14 @@ Connect disables external endpoints that don't send traces.
 | H5 | The page sees only the customer its link names; the link's secret is after `#`, 24 hours | `MoneyHub.customer_of_link` |
 | H6 | A tool call can never mint a page link | `money_api.lambda_handler` |
 | H7 | Logs carry event types and outcomes, never the customer's words, replies, amounts, IDs or keys | all Lambdas |
+| H8 | A contact started from the page is verified only if the link was minted at Level 2+; the browser can't set a customer, level or attribute | `contact.attributes`, `MoneyHub.link_session` |
 
 ## 7. Setup summary (detail in the README)
 
 1. `deploy_money_hub.sh`, 2. `deploy_agent.sh`, 3. `deploy_bridge.sh`, 4. update the AWS CLI if needed and
 run `connect_collaborator.sh` (dry run, then `--apply`), 5. ARIA's prompt (`build_aria_prompt.py`) and
-publish, 6. point `conversation bot flow` at ARIA's new version. Requires the **Connect Customer** tier.
+publish, 6. point `conversation bot flow` at ARIA's new version, 9. chat and call from the page
+(`build_chime.sh`, then `deploy_money_hub.sh`; on by default). Requires the **Connect Customer** tier.
 
 ## 8. Out of scope
 
@@ -158,6 +180,13 @@ changing anything except categories and goals; adviser-facing views beyond the t
 - **Contact context** (channel) needs Access Contact Control Panel on ARIA's security profile; the bridge falls
   back to the contact's `channel` attribute, which the bot flow already sets.
 
+- **Calls and chats from the page.** `StartWebRTCContact` into `conversation bot flow` is assumed to reach ARIA
+  exactly as a phone call does (the Live Sync widget already starts web calls on this instance, with
+  `entry=web_widget`). The Participant Service websocket host is assumed to match
+  `wss://*.transport.connect.<region>.amazonaws.com`; if the browser console shows a CSP error naming another
+  host, add it to `_TALK_HOSTS` in `api/money_api.py`. On a call there's no first message, so ARIA greets as
+  usual and the customer says what they want; ARIA can't see `entry` unless the session injector passes it on.
+
 ## 10. Known gaps
 
 - Nothing here has run on a live contact. The bridge is tested against the AWS sample events, not Connect.
@@ -169,5 +198,8 @@ changing anything except categories and goals; adviser-facing views beyond the t
   hours, with the table's default encryption. Use a customer managed key and shorter retention for real data.
 - The bridge's Function URL has no built-in throttling (the page's HTTP API does). Every request still needs the
   key; add reserved concurrency or a WAF if exposure matters.
+- The demo link (`deploy_money_hub.sh --verified-demo`) can be made Level 2 for testing; anyone holding it is
+  treated as James for 24 hours. Don't use it outside a test account.
+- A call from the page is audio only. The page has no reconnect: if the browser drops, the customer starts again.
 - `--permissions BasicAgentAccess` (Access Contact Control Panel) and the runtime's DEFAULT endpoint are assumed
   rather than checked; the README troubleshooting table says what to do if either is wrong.

@@ -12,12 +12,13 @@ running on Amazon Bedrock AgentCore. It looks at the customer's real transaction
 
 It **reasons and explains but never gives financial advice**. When it's done, it hands back to ARIA. The
 customer hears ARIA's voice throughout. There's also a responsive **Money Hub page** showing the same figures,
-where the customer can move transactions to other categories and save goals.
+where the customer can move transactions to other categories and save goals, and **chat or call** from the
+page itself. That conversation goes through ARIA to the same agent, which knows which tab they were on.
 
 This guide is for someone doing this for the first time. Do the steps in order. Each says what you should
 see when it worked.
 
-> **Nothing here has run on a live call or chat yet.** There are 61 automatic tests, and the agent was checked
+> **Nothing here has run on a live call or chat yet.** There are 76 automatic tests, and the agent was checked
 > on real Bedrock turns on a laptop. The first live contact is the real test. SPEC.md section 9 lists the two
 > protocol details that contact will confirm.
 
@@ -71,6 +72,8 @@ Tick each one:
   if needed: on a Mac, `brew upgrade awscli` (or the installer from the AWS website).
 - [ ] **Docker Desktop is running.** Step 3 builds the agent's container. Check with `docker buildx version`.
 - [ ] `python3`, `zip` and `curl` are installed.
+- [ ] **Node.js 18 or later** with `npm`, for the page's Call button (step 9). Check with `node --version`.
+  On a Mac: `brew install node`.
 - [ ] Your Connect instance is on the **Connect Customer** tier. Agent-to-agent collaboration doesn't work on
   Customer Basic.
 
@@ -202,6 +205,53 @@ In **AI agents** → `my-agent-assistant-agent` → **Edit** → **Add tool**, a
 If the tools aren't offered, Connect is using its own copy of the gateway's tool list. Note the agent's
 tools, remove the `aria-mcp-agentcore-gateway-server` integration, add it back, and re-select them.
 
+### Step 9 — Chat and call from the Money Hub page (10 minutes)
+
+The page gets two buttons, **Chat** and **Call**. Each one starts a conversation with ARIA, in
+`conversation bot flow`, from the browser. A call uses your computer's microphone and speaker; no phone is
+needed. When the customer asks about their money, ARIA hands over to the Money Hub agent as usual. The agent
+knows which tab of the page they were looking at.
+
+**Who ARIA thinks it is.** The page tells Connect who the customer is only if the page link came from a
+conversation where they were verified at Level 2 (for example, the agent sent it in a chat). Then ARIA lets the
+agent take over straight away. The demo link from step 2 has no verified conversation behind it, so ARIA
+asks the customer to verify first, just like a normal chat.
+
+1. **Build the call component and redeploy the page.** Step 2 already did this if Node.js was installed. To be
+   sure, or to get a demo link that counts as verified James (for testing only), run:
+   ```bash
+   ./connect-money-hub/scripts/build_chime.sh
+   ./connect-money-hub/scripts/deploy_money_hub.sh --verified-demo
+   ```
+   ✅ The build prints `Built web/vendor/chime.js`. The deploy ends with `Chat and call from the page: on`
+   and `Demo link verified (Level 2): yes`.
+
+   > Anyone with a `--verified-demo` link is treated as James for 24 hours. Use it only in this test account.
+   > Run the deploy again without the option to go back to an ordinary demo link.
+
+2. **Redeploy the agent and the bridge** so they know about the page's tab:
+   ```bash
+   ./connect-money-hub/scripts/deploy_agent.sh
+   ./connect-money-hub/scripts/deploy_bridge.sh
+   ```
+   ✅ Each ends with `Done`.
+
+3. **Update ARIA's prompt.** The Money Hub section gained two sentences about conversations started from the
+   page. Repeat **step 5** (build the prompt, paste, publish), then **step 7** (put ARIA's new version in
+   both places in `conversation bot flow`).
+
+4. **Try it** (see *From the Money Hub page* under [Test it](#test-it)).
+
+> **Web calling on the instance.** Calls use the same Connect feature as the Live Sync widget, which already
+> starts web calls on this instance, so there's nothing to switch on. If **Call** says it couldn't connect,
+> see Troubleshooting.
+
+You can also try the buttons from your laptop before deploying. This starts real contacts with your AWS
+sign-in:
+```bash
+python3 connect-money-hub/scripts/local_preview.py --talk f969d4b4-f716-4974-a325-bb7899f2f293 f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f --verified
+```
+
 ---
 
 ## Test it
@@ -223,6 +273,20 @@ tools, remove the `aria-mcp-agentcore-gateway-server` integration, add it back, 
 Ring ARIA as James and ask "where does my money go?". Answers are short, a few figures at a time, in
 ARIA's voice, with an offer of more detail.
 
+### From the Money Hub page
+Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
+
+| You do | You should see |
+|---|---|
+| Open the page | A **Questions about your money?** box with **Chat** and **Call**, above the tabs |
+| Click **Expected**, then **Chat** | `Connecting you…`, then your first message (*"I'm on my Money Hub page, on the Expected tab…"*). Then an answer about the coming months, with no "transferring" |
+| Type `What's my biggest regular payment?` | A short answer with the figure |
+| Move a payment to another category in the chat, then click **End** | The chat ends. The page refreshes and shows the new category |
+| Click **Call** | Your browser asks to use the microphone: **Allow**. `Connected. Speak when you're ready.` ARIA greets you; say *"Where does my money go?"* and the answer is short, in ARIA's voice |
+| Click **Mute**, then **Unmute** | The button changes and your voice stops, then starts, reaching the call |
+| Click **End** | `You ended the call.` The contact ends in Connect (not after a timeout) |
+| Open an ordinary (not verified) demo link and click **Chat** | ARIA asks you to verify first, then hands over |
+
 ### Check it in the logs
 - **CloudWatch** → `/aws/lambda/aria-money-hub-bridge`: one line per event, for example
   `event=TEXT outcome=ok tools=2 finish=- ms=4100`. Never what was said.
@@ -243,6 +307,13 @@ ARIA's voice, with an offer of more detail.
 | `connect_collaborator.sh` fails creating the security profile, naming the permission | The script asks for `BasicAgentAccess`, the usual name for **Access Contact Control Panel**. In the Connect admin website, open **Users → Security profiles → ARIA AI agent collaborators** and tick **Contact Control Panel (CCP) → Access CCP** by hand, then run the script again |
 | The test turn in `deploy_agent.sh` fails with "endpoint" or "not found" | The script calls the runtime's DEFAULT endpoint, which normally exists. If not: `aws bedrock-agentcore-control create-agent-runtime-endpoint --agent-runtime-id <id> --name DEFAULT`, wait for READY, run again |
 | The page says "This link has expired" | Links last 24 hours. Run `deploy_money_hub.sh` for a new demo link, or ask the agent in chat |
+| No **Chat** or **Call** buttons on the page | The page Lambda has no Connect settings. Run `deploy_money_hub.sh` without `--no-talk` |
+| "We couldn't connect you just now" when you click Chat or Call | Connect refused to start the contact. In `/aws/lambda/aria-money-hub-api`, look for `start call failed:` or `start chat failed:` with the error type. `AccessDeniedException`: run `deploy_money_hub.sh` again (it sets the permission). `InvalidRequestException` on a call: check that in-app and web calling is available for the instance, as the Live Sync widget uses it |
+| "We couldn't connect the conversation (403)" | The browser reached Connect but the contact had already ended or the token was refused. Click Chat again |
+| "To call, allow this page to use your microphone" | The browser blocked the microphone. Click the padlock in the address bar, allow the microphone, reload |
+| Call connects but you hear nothing | Check the computer's output device, and in the browser console (**View → Developer → JavaScript Console**) look for an error naming `Content-Security-Policy`; send me the host it names |
+| Chat says Connected but no messages arrive | In the browser console, look for a `Content-Security-Policy` error naming a `wss://` host; it needs adding to `_TALK_HOSTS` in `api/money_api.py` |
+| ARIA asks a verified link to verify again | The link wasn't minted at Level 2 (an ordinary demo link, or one from a conversation without a level). Use `--verified-demo` for testing, or ask the agent for a link inside a verified chat |
 
 ---
 
@@ -252,6 +323,7 @@ ARIA's voice, with an offer of more detail.
 |---|---|
 | ARIA's hand-over | In `conversation bot flow`, put back ARIA's previous version in both places and publish. Or run `connect_collaborator.sh --remove --apply` |
 | ARIA's prompt | Paste the backup from step 5, publish, choose it in the agent |
+| Chat and call from the page | Run `deploy_money_hub.sh --no-talk`: the buttons disappear and the page Lambda loses permission to start contacts |
 | Everything | Delete the Lambdas `aria-money-hub-api` and `aria-money-hub-bridge`, the HTTP API `aria-money-hub-pages`, the AgentCore Runtime `aria_money_hub_agent`, the ECR repository `aria-money-hub-agent`, the table `aria-money-hub`, the secret `aria-money-hub/a2a-api-key`, the AppIntegrations application `aria-money-hub` and the gateway target `aria-money-hub`. Schedule the KMS key for deletion last |
 
 ---
@@ -264,7 +336,9 @@ ARIA's voice, with an offer of more detail.
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
 | [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |
 | [bridge/](bridge/) | The Connect A2A bridge: `a2a_bridge.py`, `protocol.py` |
-| [api/](api/), [web/](web/) | The Money Hub page and its Lambda |
+| [api/](api/), [web/](web/) | The Money Hub page and its Lambda. `web/talk.js` is the chat and call client |
+| [moneyhub/contact.py](moneyhub/contact.py) | What a chat or call from the page tells Connect, from the link's record |
+| [web/vendor-src/](web/vendor-src/) | Pinned Amazon Chime SDK version; `scripts/build_chime.sh` builds `web/vendor/chime.js` (not in git) |
 | [prompts/money-hub-aria-block.txt](prompts/money-hub-aria-block.txt) | The section added to ARIA's prompt |
-| [scripts/](scripts/) | Deploy (steps 2 to 4), collaborator (step 6), prompt builder (step 5), local preview |
-| [tests/](tests/) | 61 automatic tests |
+| [scripts/](scripts/) | Deploy (steps 2 to 4), collaborator (step 6), prompt builder (step 5), local preview, Chime build (step 9) |
+| [tests/](tests/) | 76 automatic tests |
