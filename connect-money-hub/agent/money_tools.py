@@ -124,15 +124,20 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         up) that would close it. target_date as YYYY-MM (a month) or YYYY-MM-DD, or months. The result gives
         today, targetDateWords, and when they'd reach it at their current rate (reachedAtCurrentRate) and with the
         changes (reachedWithMix), as dates in words: use those dates, never work dates out yourself. These are
-        illustrations, never advice."""
+        illustrations, never advice. already_saved: only what they say they've put aside for this goal (not
+        their balance); 0 if they haven't said."""
         return hub.goal_plan(customer_id, float(target_amount), int(months) or None, float(already_saved or 0),
                              target_date or "")
 
     def save_savings_goal(name: str, target_amount: float, target_date: str, already_saved: float = 0.0) -> dict:
         """Save a savings goal to the customer's Money Hub, so it shows on their page. Only when they ask.
         target_date as YYYY-MM (a month; saved as its last day) or YYYY-MM-DD, after today. To save it for when
-        they'd reach it, use the date in reachedWithMix (or reachedAtCurrentRate) from plan_savings_goal."""
-        return hub.save_goal(customer_id, name, float(target_amount), target_date, float(already_saved or 0))["goal"]
+        they'd reach it, use the date in reachedWithMix (or reachedAtCurrentRate) from plan_savings_goal.
+        already_saved is only money the customer says they've already put aside for this goal; never their
+        account balance. 0 if they haven't said."""
+        goal = hub.save_goal(customer_id, name, float(target_amount), target_date, float(already_saved or 0))["goal"]
+        return {"saved": True, "goal": goal, "goalsNow": [g["name"] for g in hub.goals(customer_id)],
+                "whereToSee": "the Goals tab of their Money Hub page (it updates while you talk)"}
 
     def compare_months(month_a: str, month_b: str) -> dict:
         """Spending by category in two months (YYYY-MM), and what changed most."""

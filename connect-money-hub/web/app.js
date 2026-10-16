@@ -129,8 +129,21 @@ function drawGoals(goals) {
   if (!goals.length) $('goals').append(el('li', 'hint', 'No goals yet.'));
 }
 
+let knownGoals = null;      // goal names last drawn, to announce one the assistant adds
+let refreshTimer = 0;
+
+// While a conversation is going, the assistant can save goals or move payments: refresh shortly after it speaks.
+function refreshSoon() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => load(false).catch(() => {}), 1500);
+}
+
 async function load(all = true) {
   const view = await api('/hub');
+  const names = view.goals.map((g) => g.name);
+  const added = knownGoals ? names.filter((n) => !knownGoals.includes(n)) : [];
+  knownGoals = names;
+  if (added.length) text('message', `Your goal "${added.join('", "')}" is now on the Goals tab.`);
   choices = view.choices;
   drawOverview(view.overview, view.discretionary);
   drawForecast(view.forecast, view.recurring);
@@ -140,6 +153,7 @@ async function load(all = true) {
       api,
       currentView: () => document.querySelector('[role=tab][aria-selected=true]').dataset.view,
       onEnded: () => load(false).catch(() => {}),
+      onActivity: refreshSoon,
     });
   }
   if (all) {

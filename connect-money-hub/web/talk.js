@@ -17,7 +17,7 @@ const TRANSCRIPT_EVERY_MS = 2000;
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
-export function setupTalk({ api, currentView, onEnded }) {
+export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const dock = setupDock({ currentView });
   let live = null;          // { kind, region, participantToken, connectionToken, socket, heartbeat, session, stream }
@@ -49,6 +49,7 @@ export function setupTalk({ api, currentView, onEnded }) {
     who.textContent = me ? 'You' : 'Assistant';
     li.append(who, document.createTextNode(plain(words)));
     $('chat-log').append(li);
+    if (!me) onActivity();          // the assistant may have just saved a goal or moved a payment
     $('talk-body').scrollTop = $('talk-body').scrollHeight;     // the overlay scrolls, never the page
   }
 

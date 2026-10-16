@@ -58,7 +58,12 @@ class Tools(unittest.TestCase):
         self.assertEqual(plan["neededPerMonth"], 625.0)
         self.assertTrue(plan["illustrativeMix"])
         saved = self.tools["save_savings_goal"]("Car", 5000, "2027-06-30")
-        self.assertEqual(saved["name"], "Car")
+        self.assertTrue(saved["saved"])
+        self.assertEqual(saved["goal"]["name"], "Car")
+        self.assertIn("Goals tab", saved["whereToSee"])
+        page = self.hub.page_view(JAMES)
+        self.assertEqual([g["name"] for g in page["goals"]], ["Car"], "the page reads what the agent saved")
+        self.assertEqual(page["goals"][0]["saved"], 0.0, "nothing counted as saved unless they said so")
         bad = self.tools["plan_savings_goal"](5000, target_date="2020-01-01")
         self.assertEqual(bad["reason"], "date_not_ahead")
         self.assertIn("after 15 October 2026", bad["message"], "says what would work, not that something broke")
@@ -70,7 +75,7 @@ class Tools(unittest.TestCase):
         self.assertEqual(plan["reachedWithMix"]["date"][:7], "2028-03", "17 months from 15 October 2026")
         self.assertEqual(plan["monthsWithMix"], 17)
         saved = self.tools["save_savings_goal"]("Car deposit", 10000, plan["reachedWithMix"]["date"][:7])
-        self.assertEqual(saved["byDate"], "2028-03-31", "a month alone means its last day")
+        self.assertEqual(saved["goal"]["byDate"], "2028-03-31", "a month alone means its last day")
         self.assertEqual(self.tools["save_savings_goal"]("Car", 10000, "March 27")["reason"], "bad_date")
 
     def test_every_call_is_recorded_for_connects_trace(self):
@@ -106,6 +111,12 @@ class Prompt(unittest.TestCase):
                      "Every number comes from your tools", "Never name another company's product"):
             self.assertIn(must, text)
         self.assertIn("James", text)
+
+    def test_saving_is_only_claimed_after_the_tool_saves(self):
+        text = system_prompt("CHAT", "James", "", "15 October 2026")
+        self.assertIn("call save_savings_goal in that same turn", text)
+        self.assertIn("Never say something is done unless a tool has done it", text)
+        self.assertIn("account balance is not money saved towards a goal", text)
 
     def test_it_knows_today_and_never_blames_a_problem(self):
         text = system_prompt("CHAT", "James", "", "15 October 2026")
