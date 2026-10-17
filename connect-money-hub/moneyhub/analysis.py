@@ -83,6 +83,19 @@ def overview(transactions: list[dict], months: int = 3) -> dict:
     }
 
 
+def monthly_spending(transactions: list[dict], months: int = 3) -> list[dict]:
+    """Money out in each of the last few complete months: the total, essentials and spending they choose,
+    and each category, so the page can show real months rather than an average."""
+    out = []
+    for key in last_full_months(months):
+        rows = by_category([t for t in transactions if month_key(t["date"]) == key])
+        flexible = sum(r["total"] for r in rows if r["discretionary"])
+        total = sum(r["total"] for r in rows)
+        out.append({"month": key, "total": _r(total), "discretionary": _r(flexible), "essential": _r(total - flexible),
+                    "categories": rows})
+    return out
+
+
 def recurring(transactions: list[dict]) -> list[dict]:
     """
     Payments and income that arrive about monthly for a similar amount: subscriptions,

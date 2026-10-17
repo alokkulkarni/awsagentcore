@@ -184,7 +184,12 @@ class Service(unittest.TestCase):
 
     def test_the_page_view_has_everything_the_page_needs(self):
         view = self.hub.page_view(JAMES)
-        self.assertEqual(set(view), {"overview", "forecast", "recurring", "discretionary", "goals", "choices"})
+        self.assertEqual(set(view), {"overview", "forecast", "monthlySpending", "recurring", "discretionary", "goals",
+                                     "choices"})
+        for month, summary in zip(view["monthlySpending"], view["overview"]["months"]):
+            self.assertEqual(month["month"], summary["month"])
+            self.assertAlmostEqual(month["total"], summary["moneyOut"], delta=0.02, msg="the chart matches By month")
+            self.assertAlmostEqual(month["essential"] + month["discretionary"], month["total"], delta=0.02)
         self.assertIn("savings", [c["category"] for c in view["choices"]["out"]])
 
 

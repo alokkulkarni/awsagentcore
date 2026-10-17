@@ -31,22 +31,30 @@
     <p id="message" class="message" role="status"></p>
 
     <section id="hub" hidden>
-      <div class="cards">
-        <article class="card balance">
+      <div class="glance">
+        <article class="card balance-card">
           <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2" /></svg></span>
-          <h2>Balance</h2><p class="big" id="balance"></p><p class="sub">in your current account</p>
+          <h2>Balance today</h2>
+          <p class="big" id="balance"></p>
+          <p class="sub" id="balance-note">What's in your current account right now.</p>
         </article>
-        <article class="card in">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></svg></span>
-          <h2>Money in</h2><p class="big" id="avg-in"></p><p class="sub">a month, on average</p>
-        </article>
-        <article class="card out">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></svg></span>
-          <h2>Money out</h2><p class="big" id="avg-out"></p><p class="sub">a month, on average</p>
-        </article>
-        <article class="card left">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg></span>
-          <h2>Left over</h2><p class="big" id="avg-left"></p><p class="sub" id="avg-saved">a month, on average</p>
+        <article class="card month-card-summary">
+          <div class="typical-head">
+            <h2>A typical month</h2>
+            <span class="pill" id="typical-period"></span>
+          </div>
+          <div class="flow">
+            <div class="flow-item in"><span class="flow-label">Money in</span><span class="flow-value" id="avg-in"></span></div>
+            <span class="flow-sign" aria-hidden="true">−</span>
+            <div class="flow-item out"><span class="flow-label">Money out</span><span class="flow-value" id="avg-out"></span></div>
+            <span class="flow-sign" aria-hidden="true">=</span>
+            <div class="flow-item left"><span class="flow-label">Left over</span><span class="flow-value" id="avg-left"></span></div>
+          </div>
+          <div class="compare" aria-hidden="true">
+            <div class="compare-row"><span>In</span><span class="compare-track"><span class="compare-fill in" id="in-bar"></span></span></div>
+            <div class="compare-row"><span>Out</span><span class="compare-track"><span class="compare-fill out" id="out-bar"></span></span></div>
+          </div>
+          <p class="sub" id="avg-saved"></p>
         </article>
       </div>
 
@@ -60,12 +68,15 @@
 
       <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
         <div class="view-head"><h2>Where your money goes</h2><span class="pill" id="out-period"></span></div>
+        <p class="hint">Money out in each month. Choose a month, or all three, to see where it went.</p>
+        <div class="month-chart" id="month-chart" role="group" aria-label="Money out by month"></div>
+        <div class="seg" id="out-pick" role="group" aria-label="Show spending for"></div>
+        <h3 class="out-scope" id="out-scope"></h3>
         <div class="split-bar" aria-hidden="true"><span class="ess" id="split-ess"></span><span class="flex" id="split-flex"></span></div>
         <p class="split" id="split"></p>
         <div class="legend"><span class="chip ess">Bills and essentials</span><span class="chip flex">Spending you choose</span></div>
-        <p class="hint">A month, on average, by category.</p>
         <ul class="bars" id="out-bars"></ul>
-        <h3>Your habits <span class="hint">spending you choose, a month on average</span></h3>
+        <h3>Your habits <span class="hint">spending you choose, a month on average over the three months</span></h3>
         <ul class="habits" id="habits"></ul>
       </section>
 
