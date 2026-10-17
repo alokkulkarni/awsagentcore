@@ -310,7 +310,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
         return web(event)
     if event.get("operation") == "mint_link" and not _is_tool_call(event, context):
         try:
-            return {"link": hub.mint_link(str(event.get("customerId") or ""), str(event.get("loa") or ""))}
+            return {"link": hub.mint_link(str(event.get("customerId") or ""), str(event.get("loa") or ""),
+                                          expires=not bool(event.get("neverExpires")))}
         except MoneyHubError as error:
             return {"error": error.code}
     return _tool(event, context)

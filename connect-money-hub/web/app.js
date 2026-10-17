@@ -1,5 +1,7 @@
 // Money Hub page. Opened from a link whose secret is after "#" (never sent to a server or in a Referer).
 // The secret is read once, wiped from the address bar, and sent only in the body of this page's own calls.
+// It's remembered on this device (so the page reopens after the browser closes) until the link stops working
+// or the customer chooses "Forget this device".
 // Every value is written as text, never as HTML.
 import { setupTalk } from './talk.js';
 
@@ -9,9 +11,28 @@ const gbp = (n) => `${Number(n) < 0 ? '−' : ''}£${Math.abs(Number(n)).toLocal
 const day = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const monthName = (key) => new Date(`${key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
-let token = new URLSearchParams(location.hash.slice(1)).get('k') || sessionStorage.getItem('moneyHub') || '';
+const LINK_KEY = 'moneyHubLink';
+const stored = (store) => { try { return store.getItem(LINK_KEY) || store.getItem('moneyHub') || ''; } catch { return ''; } };
+function remember(value) {
+  for (const store of [localStorage, sessionStorage]) {
+    try { if (value) store.setItem(LINK_KEY, value); else { store.removeItem(LINK_KEY); store.removeItem('moneyHub'); } }
+    catch { /* private browsing: this visit only */ }
+  }
+}
+let token = new URLSearchParams(location.hash.slice(1)).get('k') || stored(localStorage) || stored(sessionStorage);
 if (location.hash) history.replaceState(null, '', location.pathname);
-if (token) sessionStorage.setItem('moneyHub', token);
+remember(token);
+
+// Forget this device: the page shows nothing until it's opened from the link again.
+function forget(words = 'This device has forgotten your Money Hub. Open it from your link to see it again.') {
+  remember('');
+  token = '';
+  $('hub').hidden = true;
+  $('forget').hidden = true;
+  $('talk-launcher').hidden = true;
+  $('talk-panel').hidden = true;
+  text('message', words);
+}
 
 let choices = { in: [], out: [] };
 let txPage = 1;
@@ -54,6 +75,7 @@ async function api(path, body = {}) {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, token }),
   });
   const json = await response.json().catch(() => ({}));
+  if (json.error === 'link_expired') forget('That link no longer works. Open your Money Hub from a new link.');
   if (!response.ok) throw new Error(json.message || `Something went wrong (${response.status}).`);
   return json;
 }
@@ -304,5 +326,9 @@ $('goal-form').addEventListener('submit', async (e) => {
   } catch (error) { text('g-result', error.message); }
 });
 
+$('forget').addEventListener('click', () => forget());
 if (!token) text('message', 'Open your Money Hub from the link we gave you.');
-else load().catch((error) => text('message', error.message));
+else {
+  $('forget').hidden = false;
+  load().catch((error) => { if (token) text('message', error.message); });
+}

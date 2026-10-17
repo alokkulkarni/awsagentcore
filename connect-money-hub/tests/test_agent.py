@@ -37,7 +37,9 @@ class Tools(unittest.TestCase):
 
     def test_overview_habits_and_forecast_give_figures_to_explain(self):
         o = self.tools["get_money_overview"]()
-        self.assertEqual(o["balance"], data.generate(JAMES)[-1]["balanceAfter"])
+        self.assertEqual(o["currentBalance"], data.generate(JAMES)[-1]["balanceAfter"])
+        self.assertEqual(o["currentBalance"], self.hub.page_view(JAMES)["overview"]["balance"],
+                         "the agent's balance is the page's Balance")
         habits = self.tools["get_spending_habits"]()
         self.assertTrue(any(h["words"] == "Coffee and snacks" for h in habits["habits"]))
         months = self.tools["get_expected_months"](3)["months"]

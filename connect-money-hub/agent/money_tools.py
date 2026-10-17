@@ -60,9 +60,10 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
     loa is the contact's assurance level, recorded on any page link minted here."""
 
     def get_money_overview() -> dict:
-        """The customer's current balance, money in and money out this month so far, the last three complete
-        months, the monthly average, and their biggest spending categories (per month, on average). Start here
-        for "how am I doing"."""
+        """The customer's current account balance today (currentBalance: what's in the account now, the figure
+        their Money Hub page shows as Balance), money in and money out this month so far, the last three complete
+        months, the monthly average (leftOver is per month, not a balance), and their biggest spending categories
+        (per month, on average). Start here for "how am I doing" and for "how much have I got"."""
         o = hub.overview(customer_id)
         months = max(1, len(o["months"]))
 
@@ -72,7 +73,7 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
             return {**{k: m[k] for k in ("moneyIn", "moneyOut") if k in m},
                     "leftOver": round(m.get("moneyIn", 0) - m.get("moneyOut", 0), 2),
                     "ofWhichMovedToSavings": m.get("movedToSavings", 0), **({"month": m["month"]} if "month" in m else {})}
-        return {"asOf": o["asOf"], "balance": o["balance"], "thisMonthSoFar": plain(o["thisMonthSoFar"]),
+        return {"asOf": o["asOf"], "currentBalance": o["balance"], "thisMonthSoFar": plain(o["thisMonthSoFar"]),
                 "lastThreeMonths": [plain(m) for m in o["months"]], "averageMonth": plain(o["averageMonth"]),
                 "topSpendingPerMonth": [{"words": c["words"], "perMonth": round(c["total"] / months, 2),
                                          "share": c["share"], "discretionary": c["discretionary"]}

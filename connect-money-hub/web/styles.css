@@ -33,6 +33,10 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .tagline { margin: 0; opacity: .8; font-size: .9rem; }
 .as-of { margin: 0; padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .14); font-size: .85rem; }
 .as-of:empty { display: none; }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.forget { padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: transparent;
+  color: var(--on-brand); font-size: .85rem; cursor: pointer; }
+.forget:hover { background: rgba(255, 255, 255, .14); }
 main.wrap { margin-top: -44px; }
 .message { min-height: 1.4em; margin: 0 0 8px; color: var(--on-brand); font-weight: 500; }
 .message:empty { min-height: 0; }

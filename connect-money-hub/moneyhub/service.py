@@ -167,16 +167,19 @@ class MoneyHub:
 
     # ── page links ──────────────────────────────────────────────────────────────
 
-    def mint_link(self, customer_id: str, loa: str = "") -> str:
+    def mint_link(self, customer_id: str, loa: str = "", expires: bool = True) -> str:
         """A link to this customer's Money Hub page. The secret is after '#', so it never reaches a server log.
         loa is the assurance level of the contact that asked for the link ("" when none, as for a demo link);
-        a call or chat started from the page is treated as verified only when it is 2 or above."""
+        a call or chat started from the page is treated as verified only when it is 2 or above.
+        expires=False makes a link that never expires: for the demo link to the sample data only."""
         if not data.generate(customer_id):
             raise MoneyHubError("customer_not_found", "No Money Hub for this customer.", 404)
         token = secrets.token_urlsafe(32)
         level = str(loa).strip()
-        self.store.put(f"link#{_hash(token)}", {"customerId": customer_id, "loa": level if level.isdigit() else "",
-                                                "expiresAt": self.clock() + LINK_SECONDS})
+        item = {"customerId": customer_id, "loa": level if level.isdigit() else ""}
+        if expires:
+            item["expiresAt"] = self.clock() + LINK_SECONDS
+        self.store.put(f"link#{_hash(token)}", item)
         return f"{self.page_url}/#k={token}"
 
     def link_session(self, token: str) -> dict:
