@@ -161,7 +161,8 @@ the keyed test is skipped; that's expected.
 
 ### Step 6 — Make the Money Hub agent ARIA's collaborator (5 minutes)
 
-There's no console screen for this; the script does it.
+There's no console screen for this; the script does it. [docs/collaborator-setup.md](docs/collaborator-setup.md)
+explains each thing it sets up, where it lives in Connect, and how to check it.
 
 **6a. Dry run first** (changes nothing):
 ```bash
@@ -352,6 +353,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | Path | What it is |
 |---|---|
 | [SPEC.md](SPEC.md) | Design, decisions, the Connect contract, rules, open questions |
+| [docs/collaborator-setup.md](docs/collaborator-setup.md) | What `connect_collaborator.sh` does, step by step, and where each collaborator setting lives in Connect |
 | [docs/diagrams/](docs/diagrams/) | Architecture, sequence and AWS infrastructure diagrams (PNG and PDF, editable in draw.io); `build_diagrams.py --export` rebuilds them |
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
 | [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |
