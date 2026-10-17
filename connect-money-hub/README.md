@@ -46,7 +46,7 @@ Customer (phone or chat) ─► ARIA ─► (Connect hands over, unannounced) �
 |---|---|
 | **ARIA** | Notices a money question, makes sure the customer is verified, lets Connect hand over. Carries on when the agent hands back |
 | **Bridge** (Lambda) | Connect's front door to the agent. Checks Connect's key, works out who the customer is from Connect's own record, keeps the conversation |
-| **Money Hub agent** (Strands on AgentCore Runtime) | Talks to the customer, using 12 Money Hub tools. Every figure comes from a tool; it never invents numbers |
+| **Money Hub agent** (Strands on AgentCore Runtime) | Talks to the customer, using 13 Money Hub tools. Every figure comes from a tool; it never invents numbers |
 | **Money Hub page** | The same figures in a web page; change categories, save goals |
 
 The sample data is fictional: James (`CUST-001`) has 333 transactions and Sarah (`CUST-002`) 188, from
@@ -161,7 +161,8 @@ the keyed test is skipped; that's expected.
 
 ### Step 6 — Make the Money Hub agent ARIA's collaborator (5 minutes)
 
-There's no console screen for this; the script does it.
+There's no console screen for this; the script does it. [docs/collaborator-setup.md](docs/collaborator-setup.md)
+explains each thing it sets up, where it lives in Connect, and how to check it.
 
 **6a. Dry run first** (changes nothing):
 ```bash
@@ -352,6 +353,7 @@ Open the demo link from step 9 (the verified one) in **Chrome, Edge or Safari**.
 | Path | What it is |
 |---|---|
 | [SPEC.md](SPEC.md) | Design, decisions, the Connect contract, rules, open questions |
+| [docs/collaborator-setup.md](docs/collaborator-setup.md) | What `connect_collaborator.sh` does, step by step, and where each collaborator setting lives in Connect |
 | [docs/diagrams/](docs/diagrams/) | Architecture, sequence and AWS infrastructure diagrams (PNG and PDF, editable in draw.io); `build_diagrams.py --export` rebuilds them |
 | [moneyhub/](moneyhub/) | The data and every calculation (`analysis.py`), categories, store, service |
 | [agent/](agent/) | The Strands agent: `main.py`, `money_tools.py` (its tools), `prompt.py`, Dockerfile. `strands-agents-tools` is there for its `calculator` |

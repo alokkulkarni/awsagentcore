@@ -214,19 +214,20 @@ if $DRY_RUN; then warn "Skipped in dry-run."; else
     [[ "$code" == "200" ]] && grep -q "Money Hub" "$BUILD/page.html" || die "The page did not load (HTTP ${code})."
     ok "The page loads."
     DEMO_LOA=""; ! $VERIFIED_DEMO || DEMO_LOA="2"
-    echo "{\"operation\":\"mint_link\",\"customerId\":\"CUST-001\",\"loa\":\"${DEMO_LOA}\"}" > "$BUILD/mint.json"
+    # The demo link (sample data) never expires, so it keeps working on a phone; links sent in chats last 24 hours.
+    echo "{\"operation\":\"mint_link\",\"customerId\":\"CUST-001\",\"loa\":\"${DEMO_LOA}\",\"neverExpires\":true}" > "$BUILD/mint.json"
     aws lambda invoke --function-name "$FUNCTION_NAME" --region "$REGION" --cli-binary-format raw-in-base64-out \
         --payload "file://$BUILD/mint.json" "$BUILD/link.json" >/dev/null
     DEMO_LINK=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("link",""))' "$BUILD/link.json")
     [[ "$DEMO_LINK" == https://* ]] || die "Could not make a demo link: $(cat "$BUILD/link.json")"
-    ok "A link works for 24 hours."
+    ok "A demo link is ready (it never expires)."
 fi
 
 header "Done"
 cat <<SUMMARY
 
   Money Hub page : ${PAGE_URL}/
-  Demo link (James, CUST-001, works 24 hours; run again for a new one):
+  Demo link (James, CUST-001, sample data; never expires; run again for another):
     ${DEMO_LINK:-run without --dry-run}
   Chat and call from the page: $($DO_TALK && echo "on (needs in-app calling on the instance: README step 9)" || echo "off (--no-talk)")
   Demo link verified (Level 2): $($VERIFIED_DEMO && echo "yes, for testing only" || echo "no: ARIA will verify the customer first")

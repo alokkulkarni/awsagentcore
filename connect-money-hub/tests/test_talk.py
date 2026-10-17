@@ -261,6 +261,17 @@ class ContactRules(unittest.TestCase):
         for loa, verified in (("2", True), ("3", True), ("1", False), ("", False), ("two", False), (None, False)):
             self.assertEqual(contact.verified_level(loa), verified, loa)
 
+    def test_a_demo_link_can_never_expire_and_others_still_do(self):
+        clock = [NOW]
+        hub = MoneyHub(MemoryStore(lambda: clock[0]), lambda: clock[0], page_url="https://hub.example")
+        demo = hub.mint_link(JAMES, "2", expires=False).split("#k=")[1]
+        chat = hub.mint_link(JAMES, "2").split("#k=")[1]
+        clock[0] = NOW + 400 * 24 * 3600            # more than a year later
+        self.assertEqual(hub.link_session(demo)["customerId"], JAMES)
+        from moneyhub.service import MoneyHubError
+        with self.assertRaises(MoneyHubError):
+            hub.link_session(chat)
+
     def test_links_record_their_level_and_old_links_have_none(self):
         hub = MoneyHub(MemoryStore(lambda: NOW), lambda: NOW, page_url="https://hub.example")
         token = hub.mint_link(JAMES, " 2 ").split("#k=")[1]

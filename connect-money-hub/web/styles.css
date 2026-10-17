@@ -33,12 +33,66 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .tagline { margin: 0; opacity: .8; font-size: .9rem; }
 .as-of { margin: 0; padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .14); font-size: .85rem; }
 .as-of:empty { display: none; }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.forget { padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: transparent;
+  color: var(--on-brand); font-size: .85rem; cursor: pointer; }
+.forget:hover { background: rgba(255, 255, 255, .14); }
 main.wrap { margin-top: -44px; }
 .message { min-height: 1.4em; margin: 0 0 8px; color: var(--on-brand); font-weight: 500; }
 .message:empty { min-height: 0; }
 .hint { color: var(--muted); font-size: .85rem; font-weight: normal; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 0 0 18px; }
+
+/* At a glance: the balance today, and a typical month as a sum (in − out = left over). */
+.glance { display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 14px; margin: 0 0 18px; }
+.balance-card .big { font-size: 2.1rem; margin-top: 4px; }
+.balance-card .sub { max-width: 30ch; }
+.card.month-card-summary::before { background: var(--save); }
+.typical-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.typical-head h2 { margin: 2px 0 0; }
+.flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 10px; margin: 12px 0 10px; }
+.flow-item { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--soft); }
+.flow-item.in { background: var(--in-soft); }
+.flow-item.out { background: var(--out-soft); }
+.flow-item.left { background: var(--save-soft); }
+.flow-label { font-size: .78rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.flow-value { font-size: 1.3rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.flow-item.in .flow-value { color: var(--in); }
+.flow-item.out .flow-value { color: var(--out); }
+.flow-item.left .flow-value { color: var(--save); }
+.flow-sign { font-size: 1.4rem; font-weight: 700; color: var(--muted); }
+.compare { display: grid; gap: 6px; margin-bottom: 8px; }
+.compare-row { display: grid; grid-template-columns: 2.5em 1fr; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); }
+.compare-track { height: 10px; border-radius: 999px; background: var(--soft); overflow: hidden; }
+.compare-fill { display: block; height: 100%; border-radius: 999px; }
+.compare-fill.in { background: var(--in); }
+.compare-fill.out { background: var(--out); }
+
+/* Money out by month: a column per month, then the chosen month's categories. */
+.month-chart { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 14px; align-items: end;
+  height: 230px; padding: 10px 6px 0; margin: 6px 0 12px; border-bottom: 1px solid var(--line); }
+.month-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px;
+  border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; padding: 0; opacity: .55;
+  transition: opacity .15s; }
+.month-col[aria-pressed="true"], .month-col:hover { opacity: 1; }
+.col-total { font-size: .85rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.col-plot { display: flex; align-items: flex-end; justify-content: center; width: 100%; flex: 1; }
+.col-stack { display: flex; flex-direction: column; width: min(64px, 70%); border-radius: 10px 10px 4px 4px; overflow: hidden; }
+.col-a { flex: 1; background: var(--essential); }
+.col-b { background: var(--flex); }
+.month-chart.in .col-a { background: var(--in); }
+.month-chart.in .col-b { background: color-mix(in srgb, var(--in) 40%, #7fd3e0); }
+.split-bar.in .part-a, .legend.in .chip.part-a::before { background: var(--in); }
+.split-bar.in .part-b, .legend.in .chip.part-b::before { background: color-mix(in srgb, var(--in) 40%, #7fd3e0); }
+.col-label { padding-bottom: 8px; font-size: .85rem; color: var(--muted); font-weight: 600; }
+.month-col[aria-pressed="true"] .col-label { color: var(--ink); }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 999px;
+  background: var(--soft); border: 1px solid var(--line); }
+.seg button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; font: inherit; font-size: .88rem;
+  color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+.out-scope { margin: 0 0 8px !important; font-size: 1.05rem; }
 .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 16px 16px 14px; box-shadow: var(--shadow); overflow: hidden; }
 .card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--brand-2); }
@@ -113,13 +167,30 @@ main.wrap { margin-top: -44px; }
 .regular li .value { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-weight: 600; }
 .regular li.in .value, .tx li.in .value { color: var(--in); }
 
+.table-wrap { overflow-x: auto; }
 .months { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: .95rem; }
 .months th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
 .months th, .months td { text-align: right; padding: 9px 6px; border-bottom: 1px solid var(--line); }
 .months tbody tr:last-child td { border-bottom: 0; }
 .months th:first-child, .months td:first-child { text-align: left; }
+.months td { white-space: nowrap; }
+.months .short { display: none; }
 .forecast { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 6px; }
 .forecast .card { box-shadow: none; background: var(--soft); }
+.month-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s; }
+.month-card:hover { border-color: color-mix(in srgb, var(--save) 45%, var(--line)); }
+.month-card[aria-pressed="true"] { background: var(--card); border-color: var(--save); box-shadow: 0 0 0 3px var(--save-soft); }
+.month-detail { margin-top: 18px; }
+.month-detail .view-head { margin-bottom: 4px; }
+.month-detail h3 { margin: 0; }
+.tx-cat { font-size: .8rem; color: var(--muted); }
+.tx-when { font-size: .72rem; color: var(--save); font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--save-soft); }
+.month-sub { margin: 20px 0 8px; font-size: .95rem; }
+.month-everyday { list-style: none; margin: 0; padding: 0; }
+.month-everyday li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.month-everyday li .value { font-weight: 600; }
+.month-everyday li.total { border-bottom: 0; font-weight: 700; }
 .forecast .card::before { background: var(--save); }
 .forecast p { margin: 3px 0; font-variant-numeric: tabular-nums; }
 .forecast .big { font-size: 1.25rem; margin-top: 8px; }
@@ -205,7 +276,15 @@ input, select { padding: 9px 11px; border: 1px solid var(--line); border-radius:
   padding: 16px; border-radius: 12px; background: var(--soft); }
 .goal-form h3, .goal-form button, .goal-form .hint { grid-column: 1 / -1; margin: 0; }
 
+@media (max-width: 760px) {
+  .glance { grid-template-columns: 1fr; }
+}
 @media (max-width: 560px) {
+  .flow { grid-template-columns: 1fr auto 1fr; }
+  .flow-item.left { grid-column: 1 / -1; }
+  .flow-sign:nth-of-type(2) { display: none; }
+  .flow-value { font-size: 1.1rem; }
+  .month-chart { height: 190px; gap: 8px; }
   .goal-facts { grid-template-columns: 1fr; gap: 2px; }
   .goal-facts dd { margin-bottom: 8px; }
   .top { padding-bottom: 56px; }
@@ -218,7 +297,11 @@ input, select { padding: 9px 11px; border: 1px solid var(--line); border-radius:
   .bars li .track { grid-column: 1 / -1; grid-row: 2; }
   .tx li.tx-row { grid-template-columns: 40px 1fr auto; gap: 10px; }
   .tx-logo { width: 40px; height: 40px; }
-  .months { font-size: .85rem; }
+  .months { font-size: .8rem; }
+  .months th { font-size: .68rem; letter-spacing: 0; }
+  .months th, .months td { padding: 8px 3px; }
+  .months .long { display: none; }
+  .months .short { display: inline; }
 }
 
 /* ── The assistant: a tag fixed at the bottom, opening an overlay (dock.js) ─────────────────────── */

@@ -20,7 +20,10 @@
           <p class="tagline">Your money, explained</p>
         </div>
       </div>
-      <p class="as-of" id="as-of"></p>
+      <div class="top-actions">
+        <p class="as-of" id="as-of"></p>
+        <button type="button" class="forget" id="forget" hidden title="Remove your Money Hub from this device">Forget this device</button>
+      </div>
     </div>
   </header>
 
@@ -28,22 +31,30 @@
     <p id="message" class="message" role="status"></p>
 
     <section id="hub" hidden>
-      <div class="cards">
-        <article class="card balance">
+      <div class="glance">
+        <article class="card balance-card">
           <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2" /></svg></span>
-          <h2>Balance</h2><p class="big" id="balance"></p><p class="sub">in your current account</p>
+          <h2>Balance today</h2>
+          <p class="big" id="balance"></p>
+          <p class="sub" id="balance-note">What's in your current account right now.</p>
         </article>
-        <article class="card in">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></svg></span>
-          <h2>Money in</h2><p class="big" id="avg-in"></p><p class="sub">a month, on average</p>
-        </article>
-        <article class="card out">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></svg></span>
-          <h2>Money out</h2><p class="big" id="avg-out"></p><p class="sub">a month, on average</p>
-        </article>
-        <article class="card left">
-          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg></span>
-          <h2>Left over</h2><p class="big" id="avg-left"></p><p class="sub" id="avg-saved">a month, on average</p>
+        <article class="card month-card-summary">
+          <div class="typical-head">
+            <h2>A typical month</h2>
+            <span class="pill" id="typical-period"></span>
+          </div>
+          <div class="flow">
+            <div class="flow-item in"><span class="flow-label">Money in</span><span class="flow-value" id="avg-in"></span></div>
+            <span class="flow-sign" aria-hidden="true">−</span>
+            <div class="flow-item out"><span class="flow-label">Money out</span><span class="flow-value" id="avg-out"></span></div>
+            <span class="flow-sign" aria-hidden="true">=</span>
+            <div class="flow-item left"><span class="flow-label">Left over</span><span class="flow-value" id="avg-left"></span></div>
+          </div>
+          <div class="compare" aria-hidden="true">
+            <div class="compare-row"><span>In</span><span class="compare-track"><span class="compare-fill in" id="in-bar"></span></span></div>
+            <div class="compare-row"><span>Out</span><span class="compare-track"><span class="compare-fill out" id="out-bar"></span></span></div>
+          </div>
+          <p class="sub" id="avg-saved"></p>
         </article>
       </div>
 
@@ -57,28 +68,43 @@
 
       <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
         <div class="view-head"><h2>Where your money goes</h2><span class="pill" id="out-period"></span></div>
+        <p class="hint">Money out in each month. Choose a month, or all three, to see where it went.</p>
+        <div class="month-chart out" id="month-chart" role="group" aria-label="Money out by month"></div>
+        <div class="seg" id="out-pick" role="group" aria-label="Show spending for"></div>
+        <h3 class="out-scope" id="out-scope"></h3>
         <div class="split-bar" aria-hidden="true"><span class="ess" id="split-ess"></span><span class="flex" id="split-flex"></span></div>
         <p class="split" id="split"></p>
         <div class="legend"><span class="chip ess">Bills and essentials</span><span class="chip flex">Spending you choose</span></div>
-        <p class="hint">A month, on average, by category.</p>
         <ul class="bars" id="out-bars"></ul>
-        <h3>Your habits <span class="hint">spending you choose, a month on average</span></h3>
+        <h3>Your habits <span class="hint">spending you choose, a month on average over the three months</span></h3>
         <ul class="habits" id="habits"></ul>
       </section>
 
       <section class="view" id="view-in" role="tabpanel" aria-labelledby="tab-in" hidden>
-        <div class="view-head"><h2>Where your money comes from</h2><span class="pill">a month, on average</span></div>
+        <div class="view-head"><h2>Where your money comes from</h2><span class="pill" id="in-period"></span></div>
+        <p class="hint">Money in each month. Choose a month, or all three, to see where it came from.</p>
+        <div class="month-chart in" id="in-chart" role="group" aria-label="Money in by month"></div>
+        <div class="seg" id="in-pick" role="group" aria-label="Show money in for"></div>
+        <h3 class="out-scope" id="in-scope"></h3>
+        <div class="split-bar in" aria-hidden="true"><span class="part-a" id="in-split-a"></span><span class="part-b" id="in-split-b"></span></div>
+        <p class="split" id="in-split"></p>
+        <div class="legend in"><span class="chip part-a">Salary</span><span class="chip part-b">Other money in</span></div>
         <ul class="bars in" id="in-bars"></ul>
         <h3>By month</h3>
-        <table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
-          <tbody id="months"></tbody></table>
+        <div class="table-wrap"><table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
+          <tbody id="months"></tbody></table></div>
       </section>
 
       <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>
         <div class="view-head"><h2>The months ahead</h2><span class="pill">an estimate from your past patterns</span></div>
-        <div class="forecast" id="forecast"></div>
-        <h3>Regular payments and income</h3>
-        <ul class="regular" id="regular"></ul>
+        <p class="hint">Choose a month to see what's expected in it.</p>
+        <div class="forecast" id="forecast" role="group" aria-label="Months ahead"></div>
+        <section class="month-detail" aria-live="polite">
+          <div class="view-head"><h3 id="month-title"></h3><span class="pill" id="month-totals"></span></div>
+          <ul class="tx month-items" id="month-items"></ul>
+          <h4 class="month-sub" id="month-everyday-title">Everyday spending <span class="hint">an estimate, at your recent monthly average</span></h4>
+          <ul class="month-everyday" id="month-everyday"></ul>
+        </section>
         <p class="hint" id="basis"></p>
       </section>
 

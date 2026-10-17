@@ -132,11 +132,43 @@ class MoneyHub:
         return analysis.discretionary(self.transactions(customer_id))
 
     def goal_plan(self, customer_id: str, target: float, months: int | None = None, saved: float = 0.0,
-                  by_date: str = "") -> dict:
+                  by_date: str = "", name: str = "", check_others: bool = True) -> dict:
+        """The plan for a goal, after what the customer's other saved goals need (a goal of the same name is the
+        one being planned, so it isn't counted against itself)."""
         if not (0 < float(target) <= 1_000_000):
             raise MoneyHubError("bad_target", "The target must be an amount of money above zero.")
         by_date = goal_date(by_date) if by_date else ""
-        return analysis.goal_plan(self.transactions(customer_id), float(target), months, float(saved or 0), by_date)
+        transactions, saved_goals = self.transactions(customer_id), self.goals(customer_id)
+        others = analysis.goal_commitments(saved_goals, exclude=name)
+        plan = analysis.goal_plan(transactions, float(target), months, float(saved or 0), by_date, others)
+        # Which saved goals are on track now but wouldn't be with this one as well.
+        this = {"name": name or "this goal", "perMonth": plan["neededPerMonth"], "months": plan["months"]}
+        plan["wouldLeaveShort"] = []
+        for goal in (g for g in saved_goals if check_others and g["name"].lower() != name.lower()):
+            rest = analysis.goal_commitments(saved_goals, exclude=goal["name"])
+            if name:
+                rest = [g for g in rest if g["name"].lower() != name.lower()]
+            try:
+                when = goal_date(goal["byDate"])
+            except MoneyHubError:                       # its date has passed
+                continue
+            now = analysis.goal_plan(transactions, goal["target"], saved=goal.get("saved", 0), by_date=when,
+                                     other_goals=rest)
+            then = analysis.goal_plan(transactions, goal["target"], saved=goal.get("saved", 0), by_date=when,
+                                      other_goals=rest + [this])
+            if now["onTrack"] and not then["onTrack"]:
+                plan["wouldLeaveShort"].append({"name": goal["name"], "gapPerMonth": then["gapPerMonth"],
+                                                "reachedAtCurrentRate": then["reachedAtCurrentRate"]})
+        return plan
+
+    def financial_picture(self, customer_id: str) -> dict:
+        """The whole picture (analysis.financial_picture), each goal with whether it's on track alongside the others."""
+        picture = analysis.financial_picture(self.transactions(customer_id), self.goals(customer_id))
+        plans = {g["name"]: g["plan"] for g in self.goals_with_plans(customer_id)}
+        picture["goals"] = [g | {"onTrack": (plans.get(g["name"]) or {}).get("onTrack"),
+                                 "reachedAtCurrentRate": (plans.get(g["name"]) or {}).get("reachedAtCurrentRate")}
+                            for g in picture["goals"]]
+        return picture
 
     def compare(self, customer_id: str, month_a: str, month_b: str) -> dict:
         return analysis.compare(self.transactions(customer_id), month_a, month_b)
@@ -151,7 +183,7 @@ class MoneyHub:
         if not _GOAL_NAME.match(name):
             raise MoneyHubError("bad_name", "Give the goal a short name, up to 40 letters.")
         by_date = goal_date(by_date)
-        plan = self.goal_plan(customer_id, target, by_date=by_date, saved=saved)
+        plan = self.goal_plan(customer_id, target, by_date=by_date, saved=saved, name=name)
         goals = [g for g in self.goals(customer_id) if g["name"].lower() != name.lower()]
         if len(goals) >= MAX_GOALS:
             raise MoneyHubError("too_many_goals", f"Up to {MAX_GOALS} goals can be saved.")
@@ -167,16 +199,19 @@ class MoneyHub:
 
     # ── page links ──────────────────────────────────────────────────────────────
 
-    def mint_link(self, customer_id: str, loa: str = "") -> str:
+    def mint_link(self, customer_id: str, loa: str = "", expires: bool = True) -> str:
         """A link to this customer's Money Hub page. The secret is after '#', so it never reaches a server log.
         loa is the assurance level of the contact that asked for the link ("" when none, as for a demo link);
-        a call or chat started from the page is treated as verified only when it is 2 or above."""
+        a call or chat started from the page is treated as verified only when it is 2 or above.
+        expires=False makes a link that never expires: for the demo link to the sample data only."""
         if not data.generate(customer_id):
             raise MoneyHubError("customer_not_found", "No Money Hub for this customer.", 404)
         token = secrets.token_urlsafe(32)
         level = str(loa).strip()
-        self.store.put(f"link#{_hash(token)}", {"customerId": customer_id, "loa": level if level.isdigit() else "",
-                                                "expiresAt": self.clock() + LINK_SECONDS})
+        item = {"customerId": customer_id, "loa": level if level.isdigit() else ""}
+        if expires:
+            item["expiresAt"] = self.clock() + LINK_SECONDS
+        self.store.put(f"link#{_hash(token)}", item)
         return f"{self.page_url}/#k={token}"
 
     def link_session(self, token: str) -> dict:
@@ -194,12 +229,14 @@ class MoneyHub:
         out = []
         for goal in self.goals(customer_id):
             try:
-                plan = self.goal_plan(customer_id, goal["target"], by_date=goal["byDate"], saved=goal.get("saved", 0))
+                plan = self.goal_plan(customer_id, goal["target"], by_date=goal["byDate"], saved=goal.get("saved", 0),
+                                      name=goal["name"], check_others=False)
             except MoneyHubError:                       # the date has passed
                 out.append({**goal, "plan": None})
                 continue
             out.append({**goal, "plan": {
                 k: plan[k] for k in ("months", "neededPerMonth", "leftOverPerMonth", "alreadyMovingToSavings",
+                                     "otherGoalsPerMonthNow", "freeForThisGoalPerMonth",
                                      "gapPerMonth", "onTrack", "reachedAtCurrentRate", "reachedWithMix",
                                      "mixSavesPerMonth", "targetDateWords")}
                 | {"changes": [{"change": m["change"], "savesPerMonth": m["savesPerMonth"]}
@@ -209,6 +246,8 @@ class MoneyHub:
     def page_view(self, customer_id: str) -> dict:
         """Everything the page shows on load, in one call."""
         return {"overview": self.overview(customer_id), "forecast": self.forecast(customer_id),
+                "monthlySpending": analysis.monthly_spending(self.transactions(customer_id)),
+                "monthlyIncome": analysis.monthly_income(self.transactions(customer_id)),
                 "recurring": self.recurring(customer_id), "discretionary": self.discretionary(customer_id),
                 "goals": self.goals_with_plans(customer_id),
                 "choices": {"in": cat.choices_for(cat.IN), "out": cat.choices_for(cat.OUT) + cat.choices_for(cat.MOVE)}}

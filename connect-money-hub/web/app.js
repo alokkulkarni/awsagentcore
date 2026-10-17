@@ -1,5 +1,7 @@
 // Money Hub page. Opened from a link whose secret is after "#" (never sent to a server or in a Referer).
 // The secret is read once, wiped from the address bar, and sent only in the body of this page's own calls.
+// It's remembered on this device (so the page reopens after the browser closes) until the link stops working
+// or the customer chooses "Forget this device".
 // Every value is written as text, never as HTML.
 import { setupTalk } from './talk.js';
 
@@ -9,9 +11,28 @@ const gbp = (n) => `${Number(n) < 0 ? '−' : ''}£${Math.abs(Number(n)).toLocal
 const day = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const monthName = (key) => new Date(`${key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
-let token = new URLSearchParams(location.hash.slice(1)).get('k') || sessionStorage.getItem('moneyHub') || '';
+const LINK_KEY = 'moneyHubLink';
+const stored = (store) => { try { return store.getItem(LINK_KEY) || store.getItem('moneyHub') || ''; } catch { return ''; } };
+function remember(value) {
+  for (const store of [localStorage, sessionStorage]) {
+    try { if (value) store.setItem(LINK_KEY, value); else { store.removeItem(LINK_KEY); store.removeItem('moneyHub'); } }
+    catch { /* private browsing: this visit only */ }
+  }
+}
+let token = new URLSearchParams(location.hash.slice(1)).get('k') || stored(localStorage) || stored(sessionStorage);
 if (location.hash) history.replaceState(null, '', location.pathname);
-if (token) sessionStorage.setItem('moneyHub', token);
+remember(token);
+
+// Forget this device: the page shows nothing until it's opened from the link again.
+function forget(words = 'This device has forgotten your Money Hub. Open it from your link to see it again.') {
+  remember('');
+  token = '';
+  $('hub').hidden = true;
+  $('forget').hidden = true;
+  $('talk-launcher').hidden = true;
+  $('talk-panel').hidden = true;
+  text('message', words);
+}
 
 let choices = { in: [], out: [] };
 let txPage = 1;
@@ -54,6 +75,7 @@ async function api(path, body = {}) {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, token }),
   });
   const json = await response.json().catch(() => ({}));
+  if (json.error === 'link_expired') forget('That link no longer works. Open your Money Hub from a new link.');
   if (!response.ok) throw new Error(json.message || `Something went wrong (${response.status}).`);
   return json;
 }
@@ -89,21 +111,27 @@ function bars(listId, rows, months = 1) {
   }));
 }
 
+const shortMonth = (key) => new Date(`${key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'short' });
+
 function drawOverview(o, d) {
+  const avg = o.averageMonth;
+  const period = `${monthName(o.months[0].month)} to ${monthName(o.months.at(-1).month)}`;
   text('as-of', `Figures up to ${day(o.asOf)}`);
+  // Balance today: what's in the account now. A typical month: the average of the last three, as a sum.
   text('balance', gbp(o.balance));
-  text('avg-in', gbp(o.averageMonth.moneyIn));
-  text('avg-out', gbp(o.averageMonth.moneyOut));
-  text('avg-left', gbp(o.averageMonth.moneyIn - o.averageMonth.moneyOut));
-  text('avg-saved', o.averageMonth.movedToSavings
-    ? `a month, on average · ${gbp(o.averageMonth.movedToSavings)} of it to savings` : 'a month, on average');
-  text('out-period', `${monthName(o.months[0].month)} to ${monthName(o.months.at(-1).month)}`);
-  text('split', `Bills and essentials ${gbp(d.essentialPerMonth)} a month · spending you choose ${gbp(d.discretionaryPerMonth)} a month (${d.discretionaryShare}%)`);
-  $('split-ess').style.width = `${100 - d.discretionaryShare}%`;
-  $('split-flex').style.width = `${d.discretionaryShare}%`;
-  const months = Math.max(1, o.months.length);
-  bars('out-bars', o.topSpending, months);
-  bars('in-bars', o.moneyInSources, months);
+  text('balance-note', `What's in your current account right now (${day(o.asOf)}). It goes up when money comes in and down when you spend.`);
+  text('typical-period', `average of ${period}`);
+  text('avg-in', gbp(avg.moneyIn));
+  text('avg-out', gbp(avg.moneyOut));
+  const leftOver = avg.moneyIn - avg.moneyOut;
+  text('avg-left', gbp(leftOver));
+  const biggest = Math.max(avg.moneyIn, avg.moneyOut, 1);
+  $('in-bar').style.width = `${Math.round((100 * avg.moneyIn) / biggest)}%`;
+  $('out-bar').style.width = `${Math.round((100 * avg.moneyOut) / biggest)}%`;
+  text('avg-saved', leftOver >= 0
+    ? `In a typical month you had ${gbp(leftOver)} left over after your spending${avg.movedToSavings ? `, and ${gbp(avg.movedToSavings)} of it went into your savings` : ''}. This is a monthly figure, not your balance.`
+    : `In a typical month you spent ${gbp(-leftOver)} more than came in. This is a monthly figure, not your balance.`);
+  text('out-period', period);
   $('habits').replaceChildren(...d.habits.filter((h) => h.discretionary).slice(0, 6).map((h) => {
     const li = el('li');
     li.append(el('strong', '', h.words), el('span', 'amount', `${gbp(h.perMonth)} a month`),
@@ -112,26 +140,139 @@ function drawOverview(o, d) {
   }));
   $('months').replaceChildren(...o.months.map((m) => {
     const tr = el('tr');
-    tr.append(el('td', '', monthName(m.month)), el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
+    const month = el('td');
+    month.append(el('span', 'long', monthName(m.month)), el('span', 'short', shortMonth(m.month)));
+    tr.append(month, el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
       el('td', '', gbp(m.movedToSavings)), el('td', '', gbp(m.moneyIn - m.moneyOut)));
     return tr;
   }));
 }
 
-function drawForecast(f, regular) {
+// Money out or in, by month: a column per month split in two, a picker (each month, or all three), then the
+// chosen month's split and categories, with real amounts rather than an average.
+const monthChoice = { out: '', in: '' };    // the month shown on each tab ('all' for the three together)
+
+function drawMonthly(kind, months, cfg) {
+  if (!months.length) return;
+  if (monthChoice[kind] !== 'all' && !months.some((m) => m.month === monthChoice[kind])) monthChoice[kind] = months.at(-1).month;
+  const choice = monthChoice[kind];
+  const redraw = () => drawMonthly(kind, months, cfg);
+  const top = Math.max(...months.map((m) => m.total), 1);
+  $(cfg.chart).replaceChildren(...months.map((m) => {
+    const col = el('button', 'month-col');
+    col.type = 'button';
+    col.setAttribute('aria-pressed', String(choice === m.month || choice === 'all'));
+    col.setAttribute('aria-label', `${monthName(m.month)}: ${gbp(m.total)} ${cfg.word}`);
+    const stack = el('span', 'col-stack');
+    stack.style.height = `${Math.max(6, Math.round((100 * m.total) / top))}%`;
+    const b = el('span', 'col-b');
+    b.style.height = `${Math.round((100 * cfg.partB(m)) / (m.total || 1))}%`;
+    stack.append(b, el('span', 'col-a'));
+    const plot = el('span', 'col-plot');
+    plot.append(stack);
+    col.append(el('span', 'col-total', pounds(m.total)), plot, el('span', 'col-label', shortMonth(m.month)));
+    col.addEventListener('click', () => { monthChoice[kind] = m.month; redraw(); });
+    return col;
+  }));
+  const options = [...months.map((m) => [m.month, shortMonth(m.month)]), ['all', 'All three months']];
+  $(cfg.pick).replaceChildren(...options.map(([key, label]) => {
+    const button = el('button', '', label);
+    button.type = 'button';
+    button.setAttribute('aria-pressed', String(choice === key));
+    button.addEventListener('click', () => { monthChoice[kind] = key; redraw(); });
+    return button;
+  }));
+
+  const chosen = choice === 'all' ? months : months.filter((m) => m.month === choice);
+  const total = chosen.reduce((sum, m) => sum + m.total, 0);
+  const partB = chosen.reduce((sum, m) => sum + cfg.partB(m), 0);
+  const byCat = new Map();
+  for (const m of chosen) {
+    for (const c of m.categories) {
+      const row = byCat.get(c.category) || { ...c, total: 0 };
+      row.total += c.total;
+      byCat.set(c.category, row);
+    }
+  }
+  const share = total ? Math.round((100 * partB) / total) : 0;
+  text(cfg.scope, choice === 'all'
+    ? `${monthName(months[0].month)} to ${monthName(months.at(-1).month)}: ${gbp(total)} ${cfg.word} altogether`
+    : `${monthName(choice)}: ${gbp(total)} ${cfg.word}`);
+  text(cfg.split, `${cfg.labelA} ${gbp(total - partB)} · ${cfg.labelB} ${gbp(partB)} (${share}%)`);
+  $(cfg.splitA).style.width = `${100 - share}%`;
+  $(cfg.splitB).style.width = `${share}%`;
+  bars(cfg.bars, [...byCat.values()].sort((x, y) => y.total - x.total), 1);
+}
+
+function drawSpending(months) {
+  drawMonthly('out', months, { chart: 'month-chart', pick: 'out-pick', scope: 'out-scope', split: 'split', splitA: 'split-ess',
+    splitB: 'split-flex', bars: 'out-bars', word: 'out', labelA: 'Bills and essentials', labelB: 'spending you choose',
+    partB: (m) => m.discretionary });
+}
+
+function drawIncome(months) {
+  if (months.length) text('in-period', `${monthName(months[0].month)} to ${monthName(months.at(-1).month)}`);
+  drawMonthly('in', months, { chart: 'in-chart', pick: 'in-pick', scope: 'in-scope', split: 'in-split', splitA: 'in-split-a',
+    splitB: 'in-split-b', bars: 'in-bars', word: 'in', labelA: 'Salary', labelB: 'other money in',
+    partB: (m) => m.other });
+}
+
+let chosenMonth = '';         // the month card selected on the Expected tab (kept across refreshes)
+
+// The months ahead: a card per month; the chosen one shows what's expected in it, adding up to its card.
+function drawForecast(f) {
+  if (!f.months.some((m) => m.month === chosenMonth)) chosenMonth = f.months[0]?.month || '';
   $('forecast').replaceChildren(...f.months.map((m) => {
-    const card = el('article', 'card');
+    const card = el('button', 'card month-card');
+    card.type = 'button';
+    card.setAttribute('aria-pressed', String(m.month === chosenMonth));
     card.append(el('h3', '', monthName(m.month)), el('p', 'in', `In ${gbp(m.expectedIn)}`),
       el('p', 'out', `Out ${gbp(m.expectedOut)}`), el('p', 'big', `Ends at ${gbp(m.endBalance)}`));
+    card.addEventListener('click', () => { chosenMonth = m.month; drawForecast(f); });
     return card;
   }));
-  $('regular').replaceChildren(...regular.map((r) => {
-    const li = el('li', r.direction === 'in' ? 'in' : '');
-    li.append(el('span', '', r.merchantName || r.merchant), el('span', 'hint', `${r.words} · next ${day(r.nextExpected)}`),
-      el('span', 'value', `${r.direction === 'in' ? '+' : '−'}${gbp(r.amount)}`));
+  const m = f.months.find((x) => x.month === chosenMonth);
+  if (m) drawMonth(m);
+  text('basis', f.basis);
+}
+
+function drawMonth(m) {
+  text('month-title', `Expected in ${monthName(m.month)}`);
+  text('month-totals', `In ${gbp(m.expectedIn)} · Out ${gbp(m.expectedOut)} · Ends at ${gbp(m.endBalance)}`);
+  const items = [...m.regularIn.map((e) => ({ ...e, in: true })), ...m.regularOut.map((e) => ({ ...e, in: false }))]
+    .sort((a, b) => a.date.localeCompare(b.date) || Number(b.in) - Number(a.in));
+  const rows = [];
+  let shownDay = '';
+  for (const e of items) {
+    if (e.date !== shownDay) { shownDay = e.date; rows.push(el('li', 'tx-day', dayHeading(e.date))); }
+    const li = el('li', `tx-row${e.in ? ' in' : ''}`);
+    const what = el('div', 'what');
+    const meta = el('div', 'tx-meta');
+    meta.append(el('span', 'tx-cat', e.words), el('span', 'tx-when', 'regular'));
+    what.append(el('strong', '', e.merchantName || e.merchant), meta);
+    li.append(avatar(e), what, el('span', 'value', `${e.in ? '+' : '−'}${gbp(e.amount)}`));
+    rows.push(li);
+  }
+  if (m.sideIncome > 0) {
+    const li = el('li', 'tx-row in');
+    const what = el('div', 'what');
+    what.append(el('strong', '', 'Other income'), el('span', 'hint', 'an estimate, at your recent monthly average'));
+    li.append(avatar({ merchant: 'other income', merchantName: 'Other income' }), what, el('span', 'value', `+${gbp(m.sideIncome)}`));
+    rows.push(li);
+  }
+  $('month-items').replaceChildren(...rows);
+  $('month-everyday').replaceChildren(...m.everydaySpending.map((e) => {
+    const li = el('li');
+    li.append(el('span', '', e.words), el('span', 'value', `−${gbp(e.amount)}`));
     return li;
   }));
-  text('basis', f.basis);
+  const everydayTotal = m.everydaySpending.reduce((sum, e) => sum + e.amount, 0);
+  $('month-everyday-title').hidden = !m.everydaySpending.length;
+  if (m.everydaySpending.length) {
+    const total = el('li', 'total');
+    total.append(el('span', '', 'Everyday spending in all'), el('span', 'value', `−${gbp(everydayTotal)}`));
+    $('month-everyday').append(total);
+  }
 }
 
 function categorySelect(t) {
@@ -209,7 +350,11 @@ function goalCard(g) {
     const fact = (label, value) => { facts.append(el('dt', '', label), el('dd', '', value)); };
     fact('Needed each month', `${gbp(plan.neededPerMonth)} for ${plan.months} ${plan.months === 1 ? 'month' : 'months'}`);
     fact('Left over now', `${gbp(plan.leftOverPerMonth)} a month${plan.alreadyMovingToSavings ? `, ${gbp(plan.alreadyMovingToSavings)} of it to savings` : ''}`);
-    fact('Gap', plan.onTrack ? 'None: what you have left over covers it' : `${gbp(plan.gapPerMonth)} a month`);
+    if (plan.otherGoalsPerMonthNow > 0) {
+      fact('Your other goals need', `${gbp(plan.otherGoalsPerMonthNow)} a month of that now`);
+      fact('Free for this goal', plan.freeForThisGoalPerMonth > 0 ? `about ${gbp(plan.freeForThisGoalPerMonth)} a month, on average to its date` : 'Nothing for now: your other goals need it all');
+    }
+    fact('Gap', plan.onTrack ? `None: what you have left over covers it${plan.otherGoalsPerMonthNow > 0 ? ', alongside your other goals' : ''}` : `${gbp(plan.gapPerMonth)} a month`);
     if (plan.reachedAtCurrentRate) fact('At your current rate', `reached in ${monthYear(plan.reachedAtCurrentRate.date)}`);
     if (!plan.onTrack && plan.reachedWithMix) fact('With the changes below', `reached in ${monthYear(plan.reachedWithMix.date)}`);
     details.append(facts);
@@ -259,7 +404,9 @@ async function load(all = true) {
   if (added.length) text('message', `Your goal "${added.join('", "')}" is now on the Goals tab.`);
   choices = view.choices;
   drawOverview(view.overview, view.discretionary);
-  drawForecast(view.forecast, view.recurring);
+  drawSpending(view.monthlySpending || []);
+  drawIncome(view.monthlyIncome || []);
+  drawForecast(view.forecast);
   drawGoals(view.goals);
   if (all && view.talk) {
     setupTalk({
@@ -304,5 +451,9 @@ $('goal-form').addEventListener('submit', async (e) => {
   } catch (error) { text('g-result', error.message); }
 });
 
+$('forget').addEventListener('click', () => forget());
 if (!token) text('message', 'Open your Money Hub from the link we gave you.');
-else load().catch((error) => text('message', error.message));
+else {
+  $('forget').hidden = false;
+  load().catch((error) => { if (token) text('message', error.message); });
+}
