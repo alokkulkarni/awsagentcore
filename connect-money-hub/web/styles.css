@@ -79,8 +79,12 @@ main.wrap { margin-top: -44px; }
 .col-total { font-size: .85rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .col-plot { display: flex; align-items: flex-end; justify-content: center; width: 100%; flex: 1; }
 .col-stack { display: flex; flex-direction: column; width: min(64px, 70%); border-radius: 10px 10px 4px 4px; overflow: hidden; }
-.col-flex { background: var(--flex); }
-.col-ess { flex: 1; background: var(--essential); }
+.col-a { flex: 1; background: var(--essential); }
+.col-b { background: var(--flex); }
+.month-chart.in .col-a { background: var(--in); }
+.month-chart.in .col-b { background: color-mix(in srgb, var(--in) 40%, #7fd3e0); }
+.split-bar.in .part-a, .legend.in .chip.part-a::before { background: var(--in); }
+.split-bar.in .part-b, .legend.in .chip.part-b::before { background: color-mix(in srgb, var(--in) 40%, #7fd3e0); }
 .col-label { padding-bottom: 8px; font-size: .85rem; color: var(--muted); font-weight: 600; }
 .month-col[aria-pressed="true"] .col-label { color: var(--ink); }
 .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 999px;
@@ -163,11 +167,14 @@ main.wrap { margin-top: -44px; }
 .regular li .value { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-weight: 600; }
 .regular li.in .value, .tx li.in .value { color: var(--in); }
 
+.table-wrap { overflow-x: auto; }
 .months { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: .95rem; }
 .months th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
 .months th, .months td { text-align: right; padding: 9px 6px; border-bottom: 1px solid var(--line); }
 .months tbody tr:last-child td { border-bottom: 0; }
 .months th:first-child, .months td:first-child { text-align: left; }
+.months td { white-space: nowrap; }
+.months .short { display: none; }
 .forecast { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 6px; }
 .forecast .card { box-shadow: none; background: var(--soft); }
 .month-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
@@ -290,7 +297,11 @@ input, select { padding: 9px 11px; border: 1px solid var(--line); border-radius:
   .bars li .track { grid-column: 1 / -1; grid-row: 2; }
   .tx li.tx-row { grid-template-columns: 40px 1fr auto; gap: 10px; }
   .tx-logo { width: 40px; height: 40px; }
-  .months { font-size: .85rem; }
+  .months { font-size: .8rem; }
+  .months th { font-size: .68rem; letter-spacing: 0; }
+  .months th, .months td { padding: 8px 3px; }
+  .months .long { display: none; }
+  .months .short { display: inline; }
 }
 
 /* ── The assistant: a tag fixed at the bottom, opening an overlay (dock.js) ─────────────────────── */

@@ -69,7 +69,7 @@
       <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
         <div class="view-head"><h2>Where your money goes</h2><span class="pill" id="out-period"></span></div>
         <p class="hint">Money out in each month. Choose a month, or all three, to see where it went.</p>
-        <div class="month-chart" id="month-chart" role="group" aria-label="Money out by month"></div>
+        <div class="month-chart out" id="month-chart" role="group" aria-label="Money out by month"></div>
         <div class="seg" id="out-pick" role="group" aria-label="Show spending for"></div>
         <h3 class="out-scope" id="out-scope"></h3>
         <div class="split-bar" aria-hidden="true"><span class="ess" id="split-ess"></span><span class="flex" id="split-flex"></span></div>
@@ -81,11 +81,18 @@
       </section>
 
       <section class="view" id="view-in" role="tabpanel" aria-labelledby="tab-in" hidden>
-        <div class="view-head"><h2>Where your money comes from</h2><span class="pill">a month, on average</span></div>
+        <div class="view-head"><h2>Where your money comes from</h2><span class="pill" id="in-period"></span></div>
+        <p class="hint">Money in each month. Choose a month, or all three, to see where it came from.</p>
+        <div class="month-chart in" id="in-chart" role="group" aria-label="Money in by month"></div>
+        <div class="seg" id="in-pick" role="group" aria-label="Show money in for"></div>
+        <h3 class="out-scope" id="in-scope"></h3>
+        <div class="split-bar in" aria-hidden="true"><span class="part-a" id="in-split-a"></span><span class="part-b" id="in-split-b"></span></div>
+        <p class="split" id="in-split"></p>
+        <div class="legend in"><span class="chip part-a">Salary</span><span class="chip part-b">Other money in</span></div>
         <ul class="bars in" id="in-bars"></ul>
         <h3>By month</h3>
-        <table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
-          <tbody id="months"></tbody></table>
+        <div class="table-wrap"><table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
+          <tbody id="months"></tbody></table></div>
       </section>
 
       <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>

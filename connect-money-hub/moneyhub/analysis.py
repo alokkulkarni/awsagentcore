@@ -96,6 +96,19 @@ def monthly_spending(transactions: list[dict], months: int = 3) -> list[dict]:
     return out
 
 
+def monthly_income(transactions: list[dict], months: int = 3) -> list[dict]:
+    """Money in for each of the last few complete months: the total, salary and everything else, and each
+    source, so the page can show real months rather than an average."""
+    out = []
+    for key in last_full_months(months):
+        rows = by_category([t for t in transactions if month_key(t["date"]) == key], cat.IN)
+        salary = sum(r["total"] for r in rows if r["category"] == "salary")
+        total = sum(r["total"] for r in rows)
+        out.append({"month": key, "total": _r(total), "salary": _r(salary), "other": _r(total - salary),
+                    "categories": rows})
+    return out
+
+
 def recurring(transactions: list[dict]) -> list[dict]:
     """
     Payments and income that arrive about monthly for a similar amount: subscriptions,

@@ -213,6 +213,7 @@ class MoneyHub:
         """Everything the page shows on load, in one call."""
         return {"overview": self.overview(customer_id), "forecast": self.forecast(customer_id),
                 "monthlySpending": analysis.monthly_spending(self.transactions(customer_id)),
+                "monthlyIncome": analysis.monthly_income(self.transactions(customer_id)),
                 "recurring": self.recurring(customer_id), "discretionary": self.discretionary(customer_id),
                 "goals": self.goals_with_plans(customer_id),
                 "choices": {"in": cat.choices_for(cat.IN), "out": cat.choices_for(cat.OUT) + cat.choices_for(cat.MOVE)}}

@@ -132,7 +132,6 @@ function drawOverview(o, d) {
     ? `In a typical month you had ${gbp(leftOver)} left over after your spending${avg.movedToSavings ? `, and ${gbp(avg.movedToSavings)} of it went into your savings` : ''}. This is a monthly figure, not your balance.`
     : `In a typical month you spent ${gbp(-leftOver)} more than came in. This is a monthly figure, not your balance.`);
   text('out-period', period);
-  bars('in-bars', o.moneyInSources, Math.max(1, o.months.length));
   $('habits').replaceChildren(...d.habits.filter((h) => h.discretionary).slice(0, 6).map((h) => {
     const li = el('li');
     li.append(el('strong', '', h.words), el('span', 'amount', `${gbp(h.perMonth)} a month`),
@@ -141,47 +140,52 @@ function drawOverview(o, d) {
   }));
   $('months').replaceChildren(...o.months.map((m) => {
     const tr = el('tr');
-    tr.append(el('td', '', monthName(m.month)), el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
+    const month = el('td');
+    month.append(el('span', 'long', monthName(m.month)), el('span', 'short', shortMonth(m.month)));
+    tr.append(month, el('td', '', gbp(m.moneyIn)), el('td', '', gbp(m.moneyOut)),
       el('td', '', gbp(m.movedToSavings)), el('td', '', gbp(m.moneyIn - m.moneyOut)));
     return tr;
   }));
 }
 
-let outChoice = '';           // the month shown on Money out ('all' for the three together); latest by default
+// Money out or in, by month: a column per month split in two, a picker (each month, or all three), then the
+// chosen month's split and categories, with real amounts rather than an average.
+const monthChoice = { out: '', in: '' };    // the month shown on each tab ('all' for the three together)
 
-// Money out by month: a column per month (essentials and choices), then the chosen month's categories.
-function drawSpending(months) {
+function drawMonthly(kind, months, cfg) {
   if (!months.length) return;
-  if (outChoice !== 'all' && !months.some((m) => m.month === outChoice)) outChoice = months.at(-1).month;
+  if (monthChoice[kind] !== 'all' && !months.some((m) => m.month === monthChoice[kind])) monthChoice[kind] = months.at(-1).month;
+  const choice = monthChoice[kind];
+  const redraw = () => drawMonthly(kind, months, cfg);
   const top = Math.max(...months.map((m) => m.total), 1);
-  $('month-chart').replaceChildren(...months.map((m) => {
+  $(cfg.chart).replaceChildren(...months.map((m) => {
     const col = el('button', 'month-col');
     col.type = 'button';
-    col.setAttribute('aria-pressed', String(outChoice === m.month || outChoice === 'all'));
-    col.setAttribute('aria-label', `${monthName(m.month)}: ${gbp(m.total)} out`);
+    col.setAttribute('aria-pressed', String(choice === m.month || choice === 'all'));
+    col.setAttribute('aria-label', `${monthName(m.month)}: ${gbp(m.total)} ${cfg.word}`);
     const stack = el('span', 'col-stack');
     stack.style.height = `${Math.max(6, Math.round((100 * m.total) / top))}%`;
-    const flex = el('span', 'col-flex');
-    flex.style.height = `${Math.round((100 * m.discretionary) / (m.total || 1))}%`;
-    stack.append(flex, el('span', 'col-ess'));
+    const b = el('span', 'col-b');
+    b.style.height = `${Math.round((100 * cfg.partB(m)) / (m.total || 1))}%`;
+    stack.append(b, el('span', 'col-a'));
     const plot = el('span', 'col-plot');
     plot.append(stack);
     col.append(el('span', 'col-total', pounds(m.total)), plot, el('span', 'col-label', shortMonth(m.month)));
-    col.addEventListener('click', () => { outChoice = m.month; drawSpending(months); });
+    col.addEventListener('click', () => { monthChoice[kind] = m.month; redraw(); });
     return col;
   }));
-  const choicesRow = [...months.map((m) => [m.month, shortMonth(m.month)]), ['all', 'All three months']];
-  $('out-pick').replaceChildren(...choicesRow.map(([key, label]) => {
-    const b = el('button', '', label);
-    b.type = 'button';
-    b.setAttribute('aria-pressed', String(outChoice === key));
-    b.addEventListener('click', () => { outChoice = key; drawSpending(months); });
-    return b;
+  const options = [...months.map((m) => [m.month, shortMonth(m.month)]), ['all', 'All three months']];
+  $(cfg.pick).replaceChildren(...options.map(([key, label]) => {
+    const button = el('button', '', label);
+    button.type = 'button';
+    button.setAttribute('aria-pressed', String(choice === key));
+    button.addEventListener('click', () => { monthChoice[kind] = key; redraw(); });
+    return button;
   }));
 
-  const chosen = outChoice === 'all' ? months : months.filter((m) => m.month === outChoice);
+  const chosen = choice === 'all' ? months : months.filter((m) => m.month === choice);
   const total = chosen.reduce((sum, m) => sum + m.total, 0);
-  const flexible = chosen.reduce((sum, m) => sum + m.discretionary, 0);
+  const partB = chosen.reduce((sum, m) => sum + cfg.partB(m), 0);
   const byCat = new Map();
   for (const m of chosen) {
     for (const c of m.categories) {
@@ -190,15 +194,27 @@ function drawSpending(months) {
       byCat.set(c.category, row);
     }
   }
-  const rows = [...byCat.values()].sort((a, b) => b.total - a.total);
-  const share = total ? Math.round((100 * flexible) / total) : 0;
-  text('out-scope', outChoice === 'all'
-    ? `${monthName(months[0].month)} to ${monthName(months.at(-1).month)}: ${gbp(total)} out in all`
-    : `${monthName(outChoice)}: ${gbp(total)} out`);
-  text('split', `Bills and essentials ${gbp(total - flexible)} · spending you choose ${gbp(flexible)} (${share}%)`);
-  $('split-ess').style.width = `${100 - share}%`;
-  $('split-flex').style.width = `${share}%`;
-  bars('out-bars', rows, 1);
+  const share = total ? Math.round((100 * partB) / total) : 0;
+  text(cfg.scope, choice === 'all'
+    ? `${monthName(months[0].month)} to ${monthName(months.at(-1).month)}: ${gbp(total)} ${cfg.word} altogether`
+    : `${monthName(choice)}: ${gbp(total)} ${cfg.word}`);
+  text(cfg.split, `${cfg.labelA} ${gbp(total - partB)} · ${cfg.labelB} ${gbp(partB)} (${share}%)`);
+  $(cfg.splitA).style.width = `${100 - share}%`;
+  $(cfg.splitB).style.width = `${share}%`;
+  bars(cfg.bars, [...byCat.values()].sort((x, y) => y.total - x.total), 1);
+}
+
+function drawSpending(months) {
+  drawMonthly('out', months, { chart: 'month-chart', pick: 'out-pick', scope: 'out-scope', split: 'split', splitA: 'split-ess',
+    splitB: 'split-flex', bars: 'out-bars', word: 'out', labelA: 'Bills and essentials', labelB: 'spending you choose',
+    partB: (m) => m.discretionary });
+}
+
+function drawIncome(months) {
+  if (months.length) text('in-period', `${monthName(months[0].month)} to ${monthName(months.at(-1).month)}`);
+  drawMonthly('in', months, { chart: 'in-chart', pick: 'in-pick', scope: 'in-scope', split: 'in-split', splitA: 'in-split-a',
+    splitB: 'in-split-b', bars: 'in-bars', word: 'in', labelA: 'Salary', labelB: 'other money in',
+    partB: (m) => m.other });
 }
 
 let chosenMonth = '';         // the month card selected on the Expected tab (kept across refreshes)
@@ -385,6 +401,7 @@ async function load(all = true) {
   choices = view.choices;
   drawOverview(view.overview, view.discretionary);
   drawSpending(view.monthlySpending || []);
+  drawIncome(view.monthlyIncome || []);
   drawForecast(view.forecast);
   drawGoals(view.goals);
   if (all && view.talk) {
