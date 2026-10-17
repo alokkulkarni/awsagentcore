@@ -26,7 +26,7 @@ Customer ─ phone or chat ─► ARIA (Connect AI agent, my-conversation-agent)
                       Bridge Lambda (Function URL)  ── checks Connect's API key, speaks Connect's A2A extensions,
                               │                        keeps the conversation, finds the verified customer
                               ▼  InvokeAgentRuntime (IAM)
-                      Strands agent on AgentCore Runtime ── 12 Money Hub tools + calculator, Claude Haiku 4.5
+                      Strands agent on AgentCore Runtime ── 13 Money Hub tools + calculator, Claude Haiku 4.5
                               │
                               ▼
                       moneyhub package ── sample data, every calculation, the customer's categories and goals
@@ -120,7 +120,7 @@ tablets and desktops. It shows the tab it was opened from, which is the context 
 | Path | What | Talks to |
 |---|---|---|
 | `moneyhub/` | Data, categories, analysis, store, service | DynamoDB `aria-money-hub` |
-| `agent/` | Strands agent: `main.py` (AgentCore entrypoint), `money_tools.py` (12 tools), `prompt.py`, `history.py`, Dockerfile | Bedrock, DynamoDB |
+| `agent/` | Strands agent: `main.py` (AgentCore entrypoint), `money_tools.py` (13 tools), `prompt.py`, `history.py`, Dockerfile | Bedrock, DynamoDB |
 | `bridge/` | `a2a_bridge.py` (Lambda), `protocol.py` (A2A frames, OTLP trace) | Connect, Secrets Manager, AgentCore Runtime, DynamoDB |
 | `api/` + `web/` | Page Lambda and the responsive page (`talk.js`: chat and call); two read-only gateway tools | DynamoDB, Connect (start contacts) |
 | `moneyhub/contact.py` | Builds a page contact's request and attributes from the link's record | — |

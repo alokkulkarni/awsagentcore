@@ -46,7 +46,7 @@ Customer (phone or chat) ─► ARIA ─► (Connect hands over, unannounced) �
 |---|---|
 | **ARIA** | Notices a money question, makes sure the customer is verified, lets Connect hand over. Carries on when the agent hands back |
 | **Bridge** (Lambda) | Connect's front door to the agent. Checks Connect's key, works out who the customer is from Connect's own record, keeps the conversation |
-| **Money Hub agent** (Strands on AgentCore Runtime) | Talks to the customer, using 12 Money Hub tools. Every figure comes from a tool; it never invents numbers |
+| **Money Hub agent** (Strands on AgentCore Runtime) | Talks to the customer, using 13 Money Hub tools. Every figure comes from a tool; it never invents numbers |
 | **Money Hub page** | The same figures in a web page; change categories, save goals |
 
 The sample data is fictional: James (`CUST-001`) has 333 transactions and Sarah (`CUST-002`) 188, from

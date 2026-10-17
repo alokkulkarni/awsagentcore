@@ -84,6 +84,15 @@ class Tools(unittest.TestCase):
         self.assertEqual(bad["reason"], "date_not_ahead")
         self.assertIn("after 15 October 2026", bad["message"], "says what would work, not that something broke")
 
+    def test_the_agent_sees_the_whole_picture_and_the_goals_already_saved(self):
+        self.tools["save_savings_goal"]("Holiday", 600, "2027-01")
+        pic = self.tools["get_financial_picture"]()
+        self.assertEqual([g["name"] for g in pic["goals"]], ["Holiday"])
+        self.assertIn("lookingAhead", pic)
+        plan = self.tools["plan_savings_goal"](1200, target_date="2027-03")
+        self.assertEqual(plan["otherGoalsPerMonthNow"], 200.0, "a new goal allows for the saved one")
+        self.assertEqual(self.tools["plan_savings_goal"](600, target_date="2027-01", name="Holiday")["otherGoals"], [])
+
     def test_goal_dates_come_from_the_tools_not_the_model(self):
         plan = self.tools["plan_savings_goal"](10000, target_date="2027-03")
         self.assertEqual((plan["today"], plan["targetDate"], plan["targetDateWords"]),
@@ -133,6 +142,12 @@ class Prompt(unittest.TestCase):
         self.assertIn("call save_savings_goal in that same turn", text)
         self.assertIn("Never say something is done unless a tool has done it", text)
         self.assertIn("account balance is not money saved towards a goal", text)
+
+    def test_goals_are_planned_against_the_whole_picture(self):
+        text = " ".join(system_prompt("CHAT", "James", "", "15 October 2026").split())
+        for must in ("use get_financial_picture", "what their saved goals already need from that",
+                     "(wouldLeaveShort), say which one", "together need more than they have left over"):
+            self.assertIn(must, text)
 
     def test_it_knows_today_and_never_blames_a_problem(self):
         text = system_prompt("CHAT", "James", "", "15 October 2026")

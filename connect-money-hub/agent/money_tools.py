@@ -135,17 +135,33 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
                 "habits": [{k: h[k] for k in ("words", "discretionary", "perMonth", "timesPerMonth", "averageEach",
                                               "topMerchants")} for h in d["habits"]]}
 
+    def get_financial_picture() -> dict:
+        """The customer's whole money picture in one call: balance now; each of the last three months (money in,
+        money out, left over, and oneOffs: the big one-off spending that made a month stand out); a typical month;
+        bills and essentials against spending they choose; regular payments; the months ahead (lookingAhead:
+        expected left over and the lowest month-end balance); and every saved goal with what it needs a month
+        (perMonth) and whether it's on track. freeEachMonth is the typical month's left over less what their saved
+        goals need now. Use it before suggesting a new goal or how much they could put aside, and for
+        "how am I doing" or "can I afford…"."""
+        return hub.financial_picture(customer_id)
+
     def plan_savings_goal(target_amount: float, target_date: str = "", months: int = 0,
-                          already_saved: float = 0.0) -> dict:
+                          already_saved: float = 0.0, name: str = "") -> dict:
         """What reaching a savings target takes, from the customer's own figures: the monthly amount needed, what
         is left over now, the gap, and illustrative changes to discretionary spending (with how much each frees
         up) that would close it. target_date as YYYY-MM (a month) or YYYY-MM-DD, or months. The result gives
         today, targetDateWords, and when they'd reach it at their current rate (reachedAtCurrentRate) and with the
         changes (reachedWithMix), as dates in words: use those dates, never work dates out yourself. These are
         illustrations, never advice. already_saved: only what they say they've put aside for this goal (not
-        their balance); 0 if they haven't said."""
+        their balance); 0 if they haven't said.
+        The plan already allows for their other saved goals: otherGoals (each needs its perMonth every month from
+        now until its byDateWords, at the same time as this one), otherGoalsPerMonthNow, and freeForThisGoalPerMonth (what's free for this goal on average once the
+        others have theirs; the gap is against this). It also gives recentMonths (with oneOffs) and lookingAhead
+        to say how steady that is. wouldLeaveShort lists saved goals that are on track now but wouldn't be with
+        this one too. name: only when re-planning one of their saved goals (so it isn't counted
+        against itself)."""
         return hub.goal_plan(customer_id, float(target_amount), int(months) or None, float(already_saved or 0),
-                             target_date or "")
+                             target_date or "", name=name or "")
 
     def save_savings_goal(name: str, target_amount: float, target_date: str, already_saved: float = 0.0) -> dict:
         """Save a savings goal to the customer's Money Hub, so it shows on their page. Only when they ask.
@@ -188,7 +204,7 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         return {"ok": True, "message": "Say one short sentence, not a goodbye (ARIA closes), without saying you are "
                                        "transferring."}
 
-    tools = [get_money_overview, get_spending_by_category, find_transactions, get_regular_payments,
+    tools = [get_money_overview, get_financial_picture, get_spending_by_category, find_transactions, get_regular_payments,
              get_expected_months, get_spending_habits, plan_savings_goal, save_savings_goal, compare_months,
              recategorise_transaction, get_money_hub_link, hand_back]
     return [recorder.wrap(t) for t in tools]

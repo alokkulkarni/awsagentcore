@@ -216,14 +216,69 @@ def month_words(day: date) -> str:
     return day.strftime("%B %Y")
 
 
+def goal_commitments(goals: list[dict], exclude: str = "") -> list[dict]:
+    """The customer's other saved goals that are still ahead, with what each needs a month from now to its date."""
+    today = as_of()
+    out = []
+    for g in goals:
+        if exclude and g["name"].lower() == exclude.lower():
+            continue
+        end = date.fromisoformat(g["byDate"])
+        months = (end.year - today.year) * 12 + end.month - today.month
+        remaining = max(0.0, float(g["target"]) - float(g.get("saved") or 0))
+        if months < 1 or remaining <= 0:
+            continue
+        out.append({"name": g["name"], "target": _r(float(g["target"])), "byDate": g["byDate"],
+                    "byDateWords": month_words(end), "months": months, "perMonth": _r(remaining / months)})
+    return out
+
+
+def one_offs(transactions: list[dict], key: str, minimum: float = 150.0) -> list[dict]:
+    """Big spending in a month that isn't a regular payment (a holiday, a new TV): why one month can look unlike
+    the others."""
+    regular = {(r["merchant"], r["category"]) for r in recurring(transactions)}
+    rows = [t for t in transactions if month_key(t["date"]) == key and cat.direction(t["category"]) == cat.OUT
+            and (t["merchant"], t["category"]) not in regular and _spent(t) >= minimum]
+    return [{"merchantName": friendly(t["merchant"]), "words": cat.words(t["category"]), "amount": _r(_spent(t)),
+             "date": t["date"]} for t in sorted(rows, key=_spent, reverse=True)[:3]]
+
+
+def recent_months(transactions: list[dict], months: int = 3) -> list[dict]:
+    """Each recent complete month: money in, money out, what was left over (and of it, moved to savings), and the
+    one-off spending that explains a month that stands out."""
+    out = []
+    for key in last_full_months(months):
+        m = month_summary(transactions, key)
+        out.append({"month": key, "moneyIn": m["moneyIn"], "moneyOut": m["moneyOut"],
+                    "leftOver": _r(m["moneyIn"] - m["moneyOut"]), "ofWhichMovedToSavings": m["movedToSavings"],
+                    "oneOffs": one_offs(transactions, key)})
+    return out
+
+
+def looking_ahead(transactions: list[dict], months: int = 3) -> dict:
+    """The months ahead in brief: what's expected to be left over each month and the lowest month-end balance."""
+    f = forecast(transactions, months)
+    rows = [{"month": m["month"], "expectedIn": m["expectedIn"], "expectedOut": m["expectedOut"],
+             "expectedLeftOver": _r(m["expectedIn"] - m["expectedOut"]), "endBalance": m["endBalance"]}
+            for m in f["months"]]
+    lowest = min(rows, key=lambda r: r["endBalance"]) if rows else None
+    return {"months": rows, "expectedLeftOverPerMonth": _r(mean(r["expectedLeftOver"] for r in rows)) if rows else 0.0,
+            "lowestEndBalance": {"month": lowest["month"], "amount": lowest["endBalance"]} if lowest else None,
+            "basis": f["basis"]}
+
+
 def goal_plan(transactions: list[dict], target: float, months: int | None = None, saved: float = 0.0,
-              by_date: str = "") -> dict:
+              by_date: str = "", other_goals: list[dict] | None = None) -> dict:
     """
     What reaching a savings target takes, from this customer's own figures:
-    the monthly amount needed, what they have left over now, and illustrative
-    changes to discretionary spending that would close any gap. The changes are
-    examples to explain, not recommendations; the customer decides.
+    the monthly amount needed, what they have left over now, what their other
+    saved goals already need from that (month by month, as each runs to its
+    date), and illustrative changes to discretionary spending that would close
+    any gap. With it, the context that qualifies the plan: how much the recent
+    months varied and why, and what the months ahead are expected to leave over.
+    The changes are examples to explain, not recommendations; the customer decides.
     """
+    other_goals = other_goals or []
     if by_date:
         end = date.fromisoformat(by_date)
         months = max(1, (end.year - as_of().year) * 12 + end.month - as_of().month)
@@ -233,7 +288,18 @@ def goal_plan(transactions: list[dict], target: float, months: int | None = None
     over = overview(transactions)["averageMonth"]
     # Left over each month = what comes in, less what goes out; money moved to savings already counts towards it.
     left_over = over.get("moneyIn", 0.0) - over.get("moneyOut", 0.0)
-    gap = needed - left_over
+
+    def committed(i: int) -> float:
+        """What the other goals need in month i from now (1 = next month); a goal stops needing it after its date."""
+        return sum(g["perMonth"] for g in other_goals if g["months"] >= i)
+
+    def free(i: int, extra: float = 0.0) -> float:
+        """What's free for this goal in month i. Saved goals come first: a month where they need more than is
+        left over counts against this one, so the gap is exactly what would reach it on time."""
+        return left_over + extra - committed(i)
+    # What's free for this goal on average over its months, once the other goals have what they need.
+    free_per_month = sum(free(i) for i in range(1, months + 1)) / months
+    gap = needed - free_per_month
     flex = discretionary(transactions)
     subs = [r for r in recurring(transactions) if r["category"] == "subscriptions"]
     options = []
@@ -271,16 +337,23 @@ def goal_plan(transactions: list[dict], target: float, months: int | None = None
                 covered += bigger["savesPerMonth"] - o["savesPerMonth"]
                 mix[i] = bigger
 
-    def months_to(per_month: float) -> int | None:
-        """Whole months to save what is left at this rate; None if nothing is left over."""
+    def months_to(extra: float) -> int | None:
+        """Whole months to save what is left, with what's free each month (plus extra); None if never."""
         if remaining <= 0:
             return 0
-        return None if per_month <= 0 else math.ceil(remaining / per_month)
+        last_other = max((g["months"] for g in other_goals), default=0)
+        total, i = 0.0, 0
+        while total < remaining:
+            i += 1
+            if i > last_other and free(i, extra) <= 0:
+                return None                      # nothing free, even once the other goals are done
+            total += free(i, extra)
+        return i
 
     # Dates are worked out here, from the Money Hub's today, so the agent never has to.
     today = as_of()
     target_day = date.fromisoformat(by_date) if by_date else add_months(today, months)
-    at_rate, with_mix = months_to(left_over), months_to(left_over + covered)
+    at_rate, with_mix = months_to(0.0), months_to(covered)
 
     def reached(n: int | None) -> dict | None:
         if n is None:
@@ -294,12 +367,49 @@ def goal_plan(transactions: list[dict], target: float, months: int | None = None
         "target": _r(target), "alreadySaved": _r(saved), "months": months,
         "neededPerMonth": _r(needed), "leftOverPerMonth": _r(left_over),
         "alreadyMovingToSavings": over.get("movedToSavings", 0.0),
+        "otherGoals": other_goals, "otherGoalsPerMonthNow": _r(committed(1)),
+        "freeForThisGoalPerMonth": _r(free_per_month),
+        "allGoalsPerMonthNow": _r(committed(1) + needed),
         "gapPerMonth": _r(max(0.0, gap)), "onTrack": gap <= 0,
         "monthsAtCurrentRate": at_rate, "reachedAtCurrentRate": reached(at_rate),
         "illustrativeMix": mix, "mixSavesPerMonth": _r(covered),
         "monthsWithMix": with_mix, "reachedWithMix": reached(with_mix),
         "allOptions": sorted(options, key=lambda o: -o["savesPerMonth"])[:12],
-        "note": "Based on the last three complete months. These are illustrations, not advice.",
+        "recentMonths": recent_months(transactions), "lookingAhead": looking_ahead(transactions),
+        "currentBalance": transactions[-1]["balanceAfter"] if transactions else 0.0,
+        "note": "Based on the last three complete months, after what the customer's other saved goals need. "
+                "These are illustrations, not advice.",
+    }
+
+
+def financial_picture(transactions: list[dict], goals: list[dict]) -> dict:
+    """
+    The whole picture in one place, for "how am I doing" and before suggesting a goal: the balance now, each
+    recent month (and what made one stand out), a typical month, bills and essentials against spending they
+    choose, regular commitments, the months ahead, and every saved goal with what it needs a month. "Free each
+    month" is the typical month's left over less what the saved goals need now.
+    """
+    over = overview(transactions)["averageMonth"]
+    left_over = over.get("moneyIn", 0.0) - over.get("moneyOut", 0.0)
+    flex = discretionary(transactions)
+    regular = recurring(transactions)
+    goal_rows = goal_commitments(goals)
+    goals_now = sum(g["perMonth"] for g in goal_rows)
+    lefts = [m["leftOver"] for m in recent_months(transactions)]
+    return {
+        "asOf": as_of().isoformat(), "currentBalance": transactions[-1]["balanceAfter"] if transactions else 0.0,
+        "recentMonths": recent_months(transactions),
+        "typicalMonth": {"moneyIn": over.get("moneyIn", 0.0), "moneyOut": over.get("moneyOut", 0.0),
+                         "leftOver": _r(left_over), "ofWhichMovedToSavings": over.get("movedToSavings", 0.0)},
+        "leftOverRange": {"lowest": min(lefts), "highest": max(lefts)} if lefts else None,
+        "billsAndEssentialsPerMonth": flex["essentialPerMonth"], "spendingYouChoosePerMonth": flex["discretionaryPerMonth"],
+        "regularOutPerMonth": _r(sum(r["amount"] for r in regular if r["direction"] in (cat.OUT, cat.MOVE))),
+        "subscriptionsPerMonth": _r(sum(r["amount"] for r in regular if r["category"] == "subscriptions")),
+        "lookingAhead": looking_ahead(transactions),
+        "goals": goal_rows,
+        "goalsNeedPerMonthNow": _r(goals_now), "freeEachMonth": _r(left_over - goals_now),
+        "basis": "Typical month: the average of the last three complete months. The months ahead are an estimate "
+                 "from past patterns, not a promise.",
     }
 
 

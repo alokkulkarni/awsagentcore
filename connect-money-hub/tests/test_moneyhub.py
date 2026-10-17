@@ -171,6 +171,39 @@ class Service(unittest.TestCase):
                 self.hub.save_goal(JAMES, *bad)
         self.assertEqual(self.hub.delete_goal(JAMES, "NEW CAR")["goals"], [])
 
+    def test_a_new_goal_allows_for_the_goals_already_saved(self):
+        alone = self.hub.goal_plan(JAMES, 1200, by_date="2027-03")
+        self.assertAlmostEqual(alone["gapPerMonth"], 30.1, 1)
+        self.hub.save_goal(JAMES, "Holiday", 600, "2027-01")             # £200 a month for three months
+        plan = self.hub.goal_plan(JAMES, 1200, by_date="2027-03")
+        self.assertEqual([g["name"] for g in plan["otherGoals"]], ["Holiday"])
+        self.assertEqual(plan["otherGoalsPerMonthNow"], 200.0)
+        self.assertAlmostEqual(plan["freeForThisGoalPerMonth"], 89.9, 1, "£9.90 free for 3 months, then £209.90")
+        self.assertAlmostEqual(plan["gapPerMonth"], 150.1, 1)
+        self.assertEqual(plan["reachedAtCurrentRate"]["words"], "July 2027", "faster once the holiday is saved for")
+        again = self.hub.goal_plan(JAMES, 600, by_date="2027-01", name="holiday")
+        self.assertEqual(again["otherGoals"], [], "a goal isn't counted against itself")
+
+    def test_a_new_goal_says_which_saved_goal_it_would_leave_short(self):
+        self.hub.save_goal(JAMES, "Car", 1500, "2027-12")                # on track on its own
+        self.assertTrue(self.hub.goals_with_plans(JAMES)[0]["plan"]["onTrack"])
+        plan = self.hub.goal_plan(JAMES, 2000, by_date="2027-06")
+        self.assertEqual([g["name"] for g in plan["wouldLeaveShort"]], ["Car"])
+        self.assertEqual(self.hub.goal_plan(JAMES, 100, by_date="2027-06")["wouldLeaveShort"], [])
+
+    def test_the_whole_picture_has_every_month_what_is_ahead_and_the_goals(self):
+        self.hub.save_goal(JAMES, "Holiday", 600, "2027-01")
+        pic = self.hub.financial_picture(JAMES)
+        self.assertEqual(pic["currentBalance"], 2828.8)
+        self.assertEqual([m["month"] for m in pic["recentMonths"]], ["2026-07", "2026-08", "2026-09"])
+        july = pic["recentMonths"][0]
+        self.assertEqual(july["leftOver"], -365.84)
+        self.assertIn(486.0, [o["amount"] for o in july["oneOffs"]], "the holiday explains July")
+        self.assertEqual(pic["leftOverRange"], {"lowest": -365.84, "highest": 619.1})
+        self.assertEqual(len(pic["lookingAhead"]["months"]), 3)
+        self.assertEqual([(g["name"], g["perMonth"], g["onTrack"]) for g in pic["goals"]], [("Holiday", 200.0, True)])
+        self.assertAlmostEqual(pic["freeEachMonth"], pic["typicalMonth"]["leftOver"] - 200.0, 2)
+
     def test_page_links_carry_the_secret_after_the_hash_and_expire(self):
         link = self.hub.mint_link(JAMES)
         self.assertTrue(link.startswith("https://hub.example/#k="))

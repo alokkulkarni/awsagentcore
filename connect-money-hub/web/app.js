@@ -350,7 +350,11 @@ function goalCard(g) {
     const fact = (label, value) => { facts.append(el('dt', '', label), el('dd', '', value)); };
     fact('Needed each month', `${gbp(plan.neededPerMonth)} for ${plan.months} ${plan.months === 1 ? 'month' : 'months'}`);
     fact('Left over now', `${gbp(plan.leftOverPerMonth)} a month${plan.alreadyMovingToSavings ? `, ${gbp(plan.alreadyMovingToSavings)} of it to savings` : ''}`);
-    fact('Gap', plan.onTrack ? 'None: what you have left over covers it' : `${gbp(plan.gapPerMonth)} a month`);
+    if (plan.otherGoalsPerMonthNow > 0) {
+      fact('Your other goals need', `${gbp(plan.otherGoalsPerMonthNow)} a month of that now`);
+      fact('Free for this goal', plan.freeForThisGoalPerMonth > 0 ? `about ${gbp(plan.freeForThisGoalPerMonth)} a month, on average to its date` : 'Nothing for now: your other goals need it all');
+    }
+    fact('Gap', plan.onTrack ? `None: what you have left over covers it${plan.otherGoalsPerMonthNow > 0 ? ', alongside your other goals' : ''}` : `${gbp(plan.gapPerMonth)} a month`);
     if (plan.reachedAtCurrentRate) fact('At your current rate', `reached in ${monthYear(plan.reachedAtCurrentRate.date)}`);
     if (!plan.onTrack && plan.reachedWithMix) fact('With the changes below', `reached in ${monthYear(plan.reachedWithMix.date)}`);
     details.append(facts);
