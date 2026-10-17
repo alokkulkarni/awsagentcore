@@ -124,6 +124,20 @@ main.wrap { margin-top: -44px; }
 .months th:first-child, .months td:first-child { text-align: left; }
 .forecast { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 6px; }
 .forecast .card { box-shadow: none; background: var(--soft); }
+.month-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s; }
+.month-card:hover { border-color: color-mix(in srgb, var(--save) 45%, var(--line)); }
+.month-card[aria-pressed="true"] { background: var(--card); border-color: var(--save); box-shadow: 0 0 0 3px var(--save-soft); }
+.month-detail { margin-top: 18px; }
+.month-detail .view-head { margin-bottom: 4px; }
+.month-detail h3 { margin: 0; }
+.tx-cat { font-size: .8rem; color: var(--muted); }
+.tx-when { font-size: .72rem; color: var(--save); font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--save-soft); }
+.month-sub { margin: 20px 0 8px; font-size: .95rem; }
+.month-everyday { list-style: none; margin: 0; padding: 0; }
+.month-everyday li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.month-everyday li .value { font-weight: 600; }
+.month-everyday li.total { border-bottom: 0; font-weight: 700; }
 .forecast .card::before { background: var(--save); }
 .forecast p { margin: 3px 0; font-variant-numeric: tabular-nums; }
 .forecast .big { font-size: 1.25rem; margin-top: 8px; }

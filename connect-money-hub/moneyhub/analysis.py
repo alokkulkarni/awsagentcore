@@ -11,6 +11,7 @@ All amounts are pounds, rounded to pence. Money out is reported as a positive
 
 from __future__ import annotations
 
+import calendar
 import math
 from collections import defaultdict
 from datetime import date, timedelta
@@ -131,10 +132,15 @@ def forecast(transactions: list[dict], months: int = 3) -> dict:
     for n in range(1, months + 1):
         month = add_months(start, n)
         key = f"{month:%Y-%m}"
-        expected_in = [{"merchant": r["merchant"], "words": r["words"], "amount": r["amount"],
-                        "date": f"{key}-{r['dayOfMonth']:02d}"} for r in regular if r["direction"] == cat.IN]
-        expected_out = [{"merchant": r["merchant"], "words": r["words"], "category": r["category"], "amount": r["amount"],
-                         "date": f"{key}-{r['dayOfMonth']:02d}"}
+        last_day = calendar.monthrange(month.year, month.month)[1]
+
+        def on(r: dict) -> str:          # its usual day, or the month's last day if the month is shorter
+            return f"{key}-{min(int(r['dayOfMonth']), last_day):02d}"
+        expected_in = [{"merchant": r["merchant"], "merchantName": friendly(r["merchant"]), "words": r["words"],
+                        "category": r["category"], "amount": r["amount"], "date": on(r)}
+                       for r in regular if r["direction"] == cat.IN]
+        expected_out = [{"merchant": r["merchant"], "merchantName": friendly(r["merchant"]), "words": r["words"],
+                         "category": r["category"], "amount": r["amount"], "date": on(r)}
                         for r in regular if r["direction"] in (cat.OUT, cat.MOVE)]
         variable = {c: _r(v) for c, v in everyday.items() if v > 0}
         side_income = _r(-everyday.get("other_income", 0.0))
@@ -142,7 +148,8 @@ def forecast(transactions: list[dict], months: int = 3) -> dict:
         money_out = sum(e["amount"] for e in expected_out) + sum(variable.values())
         balance = balance + money_in - money_out
         out.append({"month": key, "expectedIn": _r(money_in), "expectedOut": _r(money_out),
-                    "regularIn": expected_in, "regularOut": sorted(expected_out, key=lambda e: e["date"]),
+                    "regularIn": sorted(expected_in, key=lambda e: e["date"]),
+                    "regularOut": sorted(expected_out, key=lambda e: e["date"]),
                     "everydaySpending": [{"category": c, "words": cat.words(c), "amount": v}
                                          for c, v in sorted(variable.items(), key=lambda kv: -kv[1])],
                     "sideIncome": side_income, "endBalance": _r(balance)})

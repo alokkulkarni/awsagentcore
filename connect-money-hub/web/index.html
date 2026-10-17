@@ -79,9 +79,14 @@
 
       <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>
         <div class="view-head"><h2>The months ahead</h2><span class="pill">an estimate from your past patterns</span></div>
-        <div class="forecast" id="forecast"></div>
-        <h3>Regular payments and income</h3>
-        <ul class="regular" id="regular"></ul>
+        <p class="hint">Choose a month to see what's expected in it.</p>
+        <div class="forecast" id="forecast" role="group" aria-label="Months ahead"></div>
+        <section class="month-detail" aria-live="polite">
+          <div class="view-head"><h3 id="month-title"></h3><span class="pill" id="month-totals"></span></div>
+          <ul class="tx month-items" id="month-items"></ul>
+          <h4 class="month-sub" id="month-everyday-title">Everyday spending <span class="hint">an estimate, at your recent monthly average</span></h4>
+          <ul class="month-everyday" id="month-everyday"></ul>
+        </section>
         <p class="hint" id="basis"></p>
       </section>
 

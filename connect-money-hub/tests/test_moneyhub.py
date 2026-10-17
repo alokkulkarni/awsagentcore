@@ -214,5 +214,22 @@ class DynamoStoreBehavesLikeMemory(unittest.TestCase):
         self.assertEqual(hub.goals(JAMES)[0]["target"], 1500.5)
 
 
+
+class ExpectedMonths(unittest.TestCase):
+
+    def test_each_months_items_add_up_to_its_card_with_real_dates_and_names(self):
+        from datetime import date as _date
+        f = analysis.forecast(data.generate("CUST-001"), 6)
+        for m in f["months"]:
+            money_in = sum(e["amount"] for e in m["regularIn"]) + m["sideIncome"]
+            money_out = sum(e["amount"] for e in m["regularOut"]) + sum(e["amount"] for e in m["everydaySpending"])
+            self.assertAlmostEqual(money_in, m["expectedIn"], delta=0.02)
+            self.assertAlmostEqual(money_out, m["expectedOut"], delta=0.02)
+            for e in m["regularIn"] + m["regularOut"]:
+                _date.fromisoformat(e["date"])          # a real date, even for a 31st in a short month
+                self.assertTrue(e["date"].startswith(m["month"]))
+                self.assertTrue(e["merchantName"])
+            self.assertEqual([e["date"] for e in m["regularOut"]], sorted(e["date"] for e in m["regularOut"]))
+
 if __name__ == "__main__":
     unittest.main()

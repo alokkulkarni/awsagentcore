@@ -140,20 +140,62 @@ function drawOverview(o, d) {
   }));
 }
 
-function drawForecast(f, regular) {
+let chosenMonth = '';         // the month card selected on the Expected tab (kept across refreshes)
+
+// The months ahead: a card per month; the chosen one shows what's expected in it, adding up to its card.
+function drawForecast(f) {
+  if (!f.months.some((m) => m.month === chosenMonth)) chosenMonth = f.months[0]?.month || '';
   $('forecast').replaceChildren(...f.months.map((m) => {
-    const card = el('article', 'card');
+    const card = el('button', 'card month-card');
+    card.type = 'button';
+    card.setAttribute('aria-pressed', String(m.month === chosenMonth));
     card.append(el('h3', '', monthName(m.month)), el('p', 'in', `In ${gbp(m.expectedIn)}`),
       el('p', 'out', `Out ${gbp(m.expectedOut)}`), el('p', 'big', `Ends at ${gbp(m.endBalance)}`));
+    card.addEventListener('click', () => { chosenMonth = m.month; drawForecast(f); });
     return card;
   }));
-  $('regular').replaceChildren(...regular.map((r) => {
-    const li = el('li', r.direction === 'in' ? 'in' : '');
-    li.append(el('span', '', r.merchantName || r.merchant), el('span', 'hint', `${r.words} · next ${day(r.nextExpected)}`),
-      el('span', 'value', `${r.direction === 'in' ? '+' : '−'}${gbp(r.amount)}`));
+  const m = f.months.find((x) => x.month === chosenMonth);
+  if (m) drawMonth(m);
+  text('basis', f.basis);
+}
+
+function drawMonth(m) {
+  text('month-title', `Expected in ${monthName(m.month)}`);
+  text('month-totals', `In ${gbp(m.expectedIn)} · Out ${gbp(m.expectedOut)} · Ends at ${gbp(m.endBalance)}`);
+  const items = [...m.regularIn.map((e) => ({ ...e, in: true })), ...m.regularOut.map((e) => ({ ...e, in: false }))]
+    .sort((a, b) => a.date.localeCompare(b.date) || Number(b.in) - Number(a.in));
+  const rows = [];
+  let shownDay = '';
+  for (const e of items) {
+    if (e.date !== shownDay) { shownDay = e.date; rows.push(el('li', 'tx-day', dayHeading(e.date))); }
+    const li = el('li', `tx-row${e.in ? ' in' : ''}`);
+    const what = el('div', 'what');
+    const meta = el('div', 'tx-meta');
+    meta.append(el('span', 'tx-cat', e.words), el('span', 'tx-when', 'regular'));
+    what.append(el('strong', '', e.merchantName || e.merchant), meta);
+    li.append(avatar(e), what, el('span', 'value', `${e.in ? '+' : '−'}${gbp(e.amount)}`));
+    rows.push(li);
+  }
+  if (m.sideIncome > 0) {
+    const li = el('li', 'tx-row in');
+    const what = el('div', 'what');
+    what.append(el('strong', '', 'Other income'), el('span', 'hint', 'an estimate, at your recent monthly average'));
+    li.append(avatar({ merchant: 'other income', merchantName: 'Other income' }), what, el('span', 'value', `+${gbp(m.sideIncome)}`));
+    rows.push(li);
+  }
+  $('month-items').replaceChildren(...rows);
+  $('month-everyday').replaceChildren(...m.everydaySpending.map((e) => {
+    const li = el('li');
+    li.append(el('span', '', e.words), el('span', 'value', `−${gbp(e.amount)}`));
     return li;
   }));
-  text('basis', f.basis);
+  const everydayTotal = m.everydaySpending.reduce((sum, e) => sum + e.amount, 0);
+  $('month-everyday-title').hidden = !m.everydaySpending.length;
+  if (m.everydaySpending.length) {
+    const total = el('li', 'total');
+    total.append(el('span', '', 'Everyday spending in all'), el('span', 'value', `−${gbp(everydayTotal)}`));
+    $('month-everyday').append(total);
+  }
 }
 
 function categorySelect(t) {
@@ -281,7 +323,7 @@ async function load(all = true) {
   if (added.length) text('message', `Your goal "${added.join('", "')}" is now on the Goals tab.`);
   choices = view.choices;
   drawOverview(view.overview, view.discretionary);
-  drawForecast(view.forecast, view.recurring);
+  drawForecast(view.forecast);
   drawGoals(view.goals);
   if (all && view.talk) {
     setupTalk({
