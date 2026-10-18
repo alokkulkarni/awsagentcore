@@ -10,6 +10,10 @@ It only READS from AWS (one `aws qconnect get-ai-prompt` call). Running it again
 replaces the section; it never duplicates it. Any other section already in the
 live prompt (for example card disputes) is kept.
 
+It also moves ARIA's hand-overs to the card dispute and mortgage assistants onto
+her Complete tool (handovers.py), which is how they work while she has a
+collaborator.
+
     python3 connect-money-hub/scripts/build_aria_prompt.py
     python3 connect-money-hub/scripts/build_aria_prompt.py --from-file my-export.yaml
 """
@@ -20,6 +24,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+import handovers
 
 FOLDER = Path(__file__).resolve().parents[1]
 BLOCK_FILE = FOLDER / "prompts" / "money-hub-aria-block.txt"
@@ -69,7 +75,7 @@ def main() -> None:
     parser.add_argument("--output", default=str(OUTPUT_FILE))
     args = parser.parse_args()
     prompt = Path(args.from_file).read_text() if args.from_file else live_prompt(REGION, ASSISTANT_ID, PROMPT_ID)
-    built = add_block(prompt, BLOCK_FILE.read_text())
+    built = handovers.fix_prompt(add_block(prompt, BLOCK_FILE.read_text()))
     issues = problems(built)
     if issues:
         sys.exit("Not written:\n  " + "\n  ".join(issues))

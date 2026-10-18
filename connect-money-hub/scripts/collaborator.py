@@ -14,6 +14,12 @@ Used by connect_collaborator.sh; it only transforms JSON on stdin/stdout.
 prompt and guardrail it already uses (the console's agent "Save" doesn't reach
 the configuration the API reads, so the script sets them itself).
 
+It also makes ARIA hand over to the card dispute and mortgage assistants with
+her Complete tool (handovers.py): with a collaborator, Connect returns the
+contact to the flow only through Complete and Escalate. And it has her card,
+mortgage and spending tools take the customer's ID (tool_scopes.py), so they
+answer only for the customer she's talking to.
+
 Every other collaborator and setting on ARIA is kept exactly as it was. Adding
 twice replaces, never duplicates.
 """
@@ -22,6 +28,9 @@ from __future__ import annotations
 
 import json
 import sys
+
+import handovers
+import tool_scopes
 
 INSTRUCTION = (
     "Hand the conversation to this agent when a verified customer (Level 2 or above) wants to understand their own "
@@ -76,7 +85,7 @@ def main() -> None:
         sys.exit("usage: collaborator.py add|remove <applicationId> [--prompt-version N] [--guardrail-version N] "
                  "< get-ai-agent.json")
     agent = json.load(sys.stdin)["aiAgent"]
-    config = apply(agent["configuration"], args[1], remove=args[0] == "remove")
+    config = tool_scopes.apply(handovers.apply(apply(agent["configuration"], args[1], remove=args[0] == "remove")))
     print(json.dumps(pin_versions(config, options["--prompt-version"], options["--guardrail-version"])))
 
 
