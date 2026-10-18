@@ -243,29 +243,44 @@ def _mask_phone(phone: str) -> str:
 # ---------------------------------------------------------------------------
 # Stub customer registry
 # ---------------------------------------------------------------------------
+# Accounts, cards and mortgages come from the sample bank's one copy of its data
+# (connect-money-hub/moneyhub/data.py, packaged with this Lambda by
+# scripts/build_injector_zip.sh), so ARIA's greeting names the same accounts and
+# cards as her tools, the Money Hub, the card dispute assistant and internet
+# banking. Names, status and vulnerability flags stay here.
+try:
+    from moneyhub import data as _bank
+except ImportError:                                  # packaged without it: ARIA still greets, without products
+    _bank = None
+    logger.error("moneyhub/data.py is not in this package; products are left out. Build with build_injector_zip.sh.")
+
+
+def _products(customer_id: str) -> dict:
+    """The customer's accounts, cards and mortgages in this Lambda's shape (masked references only)."""
+    held = _bank.profile(customer_id) if _bank else None
+    if not held:
+        return {"accounts": [], "cards": [], "mortgages": []}
+    reference = _bank.mortgage_reference(customer_id)
+    return {
+        "accounts": [{"masked": f"****{a['ending']}", "type": a["type"], "nickname": a["nickname"]}
+                     for a in held["accounts"]],
+        "cards": [{"last_four": c["ending"], "type": c["type"], "scheme": c["scheme"], "nickname": c["nickname"]}
+                  for c in held["cards"]],
+        "mortgages": [reference] if reference else [],
+    }
+
+
 _STUB_CUSTOMERS: dict[str, dict] = {
     "CUST-001": {
         "preferred_name": "James",
         "full_name": "James Hartley",
         "status": "active",
-        "accounts": [
-            {"masked": "****4821", "type": "current", "nickname": "Main Account"},
-            {"masked": "****9104", "type": "savings",  "nickname": "Holiday Savings"},
-        ],
-        "cards": [
-            {"last_four": "4821", "type": "debit",  "scheme": "Visa",       "nickname": "Everyday Debit"},
-            {"last_four": "2291", "type": "credit", "scheme": "Mastercard", "nickname": "Rewards Credit Card"},
-        ],
-        "mortgages": ["MR-****-GB"],
         "vulnerability": None,
     },
     "CUST-002": {
         "preferred_name": "Sarah",
         "full_name": "Sarah Chen",
         "status": "active",
-        "accounts": [{"masked": "****3317", "type": "current", "nickname": "Main Account"}],
-        "cards": [{"last_four": "3317", "type": "debit", "scheme": "Visa", "nickname": "Everyday Debit"}],
-        "mortgages": [],
         "vulnerability": {
             "flag_type": "financial_difficulty",
             "requires_extra_time": True,
@@ -280,9 +295,6 @@ _STUB_CUSTOMERS: dict[str, dict] = {
         "preferred_name": "Margaret",
         "full_name": "Margaret Okonkwo",
         "status": "active",
-        "accounts": [{"masked": "****6612", "type": "current", "nickname": "Main Account"}],
-        "cards": [{"last_four": "6612", "type": "debit", "scheme": "Visa", "nickname": "Everyday Debit"}],
-        "mortgages": ["MR-****-BM"],
         "vulnerability": {
             "flag_type": "bereavement",
             "requires_extra_time": True,
@@ -297,9 +309,6 @@ _STUB_CUSTOMERS: dict[str, dict] = {
         "preferred_name": "Daniel",
         "full_name": "Daniel Walsh",
         "status": "active",
-        "accounts": [{"masked": "****7734", "type": "current", "nickname": "Main Account"}],
-        "cards": [{"last_four": "7734", "type": "debit", "scheme": "Mastercard", "nickname": "Everyday Debit"}],
-        "mortgages": [],
         "vulnerability": {
             "flag_type": "mental_health",
             "requires_extra_time": True,
@@ -314,12 +323,6 @@ _STUB_CUSTOMERS: dict[str, dict] = {
         "preferred_name": "Ethel",
         "full_name": "Ethel Parsons",
         "status": "active",
-        "accounts": [
-            {"masked": "****1155", "type": "current", "nickname": "Main Account"},
-            {"masked": "****8820", "type": "savings",  "nickname": "Savings Account"},
-        ],
-        "cards": [{"last_four": "1155", "type": "debit", "scheme": "Visa", "nickname": "Everyday Debit"}],
-        "mortgages": [],
         "vulnerability": {
             "flag_type": "elderly",
             "requires_extra_time": True,
@@ -499,6 +502,38 @@ def _money_hub_reason_vars(entry: str, view: str) -> dict[str, str]:
     }
 
 
+# A contact started from the internet banking app (connect-banking-app) carries entry=banking_app and the page
+# the customer was on. Like the Money Hub's tab, that page is their reason for getting in touch, so it is offered
+# to ARIA as the known contact reason and she opens with it ("Are you calling about your cards…?"). A card
+# dispute the customer chose in the app carries entry=card_dispute: the bot flow sends it straight to the card
+# dispute assistant, and only reaches ARIA (who then hands over with Complete, nextStep card_dispute) if the flow
+# has no route for it yet.
+# Home adds nothing: ARIA opens with what she already knows about the customer. (Money Hub pages send
+# entry=money_hub, and the mortgage form goes to the mortgage assistant through the bot flow's Point B, so
+# neither comes here.)
+#   page: (topContactReason, routing category, what the customer was doing)
+BANKING_APP_PAGES = {
+    "accounts": ("their accounts", "current_account", "looking at their accounts"),
+    "cards": ("their cards and card payments", "debit_card", "looking at their cards and card payments"),
+    "card_dispute": ("a card payment they want to dispute", "debit_card", "choosing a card payment to dispute"),
+    "help": ("a question about internet banking", "general_banking", "on the Help page"),
+}
+
+
+def _banking_app_reason_vars(entry: str, page: str) -> dict[str, str]:
+    if entry not in ("banking_app", "card_dispute") or page not in BANKING_APP_PAGES:
+        return {}
+    reason, category, doing = BANKING_APP_PAGES[page]
+    label = "Card dispute" if page == "card_dispute" else "Internet banking"
+    return {
+        "hasKnownContactReason": "true",
+        "topContactReason": reason,
+        "topContactReasonCategory": category,
+        "contactReasonSummary": f"{label}: the customer started this from internet banking, {doing}.",
+        "contactReasons": "",
+    }
+
+
 
 # ---------------------------------------------------------------------------
 # Q Connect session resolution
@@ -565,7 +600,8 @@ def _lookup_customer(customer_id: str) -> dict | None:
     if CRM_API_ENDPOINT:
         logger.warning("CRM_API_ENDPOINT is set but real CRM call not yet implemented. Falling back to stub.")
 
-    return _STUB_CUSTOMERS.get(customer_id)
+    stub = _STUB_CUSTOMERS.get(customer_id)
+    return {**stub, **_products(customer_id)} if stub else None
 
 
 # ---------------------------------------------------------------------------
@@ -577,8 +613,9 @@ def _build_product_summary(customer: dict) -> str:
     Build a natural-language sentence describing the customer's products.
     Injected as {{$.Custom.productSummary}}.
 
-    Example: "James has a current account ending 4821, a savings account,
-              a Visa debit card ending 4821, and a Mastercard credit card."
+    Example: "James has a current account ending 0617, a savings account (Holiday
+              Savings), a Visa debit card ending 4821, a Mastercard credit card ending
+              2291, and 1 mortgage."
     """
     parts: list[str] = []
 
@@ -968,6 +1005,7 @@ def handler(event: dict, context: Any) -> dict:
             })
             reason_vars = _build_contact_reason_vars(customer_id, auth_status, idv_loa)
             reason_vars.update(_money_hub_reason_vars(_attr("entry"), _attr("moneyHubView")))
+            reason_vars.update(_banking_app_reason_vars(_attr("entry"), _attr("appPage")))
             session_vars.update(reason_vars)
 
             logger.info(

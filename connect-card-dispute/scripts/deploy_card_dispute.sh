@@ -276,6 +276,10 @@ header "Step 3 — Lambda: ${FUNCTION_NAME}"
 
 mkdir -p "${BUILD_DIR}/package/web"
 cp "$LAMBDA_DIR"/*.py "${BUILD_DIR}/package/"
+# The sample bank's one copy of its customers, cards and payments (dispute_model reads it).
+mkdir -p "${BUILD_DIR}/package/moneyhub"
+cp "${SCRIPT_DIR}/../../connect-money-hub/moneyhub/__init__.py" "${SCRIPT_DIR}/../../connect-money-hub/moneyhub/data.py" \
+    "${BUILD_DIR}/package/moneyhub/"
 cp "$WEB_DIR"/*.html "$WEB_DIR"/*.js "$WEB_DIR"/*.css "${BUILD_DIR}/package/web/"
 
 # The Live Sync route needs Amazon's Touchpoint library on the customer page. It
@@ -583,6 +587,8 @@ $(printf "${YELLOW}")What is left, in this order (connect-card-dispute/README.md
   5. ARIA: the StartCardDispute tool, and the prompt from
        python3 connect-card-dispute/scripts/build_aria_prompt.py --mode cx
   6. conversation bot flow: one StartCardDispute branch, then point it at ARIA's new version
+     (If ARIA has the Money Hub collaborator, skip 5-6: StartCardDispute can't hand over then.
+      Follow connect-money-hub/docs/collaborator-setup.md, "Hand-overs while ARIA has collaborators".)
   7. Import the screen pop; give the agent-assist agents get_card_dispute
 
 SUMMARY

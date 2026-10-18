@@ -13,6 +13,10 @@ import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# ARIA sees the same mortgages and payments as the Money Hub, the card dispute assistant and internet banking.
+from moneyhub import data as bank  # noqa: E402
+
 
 
 # Per official AWS docs (gateway-add-target-lambda.html):
@@ -90,15 +94,24 @@ def lambda_handler(event: dict, context) -> dict:
 
 
 def _get_mortgage_details(params: dict) -> dict:
+    reference = str(params.get("mortgage_reference", "")).strip()
+    customer_id = str(params.get("customer_id", "")).strip()
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own mortgage. A reference (masked, MR-****-8842) must be theirs if one is given.
+    held = bank.mortgage(customer_id)
+    if not held or (any(ch.isdigit() for ch in reference) and bank.mortgage_owner(reference) != customer_id):
+        return {"error": "Mortgage not found", "mortgage_reference": reference}
     return {
-        "customer_id": params.get("customer_id"),
-        "outstanding_balance": 210500.00,
-        "monthly_payment": 1245.00,
-        "interest_rate": 4.25,
-        "rate_type": "fixed",
-        "rate_expiry_date": "2027-06-30",
-        "term_remaining_years": 18,
-        "next_payment_date": "2026-04-01",
+        "customer_id": customer_id,
+        "mortgage_reference": bank.mortgage_reference(customer_id),
+        "outstanding_balance": held["outstandingBalance"],
+        "monthly_payment": held["monthlyPayment"],
+        "interest_rate": held["interestRate"],
+        "rate_type": held["rateType"],
+        "rate_expiry_date": held["rateExpiryDate"],
+        "term_remaining_years": held["termRemainingYears"],
+        "next_payment_date": held["nextPaymentDate"],
         "currency": "GBP",
-        "property_address_masked": "** Oak Street, Altrincham",
+        "property_address_masked": held["propertyMasked"],
     }

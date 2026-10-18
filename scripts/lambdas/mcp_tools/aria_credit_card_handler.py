@@ -15,6 +15,10 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# ARIA sees the same cards and payments as the Money Hub, the card dispute assistant and internet banking.
+from moneyhub import data as bank  # noqa: E402
+
 
 
 # Per official AWS docs (gateway-add-target-lambda.html):
@@ -94,25 +98,34 @@ def lambda_handler(event: dict, context) -> dict:
 
 
 def _get_credit_card_details(params: dict) -> dict:
-    card_last_four = str(params.get("card_last_four", "****"))
+    customer_id = str(params.get("customer_id", "")).strip()
+    card_last_four = str(params.get("card_last_four", "")).strip()
     query_subtype = str(params.get("query_subtype", "status"))
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own card: naming another customer's digits finds nothing.
+    held = bank.held_by(customer_id, card_last_four)
+    card = bank.credit_card(customer_id) if held and held.get("type") == "credit" else None
+    if not card:
+        return {"error": "Credit card not found", "card_last_four": card_last_four}
     result: dict = {
-        "card_last_four": card_last_four,
-        "card_type": "Rewards Credit Card",
+        "card_last_four": card["ending"],
+        "card_type": card["nickname"],
+        "card_scheme": card["scheme"],
         "card_status": "active",
-        "credit_limit": 5000.00,
-        "available_credit": 3250.00,
-        "outstanding_balance": 1750.00,
-        "minimum_payment": 35.00,
-        "next_payment_date": "2026-04-15",
+        "credit_limit": card["limit"],
+        "available_credit": card["available"],
+        "outstanding_balance": card["balance"],
+        "minimum_payment": card["minimumPayment"],
+        "next_payment_date": card["nextPaymentDate"],
         "expiry_masked": "**/**",
         "query_subtype": query_subtype,
+        "as_of": bank.as_of().isoformat(),
     }
     if query_subtype == "transactions":
         result["recent_transactions"] = [
-            {"date": "2026-03-27", "description": "MARKS & SPENCER", "amount": -65.40},
-            {"date": "2026-03-25", "description": "NETFLIX", "amount": -17.99},
-            {"date": "2026-03-22", "description": "PAYMENT RECEIVED - THANK YOU", "amount": 200.00},
+            {"date": t["date"], "description": t["merchant"], "amount": -t["amount"], "transaction_id": t["transactionId"]}
+            for t in bank.card_payments(customer_id, "credit")
         ]
     return result
 

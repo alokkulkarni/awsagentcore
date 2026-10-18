@@ -6,10 +6,17 @@ means, and the test transactions a dispute can be raised against.
 
 Nothing here talks to AWS. See SPEC.md section 4 for the record and its rules.
 
+The customers' cards and card payments come from the sample bank's one copy of its
+data (connect-money-hub/moneyhub/data.py), so the payment a customer disputes is
+the one ARIA, the Money Hub and internet banking show. The package carries
+moneyhub/__init__.py and moneyhub/data.py (deploy_card_dispute.sh copies them).
+
 ALL TRANSACTIONS ARE FICTIONAL TEST DATA. Never put real customer data here.
 """
 
 from __future__ import annotations
+
+from moneyhub import data as bank
 
 # Three kinds of case, each a dispute on the record:
 #   unauthorised  FRAUD    the customer did not make the payment (or the card was lost or stolen)
@@ -88,56 +95,24 @@ LABELS = {
     "narrative": "In the customer's words",
 }
 
-# customerId -> that customer's recent card transactions. The ids are stable, so
-# ARIA can pass one back to start a dispute.
-_CARDS = {
-    "CUST-001": (("debit", "4821"), ("credit", "2291")),
-    "CUST-002": (("debit", "3317"),),
-    "CUST-003": (("debit", "6612"),),
-    "CUST-004": (("debit", "7734"),),
-    "CUST-005": (("debit", "1155"),),
-}
-# Enough payments for several pages of five, so paging can be tried. The first
-# entries of each list are the ones the tests and earlier disputes use; keep them.
-_DEBIT_SPENDING = (
-    ("2026-10-11", "AMAZON.CO.UK", "89.99"),
-    ("2026-10-10", "TESCO STORES 2041", "42.50"),
-    ("2026-10-09", "TRAINLINE.COM", "64.20"),
-    ("2026-10-08", "NETFLIX.COM", "10.99"),
-    ("2026-10-07", "SHELL MANCHESTER", "55.10"),
-    ("2026-10-05", "PRET A MANGER", "8.45"),
-    ("2026-10-03", "ARGOS LTD", "129.99"),
-    ("2026-10-01", "UBER TRIP", "18.60"),
-    ("2026-09-29", "SAINSBURYS S/MKT", "63.27"),
-    ("2026-09-27", "SPOTIFY UK", "11.99"),
-    ("2026-09-24", "BOOTS 1132", "22.40"),
-    ("2026-09-20", "ASOS.COM", "74.00"),
-)
-_CREDIT_SPENDING = (
-    ("2026-10-08", "NETFLIX.COM", "10.99"),
-    ("2026-10-06", "ELECTROWORLD ONLINE", "349.00"),
-    ("2026-10-04", "SUNSHINE VILLAS BOOKING", "612.00"),
-    ("2026-09-30", "BRITISH AIRWAYS", "245.60"),
-    ("2026-09-22", "JOHN LEWIS", "189.00"),
-)
-
-
 def customer_cards(customer_id: str) -> list[dict]:
     """The customer's cards, as the bank holds them. A card can only be blocked or replaced if it is here."""
-    return [{"card_type": kind, "card_last_four": last_four} for kind, last_four in _CARDS.get(customer_id, ())]
+    held = (bank.profile(customer_id) or {}).get("cards", [])
+    return [{"card_type": c["type"], "card_last_four": c["ending"]} for c in held]
 
 
 def card_transactions(customer_id: str, card_type: str = "") -> list[dict]:
-    """The customer's recent card transactions, newest first, optionally for one card type."""
+    """The customer's recent card transactions, newest first, optionally for one card type. The ids are stable, so
+    ARIA can pass one back to start a dispute."""
     transactions = []
-    for kind, last_four in _CARDS.get(customer_id, ()):
+    for held in customer_cards(customer_id):
+        kind, last_four = held["card_type"], held["card_last_four"]
         if card_type and kind != card_type:
             continue
-        for date, merchant, amount in (_CREDIT_SPENDING if kind == "credit" else _DEBIT_SPENDING):
+        for p in bank.card_payments(customer_id, kind):
             transactions.append({
-                "transaction_id": f"TXN-{last_four}-{date.replace('-', '')}-{amount.replace('.', '')}",
-                "date": date, "merchant": merchant, "amount": amount, "currency": "GBP",
-                "card_type": kind, "card_last_four": last_four,
+                "transaction_id": p["transactionId"], "date": p["date"], "merchant": p["merchant"],
+                "amount": f"{p['amount']:.2f}", "currency": "GBP", "card_type": kind, "card_last_four": last_four,
             })
     return sorted(transactions, key=lambda t: t["date"], reverse=True)
 
