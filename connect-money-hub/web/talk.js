@@ -3,8 +3,11 @@
 //   chat  through the Amazon Connect Participant Service (HTTPS + a websocket), with the participant token
 //   call  through the Amazon Chime SDK (loaded only when a call starts), with the meeting and attendee
 // The participant and connection tokens live only in this module's memory. Every message is written as text.
-// Where it sits on the page (the bottom tag and the overlay) is dock.js.
+// Where it sits on the page (the bottom tag and the overlay) is dock.js. On a call, a real-looking face can speak
+// the call's voice (avatar.js); the call itself never depends on it.
 import { TABS, setupDock } from './dock.js';
+import { startAvatar } from './avatar.js';
+import { amounts, layout } from './format.js';
 
 const PARTICIPANT = (region) => `https://participant.connect.${region}.amazonaws.com/participant`;
 const HEARTBEAT_MS = 10000;
@@ -17,9 +20,41 @@ const TRANSCRIPT_EVERY_MS = 2000;
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
-export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) {
+// Text with its £ amounts in bold, as text nodes and <strong> elements.
+function withAmounts(parent, text) {
+  for (const part of amounts(text)) {
+    if (part.amount) {
+      const strong = document.createElement('strong');
+      strong.textContent = part.text;
+      parent.append(strong);
+    } else parent.append(document.createTextNode(part.text));
+  }
+  return parent;
+}
+
+// An assistant message laid out for reading (format.js): lines, lists, the closing question, the disclaimer.
+function laidOut(words) {
+  const box = document.createElement('div');
+  box.className = 'said';
+  for (const block of layout(words)) {
+    if (block.kind === 'list') {
+      if (block.lead) box.append(withAmounts(Object.assign(document.createElement('p'), { className: 'lead' }), block.lead));
+      const list = document.createElement(block.ordered ? 'ol' : 'ul');
+      for (const item of block.items) list.append(withAmounts(document.createElement('li'), item));
+      box.append(list);
+    } else {
+      const line = document.createElement('p');
+      if (block.kind !== 'line') line.className = block.kind;
+      box.append(withAmounts(line, block.text));
+    }
+  }
+  return box;
+}
+
+export function setupTalk({ api, currentView, onEnded, onActivity = () => {}, hasAvatar = () => false }) {
   const $ = (id) => document.getElementById(id);
   const dock = setupDock({ currentView });
+  $('avatar-hint').hidden = !hasAvatar();
   let live = null;          // { kind, region, participantToken, connectionToken, socket, heartbeat, session, stream }
   const seen = new Set();
 
@@ -47,7 +82,7 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
     const who = document.createElement('span');
     who.className = 'who';
     who.textContent = me ? 'You' : 'Assistant';
-    li.append(who, document.createTextNode(plain(words)));
+    li.append(who, me ? document.createTextNode(plain(words)) : laidOut(words));
     $('chat-log').append(li);
     if (!me) onActivity();          // the assistant may have just saved a goal or moved a payment
     $('talk-body').scrollTop = $('talk-body').scrollHeight;     // the overlay scrolls, never the page
@@ -72,6 +107,8 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
     $('call-controls').hidden = kind !== 'call';
     $('call-mute').textContent = 'Mute';
     $('call-mute').setAttribute('aria-pressed', 'false');
+    $('call-video').hidden = !(kind === 'call' && hasAvatar());
+    showVideo(false);
     $('talk-end').textContent = kind === 'call' ? 'End call' : 'End chat';
     dock.live(kind);               // remembers the tab it started from
   }
@@ -142,8 +179,57 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
     } catch (error) { status(error.message); }
   }
 
+  // The face area: shown while the face is starting or live. note: a line over the video ('' for none).
+  function showVideo(on, note = '') {
+    $('avatar').hidden = !on;
+    $('avatar-note').textContent = note;
+    $('avatar-note').hidden = !note;
+    $('call-video').textContent = on ? 'Hide video' : 'Show video';
+    $('call-video').setAttribute('aria-pressed', String(!on));
+  }
+
+  // Starts the face for the live call. Any failure leaves the call as it is, voice only.
+  async function videoOn() {
+    if (!live || live.kind !== 'call' || live.avatar || !live.contactId) return;
+    const current = live;
+    const run = {};                   // this attempt: a later Hide (or a newer attempt) makes it stale
+    current.avatar = 'starting';
+    current.avatarRun = run;
+    showVideo(true, 'Starting video…');
+    try {
+      const handle = await startAvatar({
+        api, contactId: current.contactId, context: current.audioContext, callAudio: $('talk-audio'),
+        video: $('avatar-video'), audio: $('avatar-audio'),
+        onGone: (why) => {
+          if (live !== current || current.avatarRun !== run) return;
+          current.avatar = null;
+          showVideo(false);
+          status(`${why} Your call carries on.`);
+        },
+      });
+      if (live !== current || current.avatarRun !== run) { handle.stop(); return; }     // ended or hidden meanwhile
+      current.avatar = handle;
+      showVideo(true);
+    } catch (error) {
+      if (live !== current || current.avatarRun !== run) return;
+      current.avatar = null;
+      showVideo(false);
+      if (!current.withPerson) status('The video couldn\'t start. Your call carries on as normal.');
+    }
+  }
+
+  function videoOff() {
+    if (!live) return;
+    if (live.avatar && live.avatar !== 'starting') live.avatar.stop();
+    live.avatar = null;
+    live.avatarRun = null;
+    showVideo(false);
+  }
+
   async function startCall() {
     begin('call'); status('Starting your call…');
+    // Browsers only let a page start audio from a tap or click: the face's audio context is made now.
+    const audioContext = hasAvatar() ? new AudioContext({ sampleRate: 24000 }) : null;
     try {
       // Ask for the microphone first, so a refusal costs nothing. Echo cancellation keeps the assistant's voice from
       // the speakers out of the microphone: otherwise Connect hears it as the customer interrupting.
@@ -156,7 +242,8 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
       const devices = new chime.DefaultDeviceController(logger);
       const config = new chime.MeetingSessionConfiguration({ Meeting: started.meeting }, { Attendee: started.attendee });
       const session = new chime.DefaultMeetingSession(config, logger, devices);
-      live = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream };
+      live = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream,
+        contactId: started.contactId, audioContext };
       const av = session.audioVideo;
       if (started.transcript) live.transcript = setInterval(() => readTranscript(started.contactId), TRANSCRIPT_EVERY_MS);
       av.addObserver({
@@ -167,9 +254,11 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
       await av.startAudioInput(stream);
       await av.bindAudioElement($('talk-audio'));
       av.start();
+      if (audioContext) videoOn();          // alongside the call, never in its way
     } catch (error) {
       const words = error && error.name === 'NotAllowedError'
         ? 'To call, allow this page to use your microphone.' : (error.message || 'The call could not start.');
+      if (audioContext && !live) audioContext.close().catch(() => {});
       finish(words);
     }
   }
@@ -181,6 +270,12 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
     try {
       const said = await api('/contact/transcript', { contactId });
       if (said.unavailable) clearInterval(live.transcript);      // this deployment can't read transcripts
+      if (said.withPerson && !live.withPerson) {                 // an adviser joined: they're heard as themselves
+        live.withPerson = true;
+        videoOff();
+        $('call-video').hidden = true;
+        status('A colleague has joined the call.');
+      }
       for (const line of said.lines || []) {
         const key = `${line.at}|${line.who}|${line.text}`;
         if (seen.has(key)) continue;
@@ -219,12 +314,17 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
       clearInterval(current.heartbeat);
       clearInterval(current.transcript);
       clearTimeout(current.openerTimer);
+      if (current.avatar && current.avatar !== 'starting') current.avatar.stop();
+      current.avatar = null;
+      if (current.audioContext) current.audioContext.close().catch(() => {});
       try { current.socket && current.socket.close(); } catch { /* already closed */ }
       try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }
       (current.stream ? current.stream.getTracks() : []).forEach((track) => track.stop());
     }
     $('talk-foot').hidden = true;
     $('talk-start').hidden = false;
+    showVideo(false);
+    $('talk-audio').muted = false;
     // A finished conversation leaves the page: only a one-line note of how it ended stays.
     $('chat-log').replaceChildren();
     seen.clear();
@@ -238,6 +338,7 @@ export function setupTalk({ api, currentView, onEnded, onActivity = () => {} }) 
   $('talk-call').addEventListener('click', startCall);
   $('chat-form').addEventListener('submit', sendChat);
   $('call-mute').addEventListener('click', toggleMute);
+  $('call-video').addEventListener('click', () => { if (live && live.avatar) videoOff(); else videoOn(); });
   $('talk-end').addEventListener('click', hangUp);
   // Closing ends any conversation; minimising (in dock.js) keeps it going behind the bottom tag.
   $('talk-close').addEventListener('click', () => { if (live) hangUp(); dock.hide(); });

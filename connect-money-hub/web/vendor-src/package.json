@@ -1,8 +1,9 @@
 {
   "name": "money-hub-chime-bundle",
   "private": true,
-  "description": "Builds web/vendor/chime.js, the parts of the Amazon Chime SDK the Money Hub page needs. Run scripts/build_chime.sh.",
+  "description": "Builds web/vendor/chime.js (the parts of the Amazon Chime SDK the Money Hub page needs) and web/vendor/daily.js (the client for the face's room). Run scripts/build_chime.sh.",
   "dependencies": {
+    "@daily-co/daily-js": "0.93.0",
     "amazon-chime-sdk-js": "3.32.0"
   },
   "devDependencies": {

@@ -414,6 +414,7 @@ async function load(all = true) {
       currentView: () => document.querySelector('[role=tab][aria-selected=true]').dataset.view,
       onEnded: () => load(false).catch(() => {}),
       onActivity: refreshSoon,
+      hasAvatar: () => Boolean(view.avatar),
     });
   }
   if (all) {

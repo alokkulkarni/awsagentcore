@@ -132,8 +132,14 @@ _VOICE = """- People pause mid-sentence on calls, so their words can arrive cut 
   counts with their unit ("11 times a month"); card digits one at a time ("ending 4 8 2 1").
 - Never read out a link, a transaction ID or a list longer than three items."""
 
-_CHAT = """- This is a chat: you are writing. Keep messages short. A short list (up to five lines) is fine for
-  figures. Use £ amounts and dates like "11 Oct". Post a link exactly as a tool gave it, on its own line."""
+_CHAT = """- This is a chat: you are writing, and people read it on a phone. Keep messages short, and lay every
+  message out like this, never as one paragraph:
+    the answer in one short sentence;
+    a blank line, then two or more figures as a list, one per line, each starting "- " (for example
+    "- Shopping: £300");
+    a blank line, then your question on its own line.
+  At most five list lines. No headings, bold or tables. Use £ amounts and dates like "11 Oct". Post a link
+  exactly as a tool gave it, on its own line."""
 
 
 PAGE_VIEWS = {"out": "Money out", "in": "Money in", "expected": "Expected", "transactions": "Transactions",
