@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Internet Banking — Nationwide Building Society (demo)</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <p class="demo-banner" role="note"><strong>Demo</strong> A prototype of internet banking with sample data. Not a real account, and nothing here moves money.</p>
+  <p class="signed-out" id="signed-out" role="status" hidden>This link isn't signed in, so our assistant will ask you to confirm who you are. Open your latest demo link to be signed in.</p>
+
+  <header class="app-top">
+    <div class="wrap app-top-inner">
+      <a class="wordmark" href="/" data-link aria-label="Nationwide Building Society, home">
+        <span class="wordmark-name">Nationwide</span>
+        <span class="wordmark-sub">Building Society</span>
+      </a>
+      <nav class="app-nav" aria-label="Main">
+        <a href="/" data-link data-nav="home">Home</a>
+        <a href="/accounts" data-link data-nav="accounts">Accounts</a>
+        <a href="/cards" data-link data-nav="cards">Cards</a>
+        <a href="/money-hub" data-link data-nav="money_hub">Money Hub</a>
+        <a href="/mortgages" data-link data-nav="mortgages">Mortgages</a>
+        <a href="/help" data-link data-nav="help">Help</a>
+      </nav>
+      <div class="app-user">
+        <span class="app-user-name" id="user-name"></span>
+        <button type="button" class="forget" id="forget" hidden title="Remove internet banking from this device">Forget this device</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap app-main" id="page" tabindex="-1">
+    <p class="app-message" id="message" role="status"></p>
+  </main>
+
+  <!-- Phones: the main links as a tab bar at the bottom, the usual banking app layout. -->
+  <nav class="tab-bar" aria-label="Main">
+    <a href="/" data-link data-nav="home"><span class="tab-icon" aria-hidden="true">⌂</span>Home</a>
+    <a href="/accounts" data-link data-nav="accounts"><span class="tab-icon" aria-hidden="true">£</span>Accounts</a>
+    <a href="/cards" data-link data-nav="cards"><span class="tab-icon" aria-hidden="true">▭</span>Cards</a>
+    <a href="/money-hub" data-link data-nav="money_hub"><span class="tab-icon" aria-hidden="true">◔</span>Money Hub</a>
+    <a href="/mortgages" data-link data-nav="mortgages"><span class="tab-icon" aria-hidden="true">⌂</span>Mortgages</a>
+  </nav>
+
+  <!-- ─────────────── Page templates: static markup only; pages fill them in as text ─────────────── -->
+
+  <template id="t-home">
+    <section class="hero">
+      <p class="hero-hello" id="hello"></p>
+      <p class="hint" id="home-as-of"></p>
+    </section>
+    <section class="accounts" id="home-accounts" aria-label="Your accounts"></section>
+    <section class="quick" aria-label="Shortcuts">
+      <a class="quick-item" href="/money-hub" data-link><span class="quick-icon" aria-hidden="true">◔</span><strong>Money Hub</strong><span>See where your money goes</span></a>
+      <a class="quick-item" href="/mortgages" data-link><span class="quick-icon" aria-hidden="true">⌂</span><strong>Mortgages</strong><span>Apply, with help as you go</span></a>
+      <a class="quick-item" href="/cards" data-link><span class="quick-icon" aria-hidden="true">▭</span><strong>Cards</strong><span>Payments, and disputing one</span></a>
+      <a class="quick-item" href="/help" data-link><span class="quick-icon" aria-hidden="true">?</span><strong>Help</strong><span>Answers, or ask us</span></a>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Recent payments</h2><a href="/accounts" data-link>See all</a></div>
+      <ul class="tx" id="home-recent"></ul>
+    </section>
+  </template>
+
+  <template id="t-accounts">
+    <h1 class="page-title">Accounts</h1>
+    <section class="accounts" id="accounts-list" aria-label="Your accounts"></section>
+    <section class="panel">
+      <div class="panel-head"><h2>Current account</h2><span class="pill" id="accounts-as-of"></span></div>
+      <ul class="tx" id="accounts-recent"></ul>
+      <p class="hint">For every payment and where your money goes, open your <a href="/money-hub" data-link>Money Hub</a>.</p>
+    </section>
+  </template>
+
+  <template id="t-cards">
+    <h1 class="page-title">Cards</h1>
+    <section class="bank-cards" id="cards-list" aria-label="Your cards"></section>
+    <nav class="tabs cards-tabs" role="tablist" aria-label="Cards">
+      <button role="tab" id="tab-payments" aria-selected="true" data-tab="payments">Card payments</button>
+      <button role="tab" id="tab-disputes" aria-selected="false" data-tab="disputes">Your disputes <span class="tab-count" id="disputes-count"></span></button>
+    </nav>
+    <section class="panel" id="cards-payments-panel" role="tabpanel" aria-labelledby="tab-payments">
+      <div class="panel-head"><h2>Card payments</h2>
+        <div class="seg" id="cards-filter" role="group" aria-label="Show payments for"></div></div>
+      <p class="hint">Don't recognise a payment, or something went wrong with what you bought? Choose <strong>Dispute</strong> and we'll help you put it right.</p>
+      <ul class="tx" id="cards-payments"></ul>
+    </section>
+    <div id="cards-disputes-panel" role="tabpanel" aria-labelledby="tab-disputes" hidden>
+    <section class="panel" id="dispute-waiting">
+      <h2>Watch your dispute being filled in</h2>
+      <p>Choose <strong>Dispute</strong> on a payment, then chat or call with us. When our dispute assistant offers to show you the form, it opens here and fills in as you talk.</p>
+    </section>
+    <section class="panel" id="dispute-edit" hidden>
+      <h2>Your card dispute</h2>
+      <p class="hint">This fills in as you talk to us. You can also type in it yourself.</p>
+      <form id="dispute-form" class="form" novalidate>
+        <label class="field" for="transactionId">Which payment is this about?</label>
+        <select id="transactionId" name="transactionId"></select>
+        <label class="field" for="disputeType">Did you make this payment?</label>
+        <select id="disputeType" name="disputeType"></select>
+        <label class="field" for="reason">What went wrong?</label>
+        <select id="reason" name="reason"></select>
+        <label class="field" for="cardInPossession" id="cardInPossession-label">Do you still have the card?</label>
+        <select id="cardInPossession" name="cardInPossession"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+        <label class="field" for="contactedMerchant" id="contactedMerchant-label">Have you contacted the retailer?</label>
+        <select id="contactedMerchant" name="contactedMerchant"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
+        <label class="field" for="narrative">What happened, in your own words</label>
+        <textarea id="narrative" name="narrative" maxlength="600"></textarea>
+      </form>
+      <p class="hint" id="dispute-saved"></p>
+      <p class="missing" id="dispute-missing" hidden></p>
+      <p class="hint" id="dispute-sync"></p>
+    </section>
+    <section class="panel" id="dispute-view" hidden>
+      <h2>Dispute <span id="dispute-reference"></span> <span class="pill" id="dispute-status"></span></h2>
+      <table class="rows"><tbody id="dispute-rows"></tbody></table>
+      <p class="missing" id="dispute-view-missing" hidden></p>
+      <div id="dispute-confirm-box" hidden>
+        <p>Please check the details above. If they are right, confirm them and your adviser will submit the dispute.</p>
+        <button type="button" id="dispute-confirm">These details are correct</button>
+      </div>
+      <p class="done" id="dispute-confirmed" hidden>You have confirmed these details.</p>
+      <p class="done" id="dispute-submitted" hidden></p>
+      <p class="error" id="dispute-error" role="alert"></p>
+    </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Your disputes</h2></div>
+        <ul class="disputes" id="disputes-list"></ul>
+      </section>
+    </div>
+  </template>
+
+
+  <template id="t-money-hub">
+    <h1 class="page-title">Money Hub <span class="hint" id="as-of"></span></h1>
+    <section id="hub" hidden>
+      <div class="glance">
+        <article class="card balance-card">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2" /></svg></span>
+          <h2>Balance today</h2>
+          <p class="big" id="balance"></p>
+          <p class="sub" id="balance-note">What's in your current account right now.</p>
+        </article>
+        <article class="card month-card-summary">
+          <div class="typical-head"><h2>A typical month</h2><span class="pill" id="typical-period"></span></div>
+          <div class="flow">
+            <div class="flow-item in"><span class="flow-label">Money in</span><span class="flow-value" id="avg-in"></span></div>
+            <span class="flow-sign" aria-hidden="true">−</span>
+            <div class="flow-item out"><span class="flow-label">Money out</span><span class="flow-value" id="avg-out"></span></div>
+            <span class="flow-sign" aria-hidden="true">=</span>
+            <div class="flow-item left"><span class="flow-label">Left over</span><span class="flow-value" id="avg-left"></span></div>
+          </div>
+          <div class="compare" aria-hidden="true">
+            <div class="compare-row"><span>In</span><span class="compare-track"><span class="compare-fill in" id="in-bar"></span></span></div>
+            <div class="compare-row"><span>Out</span><span class="compare-track"><span class="compare-fill out" id="out-bar"></span></span></div>
+          </div>
+          <p class="sub" id="avg-saved"></p>
+        </article>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="Money Hub views">
+        <button role="tab" id="tab-out" aria-selected="true" data-view="out">Money out</button>
+        <button role="tab" id="tab-in" aria-selected="false" data-view="in">Money in</button>
+        <button role="tab" id="tab-expected" aria-selected="false" data-view="expected">Expected</button>
+        <button role="tab" id="tab-transactions" aria-selected="false" data-view="transactions">Transactions</button>
+        <button role="tab" id="tab-goals" aria-selected="false" data-view="goals">Goals</button>
+      </nav>
+
+      <section class="view" id="view-out" role="tabpanel" aria-labelledby="tab-out">
+        <div class="view-head"><h2>Where your money goes</h2><span class="pill" id="out-period"></span></div>
+        <p class="hint">Money out in each month. Choose a month, or all three, to see where it went.</p>
+        <div class="month-chart out" id="month-chart" role="group" aria-label="Money out by month"></div>
+        <div class="seg" id="out-pick" role="group" aria-label="Show spending for"></div>
+        <h3 class="out-scope" id="out-scope"></h3>
+        <div class="split-bar" aria-hidden="true"><span class="ess" id="split-ess"></span><span class="flex" id="split-flex"></span></div>
+        <p class="split" id="split"></p>
+        <div class="legend"><span class="chip ess">Bills and essentials</span><span class="chip flex">Spending you choose</span></div>
+        <ul class="bars" id="out-bars"></ul>
+        <h3>Your habits <span class="hint">spending you choose, a month on average over the three months</span></h3>
+        <ul class="habits" id="habits"></ul>
+      </section>
+
+      <section class="view" id="view-in" role="tabpanel" aria-labelledby="tab-in" hidden>
+        <div class="view-head"><h2>Where your money comes from</h2><span class="pill" id="in-period"></span></div>
+        <p class="hint">Money in each month. Choose a month, or all three, to see where it came from.</p>
+        <div class="month-chart in" id="in-chart" role="group" aria-label="Money in by month"></div>
+        <div class="seg" id="in-pick" role="group" aria-label="Show money in for"></div>
+        <h3 class="out-scope" id="in-scope"></h3>
+        <div class="split-bar in" aria-hidden="true"><span class="part-a" id="in-split-a"></span><span class="part-b" id="in-split-b"></span></div>
+        <p class="split" id="in-split"></p>
+        <div class="legend in"><span class="chip part-a">Salary</span><span class="chip part-b">Other money in</span></div>
+        <ul class="bars in" id="in-bars"></ul>
+        <h3>By month</h3>
+        <div class="table-wrap"><table class="months"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>To savings</th><th>Left over</th></tr></thead>
+          <tbody id="months"></tbody></table></div>
+      </section>
+
+      <section class="view" id="view-expected" role="tabpanel" aria-labelledby="tab-expected" hidden>
+        <div class="view-head"><h2>The months ahead</h2><span class="pill">an estimate from your past patterns</span></div>
+        <p class="hint">Choose a month to see what's expected in it.</p>
+        <div class="forecast" id="forecast" role="group" aria-label="Months ahead"></div>
+        <section class="month-detail" aria-live="polite">
+          <div class="view-head"><h3 id="month-title"></h3><span class="pill" id="month-totals"></span></div>
+          <ul class="tx month-items" id="month-items"></ul>
+          <h4 class="month-sub" id="month-everyday-title">Everyday spending <span class="hint">an estimate, at your recent monthly average</span></h4>
+          <ul class="month-everyday" id="month-everyday"></ul>
+        </section>
+        <p class="hint" id="basis"></p>
+      </section>
+
+      <section class="view" id="view-transactions" role="tabpanel" aria-labelledby="tab-transactions" hidden>
+        <div class="view-head"><h2>Transactions</h2><span class="pill" id="tx-count"></span></div>
+        <form class="filters" id="filters">
+          <label class="search">Search
+            <span class="search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              <input id="f-merchant" type="search" placeholder="Shop or payee" maxlength="40">
+            </span>
+          </label>
+          <label>Show <select id="f-direction"><option value="">All</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
+          <label>Category <select id="f-category"><option value="">Any</option></select></label>
+        </form>
+        <p class="hint tx-tip">Tap a category to change it. Your Money Hub and the assistant use your choice.</p>
+        <ul class="tx" id="tx"></ul>
+        <button class="more" id="more" hidden>Show older</button>
+      </section>
+
+      <section class="view" id="view-goals" role="tabpanel" aria-labelledby="tab-goals" hidden>
+        <div class="view-head"><h2>Savings goals</h2><span class="pill">guidance, not advice</span></div>
+        <form class="goal-form" id="goal-form">
+          <h3>Add a goal</h3>
+          <label>Name <input id="g-name" required maxlength="40" placeholder="New car"></label>
+          <label>Target (£) <input id="g-target" type="number" min="1" step="1" required></label>
+          <label>By <input id="g-date" type="date" required></label>
+          <label>Already saved (£) <input id="g-saved" type="number" min="0" step="1" value="0"></label>
+          <button type="submit">Work it out and save</button>
+          <p class="hint" id="g-result"></p>
+        </form>
+        <h3>Your goals</h3>
+        <ul class="goals" id="goals"></ul>
+        <p class="hint">This is guidance based on your past spending, not financial advice.</p>
+      </section>
+    </section>
+  </template>
+
+  <template id="t-mortgages">
+    <h1 class="page-title">Mortgages</h1>
+    <section class="panel mortgage-intro">
+      <h2>Apply for a mortgage</h2>
+      <p>Fill it in yourself, or talk it through with our assistant: it fills in the form with you as you talk, and you can see and change everything. It can run a Decision in Principle (a soft search) and show you our products. Choosing is up to you.</p>
+      <p class="hint" id="mortgage-progress"></p>
+      <a class="button" href="/apply/about-you" data-link id="mortgage-start">Start your application</a>
+    </section>
+    <section class="panel">
+      <h2>Our products</h2>
+      <p class="hint">Illustrative rates, not offers.</p>
+      <ul class="products-list" id="mortgage-products"></ul>
+    </section>
+  </template>
+
+  <template id="t-apply">
+    <h1 class="page-title">Mortgage application <span class="hint" id="app-id"></span></h1>
+    <div class="apply">
+      <section class="panel">
+        <nav aria-label="Application stages"><ol id="stages" class="stages"></ol></nav>
+
+        <form id="about_you" class="stage form" data-stage="about_you" hidden>
+          <h2>About you</h2>
+          <label for="fullName">Full name</label><input id="fullName" name="fullName" autocomplete="name">
+          <label for="dateOfBirth">Date of birth</label><input id="dateOfBirth" name="dateOfBirth" type="date">
+          <label for="employmentStatus">Employment</label>
+          <select id="employmentStatus" name="employmentStatus"><option value="">Choose</option><option value="employed">Employed</option><option value="self_employed">Self-employed</option><option value="other">Other</option></select>
+          <label for="annualIncome">Annual income before tax (£)</label><input id="annualIncome" name="annualIncome" type="number" inputmode="numeric">
+          <label for="commitmentsMonthly">Monthly credit commitments (£)</label><input id="commitmentsMonthly" name="commitmentsMonthly" type="number" inputmode="numeric">
+        </form>
+
+        <form id="property_loan" class="stage form" data-stage="property_loan" hidden>
+          <h2>Property and loan</h2>
+          <label for="propertyValue">Property value (£)</label><input id="propertyValue" name="propertyValue" type="number" inputmode="numeric">
+          <label for="deposit">Deposit (£)</label><input id="deposit" name="deposit" type="number" inputmode="numeric">
+          <label for="termYears">Mortgage term (years)</label><input id="termYears" name="termYears" type="number" min="5" max="40">
+          <label for="buyerType">Buyer type</label>
+          <select id="buyerType" name="buyerType"><option value="">Choose</option><option value="first_time">First-time buyer</option><option value="home_mover">Home mover</option><option value="remortgage">Remortgage</option></select>
+        </form>
+
+        <form id="dip_result" class="stage form" data-stage="dip_result" hidden>
+          <h2>Decision in Principle</h2>
+          <p class="hint">The assistant runs this with you (a soft search). It isn't a mortgage offer.</p>
+          <label for="dipDecision">Decision</label><input id="dipDecision" name="dipDecision" readonly data-assistant-fill tabindex="-1">
+          <label for="maxLoan">Maximum loan (£)</label><input id="maxLoan" name="maxLoan" type="number" readonly data-assistant-fill tabindex="-1">
+          <details id="affordability"><summary>How was this worked out?</summary><p>Up to 4.5 times your yearly income after credit commitments, with a loan-to-value of 95% or less. Illustrative rules only.</p></details>
+        </form>
+
+        <form id="product_selection" class="stage form" data-stage="product_selection" hidden>
+          <h2>Choose a product</h2>
+          <p class="hint">Illustrative rates, not offers. Choosing is up to you; ask for an adviser if you'd like advice.</p>
+          <div id="products" class="products" role="list"></div>
+        </form>
+
+        <form id="documents" class="stage form" data-stage="documents" hidden>
+          <h2>Documents</h2>
+          <div class="upload" data-doc="payslips"><label for="up-payslips">Payslips</label><input id="up-payslips" type="file"></div>
+          <div class="upload" data-doc="bank_statement"><label for="up-bank_statement">Bank statement</label><input id="up-bank_statement" type="file"></div>
+          <div class="upload" data-doc="photo_id"><label for="up-photo_id">Photo ID</label><input id="up-photo_id" type="file"></div>
+        </form>
+
+        <form id="review_submit" class="stage form" data-stage="review_submit" hidden>
+          <h2>Review and submit</h2>
+          <p class="hint">Check your answers. To change one, go back to its stage.</p>
+          <div id="loan_summary" class="summary"></div>
+          <div id="product_summary" class="summary"></div>
+          <div id="documents_summary" class="summary"></div>
+          <p id="review-missing" class="missing" role="alert" hidden></p>
+          <div id="declaration" class="summary declaration"><input id="declare" type="checkbox" disabled><label for="declare">I confirm the information is true and complete, and I agree to a credit search.</label></div>
+          <button type="button" id="submit" disabled>Submit application</button>
+          <p id="submit-result" class="submit-result" role="status" hidden></p>
+        </form>
+
+        <div class="apply-actions"><button type="button" class="secondary" id="back">Back</button><button type="button" id="restart" class="link">Start again</button><button type="button" id="next">Continue</button></div>
+        <p class="hint" id="livesync-state" role="status"></p>
+      </section>
+
+      <aside class="panel help-phone" aria-labelledby="help-title">
+        <h2 id="help-title">Get help by phone</h2>
+        <p class="hint">Already on the phone to us, or want to be? Get a code, call, and quote it: the assistant on the call can then see and fill this page with you.</p>
+        <button type="button" class="secondary" id="help-start">Get a help code</button>
+        <div id="help" hidden>
+          <p>Call <strong id="help-number">us</strong> and quote</p>
+          <p id="help-code" class="code" aria-live="polite"></p>
+          <p id="help-timer" class="hint"></p>
+        </div>
+        <p id="help-state" role="status" class="state"></p>
+      </aside>
+    </div>
+  </template>
+
+  <template id="t-help">
+    <h1 class="page-title">Help</h1>
+    <section class="panel">
+      <h2>Ask us anything</h2>
+      <p>Chat or call with our assistant from the button at the bottom of any page. It knows which page you're on, so it can help with that straight away: your Money Hub, a mortgage application or a card payment.</p>
+    </section>
+    <section class="panel" id="help-disputes" hidden>
+      <div class="panel-head"><h2>Your disputes</h2><a href="/cards/dispute" data-link>See them in Cards</a></div>
+      <ul class="disputes" id="help-disputes-list"></ul>
+    </section>
+    <section class="panel faqs">
+      <h2>Common questions</h2>
+      <details><summary>How do I see where my money goes?</summary><p>Open your <a href="/money-hub" data-link>Money Hub</a>. It shows money in and out by month, what's expected, and your savings goals.</p></details>
+      <details><summary>I don't recognise a card payment</summary><p>Go to <a href="/cards" data-link>Cards</a>, find the payment and choose <strong>Dispute</strong>. We'll ask a few questions and help you put it right.</p></details>
+      <details><summary>Can I apply for a mortgage online?</summary><p>Yes. Go to <a href="/mortgages" data-link>Mortgages</a>. You can fill it in yourself or with our assistant.</p></details>
+      <details><summary>Is the assistant a person?</summary><p>No. It's an AI assistant, labelled as one, including on video. Ask at any time to speak to one of our colleagues.</p></details>
+    </section>
+  </template>
+
+  <!-- The assistant: a tag fixed at the bottom that opens an overlay. It knows which page you're on.
+       Phones get a bottom sheet with a drag handle; tablets and desktops a floating panel resized from its corner. -->
+  <button type="button" class="talk-launcher" id="talk-launcher" aria-controls="talk-panel" aria-expanded="false" hidden>
+    <span class="talk-dot" aria-hidden="true"></span>
+    <span class="talk-launcher-text">
+      <strong id="launcher-title">Ask us anything</strong>
+      <span id="launcher-context"></span>
+    </span>
+  </button>
+
+  <aside class="talk-panel" id="talk-panel" role="dialog" aria-modal="false" aria-labelledby="talk-title" hidden>
+    <div class="talk-grip" id="talk-grip" role="separator" tabindex="0" aria-orientation="horizontal"
+         aria-label="Resize the assistant. Use the arrow keys." aria-controls="talk-panel"><span></span></div>
+    <header class="talk-head">
+      <div>
+        <h2 id="talk-title">Nationwide assistant</h2>
+        <p class="talk-context" id="talk-context"></p>
+      </div>
+      <div class="talk-head-actions">
+        <button type="button" class="icon" id="talk-min" aria-label="Minimise the assistant" title="Minimise">&#8211;</button>
+        <button type="button" class="icon" id="talk-close" aria-label="Close the assistant" title="Close">&#215;</button>
+      </div>
+    </header>
+    <div class="talk-body" id="talk-body">
+      <div class="talk-start" id="talk-start">
+        <p>Chat or talk with our assistant. It can see which page you're on, starting with
+          <strong id="start-context"></strong>.</p>
+        <div class="talk-actions">
+          <button type="button" id="talk-chat">Chat</button>
+          <button type="button" id="talk-call">Call</button>
+        </div>
+        <p class="hint" id="avatar-hint" hidden>On a call you'll see our assistant on video. It's an AI, not a person.</p>
+        <p class="hint" id="start-note"></p>
+      </div>
+      <!-- On a call: a real-looking face speaking the call's voice (avatar.js). Always labelled as AI. -->
+      <figure class="avatar" id="avatar" hidden>
+        <video id="avatar-video" autoplay playsinline muted aria-label="Our AI assistant, speaking"></video>
+        <span class="avatar-badge">AI assistant</span>
+        <figcaption class="avatar-note" id="avatar-note" hidden></figcaption>
+      </figure>
+      <p class="talk-status" id="talk-status" role="status"></p>
+      <ol class="chat-log" id="chat-log" aria-live="polite" aria-label="Conversation"></ol>
+    </div>
+    <footer class="talk-foot" id="talk-foot" hidden>
+      <form class="chat-form" id="chat-form" hidden>
+        <input id="chat-input" maxlength="1024" autocomplete="off" aria-label="Your message" placeholder="Type a message">
+        <button type="submit">Send</button>
+      </form>
+      <div class="call-controls" id="call-controls" hidden>
+        <button type="button" id="call-mute" aria-pressed="false">Mute</button>
+        <button type="button" id="call-video" aria-pressed="false" hidden>Hide video</button>
+      </div>
+      <button type="button" class="end" id="talk-end">End</button>
+    </footer>
+    <audio id="talk-audio" autoplay></audio>
+    <audio id="avatar-audio" autoplay></audio>
+  </aside>
+</body>
+</html>
