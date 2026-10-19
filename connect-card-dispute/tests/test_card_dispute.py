@@ -330,7 +330,50 @@ class LiveSyncRoute(Base):
         session = self.attached(customer=SARAH)
         self.refused("transaction_not_found", self.service.page_save, session, {"transactionId": AMAZON})
 
-    def test_a_page_can_never_confirm_or_submit(self):                                # R9
+    def _complete_on_page(self, session):
+        return self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised",
+                                                "reason": "not_recognised", "cardInPossession": "yes",
+                                                "narrative": "I never made this payment."})
+
+    def test_the_customer_can_submit_their_own_complete_draft_from_the_form(self):     # R11
+        session = self.attached()
+        self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised"})
+        self.assertFalse(self.service.screen_status(session)["canSubmit"], "not until nothing is missing")
+        self.refused("incomplete", self.service.page_submit, session)
+        self._complete_on_page(session)
+        self.assertTrue(self.service.screen_status(session)["canSubmit"])
+        done = self.service.page_submit(session)
+        self.assertEqual((done["dispute"]["status"], done["canSubmit"], done["editable"]), ("submitted", False, False))
+        stored = self.service.store.get(f"dispute#{done['dispute']['disputeId']}")
+        self.assertEqual((stored["submittedBy"], stored["customerConfirmation"]["source"]),
+                         ("customer", "customer_submitted_form"), "submitting is their confirmation")
+        self.assertEqual(self.service.page_submit(session)["dispute"]["status"], "submitted", "twice is harmless")
+
+    def test_the_customer_submits_only_their_own_dispute_and_never_one_an_adviser_has(self):   # R11, R3
+        session = self.attached()
+        dispute_id = self._complete_on_page(session)["dispute"]["disputeId"]
+        self.refused("dispute_not_found", self.service.customer_submit, SARAH, dispute_id)
+        token = self.service.screen_pop(JAMES)["disputeUrl"].split("#")[1]
+        self.service.adviser_open(token)
+        self.refused("with_adviser", self.service.customer_submit, JAMES, dispute_id)
+        self.assertFalse(self.service.screen_status(session)["canSubmit"])
+        self.refused("dispute_not_found", self.service.customer_submit, JAMES, "DSP-NOPE0000")
+
+    def test_a_duplicate_draft_beside_a_submitted_dispute_is_never_submitted(self):         # R11
+        # The live table on 19 Oct: DSP-BM7KL899 submitted, and a stray draft for the same payment made later.
+        first = self.service.start_card_dispute(JAMES, AMAZON, "unauthorised")["dispute_id"]
+        key = f"dispute#{first}"
+        self.service.store.put(key, {**self.service.store.get(key), "status": "withdrawn"})
+        stray = self.service.start_card_dispute(JAMES, AMAZON, "unauthorised")["dispute_id"]
+        self.service.update_card_dispute(JAMES, stray, {"reason": "not_recognised", "cardInPossession": "yes",
+                                                        "narrative": "Not me."})
+        self.service.store.put(key, {**self.service.store.get(key), "status": "submitted"})
+        stored = self.service.store.get(f"dispute#{stray}")
+        self.assertFalse(self.service.can_customer_submit(stored), "complete, but a duplicate")
+        self.refused("already_disputed", self.service.customer_submit, JAMES, stray)
+        self.assertEqual(self.service.store.get(f"dispute#{stray}")["status"], "draft")
+
+    def test_a_page_can_never_confirm_or_submit_through_a_save(self):                  # R9 (R11 is its own button)
         session = self.attached()
         self.service.page_save(session, {"transactionId": AMAZON, "disputeType": "unauthorised"})
         for fields in ({"customerConfirmation": "yes"}, {"status": "submitted"}, {"cardBlocked": "definitely"}):
@@ -883,6 +926,29 @@ class DisputesAgentInCxDesigner(Base):
         entry.doors.customer_of_contact = lambda contact: SARAH
         self.assertEqual(self.op("blockCard", cardType="credit")["reason"], "card_not_found", "Sarah has no credit card")
 
+    def test_on_a_call_from_the_banking_app_the_form_opens_in_the_app_instead_of_by_text(self):
+        # 19 Oct: a call from the banking app has no number to text, so the form "couldn't be shown".
+        entry.doors.contact_channel = lambda contact: "VOICE"
+        entry.doors.contact_phone = lambda contact: ""
+        entry.doors.contact_in_app = lambda contact: True
+        try:
+            dispute_id = self.started()["disputeId"]
+            sent = self.op("sendFormLink", disputeId=dispute_id)
+            self.assertEqual((sent["ok"], sent["sent"], sent["sentTo"], sent["link"]), (True, True, "the banking app", ""))
+            self.assertEqual(self.texts, [], "nothing is texted")
+            stored = self.service.store.get(f"dispute#{dispute_id}")
+            self.assertEqual(stored["linkSentVia"], "app")
+            self.assertTrue(stored["linkSentAt"], "the app opens the form when it sees this stamp")
+            self.assertIn("opened in the customer's banking app", self.service.screen_pop(JAMES)["dispute4"])
+        finally:
+            entry.doors.contact_in_app = lambda contact: False
+
+    def test_a_phone_call_from_outside_the_app_still_says_why_the_form_cant_be_sent(self):
+        entry.doors.contact_channel = lambda contact: "VOICE"
+        entry.doors.contact_phone = lambda contact: ""
+        dispute_id = self.started()["disputeId"]
+        self.assertEqual(self.op("sendFormLink", disputeId=dispute_id)["reason"], "no_mobile_number")
+
     def test_the_form_link_is_texted_to_the_callers_mobile_and_opens_the_form_joined_to_the_call(self):
         entry.doors.contact_channel = lambda contact: "VOICE"
         dispute_id = self.started()["disputeId"]
@@ -1253,6 +1319,13 @@ class CxDesignerConfiguration(unittest.TestCase):
             for field in d["request"]:
                 if field not in ("operation", "contactId"):
                     self.assertIn(field, data["inputHints"], f"{d['name']}.{field} needs a hint")
+
+    def test_the_prompt_opens_the_form_in_the_app_and_lets_the_customer_submit(self):
+        prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
+        for must in ('if sentTo is "the banking app"', "under Cards, Your disputes",
+                     "they can press Submit on it themselves", "if status is submitted, they have",
+                     "unless getDispute shows the customer submitted it"):
+            self.assertIn(must, prompt)
 
     def test_the_prompt_never_disputes_a_payment_or_replaces_a_card_twice(self):
         prompt = self.doc.split("**The assistant.**")[1].split("```")[1]

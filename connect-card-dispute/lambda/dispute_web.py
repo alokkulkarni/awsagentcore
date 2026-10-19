@@ -30,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+import dispute_model as model
 from dispute_service import (ASSISTANT_DISPUTE, FORM_LINK_SECONDS, REPLACEMENT_WORKING_DAYS as REPLACEMENT_DAYS,
                              DisputeError, DisputeService)
 
@@ -55,6 +56,7 @@ class Doors:
     contact_phone: Callable[[str], str] = lambda contact_id: ""     # the number the customer is calling from
     contact_channel: Callable[[str], str] = lambda contact_id: "VOICE"     # VOICE or CHAT, as the flow recorded it
     send_sms: Callable[[str, str], str] = lambda phone, text: "sms_not_configured"   # "" when sent, else why not
+    contact_in_app: Callable[[str], bool] = lambda contact_id: False   # started from the bank's own app (appPage)
     sms_prefixes: tuple = ("+447",)                 # numbers a text may go to (UK mobiles)
     bank_name: str = "Your bank"
 
@@ -219,6 +221,13 @@ def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, con
         link = service.mint_form_link(customer_id, contact_id, dispute_id)
         service.mark_link_sent(dispute_id, "chat")
         return {"sent": True, "sentTo": "this chat", "link": link}
+    if doors.contact_in_app(contact_id):
+        # A call from the banking app: it has no number to text, but the app is open. Marking the form as sent
+        # makes the app open it on the customer's screen, joined to this call (bankapp/disputes.live).
+        if service._owned(customer_id, dispute_id)["status"] != model.DRAFT:
+            raise DisputeError("with_adviser", "An adviser now has this dispute.", 409)
+        service.mark_link_sent(dispute_id, "app")
+        return {"sent": True, "sentTo": "the banking app", "link": ""}
     phone = "".join(ch for ch in doors.contact_phone(contact_id) if ch == "+" or ch.isdigit())
     if not phone.startswith(doors.sms_prefixes):
         raise DisputeError("no_mobile_number", "The customer is not calling from a mobile we can text. "
@@ -349,6 +358,7 @@ def handle(event: dict, service: DisputeService, doors: Doors) -> dict:
         "/api/screen/open": lambda b: service.open_form_link(_text(b, "linkToken")),
         "/api/screen/status": lambda b: service.screen_status(_text(b, "sessionId")),
         "/api/screen/confirm": lambda b: service.customer_confirm(_text(b, "sessionId")),
+        "/api/screen/submit": lambda b: service.page_submit(_text(b, "sessionId")),
         "/api/screen/save": lambda b: service.page_save(_text(b, "sessionId"), _fields(b)),
         "/acxd/ops": None,                              # handled by _acxd: it needs the request's headers
         "/api/adviser/open": lambda b: service.adviser_open(_text(b, "token")),
