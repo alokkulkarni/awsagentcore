@@ -18,54 +18,9 @@ logger.setLevel(logging.INFO)
 
 _MOCK_DATA = os.environ.get("MOCK_DATA", "false").lower() == "true"
 
-if _MOCK_DATA:
-    _MOCK_ACCOUNTS: dict[str, dict] = {
-        "CUST-001": {
-            "current": {
-                "account_number": "12344521",
-                "sort_code": "20-45-67",
-                "account_type": "current",
-                "account_name": "Meridian Select",
-                "available_balance": 1245.30,
-                "cleared_balance": 1300.00,
-                "currency": "GBP",
-            },
-            "savings": {
-                "account_number": "98767832",
-                "sort_code": "20-45-67",
-                "account_type": "savings",
-                "account_name": "Meridian Instant Access",
-                "available_balance": 4200.00,
-                "cleared_balance": 4200.00,
-                "currency": "GBP",
-            },
-        },
-        "CUST-002": {
-            "current": {
-                "account_number": "56781234",
-                "sort_code": "20-45-67",
-                "account_type": "current",
-                "account_name": "Meridian Classic",
-                "available_balance": 892.15,
-                "cleared_balance": 950.00,
-                "currency": "GBP",
-            },
-        },
-    }
-else:
-    _MOCK_ACCOUNTS = {}
-
-_MOCK_TRANSACTIONS: dict[str, list] = {
-    "CUST-001": [
-        {"date": "2026-03-27", "description": "TESCO STORES", "amount": -42.50, "type": "debit", "balance": 1245.30},
-        {"date": "2026-03-26", "description": "SALARY MERIDIAN CORP", "amount": 3200.00, "type": "credit", "balance": 1287.80},
-        {"date": "2026-03-25", "description": "AMAZON.CO.UK", "amount": -89.99, "type": "debit", "balance": -1912.20},
-        {"date": "2026-03-24", "description": "DIRECT DEBIT - EDF ENERGY", "amount": -75.00, "type": "debit", "balance": -1822.21},
-        {"date": "2026-03-23", "description": "CONTACTLESS - COSTA COFFEE", "amount": -4.50, "type": "debit", "balance": -1747.21},
-        {"date": "2026-03-22", "description": "TRANSFER FROM SAVINGS", "amount": 500.00, "type": "credit", "balance": -1742.71},
-        {"date": "2026-03-21", "description": "NETFLIX.COM", "amount": -10.99, "type": "debit", "balance": -2242.71},
-    ],
-}
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# ARIA sees the same accounts and payments as the Money Hub, the card dispute assistant and internet banking.
+from moneyhub import data as bank  # noqa: E402
 
 
 
@@ -147,26 +102,30 @@ def lambda_handler(event: dict, context) -> dict:
     return {"error": f"Unknown tool: {tool_name}"}
 
 
+def _account(params: dict) -> tuple[str, str, dict | None]:
+    customer_id = str(params.get("customer_id", "")).strip()
+    account_type = str(params.get("account_type", "current")).strip().lower() or "current"
+    acct = bank.account(customer_id, account_type) or bank.account(customer_id, "current")
+    return customer_id, account_type, acct
+
+
 def _get_account_balance(params: dict) -> dict:
     if not _MOCK_DATA:
         return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
 
-    customer_id = str(params.get("customer_id", "")).strip()
-    account_type = str(params.get("account_type", "current")).strip().lower()
-
-    accounts = _MOCK_ACCOUNTS.get(customer_id, {})
-    acct = accounts.get(account_type) or next(iter(accounts.values()), None)
+    customer_id, _, acct = _account(params)
     if not acct:
         return {"error": "Account not found", "customer_id": customer_id}
 
     return {
         "customer_id": customer_id,
-        "account_type": acct["account_type"],
-        "account_name": acct["account_name"],
-        "available_balance": acct["available_balance"],
-        "cleared_balance": acct["cleared_balance"],
-        "currency": acct["currency"],
-        "account_number_last_four": acct["account_number"][-4:],
+        "account_type": acct["type"],
+        "account_name": acct["name"],
+        "available_balance": acct["balance"],
+        "cleared_balance": acct["balance"],
+        "currency": "GBP",
+        "account_number_last_four": acct["ending"],
+        "as_of": bank.as_of().isoformat(),
     }
 
 
@@ -174,19 +133,25 @@ def _get_recent_transactions(params: dict) -> dict:
     if not _MOCK_DATA:
         return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
 
-    customer_id = str(params.get("customer_id", "")).strip()
-    account_type = str(params.get("account_type", "current")).strip().lower()
-    limit = int(params.get("limit", 5))
+    customer_id, _, acct = _account(params)
+    if not acct:
+        return {"error": "Account not found", "customer_id": customer_id}
+    try:
+        limit = max(1, min(int(params.get("limit", 5) or 5), 50))
+    except (TypeError, ValueError):
+        limit = 5
 
-    txns = _MOCK_TRANSACTIONS.get(customer_id, [])
-    if account_type == "savings":
-        txns = [t for t in txns if t.get("type") == "credit"]
-
+    rows = bank.savings_transactions(customer_id) if acct["type"] == "savings" \
+        else bank.current_account_transactions(customer_id)
+    txns = [{"date": t["date"], "description": t["merchant"], "amount": t["amount"],
+             "type": "credit" if t["amount"] > 0 else "debit",
+             **({"balance": t["balanceAfter"]} if "balanceAfter" in t else {})} for t in rows[:limit]]
     return {
         "customer_id": customer_id,
-        "account_type": account_type,
-        "transactions": txns[:limit],
-        "total_returned": min(limit, len(txns)),
+        "account_type": acct["type"],
+        "account_number_last_four": acct["ending"],
+        "transactions": txns,
+        "total_returned": len(txns),
     }
 
 
@@ -194,20 +159,16 @@ def _get_account_details(params: dict) -> dict:
     if not _MOCK_DATA:
         return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
 
-    customer_id = str(params.get("customer_id", "")).strip()
-    account_type = str(params.get("account_type", "current")).strip().lower()
-
-    accounts = _MOCK_ACCOUNTS.get(customer_id, {})
-    acct = accounts.get(account_type) or next(iter(accounts.values()), None)
+    customer_id, _, acct = _account(params)
     if not acct:
         return {"error": "Account not found", "customer_id": customer_id}
 
     return {
         "customer_id": customer_id,
-        "account_number_last_four": acct["account_number"][-4:],
-        "sort_code": acct["sort_code"],
-        "account_type": acct["account_type"],
-        "account_name": acct["account_name"],
-        "currency": acct["currency"],
+        "account_number_last_four": acct["ending"],
+        "sort_code": bank.SORT_CODE,
+        "account_type": acct["type"],
+        "account_name": acct["name"],
+        "nickname": acct["nickname"],
+        "currency": "GBP",
     }
-

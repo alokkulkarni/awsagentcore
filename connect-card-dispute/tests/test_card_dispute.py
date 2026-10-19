@@ -16,6 +16,7 @@ from pathlib import Path
 
 FOLDER = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FOLDER / "lambda"))
+sys.path.insert(0, str(FOLDER.parent / "connect-money-hub"))      # the sample bank's data (moneyhub/data.py)
 
 import aria_card_dispute as entry  # noqa: E402
 import dispute_model as model  # noqa: E402
@@ -24,7 +25,7 @@ from dispute_service import DisputeError, DisputeService  # noqa: E402
 from dispute_store import ABSENT, DynamoStore, MemoryStore  # noqa: E402
 
 JAMES, SARAH = "CUST-001", "CUST-002"
-AMAZON = "TXN-4821-20261011-8999"          # James's debit card, AMAZON.CO.UK, £89.99
+AMAZON = "TXN-4821-20261015-3245"          # James's debit card, AMAZON.CO.UK, £32.45 (moneyhub/data.py)
 
 
 class Base(unittest.TestCase):
@@ -64,7 +65,7 @@ class AriaDraftsADispute(Base):
         dispute = reply["dispute"]
         self.assertRegex(reply["dispute_id"], r"^DSP-[A-Z2-9]{8}$")
         self.assertEqual((dispute["merchant"], dispute["amount"], dispute["cardLastFour"], dispute["status"]),
-                         ("AMAZON.CO.UK", "89.99", "4821", "draft"))
+                         ("AMAZON.CO.UK", "32.45", "4821", "draft"))
         self.assertEqual(reply["missing"], ["Reason", "In the customer's words", "Customer still has the card"])
 
     def test_a_transaction_on_someone_elses_card_cannot_be_disputed(self):      # R5
@@ -230,7 +231,7 @@ class CustomerWatchesTheForm(Base):
         self.assertEqual(self.service.screen_status(first["sessionId"])["state"], "attached")   # attached pages last longer
 
     def test_five_wrong_codes_lock_attaching_for_that_dispute_only(self):
-        locked, other = self.draft(), self.draft(transaction="TXN-4821-20261010-4250")
+        locked, other = self.draft(), self.draft(transaction="TXN-4821-20261015-2610")
         for _ in range(5):
             self.refused("code_not_recognised", self.service.attach_dispute_screen, JAMES, locked, "000000")
         session = self.service.create_screen()
@@ -238,7 +239,7 @@ class CustomerWatchesTheForm(Base):
         self.assertTrue(self.service.attach_dispute_screen(JAMES, other, session["code"])["attached"])
 
     def test_a_page_cannot_be_taken_over_by_a_second_dispute(self):
-        first, second = self.draft(), self.draft(transaction="TXN-4821-20261010-4250")
+        first, second = self.draft(), self.draft(transaction="TXN-4821-20261015-2610")
         session = self.service.create_screen()
         self.service.attach_dispute_screen(JAMES, first, session["code"])
         self.refused("code_not_recognised", self.service.attach_dispute_screen, JAMES, second, session["code"])
@@ -255,7 +256,7 @@ class ScreenPop(Base):
         dispute_id = self.draft()
         pop = self.service.screen_pop(JAMES)
         self.assertEqual((pop["hasDispute"], pop["disputeId"]), ("true", dispute_id))
-        self.assertIn("**AMAZON.CO.UK**, **£89.99** on 11 Oct 2026, debit card ending 4821", pop["dispute2"])
+        self.assertIn("**AMAZON.CO.UK**, **£32.45** on 15 Oct 2026, debit card ending 4821", pop["dispute2"])
         self.assertTrue(pop["dispute3"].startswith("**Still needed:** Reason"))
         self.assertTrue(pop["disputeUrl"].startswith("https://pages.example/adviser#"))
         self.assertTrue(all(isinstance(v, str) and "\n" not in v for v in pop.values()), "one line of text each")
@@ -315,6 +316,15 @@ class LiveSyncRoute(Base):
         self.assertEqual((done["dispute"]["missing"], done["dispute"]["disputeId"]), ([], saved["disputeId"]))
         self.assertEqual(self.service.screen_pop(JAMES)["disputeId"], saved["disputeId"], "the adviser will see it")
         self.assertIn("watching the form", self.service.screen_pop(JAMES)["dispute4"])
+
+    def test_a_page_cannot_start_a_payment_that_is_already_disputed(self):
+        submitted = self.service.start_card_dispute(JAMES, AMAZON, "unauthorised")["dispute_id"]
+        key = f"dispute#{submitted}"
+        self.service.store.put(key, {**self.service.store.get(key), "status": "submitted"})
+        session = self.attached()
+        self.refused("already_disputed", self.service.page_save, session, {"transactionId": AMAZON})
+        self.assertEqual(self.service.store.get(key)["status"], "submitted", "the submitted dispute is untouched")
+        self.assertIsNone(self.service.screen_status(session)["dispute"], "the page is not tied to it")
 
     def test_a_page_can_only_choose_one_of_that_customers_own_payments(self):         # R5, R7
         session = self.attached(customer=SARAH)
@@ -571,7 +581,7 @@ class ThreeWaysIn(Base):
             self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": "135790"}, key="GUESSED-KEY")
             self.acxd({"operation": "attachToScreen", "contactId": CONTACT, "code": "135790"})
         written = "\n".join(logs.output)
-        for private in ("PRIVATE-NARRATIVE", "AMAZON", "89.99", session["code"], session["sessionId"],
+        for private in ("PRIVATE-NARRATIVE", "AMAZON", "32.45", session["code"], session["sessionId"],
                         pop["disputeUrl"].split("#")[1], "INJECTED", "GUESSED-KEY", "the-key", "135790"):
             self.assertNotIn(private, written)
         self.assertIn(started["dispute_id"], written)
@@ -619,7 +629,7 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual({c["cardLastFour"]: c["status"] for c in listed["cards"]}, {"4821": "active", "2291": "active"})
         self.assertIn(AMAZON, [p["transactionId"] for p in listed["payments"]])
         started = self.started()
-        self.assertEqual((started["ok"], started["payment"]), (True, "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821"))
+        self.assertEqual((started["ok"], started["payment"]), (True, "AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821"))
         self.assertIn("not_recognised", started["reasonsAllowed"])
         dispute_id = started["disputeId"]
         updated = self.op("updateDispute", disputeId=dispute_id, reasonCode="card_details_used_without_card",
@@ -631,7 +641,8 @@ class DisputesAgentInCxDesigner(Base):
         self.assertEqual(self.op("getDispute", disputeId=dispute_id)["cardBlocked"], "yes", "the form says so")
         replaced = self.op("orderReplacementCard", cardType="debit")
         self.assertEqual((replaced["ok"], replaced["arrivesInWorkingDays"]), (True, "3 to 5"))
-        self.assertEqual(self.op("listCardsAndPayments", cardType="debit")["cards"][0]["status"], "blocked")
+        self.assertRegex(self.op("listCardsAndPayments", cardType="debit")["cards"][0]["status"],
+                         r"^blocked, replacement ordered \d{1,2} \w{3} \d{4}$", "the assistant sees a new card is coming")
 
         handed = entry.lambda_handler(flow_event(VERIFIED, operation="handover",
                                                  assistantSummary="Customer **was** upset [link](http://x)"), None)
@@ -642,7 +653,7 @@ class DisputesAgentInCxDesigner(Base):
         self.assertTrue(summary.startswith(f"Card dispute {dispute_id} drafted"), "the briefing agent keys on this")
         self.assertIn("Case: FRAUD.", summary)
         self.assertEqual(handed["customerIntent"], "Report card fraud and dispute the payment")
-        for expected in ("AMAZON.CO.UK, £89.99", "All details filled in.", "Debit card ending 4821 blocked (BLOCK-4821-",
+        for expected in ("AMAZON.CO.UK, £32.45", "All details filled in.", "Debit card ending 4821 blocked (BLOCK-4821-",
                          "Debit card ending 4821 replacement ordered (REPL-4821-", "Confirm the details"):
             self.assertIn(expected, summary)
         self.assertNotIn("](", summary)
@@ -656,27 +667,27 @@ class DisputesAgentInCxDesigner(Base):
 
     def test_payments_come_five_a_page_newest_first_numbered_across_pages(self):
         first = self.op("listCardsAndPayments", page=1, cardType="both")
-        self.assertEqual((first["page"], first["totalPayments"], first["totalPages"], first["hasMore"]), (1, 17, 4, True))
+        self.assertEqual((first["page"], first["totalPayments"], first["totalPages"], first["hasMore"]), (1, 30, 6, True))
         self.assertEqual([p["number"] for p in first["payments"]], [1, 2, 3, 4, 5])
         dates = [p["date"] for p in first["payments"]]
         self.assertEqual(dates, sorted(dates, reverse=True))
-        self.assertEqual(first["payments"][0]["label"], "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821")
+        self.assertEqual(first["payments"][0]["label"], "15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4821")
         self.assertEqual(first["today"], "2027-01-15", "the service's own clock, for working out 'last week'")
-        last = self.op("listCardsAndPayments", page="4", cardType="both")
-        self.assertEqual(([p["number"] for p in last["payments"]], last["hasMore"]), ([16, 17], False))
+        last = self.op("listCardsAndPayments", page="6", cardType="both")
+        self.assertEqual(([p["number"] for p in last["payments"]], last["hasMore"]), ([26, 27, 28, 29, 30], False))
         beyond = self.op("listCardsAndPayments", page=9, cardType="both")
         self.assertEqual((beyond["ok"], beyond["payments"], beyond["message"]), (True, [], "No more payments."))
 
     def test_a_payment_keeps_its_number_in_any_view_and_the_number_starts_the_dispute(self):
-        everything = {p["transactionId"]: p["number"] for page in (1, 2, 3, 4)
+        everything = {p["transactionId"]: p["number"] for page in range(1, 7)
                       for p in self.op("listCardsAndPayments", page=page, cardType="both")["payments"]}
         credit = self.op("listCardsAndPayments", cardType="credit")["payments"]
         self.assertTrue(all(p["number"] == everything[p["transactionId"]] for p in credit), "same number when filtered")
         third = next(t for t, n in everything.items() if n == 3)
         for said in ("3", "number 3", "#3", " 3 "):
-            self.assertEqual(self.op("startDispute", transactionId=said, disputeType="unauthorised")["payment"][:13],
-                             "TRAINLINE.COM", said)
-        self.assertEqual(third, "TXN-4821-20261009-6420")
+            self.assertEqual(self.op("startDispute", transactionId=said, disputeType="unauthorised")["payment"][:12],
+                             "AMAZON PRIME", said)
+        self.assertEqual(third, "TXN-4821-20261014-899")
         self.assertEqual(self.op("startDispute", transactionId="99", disputeType="unauthorised")["reason"],
                          "transaction_not_found")
 
@@ -692,7 +703,9 @@ class DisputesAgentInCxDesigner(Base):
 
     def test_payments_can_be_narrowed_by_dates_and_card(self):
         october = self.op("listCardsAndPayments", fromDate="2026-10-01", toDate="2026-10-09", cardType="debit")
-        self.assertEqual(october["totalPayments"], 6)
+        in_range = [t for t in model.card_transactions(JAMES, "debit") if "2026-10-01" <= t["date"] <= "2026-10-09"]
+        self.assertEqual(october["totalPayments"], len(in_range))
+        self.assertGreater(len(in_range), 5)
         self.assertTrue(all("2026-10-01" <= p["date"] <= "2026-10-09" and p["cardType"] == "debit"
                             for p in october["payments"]))
         none = self.op("listCardsAndPayments", fromDate="2025-01-01", toDate="2025-01-31", cardType="both")
@@ -705,7 +718,7 @@ class DisputesAgentInCxDesigner(Base):
         started = self.op("startDispute", transactionId=AMAZON, disputeType="merchant", customerId=SARAH, customer_id=SARAH)
         self.assertEqual(self.service.get_card_dispute(JAMES, started["disputeId"])["dispute"]["merchant"], "AMAZON.CO.UK")
         self.refused("dispute_not_found", self.service.get_card_dispute, SARAH, started["disputeId"])
-        self.assertEqual(self.op("startDispute", transactionId="TXN-3317-20261011-8999", disputeType="merchant")["reason"],
+        self.assertEqual(self.op("startDispute", transactionId=model.card_transactions(SARAH)[0]["transaction_id"], disputeType="merchant")["reason"],
                          "transaction_not_found", "Sarah's payment is not James's to dispute")
 
     def test_an_unverified_caller_gets_nothing_done(self):
@@ -742,7 +755,7 @@ class DisputesAgentInCxDesigner(Base):
         cases = {"unauthorised": ("Fraud", "fraud_security", "fraud team", "Customer still has the card"),
                  "scam": ("Scam", "fraud_security", "Scam cases", "Customer still has the card"),
                  "merchant": ("Dispute", "debit_card", "retailer", "Customer has contacted the retailer")}
-        payments = ["TXN-4821-20261011-8999", "TXN-4821-20261010-4250", "TXN-4821-20261009-6420"]
+        payments = ["TXN-4821-20261015-3245", "TXN-4821-20261015-2610", "TXN-4821-20261014-899"]
         for (kind, (case, team, next_words, asks)), payment in zip(cases.items(), payments):
             started = self.op("startDispute", transactionId=payment, disputeType=kind)
             self.assertEqual(started["caseType"], case, kind)
@@ -777,14 +790,15 @@ class DisputesAgentInCxDesigner(Base):
         asked = self.op("listCardsAndPayments")
         self.assertIn("debit card ending 4 8 2 1 or your credit card ending 2 2 9 1", asked["message"])
         first = self.op("listCardsAndPayments", cardType="debit")["payments"][0]
-        self.assertEqual(first["label"], "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4 8 2 1", "money left as money")
+        self.assertEqual(first["label"], "15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4 8 2 1", "money left as money")
         self.assertEqual(first["transactionId"], AMAZON, "IDs the assistant sends back are untouched")
         both = self.op("blockCard", cardType="debit", orderReplacement="yes")
         self.assertRegex(both["confirmation"], r"ending 4 8 2 1 is now blocked.*reference is BLOCK, 4 8 2 1, (\w ){5}\w\.")
         self.assertIn("3 to 5 working days", both["confirmation"])
         self.assertRegex(both["reference"], r"^BLOCK-4821-\w{6}$", "the reference field itself stays as issued")
         entry.doors.contact_channel = lambda contact: "CHAT"
-        self.assertIn("ending 4821 is now blocked", self.op("blockCard", cardType="debit")["confirmation"])
+        self.assertIn("ending 4821 was already blocked on", self.op("blockCard", cardType="debit")["confirmation"],
+                      "the second ask says it was done before, in plain digits on chat")
 
     def test_one_block_call_can_order_the_replacement_and_says_what_to_tell_the_customer(self):
         both = self.op("blockCard", cardType="debit", orderReplacement="yes")
@@ -802,6 +816,64 @@ class DisputesAgentInCxDesigner(Base):
         self.assertIn(later["reference"], later["confirmation"])
         self.assertEqual(self.op("blockCard", cardType="debit", orderReplacement="yes")["replacementReference"],
                          both["replacementReference"], "asking again never orders a second card")
+
+    # ── a payment is disputed once; a card is blocked and replaced once (live test, 19 Oct) ──
+
+    def _set_status(self, dispute_id, status):
+        key = f"dispute#{dispute_id}"
+        self.service.store.put(key, {**self.service.store.get(key), "status": status})
+
+    def test_starting_again_for_a_disputed_payment_returns_that_dispute_and_says_so(self):
+        first = self.started()
+        self.assertEqual(first["reason"], "", "a new dispute: nothing to warn about")
+        again = self.started()
+        self.assertEqual((again["disputeId"], again["reason"]), (first["disputeId"], "existing_draft"))
+        self.assertIn("don't start another", again["message"])
+        for status, reason in (("with_adviser", "already_with_adviser"), ("submitted", "already_disputed")):
+            self._set_status(first["disputeId"], status)
+            later = self.started()
+            self.assertEqual((later["disputeId"], later["status"], later["reason"]), (first["disputeId"], status, reason))
+            self.assertIn("Don't start another", later["message"])
+        index = self.service.store.get(f"cust#{JAMES}")
+        self.assertEqual(index["disputeIds"], [first["disputeId"]], "no second dispute was ever created")
+
+    def test_a_submitted_dispute_wins_over_a_stray_draft_made_after_it(self):
+        # The live table on 19 Oct: DSP-BM7KL899 submitted on 18 Oct, then a duplicate draft today.
+        submitted = self.started()["disputeId"]
+        self._set_status(submitted, "withdrawn")
+        stray = self.started()["disputeId"]                       # a second dispute, as the old code allowed
+        self._set_status(submitted, "submitted")
+        self.assertNotEqual(stray, submitted)
+        again = self.started()
+        self.assertEqual((again["disputeId"], again["reason"]), (submitted, "already_disputed"))
+        label = next(p["label"] for p in self.op("listCardsAndPayments", cardType="debit")["payments"]
+                     if p["transactionId"] == AMAZON)
+        self.assertIn(f"submitted, reference {submitted}", label)
+
+    def test_a_withdrawn_dispute_lets_the_customer_dispute_the_payment_again(self):
+        first = self.started()
+        self._set_status(first["disputeId"], "withdrawn")
+        second = self.started()
+        self.assertNotEqual(second["disputeId"], first["disputeId"])
+        self.assertEqual(second["reason"], "")
+
+    def test_the_payments_list_shows_which_payments_are_already_disputed(self):
+        first = self.started()
+        self._set_status(first["disputeId"], "submitted")
+        payments = {p["transactionId"]: p["label"] for p in self.op("listCardsAndPayments", cardType="debit")["payments"]}
+        self.assertRegex(payments[AMAZON], rf"already disputed .*\(submitted, reference {first['disputeId']}\)$")
+        self.assertTrue(all("already disputed" not in label for tid, label in payments.items() if tid != AMAZON))
+
+    def test_a_replacement_already_ordered_is_never_ordered_again_and_the_assistant_is_told(self):
+        self.op("blockCard", cardType="credit", orderReplacement="yes")
+        again = self.op("orderReplacementCard", cardType="credit")
+        self.assertIn("was already ordered on", again["confirmation"])
+        self.assertIn("no need for another", again["confirmation"])
+        both = self.op("blockCard", cardType="credit", orderReplacement="yes")
+        self.assertIn("was already blocked on", both["confirmation"])
+        self.assertIn("was already ordered on", both["confirmation"])
+        actions = self.service.store.get(f"cust#{JAMES}")["cardActions"]
+        self.assertEqual([a["action"] for a in actions], ["blocked", "replacement_ordered"], "once each")
 
     def test_card_actions_happen_once_and_only_on_the_customers_own_cards(self):
         first = self.op("blockCard", cardType="debit")
@@ -1181,6 +1253,12 @@ class CxDesignerConfiguration(unittest.TestCase):
             for field in d["request"]:
                 if field not in ("operation", "contactId"):
                     self.assertIn(field, data["inputHints"], f"{d['name']}.{field} needs a hint")
+
+    def test_the_prompt_never_disputes_a_payment_or_replaces_a_card_twice(self):
+        prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
+        for must in ("A payment is disputed only once", "already disputed", "blocked, replacement ordered",
+                     "existing_draft", "already_with_adviser or already_disputed", "never say you have just blocked"):
+            self.assertIn(must, prompt)
 
     def test_the_prompt_makes_the_form_and_card_steps_unmissable(self):
         prompt = self.doc.split("**The assistant.**")[1].split("```")[1]

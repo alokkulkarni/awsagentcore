@@ -47,6 +47,8 @@ class FakeConnect:
             contact["WisdomInfo"] = {"SessionArn": f"arn:aws:wisdom:eu-west-2:1:session/asst/{self.session}"}
         if getattr(self, "ended", False):
             contact["DisconnectTimestamp"] = "2026-10-16T14:03:43Z"
+        if getattr(self, "adviser", False):
+            contact["AgentInfo"] = {"Id": "agent-1", "ConnectedToAgentTimestamp": "2026-10-16T14:02:10Z"}
         return {"Contact": contact}
 
     def start_chat_contact(self, **request):
@@ -157,7 +159,8 @@ class PageContacts(unittest.TestCase):
         headers = api.lambda_handler({"requestContext": {"http": {"method": "GET"}}, "rawPath": "/"}, None)["headers"]
         policy = headers["content-security-policy"]
         for needed in ("https://*.chime.aws", "wss://*.chime.aws", f"https://participant.connect.{api.REGION}.amazonaws.com",
-                       f"wss://*.transport.connect.{api.REGION}.amazonaws.com", "script-src 'self';"):
+                       f"wss://*.transport.connect.{api.REGION}.amazonaws.com",
+                       "script-src 'self' https://*.daily.co https://*.dailywebrtc.com https://*.dailywebrtc.net;"):
             self.assertIn(needed, policy)
         self.assertNotIn("unsafe", policy)
         self.assertEqual(headers["permissions-policy"], "microphone=(self), camera=(), geolocation=()")
@@ -242,9 +245,16 @@ class CallTranscript(unittest.TestCase):
 
     def test_before_aria_joins_there_is_nothing_yet_and_the_end_is_reported(self):
         _, reply = self.post("/api/contact/transcript", token=self.verified, contactId="c-1")
-        self.assertEqual(reply, {"lines": [], "ended": False})
+        self.assertEqual(reply, {"lines": [], "ended": False, "withPerson": False})
         self.connect.ended = True
         self.assertTrue(self.post("/api/contact/transcript", token=self.verified, contactId="c-1")[1]["ended"])
+
+    def test_the_page_learns_when_an_adviser_joins(self):
+        self.connect.session = "sess-1"
+        self.assertFalse(self.post("/api/contact/transcript", token=self.verified, contactId="c-1")[1]["withPerson"])
+        self.connect.adviser = True
+        self.assertTrue(self.post("/api/contact/transcript", token=self.verified, contactId="c-1")[1]["withPerson"],
+                        "the page then takes the AI face away")
 
     def test_a_link_reads_only_the_calls_it_started(self):
         self.connect.session = "sess-1"
@@ -317,3 +327,39 @@ class InTheAgent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MessageLayout(unittest.TestCase):
+    """web/format.js, run with Node: how an assistant message is laid out for reading."""
+
+    def layout(self, words):
+        import shutil
+        import subprocess
+        if not shutil.which("node"):
+            self.skipTest("Node.js not installed")
+        script = ("import { layout } from %s; process.stdout.write(JSON.stringify(layout(%s)));"
+                  % (json.dumps((FOLDER / "web" / "format.js").as_uri()), json.dumps(words)))
+        done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=20)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_paragraph_of_figures_becomes_a_line_a_list_and_a_question(self):
+        blocks = self.layout("Your discretionary spending is about £1,046 a month. The biggest three are shopping at "
+                             "£300, holidays and travel at £296, and eating out at £161. Would you like the breakdown "
+                             "of any of those?")
+        self.assertEqual(blocks, [
+            {"kind": "line", "text": "Your discretionary spending is about £1,046 a month."},
+            {"kind": "list", "lead": "The biggest three:", "ordered": False,
+             "items": ["Shopping: £300", "Holidays and travel: £296", "Eating out: £161"]},
+            {"kind": "ask", "text": "Would you like the breakdown of any of those?"}])
+
+    def test_the_agents_own_layout_is_kept_and_the_disclaimer_is_set_apart(self):
+        blocks = self.layout("You'd need about £188 a month.\n\nThe gap:\n- Shopping: £75\n- Eating out: £40\n\n"
+                             "**This is guidance based on your past spending, not financial advice.**")
+        self.assertEqual([b["kind"] for b in blocks], ["line", "list", "note"])
+        self.assertEqual(blocks[1]["lead"], "The gap:")
+        self.assertEqual(blocks[1]["items"], ["Shopping: £75", "Eating out: £40"])
+
+    def test_ordinary_sentences_stay_sentences(self):
+        blocks = self.layout("I can help with that, James. Coffee is about £40 a month, about 11 times.")
+        self.assertEqual([b["kind"] for b in blocks], ["line", "line"])

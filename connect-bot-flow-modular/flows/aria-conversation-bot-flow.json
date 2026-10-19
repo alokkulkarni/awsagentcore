@@ -1,0 +1,527 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "enableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": -220,
+      "y": 0
+    },
+    "ActionMetadata": {
+      "enableLogging": {
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "contactSetup": {
+        "position": {
+          "x": 260,
+          "y": 0
+        }
+      },
+      "checkEntry": {
+        "position": {
+          "x": 520,
+          "y": 0
+        }
+      },
+      "toMortgageFromForm": {
+        "position": {
+          "x": 780,
+          "y": -320
+        }
+      },
+      "disputeFromPage": {
+        "position": {
+          "x": 780,
+          "y": 320
+        }
+      },
+      "connectAssistant": {
+        "position": {
+          "x": 780,
+          "y": 0
+        },
+        "children": [
+          "saveAssistantSession"
+        ],
+        "fragments": {
+          "SetContactData": "saveAssistantSession"
+        }
+      },
+      "customerContext": {
+        "position": {
+          "x": 1300,
+          "y": 0
+        }
+      },
+      "talkToAria": {
+        "position": {
+          "x": 1560,
+          "y": 0
+        }
+      },
+      "saveHandback": {
+        "position": {
+          "x": 1820,
+          "y": -160
+        }
+      },
+      "markLexError": {
+        "position": {
+          "x": 1820,
+          "y": 160
+        }
+      },
+      "decideHandback": {
+        "position": {
+          "x": 2080,
+          "y": 0
+        }
+      },
+      "routeHandback": {
+        "position": {
+          "x": 2340,
+          "y": 0
+        }
+      },
+      "toCardDispute": {
+        "position": {
+          "x": 2600,
+          "y": 320
+        }
+      },
+      "toMortgageFromAria": {
+        "position": {
+          "x": 2600,
+          "y": -320
+        }
+      },
+      "toHumanHandover": {
+        "position": {
+          "x": 2600,
+          "y": -160
+        }
+      },
+      "retryAria": {
+        "position": {
+          "x": 2080,
+          "y": 480
+        }
+      },
+      "endContact": {
+        "position": {
+          "x": 2860,
+          "y": 160
+        }
+      },
+      "saveAssistantSession": {
+        "position": {
+          "x": 780,
+          "y": 0
+        },
+        "dynamicParams": []
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "enableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "contactSetup"
+      }
+    },
+    {
+      "Identifier": "contactSetup",
+      "Type": "InvokeFlowModule",
+      "Parameters": {
+        "FlowModuleId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/beb29da5-2496-45e3-8e14-f728d32534f2"
+      },
+      "Transitions": {
+        "NextAction": "checkEntry",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkEntry",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.entry"
+      },
+      "Transitions": {
+        "NextAction": "connectAssistant",
+        "Conditions": [
+          {
+            "NextAction": "toMortgageFromForm",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "web_widget"
+              ]
+            }
+          },
+          {
+            "NextAction": "disputeFromPage",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "card_dispute"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "connectAssistant",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "toMortgageFromForm",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/6788a011-92c9-4616-ac94-1d103811da95"
+      },
+      "Transitions": {
+        "NextAction": "connectAssistant",
+        "Errors": [
+          {
+            "NextAction": "connectAssistant",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "disputeFromPage",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "aria"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "toCardDispute",
+        "Errors": [
+          {
+            "NextAction": "toCardDispute",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "connectAssistant",
+      "Type": "CreateWisdomSession",
+      "Parameters": {
+        "WisdomAssistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15"
+      },
+      "Transitions": {
+        "NextAction": "saveAssistantSession",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "saveAssistantSession",
+      "Type": "UpdateContactData",
+      "Parameters": {
+        "WisdomSessionArn": "$.Wisdom.SessionArn"
+      },
+      "Transitions": {
+        "NextAction": "customerContext",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "customerContext",
+      "Type": "InvokeFlowModule",
+      "Parameters": {
+        "FlowModuleId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/a3add37c-7e12-4041-9d31-29884e848a0c"
+      },
+      "Transitions": {
+        "NextAction": "talkToAria",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "talkToAria",
+      "Type": "ConnectParticipantWithLexBot",
+      "Parameters": {
+        "Text": " ",
+        "LexV2Bot": {
+          "AliasArn": "arn:aws:lex:eu-west-2:395402194296:bot-alias/5CE3XMSSPB/PAKRDSHDKA"
+        },
+        "LexSessionAttributes": {
+          "x-amz-lex:audio:end-timeout-ms:*:*": "2000",
+          "x-amz-lex:audio:max-length-ms:*:*": "30000",
+          "x-amz-lex:audio:start-timeout-ms:*:*": "1500",
+          "x-amz-lex:audio:start-timeout-ms:AmazonQinConnect:*": "8000",
+          "x-amz-lex:q-in-connect:ai-agent-arn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/a92a8491-2a82-45ee-bdbe-b7373b584f2d:3"
+        },
+        "LexTimeoutSeconds": {
+          "Text": "300"
+        }
+      },
+      "Transitions": {
+        "NextAction": "markLexError",
+        "Errors": [
+          {
+            "NextAction": "retryAria",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "saveHandback",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "markLexError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "saveHandback",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackOutcome": "handback",
+          "lexTool": "$.Lex.SessionAttributes.Tool",
+          "lexNextStep": "$.Lex.SessionAttributes.nextStep",
+          "lexHandoverSummary": "$.Lex.SessionAttributes.handoverSummary",
+          "lexBuyerType": "$.Lex.SessionAttributes.buyerType",
+          "lexScreenCode": "$.Lex.SessionAttributes.screenCode",
+          "lexTopicCategory": "$.Lex.SessionAttributes.topicCategory",
+          "lexEscalationReason": "$.Lex.SessionAttributes.escalationReason",
+          "lexCustomerIntent": "$.Lex.SessionAttributes.customerIntent",
+          "lexConversationSummary": "$.Lex.SessionAttributes.conversationSummary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "decideHandback",
+        "Errors": [
+          {
+            "NextAction": "markLexError",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "markLexError",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackOutcome": "error"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "decideHandback",
+        "Errors": [
+          {
+            "NextAction": "decideHandback",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "decideHandback",
+      "Type": "InvokeFlowModule",
+      "Parameters": {
+        "FlowModuleId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/06df046e-b67d-4746-8347-49cd0724387a"
+      },
+      "Transitions": {
+        "NextAction": "routeHandback",
+        "Errors": [
+          {
+            "NextAction": "retryAria",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "routeHandback",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.handbackRoute"
+      },
+      "Transitions": {
+        "NextAction": "endContact",
+        "Conditions": [
+          {
+            "NextAction": "toCardDispute",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "card_dispute"
+              ]
+            }
+          },
+          {
+            "NextAction": "toMortgageFromAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_livesync"
+              ]
+            }
+          },
+          {
+            "NextAction": "toHumanHandover",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "human"
+              ]
+            }
+          },
+          {
+            "NextAction": "retryAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "retry"
+              ]
+            }
+          },
+          {
+            "NextAction": "endContact",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "end"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "toCardDispute",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/6395dd02-3215-4db1-af9f-c98412eec2f1"
+      },
+      "Transitions": {
+        "NextAction": "endContact",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "toMortgageFromAria",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/6788a011-92c9-4616-ac94-1d103811da95"
+      },
+      "Transitions": {
+        "NextAction": "endContact",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "toHumanHandover",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"
+      },
+      "Transitions": {
+        "NextAction": "endContact",
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "retryAria",
+      "Type": "Loop",
+      "Parameters": {
+        "LoopCount": "2"
+      },
+      "Transitions": {
+        "NextAction": "endContact",
+        "Conditions": [
+          {
+            "NextAction": "talkToAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "ContinueLooping"
+              ]
+            }
+          },
+          {
+            "NextAction": "endContact",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "DoneLooping"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "endContact",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

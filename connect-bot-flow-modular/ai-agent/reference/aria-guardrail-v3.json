@@ -1,0 +1,77 @@
+{
+  "assistantId": "e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "assistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "aiGuardrailArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-guardrail/e6991ed4-e11c-4194-8d20-13889a36bd15/ade1cb50-b97f-4e62-a904-3b9668f6360e:3",
+  "aiGuardrailId": "ade1cb50-b97f-4e62-a904-3b9668f6360e",
+  "name": "ARIA-Banking-Guardrail",
+  "visibilityStatus": "PUBLISHED",
+  "blockedInputMessaging": "Blocked input text by guardrail",
+  "blockedOutputsMessaging": "Blocked output text by guardrail",
+  "description": "ARIA-Banking-Guardrail",
+  "contentPolicyConfig": {
+    "filtersConfig": [
+      {
+        "type": "HATE",
+        "inputStrength": "HIGH",
+        "outputStrength": "HIGH"
+      },
+      {
+        "type": "INSULTS",
+        "inputStrength": "HIGH",
+        "outputStrength": "HIGH"
+      },
+      {
+        "type": "SEXUAL",
+        "inputStrength": "HIGH",
+        "outputStrength": "HIGH"
+      },
+      {
+        "type": "VIOLENCE",
+        "inputStrength": "HIGH",
+        "outputStrength": "HIGH"
+      },
+      {
+        "type": "MISCONDUCT",
+        "inputStrength": "MEDIUM",
+        "outputStrength": "MEDIUM"
+      },
+      {
+        "type": "PROMPT_ATTACK",
+        "inputStrength": "HIGH",
+        "outputStrength": "NONE"
+      }
+    ]
+  },
+  "wordPolicyConfig": {
+    "wordsConfig": [
+      {
+        "text": "Barclays"
+      },
+      {
+        "text": "HSBC"
+      },
+      {
+        "text": "Starling"
+      },
+      {
+        "text": "Lloyds"
+      },
+      {
+        "text": "Revolute"
+      },
+      {
+        "text": "Monzo"
+      },
+      {
+        "text": "Natwest"
+      }
+    ],
+    "managedWordListsConfig": [
+      {
+        "type": "PROFANITY"
+      }
+    ]
+  },
+  "status": "ACTIVE",
+  "modifiedTime": "2026-10-16T13:42:22+00:00"
+}

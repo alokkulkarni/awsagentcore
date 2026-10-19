@@ -1,4 +1,4 @@
-strands-agents>=1.0.0
+strands-agents>=1.61.1,<2       # CacheConfig and system prompt cache points
 strands-agents-tools>=0.2.0
 bedrock-agentcore>=0.1.0
 boto3>=1.38.0

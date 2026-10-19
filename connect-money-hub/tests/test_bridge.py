@@ -73,6 +73,51 @@ class Bridge(unittest.TestCase):
         self.post(init_session(**kw))
         self.post(channel_ready(kw.get("context", "ctx-1")))
 
+    # ── latency (19 Oct): on a call Connect starts a session before every turn ──
+
+    def _counting_reads(self):
+        reads = []
+        bridge.contact_attributes = lambda contact: reads.append(contact) or (self.attributes if contact == CONTACT else {})
+        return reads
+
+    def test_a_verified_customers_details_are_read_once_per_contact_not_every_turn(self):
+        reads = self._counting_reads()
+        for _ in range(3):
+            self.post(init_session())                       # a call: a new session before each turn
+        self.assertEqual(len(reads), 1, "read once, then reused")
+        self.assertEqual(bridge._load("ctx-1")["customerId"], VERIFIED["customerId"])
+
+    def test_a_customer_not_yet_verified_is_read_again_so_a_later_verification_counts(self):
+        reads = self._counting_reads()
+        self.attributes = {**VERIFIED, "authStatus": ""}
+        self.post(init_session())
+        self.assertEqual(bridge._load("ctx-1")["customerId"], "")
+        self.attributes = dict(VERIFIED)                    # ARIA verified them, then brought the Money Hub back
+        self.post(init_session())
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(bridge._load("ctx-1")["customerId"], VERIFIED["customerId"])
+
+    def test_the_contact_is_read_again_after_ten_minutes(self):
+        now = [1_800_000_000.0]
+        bridge.store = MemoryStore(lambda: now[0])
+        reads = self._counting_reads()
+        self.post(init_session())
+        now[0] += bridge.CONTACT_REUSE_SECONDS + 1
+        self.post(init_session())
+        self.assertEqual(len(reads), 2)
+
+    def test_the_keep_warm_ping_readies_the_bridge_and_touches_no_session(self):
+        made = []
+        bridge._client = lambda name: made.append(name)
+        try:
+            self.assertEqual(bridge.lambda_handler({"warm": True}, None), {"ok": True, "warm": True})
+        finally:
+            import importlib
+            bridge._client = importlib.reload(bridge)._client
+            self.setUp()
+        self.assertEqual(made, ["connect", "bedrock-agentcore"])
+        self.assertEqual(self.post({"warm": True})[0], 200, "over HTTP it is just a request: the key still applies")
+
     def test_the_key_is_checked_on_every_request(self):
         self.assertEqual(self.post(init_session(), key="wrong")[0], 401)
         self.assertEqual(self.post(init_session(), key="")[0], 401)

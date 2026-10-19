@@ -1,0 +1,608 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "enableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": -220,
+      "y": 0
+    },
+    "ActionMetadata": {
+      "enableLogging": {
+        "position": {
+          "x": -260,
+          "y": 0
+        }
+      },
+      "startAtEnd": {
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "checkOutcome": {
+        "position": {
+          "x": 260,
+          "y": 0
+        }
+      },
+      "checkTool": {
+        "position": {
+          "x": 520,
+          "y": -320
+        }
+      },
+      "escalateToHuman": {
+        "position": {
+          "x": 780,
+          "y": -640
+        }
+      },
+      "checkNextStep": {
+        "position": {
+          "x": 780,
+          "y": -320
+        }
+      },
+      "disputeFromAria": {
+        "position": {
+          "x": 1040,
+          "y": -480
+        }
+      },
+      "checkChannelForMortgage": {
+        "position": {
+          "x": 1040,
+          "y": -160
+        }
+      },
+      "mortgageByChat": {
+        "position": {
+          "x": 1300,
+          "y": -320
+        }
+      },
+      "mortgageByPhone": {
+        "position": {
+          "x": 1300,
+          "y": -160
+        }
+      },
+      "checkAuthenticated": {
+        "position": {
+          "x": 1560,
+          "y": -160
+        }
+      },
+      "mortgageLiveSync": {
+        "position": {
+          "x": 1820,
+          "y": -160
+        }
+      },
+      "recoverAfterError": {
+        "position": {
+          "x": 520,
+          "y": 320
+        }
+      },
+      "recoverAfterComplete": {
+        "position": {
+          "x": 1040,
+          "y": 160
+        }
+      },
+      "checkRecovered": {
+        "position": {
+          "x": 1300,
+          "y": 160
+        }
+      },
+      "routeCardDispute": {
+        "position": {
+          "x": 1820,
+          "y": -480
+        }
+      },
+      "routeHuman": {
+        "position": {
+          "x": 2080,
+          "y": 0
+        }
+      },
+      "routeRetry": {
+        "position": {
+          "x": 1820,
+          "y": 320
+        }
+      },
+      "done": {
+        "position": {
+          "x": 2340,
+          "y": 0
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "enableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "startAtEnd"
+      }
+    },
+    {
+      "Identifier": "startAtEnd",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackRoute": "end"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "checkOutcome",
+        "Errors": [
+          {
+            "NextAction": "checkOutcome",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkOutcome",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.handbackOutcome"
+      },
+      "Transitions": {
+        "NextAction": "recoverAfterError",
+        "Conditions": [
+          {
+            "NextAction": "checkTool",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "handback"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "recoverAfterError",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkTool",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.lexTool"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Conditions": [
+          {
+            "NextAction": "escalateToHuman",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Escalate"
+              ]
+            }
+          },
+          {
+            "NextAction": "checkNextStep",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Complete"
+              ]
+            }
+          },
+          {
+            "NextAction": "checkChannelForMortgage",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "StartMortgageApplication"
+              ]
+            }
+          },
+          {
+            "NextAction": "disputeFromAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "StartCardDispute"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "escalateToHuman",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "$.Attributes.lexTopicCategory",
+          "escalationReason": "$.Attributes.lexEscalationReason",
+          "customerIntent": "$.Attributes.lexCustomerIntent",
+          "conversationSummary": "$.Attributes.lexConversationSummary",
+          "handbackRoute": "human"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkNextStep",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.lexNextStep"
+      },
+      "Transitions": {
+        "NextAction": "recoverAfterComplete",
+        "Conditions": [
+          {
+            "NextAction": "disputeFromAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "card_dispute"
+              ]
+            }
+          },
+          {
+            "NextAction": "checkChannelForMortgage",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_application"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "recoverAfterComplete",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "disputeFromAria",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handoverSummary": "$.Attributes.lexHandoverSummary",
+          "entry": "aria",
+          "handbackRoute": "card_dispute"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "routeCardDispute",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkChannelForMortgage",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Channel"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Conditions": [
+          {
+            "NextAction": "mortgageByChat",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "CHAT"
+              ]
+            }
+          },
+          {
+            "NextAction": "mortgageByPhone",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "VOICE"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "mortgageByChat",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "mortgage_application",
+          "escalationReason": "mortgage_application_chat",
+          "customerIntent": "start_mortgage_application",
+          "conversationSummary": "$.Attributes.lexHandoverSummary",
+          "handbackRoute": "human"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "mortgageByPhone",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handoverSummary": "$.Attributes.lexHandoverSummary",
+          "buyerType": "$.Attributes.lexBuyerType",
+          "screenCode": "$.Attributes.lexScreenCode",
+          "entry": "phone"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "checkAuthenticated",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkAuthenticated",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.authStatus"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Conditions": [
+          {
+            "NextAction": "mortgageLiveSync",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "authenticated"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "mortgageLiveSync",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "cliMatched": "true",
+          "handbackRoute": "mortgage_livesync"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "routeHuman",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "recoverAfterError",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-handback-recovery",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "checkRecovered",
+        "Errors": [
+          {
+            "NextAction": "routeRetry",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "recoverAfterComplete",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-handback-recovery",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        },
+        "LambdaInvocationAttributes": {
+          "whenNothing": "end"
+        }
+      },
+      "Transitions": {
+        "NextAction": "checkRecovered",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkRecovered",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.External.route"
+      },
+      "Transitions": {
+        "NextAction": "routeRetry",
+        "Conditions": [
+          {
+            "NextAction": "routeCardDispute",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "card_dispute"
+              ]
+            }
+          },
+          {
+            "NextAction": "checkAuthenticated",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_application"
+              ]
+            }
+          },
+          {
+            "NextAction": "routeHuman",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "escalate"
+              ]
+            }
+          },
+          {
+            "NextAction": "done",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "end"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "routeRetry",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "routeCardDispute",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackRoute": "card_dispute"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "routeHuman",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackRoute": "human"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "routeRetry",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "handbackRoute": "retry"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "done",
+      "Type": "EndFlowModuleExecution",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

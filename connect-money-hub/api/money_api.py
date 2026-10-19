@@ -17,7 +17,10 @@ The page can also start a call or a chat with ARIA (moneyhub/contact.py):
 /api/contact/call and /api/contact/chat start the contact in Amazon Connect and
 return only what the browser needs to join it. /api/contact/transcript returns
 what has been said on a call so far (moneyhub/transcript.py), only for a contact
-the same link started.
+the same link started, and whether a person (an adviser) has joined it.
+/api/contact/avatar opens a private Tavus room for the face on a call
+(moneyhub/avatar.py), again only for a call the same link started, and
+/api/contact/avatar/end closes it (only a room this link opened).
 
 ENVIRONMENT VARIABLES
     MONEY_HUB_TABLE      DynamoDB table. Unset = in memory, for local runs only
@@ -27,6 +30,11 @@ ENVIRONMENT VARIABLES
                          Either unset = the page offers no call or chat.
     QCONNECT_ASSISTANT_ID The Amazon Q in Connect assistant behind ARIA, for
                          call transcripts. Unset = calls show no transcript.
+    TAVUS_FACE_ID        The face on calls (Tavus), and TAVUS_PAL_ID its echo
+    TAVUS_PAL_ID         PAL. Either unset = no face.
+    TAVUS_SECRET_ID      Secrets Manager secret holding the Tavus API key
+                         (deploy_money_hub.sh). TAVUS_API_KEY instead, for
+                         local runs only (scripts/local_preview.py reads .env).
     LOG_LEVEL            default INFO
 """
 
@@ -43,7 +51,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from moneyhub import contact, transcript
+from moneyhub import avatar, contact, transcript
 from moneyhub.service import MoneyHub, MoneyHubError
 from moneyhub.store import DynamoStore, MemoryStore
 
@@ -59,17 +67,27 @@ MAX_BODY_BYTES = 4096
 # chime.js is the Amazon Chime SDK, built by scripts/build_chime.sh (not in git).
 ASSETS = {"styles.css": ("styles.css", "text/css"), "app.js": ("app.js", "text/javascript"),
           "talk.js": ("talk.js", "text/javascript"), "dock.js": ("dock.js", "text/javascript"),
-          "chime.js": ("vendor/chime.js", "text/javascript")}
+          "chime.js": ("vendor/chime.js", "text/javascript"), "format.js": ("format.js", "text/javascript"),
+          "avatar.js": ("avatar.js", "text/javascript"), "pcm-worklet.js": ("pcm-worklet.js", "text/javascript"),
+          "daily.js": ("vendor/daily.js", "text/javascript")}
 REGION = os.environ.get("AWS_REGION", "eu-west-2")
 CONNECT_INSTANCE_ID = os.environ.get("CONNECT_INSTANCE_ID", "")
 CONTACT_FLOW_ID = os.environ.get("CONTACT_FLOW_ID", "")
 ASSISTANT_ID = os.environ.get("QCONNECT_ASSISTANT_ID", "")
+TAVUS_FACE_ID = os.environ.get("TAVUS_FACE_ID", "")
+TAVUS_PAL_ID = os.environ.get("TAVUS_PAL_ID", "")
+TAVUS_SECRET_ID = os.environ.get("TAVUS_SECRET_ID", "")
 TALK_SECONDS = 4 * 60 * 60          # how long a link remembers the contacts it started
 # Calls need the Chime SDK's media and signalling hosts; chats need the Connect Participant Service and its websocket.
 _TALK_HOSTS = (f"https://participant.connect.{REGION}.amazonaws.com wss://*.transport.connect.{REGION}.amazonaws.com "
                "https://*.chime.aws wss://*.chime.aws https://*.ingest.chime.aws")
+# The face: Tavus rooms run on Daily. Its client loads its call engine from Daily's own domains (and their
+# fallbacks, which must be listed with them), the only scripts the page loads from elsewhere (Daily's CSP guide).
+_DAILY_HOSTS = "https://*.daily.co https://*.dailywebrtc.com https://*.dailywebrtc.net"
+_AVATAR_HOSTS = f"{_DAILY_HOSTS} wss://*.daily.co wss://*.dailywebrtc.com wss://*.dailywebrtc.net"
 SECURITY_HEADERS = {
-    "content-security-policy": f"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' {_TALK_HOSTS}; "
+    "content-security-policy": f"default-src 'none'; script-src 'self' {_DAILY_HOSTS}; style-src 'self'; "
+                               f"connect-src 'self' {_TALK_HOSTS} {_AVATAR_HOSTS}; "
                                "worker-src 'self' blob:; media-src 'self' blob: mediastream:; "
                                "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store",
@@ -77,6 +95,7 @@ SECURITY_HEADERS = {
 }
 _connect = None
 _qconnect = None
+_tavus_key = ""
 LOGO_TYPES = {".svg": "image/svg+xml", ".png": "image/png"}
 _LOGO_NAME = re.compile(r"^[a-z0-9-]{1,60}\.(svg|png)$")
 
@@ -119,6 +138,57 @@ def qconnect_client():
     return _qconnect
 
 
+def avatar_on() -> bool:
+    """Whether calls from the page get the face: a face, its PAL, a key, and calls themselves."""
+    return bool(TAVUS_FACE_ID and TAVUS_PAL_ID and (os.environ.get("TAVUS_API_KEY") or TAVUS_SECRET_ID)
+                and CONNECT_INSTANCE_ID and CONTACT_FLOW_ID)
+
+
+def tavus_key() -> str:
+    """The Tavus API key: from Secrets Manager (read once, then kept; a failed read is tried again next time),
+    or TAVUS_API_KEY for a local run."""
+    global _tavus_key
+    if os.environ.get("TAVUS_API_KEY"):
+        return os.environ["TAVUS_API_KEY"]
+    if not _tavus_key and TAVUS_SECRET_ID:
+        import boto3
+        _tavus_key = boto3.client("secretsmanager", region_name=REGION).get_secret_value(
+            SecretId=TAVUS_SECRET_ID)["SecretString"].strip()
+    return _tavus_key
+
+
+def avatar_start(token: str, contact_id: str) -> dict:
+    """A private Tavus room with the face, for a call this link started: {conversationId, conversationUrl,
+    meetingToken}. The link remembers the room, so only it can close it."""
+    item = hub.store.get(_talk_key(token)) or {}
+    if not contact_id or contact_id not in item.get("contacts", []):
+        raise MoneyHubError("not_found", "That conversation isn't available.", 404)
+    if not avatar_on():
+        raise MoneyHubError("avatar_unavailable", "The video assistant isn't set up for this page.", 503)
+    try:
+        room = avatar.start(tavus_key(), TAVUS_FACE_ID, TAVUS_PAL_ID)
+    except Exception as error:                     # AvatarError (never carries the key), or the secret couldn't be read
+        logger.warning("avatar start failed: %s",
+                       error if isinstance(error, avatar.AvatarError) else type(error).__name__)
+        raise MoneyHubError("avatar_failed", "The video couldn't start. Your call carries on as normal.", 502)
+    rooms = [r for r in item.get("rooms", []) if r != room["conversationId"]][-9:] + [room["conversationId"]]
+    hub.store.put(_talk_key(token), {**item, "rooms": rooms, "expiresAt": hub.clock() + TALK_SECONDS})
+    return room
+
+
+def avatar_end(token: str, conversation_id: str) -> dict:
+    """Closes a room this link opened, so it stops counting minutes."""
+    item = hub.store.get(_talk_key(token)) or {}
+    if not conversation_id or conversation_id not in item.get("rooms", []):
+        raise MoneyHubError("not_found", "That conversation isn't available.", 404)
+    try:
+        avatar.end(tavus_key(), conversation_id)
+    except Exception as error:                     # it closes itself shortly after the page leaves anyway
+        logger.warning("avatar end failed: %s", error if isinstance(error, avatar.AvatarError) else type(error).__name__)
+        return {"ended": False}
+    return {"ended": True}
+
+
 def _talk_key(token: str) -> str:
     return f"talk#{hashlib.sha256(token.encode()).hexdigest()}"
 
@@ -127,26 +197,28 @@ def _remember_contact(token: str, contact_id: str) -> None:
     """The contacts this link started: the only ones it may read a transcript for."""
     item = hub.store.get(_talk_key(token)) or {}
     contacts = [c for c in item.get("contacts", []) if c != contact_id][-9:] + [contact_id]
-    hub.store.put(_talk_key(token), {"contacts": contacts, "sessions": item.get("sessions", {}),
+    hub.store.put(_talk_key(token), {**item, "contacts": contacts, "sessions": item.get("sessions", {}),
                                      "expiresAt": hub.clock() + TALK_SECONDS})
 
 
 def call_transcript(token: str, contact_id: str) -> dict:
-    """What has been said on a call this link started: {lines: [{at, who, text}], ended}."""
+    """What has been said on a call this link started: {lines: [{at, who, text}], ended, withPerson}.
+    withPerson: an adviser has joined (the page then takes the AI face away)."""
     item = hub.store.get(_talk_key(token)) or {}
     if not contact_id or contact_id not in item.get("contacts", []):
         raise MoneyHubError("not_found", "That conversation isn't available.", 404)
     if not (ASSISTANT_ID and CONNECT_INSTANCE_ID):
-        return {"lines": [], "ended": False}
+        return {"lines": [], "ended": False, "withPerson": False}
     described = connect_client().describe_contact(InstanceId=CONNECT_INSTANCE_ID, ContactId=contact_id)["Contact"]
     ended = bool(described.get("DisconnectTimestamp"))
+    with_person = bool((described.get("AgentInfo") or {}).get("ConnectedToAgentTimestamp"))
     session_arn = (described.get("WisdomInfo") or {}).get("SessionArn", "")
     if not session_arn:                     # the flow hasn't reached ARIA yet
-        return {"lines": [], "ended": ended}
+        return {"lines": [], "ended": ended, "withPerson": with_person}
     client = qconnect_client()
     if not hasattr(client, "list_messages"):     # the Lambda runtime's AWS SDK predates Q in Connect messages
         logger.warning("transcript unavailable: this boto3 has no qconnect list_messages")
-        return {"lines": [], "ended": ended, "unavailable": True}
+        return {"lines": [], "ended": ended, "withPerson": with_person, "unavailable": True}
     messages, kwargs = [], {"assistantId": ASSISTANT_ID, "sessionId": session_arn.rsplit("/", 1)[-1], "maxResults": 100}
     for _ in range(5):                      # at most 500 messages
         page = client.list_messages(**kwargs)
@@ -154,7 +226,7 @@ def call_transcript(token: str, contact_id: str) -> dict:
         if not page.get("nextToken"):
             break
         kwargs["nextToken"] = page["nextToken"]
-    return {"lines": transcript.to_lines(messages), "ended": ended}
+    return {"lines": transcript.to_lines(messages), "ended": ended, "withPerson": with_person}
 
 
 def start_contact(kind: str, session: dict, view: str, token: str) -> dict:
@@ -237,7 +309,7 @@ def web(event: dict) -> dict:
         customer = session["customerId"]
         if path == "/api/hub":
             reply = {**hub.page_view(customer), "talk": bool(CONNECT_INSTANCE_ID and CONTACT_FLOW_ID),
-                     "logos": logo_files()}
+                     "avatar": avatar_on(), "logos": logo_files()}
         elif path == "/api/transactions":
             reply = hub.list_transactions(customer, _s(body, "from"), _s(body, "to"), _s(body, "category"),
                                           _s(body, "direction"), _s(body, "merchant"), int(_num(body, "page") or 1)
@@ -253,6 +325,10 @@ def web(event: dict) -> dict:
             reply = start_contact(path.rsplit("/", 1)[-1], session, _s(body, "view"), _s(body, "token"))
         elif path == "/api/contact/transcript":
             reply = call_transcript(_s(body, "token"), _s(body, "contactId"))
+        elif path == "/api/contact/avatar":
+            reply = avatar_start(_s(body, "token"), _s(body, "contactId"))
+        elif path == "/api/contact/avatar/end":
+            reply = avatar_end(_s(body, "token"), _s(body, "conversationId"))
         else:
             return _response(404, "Not found", "text/plain")
         status, outcome = 200, "ok"

@@ -47,8 +47,8 @@ Your figures
 - Say how often in whole numbers: "about 5 times a month", "about once a month", "about once every three
   months" (timesPerMonth 5.3, 1.0, 0.3). Never say a decimal number of times.
 - Anything about the months ahead is an estimate from past patterns, not a promise. Say so once.
-- Today is {today}. Every date you say or use is worked out from that, never from your own sense of
-  the date. For when they'd reach a goal, use the dates plan_savings_goal gives (reachedWithMix,
+- Today's date is given at the end of these instructions. Every date you say or use is worked out from
+  it, never from your own sense of the date. For when they'd reach a goal, use the dates plan_savings_goal gives (reachedWithMix,
   reachedAtCurrentRate, targetDateWords); never count months into a date yourself.
 - Read dates the way the customer means them, relative to today. "March 27", "March '27" or "end of the
   financial year" mean the next one ahead (March 2027 here). Only ask if two readings are both ahead
@@ -118,9 +118,7 @@ Finishing
   whether there's anything else on their Money Hub, and wait.
 - If they ask about something outside the Money Hub (a payment dispute, a card, a mortgage, an address
   change), say you'll sort that, and use hand_back with outcome complete and a reason saying what they want.
-- After hand_back, say one short sentence (not a goodbye). Never say you are transferring or connecting them.
-
-Customer: {first_name}"""
+- After hand_back, say one short sentence (not a goodbye). Never say you are transferring or connecting them."""
 
 _VOICE = """- People pause mid-sentence on calls, so their words can arrive cut short. If what they said looks
   unfinished, or continues what they said just before, answer the whole thought. Don't ask them to
@@ -132,20 +130,50 @@ _VOICE = """- People pause mid-sentence on calls, so their words can arrive cut 
   counts with their unit ("11 times a month"); card digits one at a time ("ending 4 8 2 1").
 - Never read out a link, a transaction ID or a list longer than three items."""
 
-_CHAT = """- This is a chat: you are writing. Keep messages short. A short list (up to five lines) is fine for
-  figures. Use £ amounts and dates like "11 Oct". Post a link exactly as a tool gave it, on its own line."""
+_CHAT = """- This is a chat: you are writing, and people read it on a phone. Keep messages short, and lay every
+  message out like this, never as one paragraph:
+    the answer in one short sentence;
+    a blank line, then two or more figures as a list, one per line, each starting "- " (for example
+    "- Shopping: £300");
+    a blank line, then your question on its own line.
+  At most five list lines. No headings, bold or tables. Use £ amounts and dates like "11 Oct". Post a link
+  exactly as a tool gave it, on its own line."""
 
 
 PAGE_VIEWS = {"out": "Money out", "in": "Money in", "expected": "Expected", "transactions": "Transactions",
               "goals": "Goals"}
 
 
-def system_prompt(channel: str, first_name: str = "", page_view: str = "", today: str = "") -> str:
-    """today in words ("15 October 2026"): the Money Hub's today, which every figure and date is counted from."""
-    prompt = _BASE.format(disclosure=GUIDANCE_DISCLOSURE, channel_rules=_VOICE if channel == "VOICE" else _CHAT,
-                          first_name=first_name or "not known", today=today or "the date in the tools' results")
+def _fixed(channel: str) -> str:
+    """Everything that is the same for every customer on this channel (two versions: voice and chat)."""
+    return _BASE.format(disclosure=GUIDANCE_DISCLOSURE, channel_rules=_VOICE if channel == "VOICE" else _CHAT)
+
+
+def _this_conversation(first_name: str, page_view: str, today: str, preface: str = "") -> str:
+    """The part that changes: the date, who it is, the page they came from, what was said before."""
+    day = today or "the date in the tools' results"
+    text = f"Today is {day}.\nCustomer: {first_name or 'not known'}"
     if page_view in PAGE_VIEWS:
-        prompt += (f"\nThey started this conversation from their Money Hub page, on the {PAGE_VIEWS[page_view]} tab, "
-                   "and can see the page now. Start with what that tab shows if they don't say otherwise. You can "
-                   "point to the page's tabs (Money out, Money in, Expected, Transactions, Goals); don't offer a link.")
-    return prompt
+        text += (f"\nThey started this conversation from their Money Hub page, on the {PAGE_VIEWS[page_view]} tab, "
+                 "and can see the page now. Start with what that tab shows if they don't say otherwise. You can "
+                 "point to the page's tabs (Money out, Money in, Expected, Transactions, Goals); don't offer a link.")
+    if preface:
+        text += f"\n\nEarlier, before you joined: {preface}"
+    return text
+
+
+def system_prompt(channel: str, first_name: str = "", page_view: str = "", today: str = "", preface: str = "") -> str:
+    """today in words ("15 October 2026"): the Money Hub's today, which every figure and date is counted from."""
+    return _fixed(channel) + "\n\n" + _this_conversation(first_name, page_view, today, preface)
+
+
+def system_blocks(channel: str, first_name: str = "", page_view: str = "", today: str = "",
+                  preface: str = "") -> list[dict]:
+    """
+    The same prompt as Bedrock system blocks, with a cache point after the fixed part. Bedrock caches a prompt up
+    to a cache point only if everything before it is identical, so the fixed part (and the tools before it) is
+    read once and shared by every conversation on the channel for the cache's lifetime; only the short part
+    after it is read fresh each turn.
+    """
+    return [{"text": _fixed(channel)}, {"cachePoint": {"type": "default"}},
+            {"text": _this_conversation(first_name, page_view, today, preface)}]

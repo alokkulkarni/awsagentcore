@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FOLDER = ROOT / "connect-agent-assist"
 sys.path.insert(0, str(FOLDER / "lambda"))
 sys.path.insert(0, str(ROOT / "scripts" / "lambdas"))
+sys.path.insert(0, str(ROOT / "connect-money-hub"))          # the sample bank's data (moneyhub/data.py)
 
 # session_injector_qconnect creates boto3 clients at import time. The tests
 # never call AWS, so a stand-in module is enough when boto3 is not installed.
@@ -113,7 +114,7 @@ class HandoverFromAria(Harness):
         self.assertEqual((self.injected["assistant"], self.injected["session"]), ("test-assistant", SESSION))
         self.assertEqual(self.data["customerId"], JAMES)
         self.assertEqual(self.data["preferredName"], "James")
-        self.assertIn("current account ending 4821", self.data["productSummary"])
+        self.assertIn("current account ending 0617", self.data["productSummary"])
         self.assertEqual(self.data["ariaTopicCategory"], "mortgage")
         self.assertIn("lump-sum mortgage overpayment", self.data["ariaSummary"])
         self.assertEqual(self.data["channel"], "voice")

@@ -14,6 +14,10 @@ import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# spending here is the Money Hub's spending.
+from moneyhub import data as bank  # noqa: E402
+
 DOMAIN = "products"
 
 _DISPATCH = {}
@@ -154,26 +158,48 @@ def _get_product_catalogue(params: dict) -> dict:
     return {"category": category, "products": catalogue.get(category, [])}
 
 
+_PERIOD_DAYS = {"last_week": 7, "last_month": 31, "last_2_months": 62, "last_3_months": 92, "last_6_months": 183}
+
+
 @_register("analyse_spending")
 def _analyse_spending(params: dict) -> dict:
     source_type      = str(params.get("source_type", "current_account"))
-    ref_last_four    = str(params.get("source_ref_last_four", "****"))
+    ref_last_four    = str(params.get("source_ref_last_four", "")).strip()
     period           = str(params.get("period", "last_2_months"))
-    category_filter  = str(params.get("category_filter", ""))
+    category_filter  = str(params.get("category_filter", "")).strip().lower()
+    customer_id      = str(params.get("customer_id", "")).strip()
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own account or card: naming another customer's digits finds nothing.
+    item = bank.held_by(customer_id, ref_last_four) if ref_last_four else bank.account(customer_id, "current")
+    if not item:
+        return {"error": "No account or card of this customer's has that ending", "source_ref_last_four": ref_last_four}
+    if item.get("type") == "credit":
+        rows = [{"date": t["date"], "merchant": t["merchant"], "category": "card_payment", "amount": -t["amount"]}
+                for t in bank.card_payments(customer_id, "credit")]
+    elif item.get("type") == "debit":
+        rows = [{"date": t["date"], "merchant": t["merchant"], "category": "card_payment", "amount": -t["amount"]}
+                for t in bank.card_payments(customer_id, "debit")]
+    else:
+        rows = bank.current_account_transactions(customer_id)
+    since = (bank.as_of() - __import__("datetime").timedelta(days=_PERIOD_DAYS.get(period, 62))).isoformat()
+    spent = [t for t in rows if t["amount"] < 0 and t["date"] > since
+             and t.get("category") not in ("savings", "transfers_out")
+             and (not category_filter or t.get("category") == category_filter)]
+    totals: dict[str, list] = {}
+    for t in spent:
+        totals.setdefault(t["category"], []).append(-t["amount"])
+    top = sorted(({"category": c, "total": round(sum(v), 2), "transactions": len(v)} for c, v in totals.items()),
+                 key=lambda x: x["total"], reverse=True)
     return {
         "source_type": source_type,
         "source_ref_last_four": ref_last_four,
         "period": period,
-        "total_spent": 1847.32,
+        "from": since,
+        "to": bank.as_of().isoformat(),
+        "total_spent": round(sum(-t["amount"] for t in spent), 2),
         "category_filter": category_filter or "all",
-        "top_categories": [
-            {"category": "groceries",   "total": 423.50, "transactions": 12},
-            {"category": "eating_out",  "total": 187.20, "transactions": 8},
-            {"category": "utilities",   "total": 145.00, "transactions": 2},
-        ],
-        "transactions": [
-            {"date": "2026-03-31", "merchant": "TESCO",   "category": "groceries",    "amount": -42.50},
-            {"date": "2026-03-30", "merchant": "COSTA",   "category": "eating_out",   "amount": -4.20},
-            {"date": "2026-03-29", "merchant": "NETFLIX", "category": "entertainment","amount": -17.99},
-        ],
+        "top_categories": top[:5],
+        "transactions": [{"date": t["date"], "merchant": t["merchant"], "category": t["category"], "amount": t["amount"]}
+                         for t in spent[:10]],
     }

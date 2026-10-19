@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "connect-idv-test-harness" / "lambda"))
 sys.path.insert(0, str(ROOT / "scripts" / "lambdas"))
+sys.path.insert(0, str(ROOT / "connect-money-hub"))          # the sample bank's data (moneyhub/data.py)
 sys.path.insert(0, str(ROOT / "scripts" / "lambdas" / "mcp_tools"))
 
 # session_injector_qconnect creates boto3 clients at import time. The tests

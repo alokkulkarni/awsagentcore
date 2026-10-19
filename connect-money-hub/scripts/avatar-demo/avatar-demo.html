@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avatar check</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/avatar-demo.css">
+</head>
+<body>
+  <!-- Local only (scripts/local_preview.py --avatar-demo): the call's face, speaking a sample voice instead of a
+       call, to judge how real it looks and how well the lips follow before deploying. -->
+  <main class="demo">
+    <h1>Avatar check</h1>
+    <p class="hint">Start the face, then play the sample voice. It plays through the face, exactly as a call's voice would.</p>
+    <div class="talk-body">
+      <figure class="avatar" id="avatar" hidden>
+        <video id="avatar-video" autoplay playsinline muted></video>
+        <span class="avatar-badge">AI assistant</span>
+        <figcaption class="avatar-note" id="avatar-note" hidden></figcaption>
+      </figure>
+      <p class="talk-status" id="talk-status" role="status"></p>
+    </div>
+    <div class="talk-actions">
+      <button type="button" id="demo-start">Start the face</button>
+      <button type="button" id="demo-speak" disabled>Play the sample voice</button>
+      <button type="button" id="demo-stop" disabled>Stop</button>
+    </div>
+  </main>
+  <audio id="talk-audio" autoplay></audio>
+  <audio id="avatar-audio" autoplay></audio>
+  <script type="module" src="/avatar-demo.js"></script>
+</body>
+</html>

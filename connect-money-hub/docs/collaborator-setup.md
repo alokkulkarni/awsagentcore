@@ -13,6 +13,8 @@ Hub agent stops working.
 - [How to run it](#how-to-run-it)
 - [What the script does, step by step](#what-the-script-does-step-by-step)
 - [After the script: the flow](#after-the-script-the-flow)
+- [Hand-overs while ARIA has collaborators](#hand-overs-while-aria-has-collaborators)
+- [When Connect loses a chat hand-back](#when-connect-loses-a-chat-hand-back)
 - [How to look at each setting](#how-to-look-at-each-setting)
 - [What is set up today](#what-is-set-up-today)
 - [Things that stop the hand-over](#things-that-stop-the-hand-over)
@@ -257,13 +259,134 @@ hangs up. Without the collaborators profile the hand-over fails.
 
 This part is in the console. Connect admin website → **Routing** → **Flows** → `conversation bot flow`:
 
+0. First, if it isn't there yet, add the `nextStep` check in
+   [Hand-overs while ARIA has collaborators](#hand-overs-while-aria-has-collaborators). Without it, a card
+   dispute or mortgage application ends the conversation instead of reaching its assistant.
 1. The **Connect assistant** block that names `my-conversation-agent`: choose version **N**. Save.
 2. The **Get customer input** block → **Session attributes** → `x-amz-lex:q-in-connect:ai-agent-arn`: change
    only the number at the end to **N**. Save.
 3. **Save** the flow, then **Publish**.
 
-Nothing else in the flow changes. The hand-over and hand-back happen inside ARIA's own conversation in that
-Get customer input block.
+The Money Hub hand-over and hand-back happen inside ARIA's own conversation in that Get customer input block.
+
+---
+
+## Hand-overs while ARIA has collaborators
+
+**What changes.** Once ARIA has a collaborator, Connect gives the contact back to the flow only through her
+reserved **Complete** and **Escalate** tools
+([How agent-to-agent collaboration works](https://docs.aws.amazon.com/connect/latest/adminguide/a2a-how-it-works.html)).
+Her own hand-over tools, `StartCardDispute` and `StartMortgageApplication`, still run, but nothing hands the
+contact back: Get customer input ends in **Error** and ARIA carries on. On 16-17 October every card dispute
+started after the Money Hub collaborator was added failed this way. ARIA's traces show it: `Complete` ends with a
+`return_to_agent` step, and `StartCardDispute` ends with nothing.
+
+**The fix.** ARIA hands over with **Complete**, and its `nextStep` says where the customer goes:
+
+| `nextStep` | Also sends | Where the flow sends them |
+|---|---|---|
+| `none` | `reason` | Disconnect, as before |
+| `card_dispute` | `handoverSummary` | Card dispute assistant |
+| `mortgage_application` | `handoverSummary`, `buyerType`, `screenCode` | Mortgage assistant |
+
+The fields have the same names the old tools used, so the flow's existing blocks read them unchanged.
+`scripts/handovers.py` holds the new Complete tool and the prompt changes. The script and the prompt builder
+both use it.
+
+**Do these in this order:**
+
+1. **ARIA's prompt.** Run `python3 connect-money-hub/scripts/build_aria_prompt.py`. Paste the whole of
+   `prompts/aria-prompt-with-money-hub.yaml` into ARIA's AI prompt (`ARIA-Banking-Ochestration-Prompt`), then
+   save and publish it. It changes three things: the dispute step calls Complete with `card_dispute`, a short
+   `<mortgage_applications>` section is added, and the "no Complete when handing over" rules say these two
+   hand-overs are the exception.
+2. **The flow.** In `conversation bot flow`, find the **Check contact attributes** block that checks
+   `$.Lex.SessionAttributes.Tool` (it has branches for Escalate, Complete, StartMortgageApplication and
+   StartCardDispute):
+   1. Disconnect the **Complete** branch from its **Disconnect** block.
+   2. Add a new **Check contact attributes** block: **Namespace** Lex, **Key** Session attributes,
+      `nextStep`. Add the conditions **Equals** `card_dispute` and **Equals** `mortgage_application`.
+   3. Connect **Complete** to the new block.
+   4. `card_dispute` goes to the existing **Set contact attributes** block on the StartCardDispute branch
+      (the one that sets `handoverSummary` from Lex and `entry` = `aria`).
+   5. `mortgage_application` goes to the existing **Check contact attributes** block on the
+      StartMortgageApplication branch (the one that checks the channel).
+   6. **No match** goes to the Disconnect block that Complete used to go to.
+   7. Leave the StartCardDispute and StartMortgageApplication branches where they are. They're harmless, and
+      older ARIA versions still use them.
+   8. **Save** and **Publish**. This is safe before step 3: today's ARIA never sends `nextStep`, so Complete
+      still disconnects.
+3. **ARIA's tools.** Run `connect_collaborator.sh --apply`. It keeps the Money Hub collaborator, swaps the two
+   old tools for the new Complete, picks up the prompt you published in step 1, and prints a new version.
+4. **Point the flow at that version**, in both places ([After the script](#after-the-script-the-flow)).
+
+**How to tell it worked.** Start a chat from any page, say you don't recognise a card payment, and you should
+be with the card dispute assistant. In the flow log for that contact, the new block shows `nextStep` as
+`card_dispute`. If it's empty, the flow isn't receiving Complete's fields: tell whoever maintains this, and
+put the previous ARIA version back in the flow.
+
+---
+
+## When Connect loses a chat hand-back
+
+**The defect.** While ARIA has a collaborator, every time she hands a **chat** back to the flow (Complete,
+Escalate, or a hand-over tool), Amazon Connect's Get customer input block fails with:
+
+```
+java.lang.NullPointerException: Cannot invoke "java.util.Map.size()" because "m" is null
+```
+
+The flow takes the block's **Error** branch, loops back to ARIA, and never sees what she decided. ARIA herself
+works correctly: her trace shows the tool call and the hand-back. Calls aren't affected. Every chat hand-back since
+the collaborator was added (16 October, about 13:09 UTC) has failed this way, including **chat escalations to a
+person**. Seen on contacts 4b92f201, 490cdc10, 2ee92d10, 43d38809 and 77a28b4d. Raise it with AWS Support with
+those contact IDs and the error text; the recovery below is a detour until it's fixed.
+
+**The recovery.** `aria-handback-recovery` (`scripts/lambdas/handback_recovery.py`) runs on that Error branch:
+1. It reads ARIA's trace for the chat, through the contact's `sessionId` attribute.
+2. It finds a hand-back from the last 90 seconds that hasn't been handled yet.
+3. It sets the contact attributes the next blocks need: `handoverSummary` and `entry` for a dispute;
+   `topicCategory`, `escalationReason`, `customerIntent` and `conversationSummary` for an escalation.
+4. It returns `route`:
+
+| `route` | When | Goes to |
+|---|---|---|
+| `card_dispute` | Complete `card_dispute`, or StartCardDispute | Transfer to flow "Card dispute assistant" |
+| `escalate` | Escalate; or a mortgage application (escalated in chat, as the flow already does) | the escalation Transfer to flow |
+| `end` | Complete `none` | Disconnect |
+| `none` | nothing to recover, or anything went wrong | the Loop block, exactly as today |
+
+It never invents a decision. It ignores a hand-back it has already handled (`handledHandback` attribute), and one
+older than 90 seconds.
+
+**Deploy it:** run `./scripts/deploy_handback_recovery.sh` (dry run), then add `--apply`.
+
+**Then, in `conversation bot flow`:**
+1. Find ARIA's **Get customer input** block, the one with the `x-amz-lex:q-in-connect:ai-agent-arn` session
+   attribute. Its **Error** output goes to a **Loop** block today. Note that Loop block; you reconnect to it in
+   step 4.
+2. Delete the line from **Error** to the Loop block. Leave its **Timeout** output alone.
+3. Add an **Invoke AWS Lambda function** block:
+   - Function: `aria-handback-recovery`
+   - Timeout: **8** seconds
+   - Response validation: **STRING_MAP**
+   - Connect the Get customer input block's **Error** output to it.
+4. Add a **Check contact attributes** block: **Namespace** External, **Key** `route`, with the conditions
+   **Equals** `card_dispute`, **Equals** `escalate` and **Equals** `end`. Connect the Lambda block's **Success** to
+   it. Then connect:
+   - `card_dispute` → the existing **Transfer to flow** "Card dispute assistant" (the one after the Set contact
+     attributes block that sets `entry` = `aria`)
+   - `escalate` → the existing **Transfer to flow** that the Escalate branch reaches (after its Set contact
+     attributes block)
+   - `end` → a **Disconnect** block (the one Complete's **No match** goes to)
+   - **No match** → the Loop block from step 1
+5. Connect the Lambda block's **Error** to the Loop block from step 1 as well.
+6. **Save** and **Publish**.
+
+**How to tell it worked.** In a chat, say you don't recognise a card payment. ARIA says "Let's sort that out for
+you." and, a few seconds later, the card dispute assistant takes over. In the flow log for that contact, Get
+customer input still shows **Error**; the recovery block's `route` shows `card_dispute`. If it shows `none`, ARIA's
+trace wasn't there in time: look at the Lambda's log in CloudWatch (`/aws/lambda/aria-handback-recovery`).
 
 ---
 
@@ -327,6 +450,7 @@ Read from AWS on 17 October 2026:
 | The chat ends just after ARIA says it can help, and the bridge log is empty | Connect refused the hand-over: a missing profile link, or a profile that doesn't allow the application | `--check --version N` |
 | Hand-overs stop for new contacts, with no error | Connect disables an external agent that doesn't send trace data on every turn. The bridge sends it, but a bridge change that broke tracing would cause this | Check the bridge log for `TRACING_SPAN` errors; redeploy a working bridge |
 | A message about the tier | The instance isn't on Connect Customer | Collaboration needs that tier |
+| ARIA says "Let's sort that out for you." but the dispute assistant never joins, and the flow log shows Get customer input **Error** | ARIA is using `StartCardDispute` while she has a collaborator | [Hand-overs while ARIA has collaborators](#hand-overs-while-aria-has-collaborators) |
 
 ---
 

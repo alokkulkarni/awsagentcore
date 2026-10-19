@@ -174,8 +174,15 @@
           <button type="button" id="talk-chat">Chat</button>
           <button type="button" id="talk-call">Call</button>
         </div>
+        <p class="hint" id="avatar-hint" hidden>On a call you'll see our assistant on video. It's an AI, not a person.</p>
         <p class="hint">This is guidance based on your past spending, not financial advice.</p>
       </div>
+      <!-- On a call: a real-looking face speaking the call's voice (avatar.js). Always labelled as AI. -->
+      <figure class="avatar" id="avatar" hidden>
+        <video id="avatar-video" autoplay playsinline muted aria-label="Our AI assistant, speaking"></video>
+        <span class="avatar-badge">AI assistant</span>
+        <figcaption class="avatar-note" id="avatar-note" hidden></figcaption>
+      </figure>
       <p class="talk-status" id="talk-status" role="status"></p>
       <ol class="chat-log" id="chat-log" aria-live="polite" aria-label="Conversation"></ol>
     </div>
@@ -186,10 +193,12 @@
       </form>
       <div class="call-controls" id="call-controls" hidden>
         <button type="button" id="call-mute" aria-pressed="false">Mute</button>
+        <button type="button" id="call-video" aria-pressed="false" hidden>Hide video</button>
       </div>
       <button type="button" class="end" id="talk-end">End</button>
     </footer>
     <audio id="talk-audio" autoplay></audio>
+    <audio id="avatar-audio" autoplay></audio>
   </aside>
 </body>
 </html>

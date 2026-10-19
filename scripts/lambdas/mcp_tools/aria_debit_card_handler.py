@@ -15,6 +15,10 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# ARIA sees the same cards and payments as the Money Hub, the card dispute assistant and internet banking.
+from moneyhub import data as bank  # noqa: E402
+
 
 
 # Per official AWS docs (gateway-add-target-lambda.html):
@@ -94,23 +98,49 @@ def lambda_handler(event: dict, context) -> dict:
 
 
 def _get_debit_card_details(params: dict) -> dict:
-    card_last_four = str(params.get("card_last_four", "****"))
-    return {
-        "card_last_four": card_last_four,
+    customer_id = str(params.get("customer_id", "")).strip()
+    card_last_four = str(params.get("card_last_four", "")).strip()
+    query_subtype = str(params.get("query_subtype", "status"))
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own card: naming another customer's digits finds nothing.
+    card = bank.held_by(customer_id, card_last_four)
+    if not card or card.get("type") != "debit":
+        return {"error": "Debit card not found", "card_last_four": card_last_four}
+    account = bank.account(customer_id, "current") or {}
+    result: dict = {
+        "card_last_four": card["ending"],
         "card_status": "active",
-        "card_type": "Visa Debit",
+        "card_type": f"{card['scheme']} Debit",
+        "card_nickname": card["nickname"],
+        "linked_account_last_four": account.get("ending", ""),
         "daily_atm_limit": 500.00,
         "daily_pos_limit": 5000.00,
         "expiry_masked": "**/**",
         "replacement_available": True,
         "contactless_enabled": True,
         "online_payments_enabled": True,
+        "query_subtype": query_subtype,
     }
+    if query_subtype == "transactions":
+        # The current account's card payments: the same ones the Money Hub and the dispute assistant show.
+        result["recent_transactions"] = [
+            {"date": t["date"], "description": t["merchant"], "amount": -t["amount"], "transaction_id": t["transactionId"]}
+            for t in bank.card_payments(customer_id, "debit")[:10]
+        ]
+    return result
 
 
 def _block_debit_card(params: dict) -> dict:
-    card_last_four = str(params.get("card_last_four", "****"))
+    customer_id = str(params.get("customer_id", "")).strip()
+    card_last_four = str(params.get("card_last_four", "")).strip()
     reason = str(params.get("reason", "lost_stolen"))
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own card: naming another customer's digits blocks nothing.
+    card = bank.held_by(customer_id, card_last_four)
+    if not card or card.get("type") != "debit":
+        return {"error": "Debit card not found", "card_last_four": card_last_four}
     ref = f"BLOCK-{card_last_four}-{uuid.uuid4().hex[:6].upper()}"
     return {
         "blocked": True,

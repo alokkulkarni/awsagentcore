@@ -1,0 +1,15 @@
+{
+  "assistantId": "e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "assistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "aiPromptId": "37cae8d9-1d2c-49d1-8b1a-771f22f6ab7c",
+  "aiPromptArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-prompt/e6991ed4-e11c-4194-8d20-13889a36bd15/37cae8d9-1d2c-49d1-8b1a-771f22f6ab7c:27",
+  "name": "ARIA-Banking-Ochestration-Prompt",
+  "type": "ORCHESTRATION",
+  "templateType": "TEXT",
+  "modelId": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "apiFormat": "MESSAGES",
+  "modifiedTime": "2026-10-17T18:30:48+00:00",
+  "visibilityStatus": "PUBLISHED",
+  "origin": "CUSTOMER",
+  "status": "ACTIVE"
+}

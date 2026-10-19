@@ -17,7 +17,7 @@ from money_tools import Recorder, build_tools  # noqa: E402
 from moneyhub import data  # noqa: E402
 from moneyhub.service import MoneyHub  # noqa: E402
 from moneyhub.store import MemoryStore  # noqa: E402
-from prompt import GUIDANCE_DISCLOSURE, system_prompt  # noqa: E402
+from prompt import GUIDANCE_DISCLOSURE, system_blocks, system_prompt  # noqa: E402
 
 JAMES = "CUST-001"
 
@@ -163,6 +163,28 @@ class Prompt(unittest.TestCase):
                         "channel rules come first, where the model weighs them most")
         self.assertIn("Never read out a link", system_prompt("VOICE"))
         self.assertNotIn("ending 4 8 2 1", system_prompt("CHAT"))
+
+
+class PromptCaching(unittest.TestCase):
+    """The fixed part is cached once and shared; only the date, the customer and the page come after it."""
+
+    def test_the_fixed_part_is_the_same_for_every_customer_date_and_page(self):
+        for channel in ("VOICE", "CHAT"):
+            a = system_blocks(channel, "Priya", "out", "15 October 2026")      # (the prompt's own examples say "James")
+            b = system_blocks(channel, "Sarah", "", "16 October 2026", "they asked about a refund")
+            self.assertEqual(a[0], b[0], channel)
+            self.assertEqual(a[1], {"cachePoint": {"type": "default"}})
+            for personal in ("Priya", "Sarah", "October 2026", "refund", "Money out tab"):
+                self.assertNotIn(personal, a[0]["text"], f"{personal} would break the shared cache")
+
+    def test_what_changes_comes_after_the_cache_point_and_nothing_is_lost(self):
+        blocks = system_blocks("VOICE", "James", "out", "15 October 2026", "they asked about bills")
+        after = blocks[2]["text"]
+        for must in ("Today is 15 October 2026.", "Customer: James", "on the Money out tab",
+                     "Earlier, before you joined: they asked about bills"):
+            self.assertIn(must, after)
+        self.assertEqual(system_prompt("VOICE", "James", "out", "15 October 2026", "they asked about bills"),
+                         blocks[0]["text"] + "\n\n" + after, "the same words as the one-string prompt")
 
 
 class History(unittest.TestCase):

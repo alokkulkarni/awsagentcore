@@ -17,18 +17,17 @@ Internal tool (Lambda-to-Lambda, not exposed to ARIA):
 
 Card data design
 ────────────────
-  _MOCK_PROFILES          — PCI-safe display data (last_four only). Returned
-                            to ARIA by get_customer_details.
-  _MOCK_CARD_REGISTRY     — Internal registry with full 16-digit card numbers.
-                            Used ONLY by verify_card_ownership. Never returned
-                            to ARIA, never logged in full.
+  The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py,
+  packaged with this handler) holds every customer's accounts and cards.
+  _profile()        — PCI-safe display data (last_four only). Returned to ARIA
+                      by get_customer_details.
+  _card_registry()  — each card's BIN (first six digits) and last four. Used
+                      ONLY by verify_card_ownership. No full card number is
+                      held anywhere.
 
-  All full card numbers follow the pattern:
-    <BIN 6 digits> + <middle 6 digits> + <last 4 digits>
-
-  BINs used in mock data (must match aria-card-bins DynamoDB table):
-    414900  →  VISA DEBIT
-    532188  →  MASTERCARD CREDIT
+  BINs (must be in the aria-card-bins DynamoDB table):
+    414900  →  VISA DEBIT        543210  →  MASTERCARD DEBIT
+    531908  →  MASTERCARD CREDIT
 """
 
 from __future__ import annotations
@@ -43,82 +42,34 @@ logger.setLevel(logging.INFO)
 _MOCK_DATA = os.environ.get("MOCK_DATA", "false").lower() == "true"
 
 # ---------------------------------------------------------------------------
-# PCI-safe display data (returned to ARIA by get_customer_details)
-# Full card numbers are NOT present here — only last_four for display.
+# The sample bank's one copy of its data (connect-money-hub/moneyhub/data.py, packaged with this handler), so
+# ARIA's greeting, this tool, the card dispute assistant and internet banking name the same accounts and cards.
+# Only last fours and card BINs are held: never a full card number.
 # ---------------------------------------------------------------------------
-if _MOCK_DATA:
-    _MOCK_PROFILES: dict[str, dict] = {
-        "CUST-001": {
-            "name": "James",
-            "accounts": [
-                {"type": "current", "nickname": "Main Account",     "number_last_four": "4521"},
-                {"type": "savings", "nickname": "Holiday Savings",  "number_last_four": "7832"},
-            ],
-            "debit_cards":  [{"nickname": "Everyday Debit",      "last_four": "8901"}],
-            "credit_cards": [{"nickname": "Rewards Credit Card", "last_four": "3456"}],
-            "has_mortgage": True,
-        },
-        "CUST-002": {
-            "name": "Sarah",
-            "accounts": [
-                {"type": "current", "nickname": "Main Current",  "number_last_four": "1234"},
-            ],
-            "debit_cards":  [{"nickname": "Classic Debit",      "last_four": "2711"}],
-            "credit_cards": [{"nickname": "Platinum Credit",    "last_four": "2199"}],
-            "has_mortgage": False,
-        },
-        "CUST-003": {
-            "name": "Michael",
-            "accounts": [
-                {"type": "current", "nickname": "Current Account", "number_last_four": "8843"},
-                {"type": "savings", "nickname": "ISA",             "number_last_four": "6621"},
-            ],
-            "debit_cards":  [
-                {"nickname": "Primary Debit",  "last_four": "5543"},
-                {"nickname": "Joint Debit",    "last_four": "1102"},
-            ],
-            "credit_cards": [{"nickname": "Cashback Credit",     "last_four": "9912"}],
-            "has_mortgage": True,
-        },
+from moneyhub import data as bank  # noqa: E402
+
+
+def _profile(customer_id: str) -> dict | None:
+    """PCI-safe display data, as get_customer_details returns it."""
+    held = bank.profile(customer_id)
+    if not held:
+        return None
+    return {
+        "name": held["preferredName"],
+        "accounts": [{"type": a["type"], "nickname": a["nickname"], "number_last_four": a["ending"]}
+                     for a in held["accounts"]],
+        "debit_cards": [{"nickname": c["nickname"], "last_four": c["ending"]} for c in held["cards"] if c["type"] == "debit"],
+        "credit_cards": [{"nickname": c["nickname"], "last_four": c["ending"]} for c in held["cards"] if c["type"] == "credit"],
+        "has_mortgage": bank.mortgage(customer_id) is not None,
+        **({"mortgage_reference": bank.mortgage_reference(customer_id)} if bank.mortgage(customer_id) else {}),
     }
 
-    # ---------------------------------------------------------------------------
-    # Internal card registry — full 16-digit card numbers for ownership validation.
-    # Structure:  { customer_id: [ {full_card_number, card_type, nickname}, … ] }
-    #
-    # full_card_number format: 16 digit string, no spaces.
-    #   Digits 1–6  : BIN (must match aria-card-bins DynamoDB table)
-    #   Digits 7–12 : middle digits (any valid digits)
-    #   Digits 13–16: last four (must match _MOCK_PROFILES above)
-    #
-    # These values are NEVER returned to callers — only used internally by
-    # _verify_card_ownership() for BIN+last_four matching.
-    # ---------------------------------------------------------------------------
-    _MOCK_CARD_REGISTRY: dict[str, list[dict]] = {
-        "CUST-001": [
-            # VISA DEBIT  — BIN 414900, last four 8901
-            {"full_card_number": "4149008923148901", "card_type": "debit",  "nickname": "Everyday Debit"},
-            # MASTERCARD CREDIT — BIN 532188, last four 3456
-            {"full_card_number": "5321884720933456", "card_type": "credit", "nickname": "Rewards Credit Card"},
-        ],
-        "CUST-002": [
-            # VISA DEBIT  — BIN 414900, last four 2711
-            {"full_card_number": "4149008941092711", "card_type": "debit",  "nickname": "Classic Debit"},
-            # MASTERCARD CREDIT — BIN 532188, last four 2199
-            {"full_card_number": "5321884756832199", "card_type": "credit", "nickname": "Platinum Credit"},
-        ],
-        "CUST-003": [
-            # VISA DEBIT (primary) — BIN 414900, last four 5543
-            {"full_card_number": "4149008912315543", "card_type": "debit",  "nickname": "Primary Debit"},
-            # VISA DEBIT (joint)   — BIN 414900, last four 1102
-            {"full_card_number": "4149008977641102", "card_type": "debit",  "nickname": "Joint Debit"},
-            # MASTERCARD CREDIT — BIN 532188, last four 9912
-            {"full_card_number": "5321884788769912", "card_type": "credit", "nickname": "Cashback Credit"},
-        ],
-    }
-else:
-    _MOCK_PROFILES = {}
-    _MOCK_CARD_REGISTRY = {}
+
+def _card_registry(customer_id: str) -> list[dict]:
+    """The customer's cards for ownership checks: BIN (first six digits) and last four, never the full number."""
+    held = bank.profile(customer_id) or {}
+    return [{"bin": c["bin"], "last_four": c["ending"], "card_type": c["type"], "nickname": c["nickname"]}
+            for c in held.get("cards", [])]
 
 
 
@@ -205,7 +156,7 @@ def get_customer_details(params: dict) -> dict:
         return {"error": "No data source configured. Set MOCK_DATA=true for demo mode or configure a real data source."}
 
     cid = str(params.get("customer_id", "")).strip()
-    profile = _MOCK_PROFILES.get(cid)
+    profile = _profile(cid)
     if profile:
         return {"customer_id": cid, **profile}
     return {"error": "Customer not found"}
@@ -230,7 +181,7 @@ def _verify_card_ownership(params: dict) -> dict:
     Parameters
     ──────────
     customer_id   : str  e.g. "CUST-001"
-    card_last_four: str  e.g. "8901"
+    card_last_four: str  e.g. "4821"
     card_bin      : str  e.g. "414900"  (first 6 digits from aria-dtmf-decrypt)
 
     Returns
@@ -265,7 +216,7 @@ def _verify_card_ownership(params: dict) -> dict:
             "error":               "customer_id and card_last_four are required",
         }
 
-    cards = _MOCK_CARD_REGISTRY.get(customer_id, [])
+    cards = _card_registry(customer_id)
     if not cards:
         logger.info("No cards found in registry for customer=%s", customer_id)
         return {
@@ -278,8 +229,7 @@ def _verify_card_ownership(params: dict) -> dict:
     # ── Primary check: BIN + last four (most secure) ──────────────────────
     if card_bin and len(card_bin) >= 6:
         for card in cards:
-            full = card["full_card_number"]
-            if full[:6] == card_bin[:6] and full[-4:] == card_last_four:
+            if card["bin"] == card_bin[:6] and card["last_four"] == card_last_four:
                 logger.info(
                     "Card ownership confirmed (bin+last4): customer=%s type=%s",
                     customer_id, card["card_type"],
@@ -295,7 +245,7 @@ def _verify_card_ownership(params: dict) -> dict:
     # This is less secure but used as fallback when only last_four is captured
     # (e.g., purpose = "card_last_four" without a BIN lookup available).
     for card in cards:
-        if card["full_card_number"][-4:] == card_last_four:
+        if card["last_four"] == card_last_four:
             logger.info(
                 "Card ownership confirmed (last4 only): customer=%s type=%s",
                 customer_id, card["card_type"],

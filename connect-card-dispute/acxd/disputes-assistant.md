@@ -184,7 +184,7 @@ Data request 1 of 7. This one looks up the customer's cards and one page of thei
    Check that `page` came out as type **Number**, not Text.
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821","label":"11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}
+   {"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261015-3245","date":"2026-10-15","merchant":"AMAZON.CO.UK","amount":"32.45","cardType":"debit","cardLastFour":"4821","label":"15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
@@ -202,7 +202,7 @@ The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"listCardsAndPayments","contactId":"0a1b2c3d-1111-2222-3333-444455556666","page":1,"fromDate":"2026-10-01","toDate":"2026-10-15","cardType":"debit"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261011-8999","date":"2026-10-11","merchant":"AMAZON.CO.UK","amount":"89.99","cardType":"debit","cardLastFour":"4821","label":"11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}` |
+| Response sample | `{"ok":true,"reason":"","message":"","today":"2026-10-15","cards":[{"cardType":"debit","cardLastFour":"4821","status":"active"}],"payments":[{"number":1,"transactionId":"TXN-4821-20261015-3245","date":"2026-10-15","merchant":"AMAZON.CO.UK","amount":"32.45","cardType":"debit","cardLastFour":"4821","label":"15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4821"}],"page":1,"totalPages":2,"totalPayments":8,"hasMore":true}` |
 
 #### `startDispute`
 
@@ -223,17 +223,17 @@ Data request 2 of 7. This one starts the dispute for the payment the customer ch
       then `card_dispute_api_key`. It becomes a chip.
 5. **Request model** → **Auto-generate** (star icon) → paste this, then confirm:
    ```json
-   {"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261011-8999","disputeType":"unauthorised"}
+   {"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261015-3245","disputeType":"unauthorised"}
    ```
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
       - `operation`: `startDispute`
       - `contactId`: `0a1b2c3d-1111-2222-3333-444455556666`
-      - `transactionId`: `TXN-4821-20261011-8999`
+      - `transactionId`: `TXN-4821-20261015-3245`
       - `disputeType`: `unauthorised`
 
    ✅ `"ok": false` and `"reason": "customer_not_identified"`. That's correct for a test (no real
@@ -241,9 +241,9 @@ Data request 2 of 7. This one starts the dispute for the payment the customer ch
 
 The same two samples, for reference only (nothing more to do):
 
-| Request sample | `{"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261011-8999","disputeType":"unauthorised"}` |
+| Request sample | `{"operation":"startDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","transactionId":"TXN-4821-20261015-3245","disputeType":"unauthorised"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
+| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
 
 #### `updateDispute`
 
@@ -268,7 +268,7 @@ Data request 3 of 7. This one saves the customer's answers on the dispute.
    ```
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
@@ -289,7 +289,7 @@ The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"updateDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345","disputeType":"unauthorised","reasonCode":"card_details_used_without_card","cardInPossession":"yes","cardBlocked":"yes","contactedMerchant":"no","narrative":"I have never ordered from Amazon."}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
+| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
 
 #### `getDispute`
 
@@ -314,7 +314,7 @@ Data request 4 of 7. This one reads the dispute back, including anything the cus
    ```
 6. **Response model** → **Auto-generate** → paste this, then confirm:
    ```json
-   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
+   {"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}
    ```
 7. **Save**.
 8. **Test**: **Test** tab → environment **Development** → enter these values → **Run**:
@@ -329,7 +329,7 @@ The same two samples, for reference only (nothing more to do):
 
 | Request sample | `{"operation":"getDispute","contactId":"0a1b2c3d-1111-2222-3333-444455556666","disputeId":"DSP-ABCD2345"}` |
 |---|---|
-| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
+| Response sample | `{"ok":true,"reason":"","message":"","disputeId":"DSP-ABCD2345","status":"draft","payment":"AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821","disputeType":"unauthorised","caseType":"Fraud","whatHappensNext":"Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.","reasonCode":"","reasonsAllowed":"card_lost_or_stolen, card_details_used_without_card, not_recognised","cardInPossession":"","cardBlocked":"","contactedMerchant":"","narrative":"","missing":"Reason, Customer still has the card, In the customer's words","complete":false,"customerWatching":false,"linkSent":false}` |
 
 #### `blockCard`
 
@@ -645,7 +645,7 @@ Step 2. Find the payment by showing it, not by asking for it
   YYYY-MM-DD, worked out from today in the last reply.
 - Show every payment in the reply, in the order given (newest first), with its number:
   - On CHAT: one per line, exactly "number. label", for example
-    "1. 11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821".
+    "1. 15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4821".
   - On VOICE: read them briefly, for example "Number 1: Amazon, £89.99, on 11 October."
   Then ask which one they want to dispute. If hasMore is true, add that they can say "more" to see
   older payments, or give a date.
@@ -653,6 +653,11 @@ Step 2. Find the payment by showing it, not by asking for it
   they give a period, call it with those dates and page 1.
 - When they choose, by number, shop, amount or date, note that payment's transactionId (its number
   also works). If their answer fits more than one, ask one question to tell them apart.
+- A payment is disputed only once. If the label of the one they chose says "already disputed", tell
+  them we already have their dispute for it, when it was raised and where it is (from the label,
+  for example "you raised this on 18 Oct and it has been submitted, reference ..."). Don't start
+  another, and don't block or replace the card again. Ask if there's anything else, or a different
+  payment.
 - If they cannot find it in any page or period, say you can't see it and use Escalation requested.
 
 Step 3. Decide what kind of case it is: fraud, scam or dispute
@@ -682,6 +687,11 @@ Step 3. Decide what kind of case it is: fraud, scam or dispute
 - For FRAUD or SCAM, protect the card now, before anything else:
   - If listCardsAndPayments shows the card's status as blocked already, say so, and offer only the
     replacement (orderReplacementCard).
+  - If the status says "blocked, replacement ordered" with a date, the new card is already on its
+    way: tell them it was blocked and a replacement ordered on that date, and don't offer or order
+    another. Go straight on to step 4.
+  - If blockCard or orderReplacementCard says it was "already" done, tell them that, as its
+    confirmation says: never say you have just blocked or ordered it.
   - Otherwise ask one question that explains why: "To protect you from any further payments, I'd
     like to block your <debit/credit> card ending <last four> now and send you a new one. Is that
     OK?"
@@ -698,6 +708,11 @@ Step 4. Start the dispute, and save what you already know
 - Call startDispute with the transactionId and the disputeType you decided in step 3 (unauthorised,
   scam or merchant). The case is marked Fraud, Scam or Dispute from that. If you blocked the card in
   step 3, the dispute already says so.
+- Check its reason before anything else:
+  - existing_draft: they started this dispute before. Carry on with that disputeId; say "I can see
+    we'd already started this one, so let's finish it."
+  - already_with_adviser or already_disputed: it has been raised already. Do what its message says:
+    tell them, don't call updateDispute, don't offer the form, and ask if there's anything else.
 - Straight away, call updateDispute with everything they have told ARIA and you: for example
   reasonCode not_recognised for a payment they don't recognise, fake_seller_or_website for a fake
   shop, cardInPossession yes if they still have the card, cardBlocked no if they said not to block

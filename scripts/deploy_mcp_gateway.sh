@@ -254,9 +254,14 @@ build_lambda_package() {
   if [[ -f "${prebuilt}" ]]; then
     log "  Using pre-built handler: ${prebuilt}"
     cp "${prebuilt}" "${build_dir}/handler.py"
+    # The sample bank's one copy of its data: the account, card, customer, mortgage and products handlers read it,
+    # so ARIA sees what the Money Hub, the dispute assistant and internet banking see.
+    mkdir -p "${build_dir}/moneyhub"
+    cp "${script_dir}/../connect-money-hub/moneyhub/__init__.py" "${script_dir}/../connect-money-hub/moneyhub/data.py" \
+       "${build_dir}/moneyhub/"
     # Package and return — skip the heredoc template entirely.
     cd "${build_dir}"
-    zip -r "aria-mcp-${domain}.zip" handler.py >/dev/null
+    zip -r "aria-mcp-${domain}.zip" handler.py moneyhub >/dev/null
     cd - >/dev/null
     echo "${build_dir}/aria-mcp-${domain}.zip"
     return
@@ -1805,6 +1810,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is found."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the debit card"
@@ -1814,7 +1823,7 @@ DOMAIN_TOOLS = {
                         "description": "Data type: status, limits, or transactions"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         },
         {
@@ -1823,6 +1832,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the card to block"
@@ -1836,7 +1849,7 @@ DOMAIN_TOOLS = {
                         "description": "Whether to order a replacement card: true or false"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         }
     ],
@@ -1847,6 +1860,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is found."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the credit card"
@@ -1856,7 +1873,7 @@ DOMAIN_TOOLS = {
                         "description": "Data type: balance, available_credit, minimum_payment, or transactions"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         },
         {
@@ -1865,6 +1882,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the credit card to block"
@@ -1874,7 +1895,7 @@ DOMAIN_TOOLS = {
                         "description": "Block reason: lost, stolen, or fraud"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         }
     ],
@@ -1885,6 +1906,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own mortgage is found."
+                    },
                     "mortgage_reference": {
                         "type": "string",
                         "description": "Last four digits of the mortgage reference number"
@@ -1894,7 +1919,7 @@ DOMAIN_TOOLS = {
                         "description": "Data type: balance, rate, monthly_payment, overpayment_allowance, or term"
                     }
                 },
-                "required": ["mortgage_reference"]
+                "required": ["customer_id", "mortgage_reference"]
             }
         }
     ],
@@ -1919,6 +1944,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own accounts and cards are analysed."
+                    },
                     "source_type": {
                         "type": "string",
                         "description": "Source type: current_account or credit_card"
@@ -1936,7 +1965,7 @@ DOMAIN_TOOLS = {
                         "description": "Optional spending category, e.g. groceries or utilities"
                     }
                 },
-                "required": []
+                "required": ["customer_id"]
             }
         }
     ],
@@ -2566,14 +2595,20 @@ PYEOF
 # the changes live immediately.
 #
 # Usage:
-#   ./scripts/deploy_mcp_gateway.sh update-lambdas [--env prod] [--region eu-west-2]
+#   ./scripts/deploy_mcp_gateway.sh update-lambdas [--env prod] [--region eu-west-2] [--only "account customer"]
+#
+# --only redeploys just those domains (for example the six that read the sample bank's data:
+# "account customer debit-card credit-card mortgage products").
 # ---------------------------------------------------------------------------
 cmd_update_lambdas() {
   local DOMAINS=(auth account customer debit-card credit-card mortgage products pii escalation knowledge)
+  if [[ -n "${ONLY_DOMAINS:-}" ]]; then
+    read -r -a DOMAINS <<< "${ONLY_DOMAINS}"
+  fi
 
   echo ""
   echo -e "${BLUE}=====================================================================${NC}"
-  echo -e "${BLUE}  ARIA — Redeploy All 10 MCP Domain Lambda Functions${NC}"
+  echo -e "${BLUE}  ARIA — Redeploy ${#DOMAINS[@]} MCP Domain Lambda Function(s)${NC}"
   echo -e "${BLUE}  Environment: ${ENV} | Region: ${AWS_REGION}${NC}"
   echo -e "${BLUE}=====================================================================${NC}"
   echo ""
@@ -2785,6 +2820,7 @@ main() {
     case $1 in
       --env)              ENV="$2";                      shift 2 ;;
       --region)           AWS_REGION="$2";               shift 2 ;;
+      --only)             ONLY_DOMAINS="$2";             shift 2 ;;
       --instance-id)      CONNECT_INSTANCE_ID="$2";      shift 2 ;;
       --instance-url)     CONNECT_INSTANCE_URL="$2";     shift 2 ;;
       --assistant-id)     CONNECT_ASSISTANT_ID="$2";     shift 2 ;;

@@ -13,7 +13,10 @@
 #   2. Associates that application with your Connect instance
 #   3. ARIA (my-conversation-agent): adds the Money Hub as a collaborator that
 #      talks to the customer (text; Connect speaks it in ARIA's voice), keeping
-#      everything else. A backup of ARIA's configuration is saved first
+#      everything else. A backup of ARIA's configuration is saved first.
+#      Her hand-overs to the card dispute and mortgage assistants move onto her
+#      Complete tool (nextStep): with a collaborator, Connect returns a contact
+#      to the flow only through Complete and Escalate (handovers.py)
 #   4. A security profile "ARIA AI agent collaborators" that allows the
 #      application (THIRD_PARTY) and Access Contact Control Panel, associated
 #      with ARIA's unversioned and new versioned ARN
@@ -260,6 +263,8 @@ header "Done"
 cat <<SUMMARY
 
   ARIA version to use: ${VERSION}
+  Before you point the flow at it: conversation bot flow needs the nextStep check after Complete
+  (docs/collaborator-setup.md, "Hand-overs while ARIA has collaborators"), or disputes end the chat.
   Next (README step 6): in conversation bot flow, point both places at version ${VERSION}:
     - the Connect assistant block that names my-conversation-agent
     - the Get customer input block's session attribute x-amz-lex:q-in-connect:ai-agent-arn

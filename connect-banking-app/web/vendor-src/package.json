@@ -1,0 +1,13 @@
+{
+  "name": "banking-app-vendor-bundles",
+  "private": true,
+  "description": "Builds web/vendor/chime.js (calls), web/vendor/daily.js (the face's room) and copies the Touchpoint SDK to web/vendor/touchpoint/ (Live Sync). Run scripts/build_vendor.sh.",
+  "dependencies": {
+    "@amazon-connect-touchpoint/web": "1.0.1",
+    "@daily-co/daily-js": "0.93.0",
+    "amazon-chime-sdk-js": "3.32.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

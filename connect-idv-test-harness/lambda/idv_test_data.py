@@ -102,7 +102,8 @@ def preferred_name(customer_id: str) -> str:
 
 
 def card_last_fours(customer_id: str) -> list[str]:
-    return [c.get("last_four", "") for c in (STUB_CUSTOMERS.get(customer_id) or {}).get("cards", [])]
+    # The injector's full record: its cards come from the sample bank's data (moneyhub/data.py)
+    return [c.get("last_four", "") for c in (injector._lookup_customer(customer_id) or {}).get("cards", [])]
 
 
 # ---------------------------------------------------------------------------

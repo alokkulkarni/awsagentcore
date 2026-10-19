@@ -203,7 +203,9 @@ header "Step 2 — Packaging Lambda"
 step "Collecting harness modules and the session injector..."
 cp "$HARNESS_DIR"/*.py "$BUILD_DIR"/
 cp "$INJECTOR_FILE" "$BUILD_DIR"/
-(cd "$BUILD_DIR" && zip -q "$ZIP_PATH" ./*.py)
+# The injector reads the sample bank's accounts and cards from moneyhub/data.py
+mkdir -p "$BUILD_DIR/moneyhub" && cp "${SCRIPT_DIR}/../../connect-money-hub/moneyhub/__init__.py" "${SCRIPT_DIR}/../../connect-money-hub/moneyhub/data.py" "$BUILD_DIR/moneyhub/"
+(cd "$BUILD_DIR" && zip -qr "$ZIP_PATH" ./*.py moneyhub)
 ok "Package ready: $(cd "$BUILD_DIR" && ls ./*.py | tr '\n' ' ')"
 
 # =============================================================================

@@ -43,13 +43,13 @@
         "payments": [
           {
             "number": 1,
-            "transactionId": "TXN-4821-20261011-8999",
-            "date": "2026-10-11",
+            "transactionId": "TXN-4821-20261015-3245",
+            "date": "2026-10-15",
             "merchant": "AMAZON.CO.UK",
-            "amount": "89.99",
+            "amount": "32.45",
             "cardType": "debit",
             "cardLastFour": "4821",
-            "label": "11 Oct 2026, AMAZON.CO.UK, £89.99, debit card ending 4821"
+            "label": "15 Oct 2026, AMAZON.CO.UK, £32.45, debit card ending 4821"
           }
         ],
         "page": 1,
@@ -65,7 +65,7 @@
       "request": {
         "operation": "startDispute",
         "contactId": "0a1b2c3d-1111-2222-3333-444455556666",
-        "transactionId": "TXN-4821-20261011-8999",
+        "transactionId": "TXN-4821-20261015-3245",
         "disputeType": "unauthorised"
       },
       "response": {
@@ -74,7 +74,7 @@
         "message": "",
         "disputeId": "DSP-ABCD2345",
         "status": "draft",
-        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "payment": "AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821",
         "disputeType": "unauthorised",
         "caseType": "Fraud",
         "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",
@@ -111,7 +111,7 @@
         "message": "",
         "disputeId": "DSP-ABCD2345",
         "status": "draft",
-        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "payment": "AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821",
         "disputeType": "unauthorised",
         "caseType": "Fraud",
         "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",
@@ -142,7 +142,7 @@
         "message": "",
         "disputeId": "DSP-ABCD2345",
         "status": "draft",
-        "payment": "AMAZON.CO.UK, £89.99 on 2026-10-11, debit card ending 4821",
+        "payment": "AMAZON.CO.UK, £32.45 on 2026-10-15, debit card ending 4821",
         "disputeType": "unauthorised",
         "caseType": "Fraud",
         "whatHappensNext": "Our fraud team will investigate this payment. Fraud cases are usually looked into within 15 working days, and we'll keep you updated. A colleague will now check the details with you.",

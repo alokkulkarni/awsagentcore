@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+build/
+
+# Built by scripts/build_vendor.sh
+web/vendor/
+web/vendor-src/node_modules/
