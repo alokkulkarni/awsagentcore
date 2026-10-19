@@ -55,6 +55,25 @@ def recent(hub: MoneyHub, customer_id: str, count: int = 6) -> list[dict]:
             for t in listed["transactions"]]
 
 
+ACCOUNT_PAGES = ("current", "savings")       # the accounts with their own page (the mortgage has the Mortgages page)
+
+
+def account_history(hub: MoneyHub, customer_id: str, account: str = "current", count: int = 12) -> dict:
+    """
+    One account's latest movements, newest first, for its page. The current account shows its payments. The saver
+    shows only what moved between it and the current account (bank.savings_transactions): a savings account has
+    no card or merchant payments, so its page never borrows the current account's.
+    """
+    if account == "savings" and bank.account(customer_id, "savings"):
+        ending = (bank.account(customer_id, "current") or {}).get("ending", "")
+        rows = [{"date": t["date"], "merchant": t["merchant"], "amount": _r(t["amount"]), "category": "Transfer",
+                 "merchantName": f"{'From' if t['amount'] > 0 else 'To'} current account ending {ending}",
+                 "in": t["amount"] > 0}
+                for t in bank.savings_transactions(customer_id)[:count]]
+        return {"selected": "savings", "transactions": rows}
+    return {"selected": "current", "transactions": recent(hub, customer_id, count)}
+
+
 def cards(customer_id: str) -> dict:
     """The customer's cards and their recent payments (the dispute service's own sample data)."""
     if dispute_model is None:

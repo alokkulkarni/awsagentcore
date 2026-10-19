@@ -70,9 +70,10 @@
     <h1 class="page-title">Accounts</h1>
     <section class="accounts" id="accounts-list" aria-label="Your accounts"></section>
     <section class="panel">
-      <div class="panel-head"><h2>Current account</h2><span class="pill" id="accounts-as-of"></span></div>
+      <div class="panel-head"><h2 id="accounts-title">Current account</h2><span class="pill" id="accounts-as-of"></span></div>
       <ul class="tx" id="accounts-recent"></ul>
-      <p class="hint">For every payment and where your money goes, open your <a href="/money-hub" data-link>Money Hub</a>.</p>
+      <p class="hint" id="accounts-note" hidden></p>
+      <p class="hint" id="accounts-hub-hint">For every payment and where your money goes, open your <a href="/money-hub" data-link>Money Hub</a>.</p>
     </section>
   </template>
 

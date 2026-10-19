@@ -6,7 +6,7 @@ import { setupTalk } from './widget/talk.js';
 
 // Address -> page module. The mortgage stages keep the mortgage page's own paths (its assistant navigates by them).
 // /cards/dispute is the Cards page on its "Your disputes" tab (the dispute form opens there).
-const ROUTES = { '/': 'home', '/accounts': 'accounts', '/cards': 'cards', '/cards/dispute': 'cards',
+const ROUTES = { '/': 'home', '/accounts': 'accounts', '/accounts/current': 'accounts', '/accounts/savings': 'accounts', '/cards': 'cards', '/cards/dispute': 'cards',
   '/money-hub': 'money-hub', '/mortgages': 'mortgages', '/help': 'help' };
 const TITLES = { home: 'Home', accounts: 'Accounts', cards: 'Cards', 'money-hub': 'Money Hub',
   mortgages: 'Mortgages', apply: 'Mortgage application', help: 'Help' };

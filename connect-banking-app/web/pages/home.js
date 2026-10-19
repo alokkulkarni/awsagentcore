@@ -4,7 +4,7 @@ import { $, api, day, el, gbp, initialsTile, text } from '../lib.js';
 // An account as a card: its name and ending, then its balance (or, for a mortgage, the monthly payment).
 export function accountCard(a) {
   const card = el('a', `account account-${a.kind}`);
-  card.href = a.kind === 'mortgage' ? '/mortgages' : '/accounts';
+  card.href = a.kind === 'mortgage' ? '/mortgages' : `/accounts/${a.id}`;      // each account opens its own page
   card.dataset.link = '';
   const head = el('div', 'account-head');
   head.append(el('strong', '', a.name), el('span', 'account-ending', `ending ${a.ending}`));

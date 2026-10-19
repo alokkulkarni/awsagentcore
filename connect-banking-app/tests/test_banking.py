@@ -306,6 +306,39 @@ class Disputes(Base):
         self.assertEqual((status, reply["error"]), (503, "disputes_unavailable"))
 
 
+class EachAccountHasItsOwnPage(Base):
+    """19 Oct: every account opened the same page, showing the current account's card payments under the saver."""
+
+    def test_the_saver_shows_only_transfers_to_and_from_the_current_account(self):
+        status, reply = self.post("/api/app/accounts", token=self.demo, account="savings")
+        self.assertEqual((status, reply["selected"]), (200, "savings"))
+        current_ending = next(a["ending"] for a in reply["accounts"] if a["id"] == "current")
+        self.assertTrue(reply["recent"], "the saver has movements to show")
+        for row in reply["recent"]:
+            self.assertEqual(row["category"], "Transfer")
+            self.assertIn(row["merchant"], ("FROM CURRENT ACCOUNT", "TO CURRENT ACCOUNT"), "never a merchant")
+            self.assertTrue(row["merchantName"].endswith(f"current account ending {current_ending}"))
+            self.assertEqual(row["in"], row["amount"] > 0)
+        dates = [row["date"] for row in reply["recent"]]
+        self.assertEqual(dates, sorted(dates, reverse=True), "newest first")
+
+    def test_the_current_account_shows_its_payments_and_is_the_default(self):
+        _, chosen = self.post("/api/app/accounts", token=self.demo, account="current")
+        _, plain = self.post("/api/app/accounts", token=self.demo)
+        _, odd = self.post("/api/app/accounts", token=self.demo, account="../mortgage")
+        self.assertEqual((chosen["selected"], plain["selected"], odd["selected"]), ("current", "current", "current"))
+        self.assertEqual(chosen["recent"], plain["recent"])
+        self.assertTrue(any(row["category"] != "Transfer" for row in chosen["recent"]), "card payments, bills, salary")
+        _, saver = self.post("/api/app/accounts", token=self.demo, account="savings")
+        self.assertNotEqual(chosen["recent"], saver["recent"], "two accounts, two different lists")
+
+    def test_each_account_page_has_its_own_address(self):
+        for path in ("/accounts", "/accounts/current", "/accounts/savings"):
+            self.assertEqual(app.lambda_handler(http("GET", path), None)["statusCode"], 200, path)
+        home_js = (APP / "web" / "pages" / "home.js").read_text()
+        self.assertIn("`/accounts/${a.id}`", home_js, "an account's card opens that account")
+
+
 class Pages(Base):
 
     def test_home_accounts_and_cards_agree_with_the_money_hub_and_the_dispute_service(self):

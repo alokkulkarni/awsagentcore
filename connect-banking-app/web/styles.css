@@ -472,6 +472,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .account { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; border-radius: var(--radius); background: var(--card);
   box-shadow: var(--shadow); color: var(--ink); text-decoration: none; border-left: 5px solid var(--brand); }
 .account:hover { transform: translateY(-1px); }
+.account.selected { outline: 2px solid var(--brand); outline-offset: 2px; }
+.tx-empty { color: var(--muted); padding: 10px 0; }
 .account-savings { border-left-color: var(--in); }
 .account-mortgage { border-left-color: var(--save); }
 .account-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
