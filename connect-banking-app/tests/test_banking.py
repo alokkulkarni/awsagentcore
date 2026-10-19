@@ -376,6 +376,15 @@ class Pages(Base):
             if not name.startswith("vendor/"):                 # vendor/ is built by scripts/build_vendor.sh
                 self.assertTrue((APP / "web" / name).is_file(), f"{path} is loaded but there's no web/{name}")
 
+    def test_a_call_never_hangs_and_the_face_waits_for_the_call(self):
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        started = talk.split("audioVideoDidStart: () => {")[1].split("audioVideoDidStop")[0]
+        self.assertIn("videoOn()", started, "the face starts only once the call's audio has connected")
+        self.assertNotIn("if (audioContext) videoOn();", talk, "never alongside a call that is still connecting")
+        self.assertIn("CONNECT_WAIT_MS", talk)
+        self.assertIn("The call couldn\\'t connect. Please try again.", talk)
+        self.assertNotIn("carries on as normal", talk, "never claim a call that may not have connected carries on")
+
     def test_the_dispute_link_opens_in_the_app_only_from_the_dispute_pages_address(self):
         talk = (APP / "web" / "widget" / "talk.js").read_text()
         self.assertIn("words.indexOf(disputePagesUrl)", talk)

@@ -353,7 +353,8 @@ html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /*
   .talk-panel:has(#avatar:not([hidden])) { height: max(var(--talk-h, 55vh), 80vh); }
 }
 @media (min-width: 640px) {
-  .talk-panel:has(#avatar:not([hidden])) { height: min(max(var(--talk-h, 560px), 640px), calc(100vh - 48px)); }
+  /* Room for the face and some captions, but the customer can still make it smaller or larger. */
+  .talk-panel:has(#avatar:not([hidden])) { height: min(max(var(--talk-h, 560px), 480px), calc(100vh - 48px)); }
 }
 .chat-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .chat-log li { max-width: 85%; padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -366,7 +367,8 @@ html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /*
 .chat-form input { flex: 1; min-width: 0; }
 .call-controls button[aria-pressed="true"] { background: var(--flex); }
 .talk-foot .end { background: var(--out); margin-left: auto; }
-.talk-grip { touch-action: none; }
+.talk-grip, .talk-edge { touch-action: none; }
+.talk-edge { display: none; }
 .talk-grip:focus-visible { outline: 3px solid var(--essential); outline-offset: -3px; }
 
 /* Phone: a bottom sheet across the full width. Drag the handle to change its height. */
@@ -376,16 +378,31 @@ html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /*
   .talk-grip span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
 }
 
-/* Tablet and desktop: a floating panel at the bottom right. Drag its top-left corner to resize. */
+/* Tablet and desktop: a floating panel at the bottom right. Drag its top edge to make it taller, its left edge
+   to make it wider, or its top-left corner for both. A grab bar on the top edge shows where to hold. */
 @media (min-width: 640px) {
   .talk-launcher { left: auto; right: 24px; bottom: 24px; max-width: 320px; }
   .talk-panel { right: 24px; bottom: 24px; width: var(--talk-w, 380px); height: var(--talk-h, 560px);
     border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(27, 31, 59, .25); }
-  .talk-grip { position: absolute; top: 0; left: 0; width: 22px; height: 22px; cursor: nwse-resize; z-index: 1;
-    background: linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 5px, var(--muted) 5px 7px, transparent 7px) top left / 10px 10px no-repeat;
-    opacity: .6; border-top-left-radius: 14px; }
+  .talk-edge { display: block; position: absolute; z-index: 1; }
+  .talk-edge-top { top: 0; left: 28px; right: 0; height: 12px; cursor: ns-resize;
+    display: flex; justify-content: center; align-items: center; }
+  .talk-edge-top span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
+  .talk-edge-left { top: 28px; bottom: 0; left: 0; width: 10px; cursor: ew-resize; }
+  .talk-edge:hover, .resizing .talk-edge { background: color-mix(in srgb, var(--brand) 12%, transparent); }
+  .talk-edge-top:hover span, .resizing .talk-edge-top span { background: var(--brand); }
+  .talk-grip { position: absolute; top: 0; left: 0; width: 28px; height: 28px; cursor: nwse-resize; z-index: 2;
+    background: linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 5px, var(--muted) 5px 7px, transparent 7px) 4px 4px / 12px 12px no-repeat;
+    opacity: .7; border-top-left-radius: 14px; }
   .talk-grip:hover { opacity: 1; }
-  .talk-head { padding-top: 12px; padding-left: 26px; }
+  .talk-head { padding-top: 14px; padding-left: 30px; }
+  /* A finger needs a bigger target than a mouse: on a touch screen the edges and corner grow. */
+  @media (pointer: coarse) {
+    .talk-edge-top { height: 24px; left: 44px; }
+    .talk-edge-left { width: 22px; top: 44px; }
+    .talk-grip { width: 44px; height: 44px; }
+    .talk-head { padding-left: 44px; }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

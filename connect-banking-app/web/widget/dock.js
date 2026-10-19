@@ -1,6 +1,8 @@
 // Where the assistant sits on the page: a tag fixed at the bottom that opens an overlay.
 //   phone (under 640px wide)   a bottom sheet; drag its handle to make it taller or shorter
-//   tablet and desktop         a floating panel at the bottom right; drag its top-left corner to resize
+//   tablet and desktop         a floating panel at the bottom right; drag its top edge (taller), its left edge
+//                              (wider) or its top-left corner (both). The edges are full length, so easy to catch
+//                              with a finger on a tablet; the corner is also the keyboard handle.
 // The overlay is not modal: the page keeps scrolling behind it. On a phone the page gets bottom padding
 // equal to the sheet's height, so everything can still be scrolled into view above the sheet.
 // It knows which page the customer is on (context(): { label, launcher }), and shows that as the conversation's
@@ -94,23 +96,34 @@ export function setupDock({ context: pageContext }) {
     launcher.focus({ preventScroll: true });
   }
 
-  // Dragging the handle (phone: up and down) or the corner (wide: up, down, left and right).
-  grip.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    grip.setPointerCapture(event.pointerId);
-    const from = { x: event.clientX, y: event.clientY, ...size() };
-    panel.classList.add('resizing');
-    const move = (e) => resize(clamp(from.h + (from.y - e.clientY), from.l.minH, from.l.maxH),
-      PHONE.matches ? undefined : clamp(from.w + (from.x - e.clientX), from.l.minW, from.l.maxW));
-    const up = () => {
-      panel.classList.remove('resizing');
-      grip.removeEventListener('pointermove', move);
-      save();
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', up, { once: true });
-    grip.addEventListener('pointercancel', up, { once: true });
-  });
+  // Dragging. The grip: on a phone up and down; wider, it is the top-left corner (both ways). The edges (wider
+  // screens only): the top one changes the height, the left one the width. The panel is anchored bottom right,
+  // so dragging up or left makes it bigger.
+  function draggable(handle, axis) {
+    handle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      const from = { x: event.clientX, y: event.clientY, ...size() };
+      const both = axis() === 'both';
+      panel.classList.add('resizing');
+      const move = (e) => {
+        const tall = axis() === 'width' ? from.h : clamp(from.h + (from.y - e.clientY), from.l.minH, from.l.maxH);
+        const wide = PHONE.matches || axis() === 'height' ? undefined
+          : clamp(from.w + (from.x - e.clientX), from.l.minW, from.l.maxW);
+        resize(tall, both || axis() === 'width' ? wide : undefined);
+      };
+      const up = () => {
+        panel.classList.remove('resizing');
+        handle.removeEventListener('pointermove', move);
+        save();
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up, { once: true });
+      handle.addEventListener('pointercancel', up, { once: true });
+    });
+  }
+  draggable(grip, () => (PHONE.matches ? 'height' : 'both'));
+  panel.querySelectorAll('.talk-edge').forEach((edge) => draggable(edge, () => edge.dataset.resize));
 
   // The same with the keyboard: arrows change the height (and, on wider screens, left and right the width).
   grip.addEventListener('keydown', (event) => {

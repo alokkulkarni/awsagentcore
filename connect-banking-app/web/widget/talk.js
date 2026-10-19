@@ -19,6 +19,12 @@ const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
 const READY_WAIT_MS = 20000;
 // A call is audio only: what's said on it is read back from the page Lambda this often, to show as text.
 const TRANSCRIPT_EVERY_MS = 2000;
+// A call whose audio hasn't connected by now never will (Connect gives up at 90 s, as "customer never arrived"):
+// the page hangs up and says so, rather than showing "Starting your call…" for ever.
+const CONNECT_WAIT_MS = 25000;
+// After the face fails to start, later calls in this page don't try it by themselves for a while (Tavus refusing,
+// for example out of credit, refuses every time). The customer can still press Show video.
+const VIDEO_REST_MS = 10 * 60 * 1000;
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
@@ -64,6 +70,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
   const dock = setupDock({ context });
   $('avatar-hint').hidden = !hasAvatar();
   let live = null;          // { kind, region, participantToken, connectionToken, socket, heartbeat, session, stream }
+  let videoFailedAt = 0;    // when the face last failed to start
   const seen = new Set();
 
   const status = (words) => { $('talk-status').textContent = words; };
@@ -218,7 +225,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
 
   // Starts the face for the live call. Any failure leaves the call as it is, voice only.
   async function videoOn() {
-    if (!live || live.kind !== 'call' || live.avatar || !live.contactId) return;
+    if (!live || live.kind !== 'call' || live.avatar || !live.contactId || !live.connected) return;
     const current = live;
     const run = {};                   // this attempt: a later Hide (or a newer attempt) makes it stale
     current.avatar = 'starting';
@@ -241,8 +248,9 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     } catch (error) {
       if (live !== current || current.avatarRun !== run) return;
       current.avatar = null;
+      videoFailedAt = Date.now();
       showVideo(false);
-      if (!current.withPerson) status('The video couldn\'t start. Your call carries on as normal.');
+      if (!current.withPerson) status('The video couldn\'t start. You\'re still on the call, by voice.');
     }
   }
 
@@ -270,20 +278,39 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       const devices = new chime.DefaultDeviceController(logger);
       const config = new chime.MeetingSessionConfiguration({ Meeting: started.meeting }, { Attendee: started.attendee });
       const session = new chime.DefaultMeetingSession(config, logger, devices);
-      live = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream,
-        contactId: started.contactId, audioContext, journey: started.journey };
+      const current = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream,
+        contactId: started.contactId, audioContext, journey: started.journey, connected: false };
+      live = current;
       onStarted({ journey: started.journey, contactId: started.contactId, kind: 'call' });
       const av = session.audioVideo;
       if (started.transcript) live.transcript = setInterval(() => readTranscript(started.contactId), TRANSCRIPT_EVERY_MS);
       av.addObserver({
-        audioVideoDidStart: () => status(`Connected. Speak when you're ready${started.transcript ? '; what\'s said appears below' : ''}.`
-          + ' Headphones give the clearest call.'),
-        audioVideoDidStop: () => { if (live && live.kind === 'call') finish('The call has ended.'); },
+        audioVideoDidStart: () => {
+          if (live !== current) return;
+          current.connected = true;
+          clearTimeout(current.connecting);
+          $('call-video').hidden = !(audioContext && !current.withPerson);       // Show/Hide video, once there's a call
+          status(`Connected. Speak when you're ready${started.transcript ? '; what\'s said appears below' : ''}.`
+            + ' Headphones give the clearest call.');
+          // The face starts once the call is connected, so it never competes with the call for the network, and a
+          // call that doesn't connect never opens (and pays for) a face.
+          if (audioContext && Date.now() - videoFailedAt > VIDEO_REST_MS) videoOn();
+        },
+        audioVideoDidStop: (why) => {
+          if (live !== current) return;
+          const code = why && why.statusCode ? why.statusCode() : '';
+          if (code !== '') console.warn('call stopped, Chime status', code);
+          finish(current.connected ? 'The call has ended.' : 'The call couldn\'t connect. Please try again.');
+        },
       });
       await av.startAudioInput(stream);
       await av.bindAudioElement($('talk-audio'));
       av.start();
-      if (audioContext) videoOn();          // alongside the call, never in its way
+      status('Connecting your call…');
+      $('call-video').hidden = true;                // nothing to show or hide until the call connects
+      current.connecting = setTimeout(() => {
+        if (live === current && !current.connected) hangUp('The call couldn\'t connect. Please try again.');
+      }, CONNECT_WAIT_MS);
     } catch (error) {
       const words = error && error.name === 'NotAllowedError'
         ? 'To call, allow this page to use your microphone.' : (error.message || 'The call could not start.');
@@ -325,7 +352,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
   }
 
   // Leave properly, so Connect ends the contact rather than waiting for a timeout.
-  async function hangUp() {
+  async function hangUp(words = '') {
     if (!live) return;
     const current = live;
     try {
@@ -333,7 +360,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         current.participantToken, { Type: ['CONNECTION_CREDENTIALS'] })).ConnectionCredentials.ConnectionToken;
       await participant(current.region, 'disconnect', token, { ClientToken: crypto.randomUUID() });
     } catch { /* the contact may already have ended */ }
-    finish(current.kind === 'call' ? 'You ended the call.' : 'You ended the chat.');
+    finish(typeof words === 'string' && words ? words : current.kind === 'call' ? 'You ended the call.' : 'You ended the chat.');
   }
 
   function finish(words) {
@@ -342,6 +369,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     if (current) {
       clearInterval(current.heartbeat);
       clearInterval(current.transcript);
+      clearTimeout(current.connecting);
       clearTimeout(current.openerTimer);
       if (current.avatar && current.avatar !== 'starting') current.avatar.stop();
       current.avatar = null;
