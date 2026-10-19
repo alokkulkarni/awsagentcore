@@ -93,6 +93,29 @@ class Tools(unittest.TestCase):
         self.assertEqual(plan["otherGoalsPerMonthNow"], 200.0, "a new goal allows for the saved one")
         self.assertEqual(self.tools["plan_savings_goal"](600, target_date="2027-01", name="Holiday")["otherGoals"], [])
 
+    def test_a_saved_goal_is_known_and_never_asked_for(self):
+        # The live call of 19 Oct: the Car goal was £10,000 by 31 March 2028, and the agent asked for both.
+        self.tools["save_savings_goal"]("Car", 10000, "2028-03-31", 250)
+        self.tools["save_savings_goal"]("Credit card repayment", 3000, "2027-04-15")
+        goals = {g["name"]: g for g in self.tools["get_saved_goals"]()["goals"]}
+        car = goals["Car"]
+        self.assertEqual((car["target"], car["byDate"], car["byDateWords"], car["saved"]),
+                         (10000.0, "2028-03-31", "31 March 2028", 250.0))
+        self.assertGreater(car["needsPerMonth"], 0)
+        self.assertIn("onTrack", car)
+        picture = {g["name"]: g for g in self.tools["get_financial_picture"]()["goals"]}
+        self.assertEqual((picture["Car"]["target"], picture["Car"]["byDate"], picture["Car"]["saved"]),
+                         (10000.0, "2028-03-31", 250.0), "the picture carries the same goal details")
+
+    def test_changing_a_saved_goal_keeps_what_they_didnt_change_and_replaces_it(self):
+        self.tools["save_savings_goal"]("Car", 10000, "2028-03-31", 250)
+        plan = self.tools["plan_savings_goal"](4000, target_date="2028-03-31", already_saved=250, name="Car")
+        self.assertEqual(plan["otherGoals"], [], "re-planned against the others, not against itself")
+        self.tools["save_savings_goal"]("Car", 4000, "2028-03-31", 250)
+        goals = self.tools["get_saved_goals"]()["goals"]
+        self.assertEqual([(g["name"], g["target"], g["byDate"], g["saved"]) for g in goals],
+                         [("Car", 4000.0, "2028-03-31", 250.0)], "one Car goal, replaced, date and savings kept")
+
     def test_goal_dates_come_from_the_tools_not_the_model(self):
         plan = self.tools["plan_savings_goal"](10000, target_date="2027-03")
         self.assertEqual((plan["today"], plan["targetDate"], plan["targetDateWords"]),
@@ -155,6 +178,13 @@ class Prompt(unittest.TestCase):
         self.assertIn("never count months into a date yourself", text)
         self.assertIn('Never\n  mention errors, issues, systems or problems "on my end"', text)
         self.assertIn("March 2027 here", text)
+
+    def test_a_goal_they_already_have_is_never_asked_for(self):
+        text = " ".join(system_prompt("VOICE", "James", "", "15 October 2026").split())
+        for must in ("A goal they already have: you already know its amount, date and what's saved (get_saved_goals); never ask for them.",
+                     "keep the saved goal's other values exactly", "under the same name, which replaces the old one",
+                     "For a new savings goal"):
+            self.assertIn(must, text)
 
     def test_voice_and_chat_get_their_own_rules(self):
         self.assertIn("ending 4 8 2 1", system_prompt("VOICE"))
