@@ -131,8 +131,15 @@ def _get_credit_card_details(params: dict) -> dict:
 
 
 def _block_credit_card(params: dict) -> dict:
-    card_last_four = str(params.get("card_last_four", "****"))
+    customer_id = str(params.get("customer_id", "")).strip()
+    card_last_four = str(params.get("card_last_four", "")).strip()
     reason = str(params.get("reason", "lost_stolen"))
+    if not customer_id:
+        return {"error": "customer_id is required"}
+    # Only the customer's own card: naming another customer's digits blocks nothing.
+    card = bank.held_by(customer_id, card_last_four)
+    if not card or card.get("type") != "credit":
+        return {"error": "Credit card not found", "card_last_four": card_last_four}
     ref = f"CC-BLOCK-{card_last_four}-{uuid.uuid4().hex[:6].upper()}"
     return {
         "blocked": True,

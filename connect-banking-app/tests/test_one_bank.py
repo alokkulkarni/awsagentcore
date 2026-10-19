@@ -134,6 +134,16 @@ class EveryoneSeesTheSameJames(unittest.TestCase):
         self.assertIn("error", tool(mortgage_tool, "get_mortgage_details", mortgage_reference="MR-****-8842"))
         self.assertEqual(tool(debit_tool, "get_debit_card_details", customer_id=sarah, card_last_four="3317")["card_last_four"],
                          "3317", "her own card still works")
+        # Blocking a card: only the customer's own
+        self.assertIn("error", tool(debit_tool, "block_debit_card", customer_id=sarah, card_last_four="4821"))
+        self.assertIn("error", tool(credit_tool, "block_credit_card", customer_id=sarah, card_last_four="2291"))
+        self.assertIn("error", tool(debit_tool, "block_debit_card", card_last_four="4821"), "no customer, no block")
+        self.assertIn("error", tool(debit_tool, "block_debit_card", customer_id=JAMES, card_last_four="2291"),
+                      "a credit card is not a debit card")
+        blocked = tool(debit_tool, "block_debit_card", customer_id=JAMES, card_last_four="4821", reason="lost")
+        self.assertEqual((blocked["blocked"], blocked["card_last_four"]), (True, "4821"))
+        self.assertTrue(blocked["reference"].startswith("BLOCK-4821-"))
+        self.assertTrue(tool(credit_tool, "block_credit_card", customer_id=JAMES, card_last_four="2291")["blocked"])
 
     def test_every_customer_has_one_name(self):
         for customer_id in injector._STUB_CUSTOMERS:

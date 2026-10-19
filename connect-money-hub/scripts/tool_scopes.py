@@ -2,9 +2,9 @@
 """
 tool_scopes.py
 ==============
-ARIA's card, mortgage and spending tools answer only for the customer ARIA is talking to: each takes the
-customer's ID (customer_id, from the session context) and finds only that customer's own card, account or mortgage.
-Without it, naming another customer's card digits would show their payments.
+ARIA's card (details and blocks), mortgage and spending tools answer only for the customer ARIA is talking to: each
+takes the customer's ID (customer_id, from the session context) and finds only that customer's own card, account or
+mortgage. Without it, naming another customer's card digits would show their payments or block their card.
 
 ARIA keeps her own copy of each MCP tool's input schema, so the field is added here as well as on the gateway
 (scripts/deploy_mcp_gateway.sh update-targets). Used by collaborator.py; it only transforms JSON.
@@ -23,6 +23,8 @@ CUSTOMER_ID = {
 SCOPED = {
     "aria_banking_debit_card___get_debit_card_details": "card_last_four",
     "aria_banking_credit_card___get_credit_card_details": "card_last_four",
+    "aria_banking_debit_card___block_debit_card": "card_last_four",
+    "aria_banking_credit_card___block_credit_card": "card_last_four",
     "aria_banking_mortgage___get_mortgage_details": "mortgage_reference",
     "aria_banking_products___analyse_spending": "",
 }

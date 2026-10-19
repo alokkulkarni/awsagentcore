@@ -62,8 +62,8 @@ move them. `connect-banking-app/tests/test_one_bank.py` asks every service about
 
 All code-only. Nothing else about any function changes.
 
-ARIA's card, mortgage and spending tools now take the customer's ID, and answer only for that customer's own cards,
-accounts and mortgage. Before, they looked a card up by its digits alone, so naming another customer's card would
+ARIA's card tools (details and blocks), mortgage and spending tools now take the customer's ID, and answer only for
+that customer's own cards, accounts and mortgage. Before, they looked a card up by its digits alone, so naming another customer's card would
 have shown their payments. ARIA must be sending the ID before the new tool code goes live, so do these in this order:
 
 1. **The gateway's tool schemas** (adds `customer_id` to the four tools; today's Lambdas ignore it):
@@ -123,3 +123,21 @@ Start a chat from internet banking and ask ARIA:
    the same as the credit card on the Cards page.
 2. "What's my current account balance?" She should say £2,828.80, the same as the Accounts page and the Money Hub.
 3. "I don't recognise the £32.45 Amazon payment." The dispute assistant should find it straight away.
+
+## Card blocks scoped to the customer (18 Oct)
+
+`block_debit_card` and `block_credit_card` now require `customer_id` and only block that customer's own card, like
+the other card tools. ARIA must be sending the ID before the new Lambdas go live, so roll it out in this order:
+
+1. **The gateway's tool schemas:** `./scripts/deploy_mcp_gateway.sh update-targets --env prod --region eu-west-2`
+   (with the boto3 venv active). Only the two block tools change; today's Lambdas ignore the extra field.
+2. **A new ARIA version:** `./connect-money-hub/scripts/connect_collaborator.sh --apply`. `tool_scopes.py` adds
+   `customer_id` to her block tools. Then in conversation bot flow change only the Get customer input block's
+   `x-amz-lex:q-in-connect:ai-agent-arn` to the version it prints. Leave the Connect assistant block as it is.
+3. **The two card Lambdas:**
+   ```bash
+   ./scripts/deploy_mcp_gateway.sh update-lambdas --env prod --region eu-west-2 --only "debit-card credit-card"
+   ```
+   If you do this before step 2, a block request gets "customer_id is required" until ARIA's new version is in the
+   flow.
+

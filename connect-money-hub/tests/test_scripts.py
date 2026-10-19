@@ -158,6 +158,9 @@ class ToolScopes(unittest.TestCase):
                          "required": ["card_last_four"]}},
         {"toolName": "aria_banking_products___analyse_spending",
          "inputSchema": {"type": "object", "properties": {"period": {"type": "string"}}}},
+        {"toolName": "aria_banking_debit_card___block_debit_card",
+         "inputSchema": {"type": "object", "properties": {"card_last_four": {"type": "string"}},
+                         "required": ["card_last_four"]}},
         {"toolName": "aria_banking_account___get_account_balance",
          "inputSchema": {"type": "object", "properties": {}, "required": ["customer_id"]}}]}}
 
@@ -170,6 +173,8 @@ class ToolScopes(unittest.TestCase):
         self.assertEqual(tools["aria_banking_credit_card___get_credit_card_details"]["inputSchema"]["required"],
                          ["customer_id", "card_last_four"])
         self.assertEqual(tools["aria_banking_products___analyse_spending"]["inputSchema"]["required"], ["customer_id"])
+        self.assertEqual(tools["aria_banking_debit_card___block_debit_card"]["inputSchema"]["required"],
+                         ["customer_id", "card_last_four"])
         self.assertEqual(tools["aria_banking_account___get_account_balance"],
                          self.tools(self.CONFIG)["aria_banking_account___get_account_balance"])
         self.assertEqual(tool_scopes.apply(scoped), scoped)

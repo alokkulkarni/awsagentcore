@@ -1832,6 +1832,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the card to block"
@@ -1845,7 +1849,7 @@ DOMAIN_TOOLS = {
                         "description": "Whether to order a replacement card: true or false"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         }
     ],
@@ -1878,6 +1882,10 @@ DOMAIN_TOOLS = {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked."
+                    },
                     "card_last_four": {
                         "type": "string",
                         "description": "Last four digits of the credit card to block"
@@ -1887,7 +1895,7 @@ DOMAIN_TOOLS = {
                         "description": "Block reason: lost, stolen, or fraud"
                     }
                 },
-                "required": ["card_last_four"]
+                "required": ["customer_id", "card_last_four"]
             }
         }
     ],
