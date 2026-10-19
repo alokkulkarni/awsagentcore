@@ -37,7 +37,10 @@ function base64(buffer) {
 // Starts the face for this call. context: an AudioContext at 24 kHz, made when the customer pressed Call (browsers
 // only let a page start audio from a tap or click). onGone(reason) runs once if the face stops by itself.
 // Returns { stop }.
-export async function startAvatar({ api, contactId, context, callAudio, video, audio, onGone }) {
+export async function startAvatar({ api, contactId, context, callAudio, video, audio, onGone, onStage = () => {} }) {
+  // Each step in the console and on the overlay, so a face that never appears shows where it stopped.
+  const began = performance.now();
+  const stage = (words, step) => { onStage(words); console.info(`[video] ${step} +${Math.round(performance.now() - began)} ms`); };
   let call = null;
   let room = null;
   let source = null;
@@ -58,7 +61,9 @@ export async function startAvatar({ api, contactId, context, callAudio, video, a
   }
 
   try {
+    stage('Opening the video room…', 'asking for a room');
     room = await api('/contact/avatar', { contactId });
+    stage('Connecting to the video…', 'room ready');
     const [{ default: Daily }] = await Promise.all([
       import('/assets/vendor/daily.js'), context.audioWorklet.addModule('/assets/widget/pcm-worklet.js'), context.resume()]);
     // No camera and no microphone of our own: the page only sends the call's audio, as messages.
@@ -79,7 +84,9 @@ export async function startAvatar({ api, contactId, context, callAudio, video, a
     call.on('left-meeting', () => stop('The video stopped.'));
     call.on('error', () => stop('The video stopped.'));
     await call.join({ url: room.conversationUrl, token: room.meetingToken, startAudioOff: true, startVideoOff: true });
+    stage('Waiting for the assistant to appear…', 'joined the room, waiting for the face');
     await within(START_WAIT_MS, faceShown, 'video took too long');
+    stage('', 'face showing');
     if (stopped) return { stop };
 
     // From here the call's voice reaches the customer through the face. Each stretch of speech is one utterance:
@@ -118,6 +125,7 @@ export async function startAvatar({ api, contactId, context, callAudio, video, a
     callAudio.muted = true;
     return { stop };
   } catch (error) {
+    console.info(`[video] stopped: ${error && error.message ? error.message : 'error'} +${Math.round(performance.now() - began)} ms`);
     stop();
     throw error;
   }
