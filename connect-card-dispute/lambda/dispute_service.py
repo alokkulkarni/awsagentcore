@@ -52,7 +52,8 @@ ASSISTANT_DISPUTE = {"ok": False, "reason": "", "message": "", "disputeId": "", 
                      "customerWatching": False, "linkSent": False}
 
 
-_LINK_WORDS = {"text": "texted to the customer", "chat": "posted in the chat"}
+_LINK_WORDS = {"text": "texted to the customer", "chat": "posted in the chat",
+               "app": "opened in the customer's banking app"}
 PAYMENTS_PER_PAGE = 5
 
 
@@ -572,7 +573,8 @@ class DisputeService:
         return f"{self.page_url}/#k={token}"
 
     def mark_link_sent(self, dispute_id: str, via: str = "text") -> None:
-        """via: "text" (an SMS on a call) or "chat" (posted in the chat)."""
+        """via: "text" (an SMS on a call), "chat" (posted in the chat) or "app" (a call from the banking app,
+        which opens the form itself when it sees this: bankapp/disputes.live)."""
         def mark(d: dict) -> list[str]:
             d["linkSentAt"], d["linkSentVia"] = self._now_text(), via
             return ["linkSentAt", "linkSentVia"]
@@ -690,7 +692,9 @@ class DisputeService:
                     "expiresInSeconds": max(0, int(screen["expiresAt"] - self.clock()))}
         shown = model.view(dispute)
         can_confirm = dispute["status"] == model.WITH_ADVISER and not shown["missing"] and not shown["customerConfirmed"]
-        return {"state": "form" if form else "attached", "dispute": shown, "canConfirm": can_confirm, **form}
+        can_submit = self.can_customer_submit(dispute)                                              # R11
+        return {"state": "form" if form else "attached", "dispute": shown, "canConfirm": can_confirm,
+                "canSubmit": can_submit, **form}
 
     def customer_confirm(self, session_id: str) -> dict:
         _, dispute = self._screen_dispute(session_id)
@@ -703,6 +707,52 @@ class DisputeService:
             d["customerConfirmation"] = {"accepted": True, "source": "customer_click", "at": self._now_text()}
             return ["customerConfirmation"]
         self._change(dispute["disputeId"], "customer", "confirmed", mutate)
+        return self.screen_status(session_id)
+
+    def customer_submit(self, customer_id: str, dispute_id: str, source: str = "app") -> dict:
+        """
+        The customer submits their own dispute (rule R11): only theirs, only a draft, only when nothing is
+        missing. Submitting is their confirmation of the details. A dispute an adviser has stays with the adviser,
+        who submits it once the customer confirms (R3). source: "app" (the banking app's list) or "form".
+        """
+        mine = self._owned(customer_id, dispute_id)
+        other = self.standing_elsewhere(mine)
+        if other and mine["status"] != model.SUBMITTED:
+            raise DisputeError("already_disputed", f"This payment has already been disputed, reference "
+                                                   f"{other['disputeId']}. There's no need to submit it again.", 409)
+
+        def mutate(d: dict) -> list[str]:
+            if d["status"] == model.SUBMITTED:
+                return []
+            if d["status"] != model.DRAFT:
+                raise DisputeError("with_adviser", "An adviser has this dispute now. They'll submit it with you.", 409)
+            gaps = model.missing(d)
+            if gaps:
+                raise DisputeError("incomplete", "Still needed: " + ", ".join(gaps) + ".", 409)
+            now = self._now_text()
+            d["customerConfirmation"] = {"accepted": True, "source": f"customer_submitted_{source}", "at": now}
+            d["status"], d["submittedAt"], d["submittedBy"] = model.SUBMITTED, now, "customer"
+            return ["customerConfirmation", "status"]
+        return self._change(dispute_id, "customer", "submitted", mutate)
+
+    def standing_elsewhere(self, dispute: dict) -> dict | None:
+        """Another dispute for the same payment that is submitted or with an adviser (one made before a payment
+        could only be disputed once), or None. A draft beside it is a duplicate: it is never submitted too."""
+        other = self._disputes_by_payment(dispute["customerId"]).get(dispute.get("transactionId", ""))
+        if other and other["disputeId"] != dispute["disputeId"] and other["status"] in (model.SUBMITTED, model.WITH_ADVISER):
+            return other
+        return None
+
+    def can_customer_submit(self, dispute: dict) -> bool:
+        """R11: a complete draft of theirs that isn't a duplicate of a dispute already raised for the payment."""
+        return dispute["status"] == model.DRAFT and not model.missing(dispute) and not self.standing_elsewhere(dispute)
+
+    def page_submit(self, session_id: str) -> dict:
+        """The customer pressed Submit on the dispute form (R11): the dispute the page is showing, as its customer."""
+        screen, dispute = self._screen_dispute(session_id)
+        if not screen or not dispute:
+            raise DisputeError("not_attached", "This page is not showing a dispute.", 403)
+        self.customer_submit(screen["customerId"], dispute["disputeId"], "form")
         return self.screen_status(session_id)
 
     # ── the adviser page ───────────────────────────────────────────────────────

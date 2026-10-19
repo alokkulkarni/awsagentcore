@@ -67,7 +67,20 @@ export async function mount({ shared, talk }) {
     if (!alive) return;
     try {
       const { disputes } = await api('/disputes');
-      $('disputes-list').replaceChildren(...disputeRows(disputes));
+      $('disputes-list').replaceChildren(...disputeRows(disputes, {
+        // The customer submits their own complete draft (the dispute service's rule R11).
+        onSubmit: async (d) => { await api('/disputes/submit', { disputeId: d.disputeId }); drawDisputes(); },
+        // An unfinished draft: back to the dispute assistant with that payment, which carries on with the draft.
+        onFinish: (d) => {
+          const payment = view.payments.find((p) => p.id === d.transactionId);
+          if (!payment) return;
+          chosen = payment;
+          shared.disputePayment = payment;
+          drawPayments();
+          talk()?.contextChanged();
+          talk()?.open();
+        },
+      }));
       const open = disputes.filter((d) => d.open).length;
       text('disputes-count', open ? String(open) : '');
     } catch { /* disputes aren't set up: the tab still holds the form */ }

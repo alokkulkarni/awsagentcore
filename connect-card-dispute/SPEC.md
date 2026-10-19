@@ -425,6 +425,12 @@ be a form before there is a dispute, as in the mortgage journey. So:
 - R9. A page save can set the transaction (one of that customer's own) and the Part 1 fields. It
   can never confirm or submit. Confirmation is still the customer's own button, after the adviser
   has the dispute.
+- R11 (added 19 Oct 2026). The customer may submit their own dispute themselves, from the form
+  (`/api/screen/submit`) or the banking app's list: only theirs, only while it is a draft, and only
+  when nothing is missing. Submitting records their confirmation (`customer_submitted_form` or
+  `_app`) and `submittedBy: customer`. A dispute an adviser has stays with the adviser (R3).
+  On a call from the banking app (`appPage` on the contact), `sendFormLink` opens the form in the
+  app instead of texting it.
 - R10. Fields set through the page are recorded as filled by `page`. The page cannot tell the
   agent's typing from the customer's, and does not claim to.
 

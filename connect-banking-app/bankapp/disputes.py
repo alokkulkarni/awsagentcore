@@ -6,6 +6,7 @@ dispute_store, dispute_model, packaged unchanged from connect-card-dispute/lambd
 app sees exactly what the dispute assistant and the adviser see.
 
     list_disputes   the customer's disputes, newest first, for the Help and Cards pages
+    submit          the customer submits their own complete draft (the service's rule R11)
     live            during a conversation: the customer's open dispute, and whether the dispute assistant has
                     sent its form since this conversation began (on a call it texts it; in a chat it posts it)
     open_live       opens that dispute's form in the app, joined to the app's own call or chat: the service's
@@ -56,7 +57,10 @@ def _summary(dispute: dict) -> dict:
                                      "cardType", "cardLastFour", "missing")},
             "open": dispute["status"] in model.OPEN_STATUSES, "updatedAt": dispute.get("updatedAt", ""),
             "formSentAt": dispute.get("linkSentAt", ""), "formSentVia": dispute.get("linkSentVia", ""),
-            "watching": bool(dispute.get("screenAttached"))}
+            "watching": bool(dispute.get("screenAttached")), "transactionId": dispute.get("transactionId", ""),
+            "canSubmit": service().can_customer_submit(dispute),
+            "alreadyDisputedAs": (service().standing_elsewhere(dispute) or {}).get("disputeId", "")
+                                 if dispute["status"] == model.DRAFT else ""}
 
 
 def list_disputes(customer_id: str) -> list[dict]:
@@ -89,6 +93,11 @@ def live(customer_id: str, began_at: float) -> dict:
     # The service stamps whole seconds: allow for the second the conversation began in.
     sent = bool(dispute["formSentAt"]) and _as_time(dispute["formSentAt"]) >= began_at - 1
     return {"dispute": dispute, "formSent": sent and dispute["status"] == model.DRAFT}
+
+
+def submit(customer_id: str, dispute_id: str) -> dict:
+    """The customer submits their own dispute from the list: only theirs, only a complete draft (service rule R11)."""
+    return _summary(service().customer_submit(customer_id, dispute_id, "app"))
 
 
 def open_live(customer_id: str, contact_id: str, dispute_id: str) -> dict:

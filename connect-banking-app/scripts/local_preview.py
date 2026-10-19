@@ -84,6 +84,12 @@ def main() -> None:
         disputes._service = DisputeService(DisputeMemory(time.time), time.time, page_url="https://disputes.example")
         payment = next(t for t in dispute_model.card_transactions(args.customer) if "ELECTROWORLD" in t["merchant"])
         disputes._service.start_card_dispute(args.customer, payment["transaction_id"], "merchant")
+        # And a complete one, so the "Submit" path shows too (the customer may submit a complete draft).
+        other = next((t for t in dispute_model.card_transactions(args.customer) if "ELECTROWORLD" not in t["merchant"]), None)
+        if other:
+            done = disputes._service.start_card_dispute(args.customer, other["transaction_id"], "unauthorised")["dispute_id"]
+            disputes._service.update_card_dispute(args.customer, done, {
+                "reason": "not_recognised", "cardInPossession": "yes", "narrative": "I don't recognise this payment."})
 
     class Handler(BaseHTTPRequestHandler):
         def _run(self, method: str) -> None:

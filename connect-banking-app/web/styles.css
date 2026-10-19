@@ -457,7 +457,7 @@ main.wrap.app-main { margin-top: 0; padding-top: 22px; outline: none; }
 .panel h2 { margin: 0 0 8px; font-size: 1.15rem; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
 .panel-head a, .panel a { color: var(--brand-2); }
-.button, #next, #submit, #dispute-confirm {
+.button, #next, #submit, #dispute-confirm, #dispute-submit, .dispute-submit-start, .dispute-submit-yes {
   display: inline-block; padding: 11px 20px; border: 0; border-radius: 999px; background: var(--brand); color: var(--on-brand);
   font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
 button.secondary { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
@@ -473,6 +473,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   box-shadow: var(--shadow); color: var(--ink); text-decoration: none; border-left: 5px solid var(--brand); }
 .account:hover { transform: translateY(-1px); }
 .account.selected { outline: 2px solid var(--brand); outline-offset: 2px; }
+.dispute-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.dispute-actions .dispute-submit-start, .dispute-actions .dispute-submit-yes { padding: 7px 16px; font-size: .88rem; }
+.dispute-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.dispute-actions .error:empty, .dispute-submit-box .error:empty { display: none; }
+.dispute-submit-box { margin-top: 12px; padding: 12px; border-radius: var(--radius); background: var(--bg); }
 .tx-empty { color: var(--muted); padding: 10px 0; }
 .account-savings { border-left-color: var(--in); }
 .account-mortgage { border-left-color: var(--save); }
