@@ -151,11 +151,16 @@ def _began_at(contact_id: str) -> float:
     return began.timestamp() if hasattr(began, "timestamp") else 0.0
 
 
-def dispute_route(path: str, customer: str, body: dict, token: str) -> dict:
-    """The customer's disputes; during a conversation, the dispute being filled in and its form."""
+def dispute_route(path: str, customer: str, body: dict, token: str, verified: bool = False) -> dict:
+    """The customer's disputes; submitting one; during a conversation, the dispute being filled in and its form."""
     try:
         if path == "/api/disputes":
             return {"disputes": disputes.list_disputes(customer)}
+        if path == "/api/disputes/submit":
+            # Submitting acts on the customer's behalf: only from a verified link, like starting a dispute.
+            if not verified:
+                raise MoneyHubError("not_verified", "Sign in with your verified link to submit a dispute.", 403)
+            return {"dispute": disputes.submit(customer, _s(body, "disputeId"))}
         contact_id = _s(body, "contactId")
         _own_contact(token, contact_id)
         if path == "/api/disputes/live":
@@ -232,8 +237,8 @@ def web(event: dict) -> dict:
                 "documents": [d for d in body.get("documents") or [] if d in ("payslips", "bank_statement", "photo_id")]})
         elif path == "/api/dispute/config":
             reply = {**partners.dispute_config(REGION, money_api.CONNECT_INSTANCE_ID), "pagesUrl": DISPUTE_PAGES_URL}
-        elif path in ("/api/disputes", "/api/disputes/live", "/api/disputes/open"):
-            reply = dispute_route(path, customer, body, token)
+        elif path in ("/api/disputes", "/api/disputes/live", "/api/disputes/open", "/api/disputes/submit"):
+            reply = dispute_route(path, customer, body, token, bool(journeys.money_hub.verified_level(session["loa"])))
         elif path.startswith("/api/dispute/screen/"):
             screen = {k: body[k] for k in ("sessionId", "linkToken", "fields") if k in body}
             reply = partners.dispute_screen(path.rsplit("/", 1)[-1], screen)

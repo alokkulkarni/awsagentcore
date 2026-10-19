@@ -27,7 +27,7 @@ DISPUTE_TOUCHPOINT_SECRET = os.environ.get("DISPUTE_TOUCHPOINT_SECRET", "")
 HELP_PHONE_NUMBER = os.environ.get("HELP_PHONE_NUMBER", "")
 KEYS_SECONDS = 5 * 60
 MORTGAGE_PAGE_OPS = ("createHelpCode", "helpCodeStatus", "submitApplication")
-DISPUTE_SCREEN_ROUTES = ("open", "status", "save", "confirm")
+DISPUTE_SCREEN_ROUTES = ("open", "status", "save", "confirm", "submit")
 
 _lambda = None
 _secrets = None

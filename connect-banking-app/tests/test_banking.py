@@ -91,7 +91,8 @@ class WhoHelps(Base):
     def test_money_hub_sends_exactly_what_the_money_hub_page_sends(self):
         status, reply = self.post("/api/contact/chat", token=self.verified, page="money_hub", view="goals")
         self.assertEqual(status, 200)
-        self.assertEqual(self.attributes(), {**journeys.money_hub.attributes(JAMES, "2", "goals")})
+        self.assertEqual(self.attributes(), {**journeys.money_hub.attributes(JAMES, "2", "goals"), "appPage": "money_hub"},
+                         "the Money Hub page's own attributes, plus appPage: this app's form opens on a call")
         self.assertEqual(self.attributes()["entry"], "money_hub")
         self.assertIn("Goals tab", reply["opener"])
 
@@ -258,6 +259,47 @@ class Disputes(Base):
     def start_call(self, token=None):
         _, started = self.post("/api/contact/call", token=token or self.verified, page="card_dispute")
         return started["contactId"]
+
+    def complete(self):
+        self.service.update_card_dispute(JAMES, self.dispute, {"reason": "goods_not_received", "contactedMerchant": "yes",
+                                                                 "narrative": "It never arrived."})
+
+    # ── the customer submits their own dispute (the dispute service's rule R11) ──
+
+    def test_a_complete_draft_can_be_submitted_by_the_customer_from_the_list(self):
+        _, listed = self.post("/api/disputes", token=self.verified)
+        row = next(d for d in listed["disputes"] if d["disputeId"] == self.dispute)
+        self.assertFalse(row["canSubmit"], "not until nothing is missing")
+        self.assertTrue(row["transactionId"], "so an unfinished one can go back to the assistant with its payment")
+        self.assertEqual(self.post("/api/disputes/submit", token=self.verified, disputeId=self.dispute)[1]["error"],
+                         "incomplete")
+        self.complete()
+        _, listed = self.post("/api/disputes", token=self.verified)
+        self.assertTrue(next(d for d in listed["disputes"] if d["disputeId"] == self.dispute)["canSubmit"])
+        status, done = self.post("/api/disputes/submit", token=self.verified, disputeId=self.dispute)
+        self.assertEqual((status, done["dispute"]["status"], done["dispute"]["canSubmit"]), (200, "submitted", False))
+        stored = self.service.store.get(f"dispute#{self.dispute}")
+        self.assertEqual((stored["submittedBy"], stored["customerConfirmation"]["source"]),
+                         ("customer", "customer_submitted_app"))
+
+    def test_only_a_verified_customer_submits_and_only_their_own(self):
+        self.complete()
+        status, reply = self.post("/api/disputes/submit", token=self.demo, disputeId=self.dispute)
+        self.assertEqual((status, reply["error"]), (403, "not_verified"))
+        sarah = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
+        self.assertEqual(self.post("/api/disputes/submit", token=sarah, disputeId=self.dispute)[1]["error"],
+                         "dispute_not_found")
+        self.assertEqual(self.service.store.get(f"dispute#{self.dispute}")["status"], "draft")
+
+    def test_the_form_can_be_submitted_from_the_app_as_its_page_makes_the_call(self):
+        self.assertIn("submit", __import__("bankapp.partners", fromlist=["x"]).DISPUTE_SCREEN_ROUTES)
+        form = (APP / "web" / "dispute" / "form.js").read_text()
+        self.assertIn("api('/dispute/screen/submit', { sessionId })", form)
+        self.assertIn("if (!event.isTrusted) return; // only the customer's own click submits", form)
+
+    def test_a_call_from_the_money_hub_page_is_marked_as_this_apps_so_the_form_opens_here(self):
+        self.post("/api/contact/call", token=self.verified, page="money_hub", view="out")
+        self.assertEqual(self.connect.calls[-1][1]["Attributes"]["appPage"], "money_hub")
 
     def test_the_customers_disputes_are_listed_newest_first(self):
         status, reply = self.post("/api/disputes", token=self.verified)

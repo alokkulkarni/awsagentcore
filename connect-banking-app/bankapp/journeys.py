@@ -59,7 +59,9 @@ def attributes(page: str, customer_id: str, loa: str, view: str = "", stage: str
                application_id: str = "", payment: dict | None = None, first_name: str = "") -> dict:
     """The contact attributes for a chat or call started on this page."""
     if page == "money_hub":
-        return money_hub.attributes(customer_id, loa, view)
+        # appPage marks a contact from this app (as on every other page): on a call, the dispute service then opens
+        # its form here instead of texting it (a call from the browser has no number to text).
+        return {**money_hub.attributes(customer_id, loa, view), "appPage": "money_hub"}
     if page == "mortgage":
         if stage not in MORTGAGE_STAGES:
             raise ValueError("unknown mortgage stage")

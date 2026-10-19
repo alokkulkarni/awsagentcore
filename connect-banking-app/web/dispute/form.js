@@ -88,6 +88,7 @@ export async function mountDisputeForm({ shared, onChange = () => {} }) {
     const missing = status.dispute?.missing ?? [];
     show('dispute-missing', missing.length > 0);
     text('dispute-missing', `Still to fill in: ${missing.join(', ')}.`);
+    show('dispute-submit-box', Boolean(status.canSubmit) && !saver.pending());       // the customer may submit (R11)
     if (!liveSyncStarted) {
       liveSyncStarted = true;
       config = config || await api('/dispute/config').catch(() => ({ configured: false }));
@@ -157,6 +158,12 @@ export async function mountDisputeForm({ shared, onChange = () => {} }) {
     text('dispute-saved', 'Saving…'); saver.changed(formValues);
   });
   $('dispute-form').addEventListener('submit', (event) => event.preventDefault());
+  $('dispute-submit').addEventListener('click', async (event) => {
+    if (!event.isTrusted) return; // only the customer's own click submits
+    $('dispute-submit').disabled = true; text('dispute-submit-error', '');
+    try { draw(await api('/dispute/screen/submit', { sessionId })); } catch (error) { text('dispute-submit-error', error.message); }
+    $('dispute-submit').disabled = false;
+  });
   $('dispute-confirm').addEventListener('click', async (event) => {
     if (!event.isTrusted) return; // only the customer's own click counts
     $('dispute-confirm').disabled = true; text('dispute-error', '');
