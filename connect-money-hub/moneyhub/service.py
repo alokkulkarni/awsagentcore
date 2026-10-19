@@ -162,13 +162,31 @@ class MoneyHub:
         return plan
 
     def financial_picture(self, customer_id: str) -> dict:
-        """The whole picture (analysis.financial_picture), each goal with whether it's on track alongside the others."""
+        """The whole picture (analysis.financial_picture), each goal with what's saved towards it and whether it's
+        on track alongside the others."""
         picture = analysis.financial_picture(self.transactions(customer_id), self.goals(customer_id))
         plans = {g["name"]: g["plan"] for g in self.goals_with_plans(customer_id)}
-        picture["goals"] = [g | {"onTrack": (plans.get(g["name"]) or {}).get("onTrack"),
+        saved = {g["name"]: float(g.get("saved") or 0) for g in self.goals(customer_id)}
+        picture["goals"] = [g | {"saved": saved.get(g["name"], 0.0),
+                                 "onTrack": (plans.get(g["name"]) or {}).get("onTrack"),
                                  "reachedAtCurrentRate": (plans.get(g["name"]) or {}).get("reachedAtCurrentRate")}
                             for g in picture["goals"]]
         return picture
+
+    def saved_goals(self, customer_id: str) -> list[dict]:
+        """Each saved goal as the Goals tab shows it: its amount, date and what's saved, what it needs a month from
+        now, and whether it's on track. A goal whose date has passed is listed too, with needsPerMonth None."""
+        needs = {g["name"]: g for g in analysis.goal_commitments(self.goals(customer_id))}
+        plans = {g["name"]: g["plan"] for g in self.goals_with_plans(customer_id)}
+        out = []
+        for goal in self.goals(customer_id):
+            plan = plans.get(goal["name"]) or {}
+            out.append({"name": goal["name"], "target": float(goal["target"]), "byDate": goal["byDate"],
+                        "byDateWords": date.fromisoformat(goal["byDate"]).strftime("%-d %B %Y"),
+                        "saved": float(goal.get("saved") or 0),
+                        "needsPerMonth": (needs.get(goal["name"]) or {}).get("perMonth"),
+                        "onTrack": plan.get("onTrack"), "reachedAtCurrentRate": plan.get("reachedAtCurrentRate")})
+        return out
 
     def compare(self, customer_id: str, month_a: str, month_b: str) -> dict:
         return analysis.compare(self.transactions(customer_id), month_a, month_b)

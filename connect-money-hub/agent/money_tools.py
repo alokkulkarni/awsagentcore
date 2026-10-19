@@ -139,11 +139,18 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         """The customer's whole money picture in one call: balance now; each of the last three months (money in,
         money out, left over, and oneOffs: the big one-off spending that made a month stand out); a typical month;
         bills and essentials against spending they choose; regular payments; the months ahead (lookingAhead:
-        expected left over and the lowest month-end balance); and every saved goal with what it needs a month
-        (perMonth) and whether it's on track. freeEachMonth is the typical month's left over less what their saved
+        expected left over and the lowest month-end balance); and every saved goal with its target, byDate
+        (byDateWords), what's already saved, what it needs a month (perMonth) and whether it's on track. freeEachMonth is the typical month's left over less what their saved
         goals need now. Use it before suggesting a new goal or how much they could put aside, and for
         "how am I doing" or "can I afford…"."""
         return hub.financial_picture(customer_id)
+
+    def get_saved_goals() -> dict:
+        """The customer's saved goals, exactly as on their Goals tab: name, target (the amount), byDate and
+        byDateWords (the date), saved (already put aside), needsPerMonth (what it needs a month from now) and
+        onTrack. Call it whenever they mention a goal they already have, before anything else: never ask them for
+        a saved goal's amount or date."""
+        return {"goals": hub.saved_goals(customer_id)}
 
     def plan_savings_goal(target_amount: float, target_date: str = "", months: int = 0,
                           already_saved: float = 0.0, name: str = "") -> dict:
@@ -159,7 +166,7 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         others have theirs; the gap is against this). It also gives recentMonths (with oneOffs) and lookingAhead
         to say how steady that is. wouldLeaveShort lists saved goals that are on track now but wouldn't be with
         this one too. name: only when re-planning one of their saved goals (so it isn't counted
-        against itself)."""
+        against itself); then give its saved target, date and already_saved for anything they aren't changing."""
         return hub.goal_plan(customer_id, float(target_amount), int(months) or None, float(already_saved or 0),
                              target_date or "", name=name or "")
 
@@ -168,7 +175,8 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
         target_date as YYYY-MM (a month; saved as its last day) or YYYY-MM-DD, after today. To save it for when
         they'd reach it, use the date in reachedWithMix (or reachedAtCurrentRate) from plan_savings_goal.
         already_saved is only money the customer says they've already put aside for this goal; never their
-        account balance. 0 if they haven't said."""
+        account balance. 0 if they haven't said. Saving under the name of a goal they already have replaces it:
+        to change a saved goal, use its exact name and keep its saved values for anything they aren't changing."""
         goal = hub.save_goal(customer_id, name, float(target_amount), target_date, float(already_saved or 0))["goal"]
         return {"saved": True, "goal": goal, "goalsNow": [g["name"] for g in hub.goals(customer_id)],
                 "whereToSee": "the Goals tab of their Money Hub page (it updates while you talk)"}
@@ -205,6 +213,6 @@ def build_tools(hub: MoneyHub, customer_id: str, channel: str, recorder: Recorde
                                        "transferring."}
 
     tools = [get_money_overview, get_financial_picture, get_spending_by_category, find_transactions, get_regular_payments,
-             get_expected_months, get_spending_habits, plan_savings_goal, save_savings_goal, compare_months,
+             get_expected_months, get_spending_habits, get_saved_goals, plan_savings_goal, save_savings_goal, compare_months,
              recategorise_transaction, get_money_hub_link, hand_back]
     return [recorder.wrap(t) for t in tools]
