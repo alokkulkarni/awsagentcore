@@ -1,0 +1,247 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "enableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": -220,
+      "y": 0
+    },
+    "ActionMetadata": {
+      "enableLogging": {
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "checkChannel": {
+        "position": {
+          "x": 260,
+          "y": 0
+        }
+      },
+      "voiceRecordingAnalytics": {
+        "position": {
+          "x": 520,
+          "y": 160
+        }
+      },
+      "chatAnalytics": {
+        "position": {
+          "x": 520,
+          "y": -160
+        }
+      },
+      "setVoiceAmy": {
+        "position": {
+          "x": 780,
+          "y": 0
+        },
+        "children": [
+          "setLanguage"
+        ],
+        "fragments": {
+          "SetContactData": "setLanguage"
+        }
+      },
+      "done": {
+        "position": {
+          "x": 1040,
+          "y": 0
+        }
+      },
+      "setupFailed": {
+        "position": {
+          "x": 1040,
+          "y": 320
+        }
+      },
+      "setLanguage": {
+        "position": {
+          "x": 780,
+          "y": 0
+        },
+        "dynamicParams": []
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "enableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "checkChannel"
+      }
+    },
+    {
+      "Identifier": "checkChannel",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Channel"
+      },
+      "Transitions": {
+        "NextAction": "voiceRecordingAnalytics",
+        "Conditions": [
+          {
+            "NextAction": "chatAnalytics",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "CHAT"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "voiceRecordingAnalytics",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "voiceRecordingAnalytics",
+      "Type": "UpdateContactRecordingAndAnalyticsBehavior",
+      "Parameters": {
+        "VoiceBehavior": {
+          "VoiceRecordingBehavior": {
+            "RecordedParticipants": [
+              "Agent",
+              "Customer"
+            ],
+            "IVRRecordingBehavior": "Enabled"
+          },
+          "VoiceAnalyticsBehavior": {
+            "Enabled": "True",
+            "AnalyticsLanguage": "en-GB",
+            "AnalyticsModes": [
+              "RealTime",
+              "AutomatedInteraction"
+            ],
+            "ConversationalAnalyticsRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "SentimentConfiguration": {
+              "Enabled": "True"
+            },
+            "SummaryConfiguration": {
+              "SummaryModes": [
+                "PostContact",
+                "AutomatedInteraction"
+              ]
+            }
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "setVoiceAmy",
+        "Errors": [
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "ChannelMismatch"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "chatAnalytics",
+      "Type": "UpdateContactRecordingAndAnalyticsBehavior",
+      "Parameters": {
+        "ChatBehavior": {
+          "ChatAnalyticsBehavior": {
+            "Enabled": "True",
+            "AnalyticsLanguage": "en-GB",
+            "AnalyticsModes": [
+              "ContactLens"
+            ],
+            "ConversationalAnalyticsRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "InFlightChatRedactionConfiguration": {
+              "Enabled": "False"
+            },
+            "SentimentConfiguration": {
+              "Enabled": "True"
+            },
+            "SummaryConfiguration": {
+              "SummaryModes": [
+                "PostContact",
+                "AutomatedInteraction"
+              ]
+            }
+          }
+        }
+      },
+      "Transitions": {
+        "NextAction": "setVoiceAmy",
+        "Errors": [
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "ChannelMismatch"
+          },
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "InFlightRedactionConfigurationFailed"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "setVoiceAmy",
+      "Type": "UpdateContactTextToSpeechVoice",
+      "Parameters": {
+        "TextToSpeechVoice": "Amy",
+        "TextToSpeechEngine": "Generative",
+        "TextToSpeechStyle": "None"
+      },
+      "Transitions": {
+        "NextAction": "setLanguage",
+        "Errors": [
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "setLanguage",
+      "Type": "UpdateContactData",
+      "Parameters": {
+        "LanguageCode": "en-GB"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "setupFailed",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "done",
+      "Type": "EndFlowModuleExecution",
+      "Parameters": {},
+      "Transitions": {}
+    },
+    {
+      "Identifier": "setupFailed",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

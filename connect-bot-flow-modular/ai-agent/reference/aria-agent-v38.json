@@ -1,0 +1,2214 @@
+{
+  "assistantId": "e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "assistantArn": "arn:aws:wisdom:eu-west-2:395402194296:assistant/e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "aiAgentId": "68179bd0-78d7-4298-8696-b3817a93b6c2",
+  "aiAgentArn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/68179bd0-78d7-4298-8696-b3817a93b6c2:38",
+  "name": "my-conversation-agent",
+  "type": "ORCHESTRATION",
+  "configuration": {
+    "orchestrationAIAgentConfiguration": {
+      "orchestrationAIPromptId": "37cae8d9-1d2c-49d1-8b1a-771f22f6ab7c:27",
+      "orchestrationAIGuardrailId": "ade1cb50-b97f-4e62-a904-3b9668f6360e:3",
+      "toolConfigurations": [
+        {
+          "toolName": "Retrieve",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "aws_service__qconnect_Retrieve",
+          "toolId": "aws_service__qconnect_Retrieve",
+          "description": "Searches the knowledge base to return relevant knowledge article excerpts.",
+          "instruction": {
+            "instruction": "Search the knowledge base using semantic search to find relevant information. Use the results of the RETRIEVE tool to provide an informed answer to the customer's query.",
+            "examples": [
+              "Good example:\n<message>\n  I found your warranty covers parts replacement for any manufacturing defects during the first year. We offer extended warranty coverage for eligible products beyond the manufacturer's warranty period.\n</message>",
+              "Example for no results:\n<message>\nI don't have specific information about that topic available.\n</message>"
+            ]
+          },
+          "overrideInputValues": [
+            {
+              "jsonPath": "$.retrievalConfiguration.knowledgeSource.assistantAssociationIds",
+              "value": {
+                "constant": {
+                  "type": "JSON_STRING",
+                  "value": "[\"19016f17-21e9-4596-a423-4fdc7d9f103f\"]"
+                }
+              }
+            }
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "assistantId": {
+                "type": "string"
+              },
+              "retrievalConfiguration": {
+                "type": "object",
+                "properties": {
+                  "knowledgeSource": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "assistantAssociationIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "uniqueItems": false
+                          }
+                        },
+                        "required": [
+                          "assistantAssociationIds"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "filter": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "andAll": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            "uniqueItems": false
+                          }
+                        },
+                        "required": [
+                          "andAll"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "equals": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "equals"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "greaterThan": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "greaterThan"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "greaterThanOrEquals": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "greaterThanOrEquals"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "in": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "in"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "lessThan": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "lessThan"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "lessThanOrEquals": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "lessThanOrEquals"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "listContains": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "listContains"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "notEquals": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "notEquals"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "notIn": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "notIn"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "orAll": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            "uniqueItems": false
+                          }
+                        },
+                        "required": [
+                          "orAll"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "startsWith": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "startsWith"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "stringContains": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null"
+                                ]
+                              },
+                              "key": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "value"
+                            ],
+                            "$schema": "http://json-schema.org/draft-07/schema#"
+                          }
+                        },
+                        "required": [
+                          "stringContains"
+                        ],
+                        "additionalProperties": false,
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "overrideKnowledgeBaseSearchType": {
+                    "type": "string",
+                    "enum": [
+                      "SEMANTIC",
+                      "HYBRID"
+                    ]
+                  },
+                  "numberOfResults": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "knowledgeSource"
+                ],
+                "$schema": "http://json-schema.org/draft-07/schema#"
+              },
+              "retrievalQuery": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "assistantId",
+              "retrievalConfiguration",
+              "retrievalQuery"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourceId": {
+                      "type": "string"
+                    },
+                    "contentText": {
+                      "type": "string"
+                    },
+                    "referenceType": {
+                      "type": "string",
+                      "enum": [
+                        "KNOWLEDGE_BASE",
+                        "BEDROCK_KB_WEB",
+                        "BEDROCK_KB_SALESFORCE",
+                        "BEDROCK_KB_S3",
+                        "BEDROCK_KB_CUSTOM_DOCUMENT",
+                        "BEDROCK_KB_CONFLUENCE",
+                        "BEDROCK_KB_SHAREPOINT",
+                        "BEDROCK_KB_SQL",
+                        "WEB_CRAWLER",
+                        "BEDROCK_KB_KENDRA"
+                      ]
+                    },
+                    "associationId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "associationId",
+                    "sourceId",
+                    "referenceType",
+                    "contentText"
+                  ],
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "uniqueItems": false
+              },
+              "errors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "The error code categorizing the failure. . Error code returned for a failed assistant association during multi-association Retrieve.",
+                      "enum": [
+                        "INTERNAL_SERVER_ERROR",
+                        "ACCESS_DENIED",
+                        "RESOURCE_NOT_FOUND",
+                        "DEPENDENCY_FAILED",
+                        "THROTTLED",
+                        "VALIDATION_ERROR"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "A human-readable description of the failure."
+                    },
+                    "associationId": {
+                      "type": "string",
+                      "description": "The assistant association ID for which the retrieval failed."
+                    }
+                  },
+                  "required": [
+                    "associationId",
+                    "code",
+                    "message"
+                  ],
+                  "description": "An error returned for an individual assistant association during a multi-association Retrieve. The overall request may still succeed with results from other associations.",
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "uniqueItems": false,
+                "description": "Per-association errors returned when one or more associations failed during a multi-association Retrieve. The overall request still succeeds when at least one association returns results."
+              }
+            },
+            "required": [
+              "results"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "annotations": {},
+          "userInteractionConfiguration": {
+            "isUserConfirmationRequired": false
+          }
+        },
+        {
+          "toolName": "QueryAssistant",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "aws_service__qconnect_QueryAssistant",
+          "toolId": "aws_service__qconnect_QueryAssistant",
+          "description": "Searches knowledge base with specific queries when an agent or customer asks an explicit question. Generates answers, notes, email summaries, and performs discrete tasks based on available information in context.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "assistantId": {
+                "type": "string",
+                "description": "The identifier of the Amazon Q in Connect assistant. Can be either the ID or the ARN. URLs cannot contain the ARN."
+              },
+              "queryCondition": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "single": {
+                          "type": "object",
+                          "properties": {
+                            "comparator": {
+                              "type": "string",
+                              "description": "The comparison operator for query condition to query on.",
+                              "enum": [
+                                "EQUALS"
+                              ]
+                            },
+                            "field": {
+                              "type": "string",
+                              "description": "The name of the field for query condition to query on.",
+                              "enum": [
+                                "RESULT_TYPE"
+                              ]
+                            },
+                            "value": {
+                              "type": "string",
+                              "description": "The value for the query condition to query on."
+                            }
+                          },
+                          "required": [
+                            "field",
+                            "comparator",
+                            "value"
+                          ],
+                          "description": "The condition for the query. . The condition for the query.",
+                          "$schema": "http://json-schema.org/draft-07/schema#"
+                        }
+                      },
+                      "required": [
+                        "single"
+                      ],
+                      "additionalProperties": false,
+                      "$schema": "http://json-schema.org/draft-07/schema#"
+                    }
+                  ],
+                  "description": "Information about how to query content.",
+                  "type": "object"
+                },
+                "uniqueItems": false,
+                "description": "Information about how to query content."
+              },
+              "nextToken": {
+                "type": "string",
+                "description": "The token for the next set of results. Use the value returned in the previous response in the next request to retrieve the next set of results."
+              },
+              "maxResults": {
+                "type": "number",
+                "description": "The maximum number of results to return per page."
+              },
+              "overrideKnowledgeBaseSearchType": {
+                "type": "string",
+                "description": "The search type to be used against the Knowledge Base for this request. The values can be SEMANTIC which uses vector embeddings or HYBRID which use vector embeddings and raw text.",
+                "enum": [
+                  "SEMANTIC",
+                  "HYBRID"
+                ]
+              },
+              "queryText": {
+                "type": "string",
+                "description": "The text to search for."
+              },
+              "queryInputData": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "queryTextInputData": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "description": "The text to search for."
+                          }
+                        },
+                        "required": [
+                          "text"
+                        ],
+                        "description": "Input information for the query. . Information about the text to search for.",
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      }
+                    },
+                    "required": [
+                      "queryTextInputData"
+                    ],
+                    "additionalProperties": false,
+                    "$schema": "http://json-schema.org/draft-07/schema#"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "intentInputData": {
+                        "type": "object",
+                        "properties": {
+                          "intentId": {
+                            "type": "string",
+                            "description": "The identifier of the Amazon Q intent."
+                          }
+                        },
+                        "required": [
+                          "intentId"
+                        ],
+                        "description": "Input information for the intent. . Information about the Amazon Q intent.",
+                        "$schema": "http://json-schema.org/draft-07/schema#"
+                      }
+                    },
+                    "required": [
+                      "intentInputData"
+                    ],
+                    "additionalProperties": false,
+                    "$schema": "http://json-schema.org/draft-07/schema#"
+                  }
+                ],
+                "description": "Information about the query. . Input information for the query.",
+                "type": "object"
+              },
+              "sessionId": {
+                "type": "string",
+                "description": "The identifier of the Amazon Q in Connect session. Can be either the ID or the ARN. URLs cannot contain the ARN."
+              }
+            },
+            "required": [
+              "assistantId"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "nextToken": {
+                "type": "string",
+                "description": "If there are additional results, this is the token for the next set of results."
+              },
+              "results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "resultId": {
+                      "type": "string",
+                      "description": "The identifier of the result data."
+                    },
+                    "relevanceScore": {
+                      "type": "number",
+                      "description": "The relevance score of the results."
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "reference": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "contentReference": {
+                                  "type": "object",
+                                  "properties": {
+                                    "contentArn": {
+                                      "type": "string",
+                                      "description": "The Amazon Resource Name (ARN) of the content."
+                                    },
+                                    "sourceURL": {
+                                      "type": "string",
+                                      "description": "The web URL of the source content."
+                                    },
+                                    "contentId": {
+                                      "type": "string",
+                                      "description": "The identifier of the content."
+                                    },
+                                    "referenceType": {
+                                      "type": "string",
+                                      "description": "The type of reference content.",
+                                      "enum": [
+                                        "KNOWLEDGE_BASE",
+                                        "BEDROCK_KB_WEB",
+                                        "BEDROCK_KB_SALESFORCE",
+                                        "BEDROCK_KB_S3",
+                                        "BEDROCK_KB_CUSTOM_DOCUMENT",
+                                        "BEDROCK_KB_CONFLUENCE",
+                                        "BEDROCK_KB_SHAREPOINT",
+                                        "BEDROCK_KB_SQL",
+                                        "WEB_CRAWLER",
+                                        "BEDROCK_KB_KENDRA"
+                                      ]
+                                    },
+                                    "knowledgeBaseId": {
+                                      "type": "string",
+                                      "description": "The identifier of the knowledge base. This should not be a QUICK_RESPONSES type knowledge base."
+                                    },
+                                    "knowledgeBaseArn": {
+                                      "type": "string",
+                                      "description": "The Amazon Resource Name (ARN) of the knowledge base."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Reference information about the content.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "contentReference"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "generativeReference": {
+                                  "type": "object",
+                                  "properties": {
+                                    "generationId": {
+                                      "type": "string",
+                                      "description": "The identifier of the LLM model."
+                                    },
+                                    "modelId": {
+                                      "type": "string",
+                                      "description": "The identifier of the LLM model."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Reference information about the generative content. . Reference information about generative content.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "generativeReference"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "suggestedMessageReference": {
+                                  "type": "object",
+                                  "properties": {
+                                    "aiAgentArn": {
+                                      "type": "string"
+                                    },
+                                    "aiAgentId": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "aiAgentId",
+                                    "aiAgentArn"
+                                  ],
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "suggestedMessageReference"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            }
+                          ],
+                          "description": "Reference information about the content. . Reference data.",
+                          "type": "object"
+                        },
+                        "details": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "contentData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "rankingData": {
+                                      "type": "object",
+                                      "properties": {
+                                        "relevanceScore": {
+                                          "type": "number",
+                                          "description": "The relevance level of the recommendation."
+                                        },
+                                        "relevanceLevel": {
+                                          "type": "string",
+                                          "description": "The relevance score of the content.",
+                                          "enum": [
+                                            "HIGH",
+                                            "MEDIUM",
+                                            "LOW"
+                                          ]
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Details about the content ranking data. . Details about the source content ranking data.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    },
+                                    "textData": {
+                                      "type": "object",
+                                      "properties": {
+                                        "title": {
+                                          "type": "object",
+                                          "properties": {
+                                            "highlights": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "endOffsetExclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the end of the highlight."
+                                                  },
+                                                  "beginOffsetInclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the start of the highlight."
+                                                  }
+                                                },
+                                                "required": [],
+                                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                                "$schema": "http://json-schema.org/draft-07/schema#"
+                                              },
+                                              "uniqueItems": false,
+                                              "description": "Highlights in the document text."
+                                            },
+                                            "text": {
+                                              "type": "string",
+                                              "description": "Text in the document."
+                                            }
+                                          },
+                                          "required": [],
+                                          "description": "The text of the document.",
+                                          "$schema": "http://json-schema.org/draft-07/schema#"
+                                        },
+                                        "excerpt": {
+                                          "type": "object",
+                                          "properties": {
+                                            "highlights": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "endOffsetExclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the end of the highlight."
+                                                  },
+                                                  "beginOffsetInclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the start of the highlight."
+                                                  }
+                                                },
+                                                "required": [],
+                                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                                "$schema": "http://json-schema.org/draft-07/schema#"
+                                              },
+                                              "uniqueItems": false,
+                                              "description": "Highlights in the document text."
+                                            },
+                                            "text": {
+                                              "type": "string",
+                                              "description": "Text in the document."
+                                            }
+                                          },
+                                          "required": [],
+                                          "description": "The text of the document.",
+                                          "$schema": "http://json-schema.org/draft-07/schema#"
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Details about the content text data. . Details about the source content text data.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    }
+                                  },
+                                  "required": [
+                                    "textData",
+                                    "rankingData"
+                                  ],
+                                  "description": "Details about the content data. . Details about the content data.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "contentData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "generativeData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "rankingData": {
+                                      "type": "object",
+                                      "properties": {
+                                        "relevanceScore": {
+                                          "type": "number",
+                                          "description": "The relevance level of the recommendation."
+                                        },
+                                        "relevanceLevel": {
+                                          "type": "string",
+                                          "description": "The relevance score of the content.",
+                                          "enum": [
+                                            "HIGH",
+                                            "MEDIUM",
+                                            "LOW"
+                                          ]
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Details about the generative content ranking data. . Details about the source content ranking data.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    },
+                                    "completion": {
+                                      "type": "string",
+                                      "description": "The LLM response."
+                                    },
+                                    "references": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "$schema": "http://json-schema.org/draft-07/schema#"
+                                      },
+                                      "uniqueItems": false,
+                                      "description": "The references used to generative the LLM response."
+                                    }
+                                  },
+                                  "required": [
+                                    "completion",
+                                    "references",
+                                    "rankingData"
+                                  ],
+                                  "description": "Details about the generative data. . Details about generative data.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "generativeData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "intentDetectedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "relevanceLevel": {
+                                      "type": "string",
+                                      "enum": [
+                                        "HIGH",
+                                        "MEDIUM",
+                                        "LOW"
+                                      ]
+                                    },
+                                    "intentId": {
+                                      "type": "string",
+                                      "description": "The identifier of the detected intent."
+                                    },
+                                    "intent": {
+                                      "type": "string",
+                                      "description": "The detected intent."
+                                    }
+                                  },
+                                  "required": [
+                                    "intent",
+                                    "intentId"
+                                  ],
+                                  "description": "Details about the intent data. . Details about the detected intent.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "intentDetectedData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "sourceContentData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "rankingData": {
+                                      "type": "object",
+                                      "properties": {
+                                        "relevanceScore": {
+                                          "type": "number",
+                                          "description": "The relevance level of the recommendation."
+                                        },
+                                        "relevanceLevel": {
+                                          "type": "string",
+                                          "description": "The relevance score of the content.",
+                                          "enum": [
+                                            "HIGH",
+                                            "MEDIUM",
+                                            "LOW"
+                                          ]
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Details about the source content ranking data. . Details about the source content ranking data.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    },
+                                    "textData": {
+                                      "type": "object",
+                                      "properties": {
+                                        "title": {
+                                          "type": "object",
+                                          "properties": {
+                                            "highlights": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "endOffsetExclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the end of the highlight."
+                                                  },
+                                                  "beginOffsetInclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the start of the highlight."
+                                                  }
+                                                },
+                                                "required": [],
+                                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                                "$schema": "http://json-schema.org/draft-07/schema#"
+                                              },
+                                              "uniqueItems": false,
+                                              "description": "Highlights in the document text."
+                                            },
+                                            "text": {
+                                              "type": "string",
+                                              "description": "Text in the document."
+                                            }
+                                          },
+                                          "required": [],
+                                          "description": "The text of the document.",
+                                          "$schema": "http://json-schema.org/draft-07/schema#"
+                                        },
+                                        "excerpt": {
+                                          "type": "object",
+                                          "properties": {
+                                            "highlights": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "endOffsetExclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the end of the highlight."
+                                                  },
+                                                  "beginOffsetInclusive": {
+                                                    "type": "number",
+                                                    "description": "The offset for the start of the highlight."
+                                                  }
+                                                },
+                                                "required": [],
+                                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                                "$schema": "http://json-schema.org/draft-07/schema#"
+                                              },
+                                              "uniqueItems": false,
+                                              "description": "Highlights in the document text."
+                                            },
+                                            "text": {
+                                              "type": "string",
+                                              "description": "Text in the document."
+                                            }
+                                          },
+                                          "required": [],
+                                          "description": "The text of the document.",
+                                          "$schema": "http://json-schema.org/draft-07/schema#"
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Details about the source content text data. . Details about the source content text data.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    },
+                                    "citationSpan": {
+                                      "type": "object",
+                                      "properties": {
+                                        "endOffsetExclusive": {
+                                          "type": "number",
+                                          "description": "Where the text with a citation ends in the generated output."
+                                        },
+                                        "beginOffsetInclusive": {
+                                          "type": "number",
+                                          "description": "Where the text with a citation starts in the generated output."
+                                        }
+                                      },
+                                      "required": [],
+                                      "description": "Contains information about where the text with a citation begins and ends in the generated output. . Contains information about where the text with a citation begins and ends in the generated output.",
+                                      "$schema": "http://json-schema.org/draft-07/schema#"
+                                    },
+                                    "id": {
+                                      "type": "string",
+                                      "description": "The identifier of the source content."
+                                    },
+                                    "type": {
+                                      "type": "string",
+                                      "description": "The type of the source content.",
+                                      "enum": [
+                                        "KNOWLEDGE_CONTENT"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "type",
+                                    "textData",
+                                    "rankingData"
+                                  ],
+                                  "description": "Details about the content data. . Details about the source content data.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "sourceContentData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "generativeChunkData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string",
+                                      "description": "A chunk of the LLM response."
+                                    },
+                                    "references": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "$schema": "http://json-schema.org/draft-07/schema#"
+                                      },
+                                      "uniqueItems": false,
+                                      "description": "The references used to generate the LLM response."
+                                    },
+                                    "nextChunkToken": {
+                                      "type": "string",
+                                      "description": "The token for the next set of chunks. Use the value returned in the previous response in the next request to retrieve the next set of chunks."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Details about the generative chunk data. . Details about the generative chunk data.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "generativeChunkData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "emailResponseChunkData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string",
+                                      "description": "The partial or complete professional email response text with appropriate greetings and closings."
+                                    },
+                                    "nextChunkToken": {
+                                      "type": "string",
+                                      "description": "Token for retrieving the next chunk of streaming response data, if available."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Streaming chunk data for email response generation containing partial response content. . Details of streaming chunk data for email responses including completion text and pagination tokens.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "emailResponseChunkData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "emailOverviewChunkData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string",
+                                      "description": "The partial or complete overview text content in structured HTML format with customer issues, resolutions, and next steps."
+                                    },
+                                    "nextChunkToken": {
+                                      "type": "string",
+                                      "description": "Token for retrieving the next chunk of streaming overview data, if available."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Streaming chunk data for email overview containing partial overview content. . Details of streaming chunk data for email overview including completion text and pagination tokens.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "emailOverviewChunkData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "emailGenerativeAnswerChunkData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string",
+                                      "description": "The partial or complete text content of the generative answer response."
+                                    },
+                                    "references": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "$schema": "http://json-schema.org/draft-07/schema#"
+                                      },
+                                      "uniqueItems": false,
+                                      "description": "Source references and citations from knowledge base articles used to generate the answer."
+                                    },
+                                    "nextChunkToken": {
+                                      "type": "string",
+                                      "description": "Token for retrieving the next chunk of streaming response data, if available."
+                                    }
+                                  },
+                                  "required": [],
+                                  "description": "Streaming chunk data for email generative answers containing partial knowledge-based response content. . Details of streaming chunk data for email generative answers including completion text and references.",
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "emailGenerativeAnswerChunkData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "suggestedMessageData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "messageText": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "messageText"
+                                  ],
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "suggestedMessageData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "notesData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [],
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "notesData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "notesChunkData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "completion": {
+                                      "type": "string"
+                                    },
+                                    "nextChunkToken": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [],
+                                  "$schema": "http://json-schema.org/draft-07/schema#"
+                                }
+                              },
+                              "required": [
+                                "notesChunkData"
+                              ],
+                              "additionalProperties": false,
+                              "$schema": "http://json-schema.org/draft-07/schema#"
+                            }
+                          ],
+                          "description": "Details about the data. . Details about the data.",
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "reference",
+                        "details"
+                      ],
+                      "description": "Summary of the recommended content. . Summary of the data.",
+                      "$schema": "http://json-schema.org/draft-07/schema#"
+                    },
+                    "document": {
+                      "type": "object",
+                      "properties": {
+                        "contentReference": {
+                          "type": "object",
+                          "properties": {
+                            "contentArn": {
+                              "type": "string",
+                              "description": "The Amazon Resource Name (ARN) of the content."
+                            },
+                            "sourceURL": {
+                              "type": "string",
+                              "description": "The web URL of the source content."
+                            },
+                            "contentId": {
+                              "type": "string",
+                              "description": "The identifier of the content."
+                            },
+                            "referenceType": {
+                              "type": "string",
+                              "description": "The type of reference content.",
+                              "enum": [
+                                "KNOWLEDGE_BASE",
+                                "BEDROCK_KB_WEB",
+                                "BEDROCK_KB_SALESFORCE",
+                                "BEDROCK_KB_S3",
+                                "BEDROCK_KB_CUSTOM_DOCUMENT",
+                                "BEDROCK_KB_CONFLUENCE",
+                                "BEDROCK_KB_SHAREPOINT",
+                                "BEDROCK_KB_SQL",
+                                "WEB_CRAWLER",
+                                "BEDROCK_KB_KENDRA"
+                              ]
+                            },
+                            "knowledgeBaseId": {
+                              "type": "string",
+                              "description": "The identifier of the knowledge base. This should not be a QUICK_RESPONSES type knowledge base."
+                            },
+                            "knowledgeBaseArn": {
+                              "type": "string",
+                              "description": "The Amazon Resource Name (ARN) of the knowledge base."
+                            }
+                          },
+                          "required": [],
+                          "description": "A reference to the content resource. . Reference information about the content.",
+                          "$schema": "http://json-schema.org/draft-07/schema#"
+                        },
+                        "title": {
+                          "type": "object",
+                          "properties": {
+                            "highlights": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "endOffsetExclusive": {
+                                    "type": "number",
+                                    "description": "The offset for the end of the highlight."
+                                  },
+                                  "beginOffsetInclusive": {
+                                    "type": "number",
+                                    "description": "The offset for the start of the highlight."
+                                  }
+                                },
+                                "required": [],
+                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                "$schema": "http://json-schema.org/draft-07/schema#"
+                              },
+                              "uniqueItems": false,
+                              "description": "Highlights in the document text."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text in the document."
+                            }
+                          },
+                          "required": [],
+                          "description": "The title of the document. . The text of the document.",
+                          "$schema": "http://json-schema.org/draft-07/schema#"
+                        },
+                        "excerpt": {
+                          "type": "object",
+                          "properties": {
+                            "highlights": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "endOffsetExclusive": {
+                                    "type": "number",
+                                    "description": "The offset for the end of the highlight."
+                                  },
+                                  "beginOffsetInclusive": {
+                                    "type": "number",
+                                    "description": "The offset for the start of the highlight."
+                                  }
+                                },
+                                "required": [],
+                                "description": "Offset specification to describe highlighting of document excerpts for rendering search results and recommendations.",
+                                "$schema": "http://json-schema.org/draft-07/schema#"
+                              },
+                              "uniqueItems": false,
+                              "description": "Highlights in the document text."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text in the document."
+                            }
+                          },
+                          "required": [],
+                          "description": "The excerpt from the document. . The text of the document.",
+                          "$schema": "http://json-schema.org/draft-07/schema#"
+                        }
+                      },
+                      "required": [
+                        "contentReference"
+                      ],
+                      "description": "The document. . The document.",
+                      "$schema": "http://json-schema.org/draft-07/schema#"
+                    },
+                    "type": {
+                      "type": "string",
+                      "description": "The type of the query result.",
+                      "enum": [
+                        "INTENT_ANSWER_CHUNK",
+                        "KNOWLEDGE_CONTENT",
+                        "GENERATIVE_ANSWER",
+                        "GENERATIVE_ANSWER_CHUNK",
+                        "BLOCKED_NOTES_CHUNK",
+                        "EMAIL_GENERATIVE_ANSWER_CHUNK",
+                        "BLOCKED_INTENT_ANSWER_CHUNK",
+                        "NOTES",
+                        "EMAIL_RESPONSE_CHUNK",
+                        "EMAIL_OVERVIEW_CHUNK",
+                        "INTENT_ANSWER",
+                        "BLOCKED_GENERATIVE_ANSWER_CHUNK",
+                        "NOTES_CHUNK"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "resultId"
+                  ],
+                  "description": "Information about the result.",
+                  "$schema": "http://json-schema.org/draft-07/schema#"
+                },
+                "uniqueItems": false,
+                "description": "The results of the query."
+              }
+            },
+            "required": [
+              "results"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "annotations": {}
+        },
+        {
+          "toolName": "Escalate",
+          "toolType": "RETURN_TO_CONTROL",
+          "toolId": "Escalate",
+          "instruction": {
+            "instruction": "Escalate the conversation to a human agent when you cannot provide adequate assistance, when other tools fail or return errors, or when the customer's request requires human intervention. and also when:\n 1. The customer explicitly requests to speak to a human agent or advisor\n  2. The customer is frustrated or distressed\n  3. The issue is too complex to resolve with available tools\n  4. You have attempted to resolve the issue and cannot do so\nWhen escalating to a human agent, always populate the input fields as follows:\n- topicCategory: choose the closest match to the primary subject of the customer's\n  enquiry (e.g. \"mortgage\" if they were asking about their mortgage balance or\n  overpayments, \"fraud_security\" if they reported suspicious activity).\n- escalationReason: set to \"customer_requested\" if the customer explicitly asked for\n  a human. Set to \"complaint\" if they expressed dissatisfaction or used complaint\n  language. Set to \"complex_request\" if the issue is beyond your available tools.\n  Set to \"technical_issue\" if a tool returned repeated errors.\n- customerIntent: a brief phrase, e.g. \"wants to discuss mortgage overpayment options\"\n  or \"reporting suspected card fraud\".\n- conversationSummary: one or two sentences summarising what was discussed and what\n  the customer needs, so the human agent does not have to ask the customer to repeat\n  themselves.",
+            "examples": [
+              "Good example - Tool errors:\n<message>\nI'm having trouble accessing the information you need right now. Would you like me to connect you with a human agent who can help you further?\n</message>",
+              "Good example - Frustrated customer:\n<message>\nI understand your frustration with this issue. Would you like me to connect you with a human agent who can help you further?\n</message>",
+              "Bad example (avoid this):\n<message>\nI'm unable to help with this. Let me escalate you to a human agent.\n</message>",
+              "Good Example - Customer ask:",
+              "Good Example - AI Agent ask:"
+            ]
+          },
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "conversationSummary": {
+                "type": "string",
+                "description": "One or two sentence summary of the conversation for the human agent to read when they pick up",
+                "maxLength": 500
+              },
+              "customerIntent": {
+                "type": "string",
+                "description": "Brief phrase describing what the customer was trying to accomplish"
+              },
+              "topicCategory": {
+                "type": "string",
+                "description": "The primary banking topic the customer was enquiring about",
+                "enum": [
+                  "current_account",
+                  "savings_account",
+                  "mortgage",
+                  "credit_card",
+                  "debit_card",
+                  "fraud_security",
+                  "complaint",
+                  "general_banking"
+                ]
+              },
+              "escalationReason": {
+                "type": "string",
+                "description": "Why ARIA is escalating to a human agent",
+                "enum": [
+                  "customer_requested",
+                  "complex_request",
+                  "complaint",
+                  "technical_issue",
+                  "out_of_scope"
+                ]
+              }
+            },
+            "required": [
+              "topicCategory",
+              "escalationReason",
+              "customerIntent"
+            ]
+          },
+          "userInteractionConfiguration": {
+            "isUserConfirmationRequired": false
+          }
+        },
+        {
+          "toolName": "aria_banking_account___get_account_balance",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_account_balance",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_account_balance",
+          "description": "Returns current and available balance for a customer's bank account",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "account_type": {
+                "description": "Account type: current or savings (default: current)",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_account___get_account_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_account_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_account_details",
+          "description": "Returns account details including sort code, account number, and account type",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "account_type": {
+                "description": "Account type: current or savings (default: current)",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_account___get_recent_transactions",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_recent_transactions",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-account___get_recent_transactions",
+          "description": "Returns recent transactions for a customer's account",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "account_type": {
+                "description": "Account type: current or savings (default: current)",
+                "type": "string"
+              },
+              "limit": {
+                "description": "Maximum number of transactions to return (default: 5)",
+                "type": "integer"
+              },
+              "customer_id": {
+                "description": "Customer ID",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_auth___initiate_customer_auth",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___initiate_customer_auth",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___initiate_customer_auth",
+          "description": "Begins a knowledge-based authentication session for a customer",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "auth_method": {
+                "description": "Authentication method, e.g. voice_knowledge_based",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID to authenticate",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_auth___validate_customer_auth",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___validate_customer_auth",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___validate_customer_auth",
+          "description": "Validates authentication challenges: date of birth and last 4 digits of mobile",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "dob": {
+                "description": "Date of birth in DD/MM/YYYY format",
+                "type": "string"
+              },
+              "mobile_last_four": {
+                "description": "Last four digits of the customer mobile number",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_auth___verify_customer_identity",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___verify_customer_identity",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___verify_customer_identity",
+          "description": "Verifies a customer record exists before any account data is accessed",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "requested_customer_id": {
+                "description": "Customer ID to verify",
+                "type": "string"
+              }
+            },
+            "required": [
+              "requested_customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_credit_card___block_credit_card",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-credit-card___block_credit_card",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-credit-card___block_credit_card",
+          "description": "Blocks a lost or stolen credit card and initiates a replacement",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "description": "Block reason: lost, stolen, or fraud",
+                "type": "string"
+              },
+              "card_last_four": {
+                "description": "Last four digits of the credit card to block",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "card_last_four",
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_credit_card___get_credit_card_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-credit-card___get_credit_card_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-credit-card___get_credit_card_details",
+          "description": "Returns credit card balance, available credit, minimum payment, or recent transactions",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "card_last_four": {
+                "description": "Last four digits of the credit card",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own card is found.",
+                "type": "string"
+              },
+              "query_subtype": {
+                "description": "Data type: balance, available_credit, minimum_payment, or transactions",
+                "type": "string"
+              }
+            },
+            "required": [
+              "card_last_four",
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_customer___get_customer_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-customer___get_customer_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-customer___get_customer_details",
+          "description": "Returns a customer profile including name, linked products, and contact preferences",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "description": "Customer ID",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_debit_card___block_debit_card",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-debit-card___block_debit_card",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-debit-card___block_debit_card",
+          "description": "Blocks a lost or stolen debit card and optionally orders a replacement",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "description": "Block reason: lost, stolen, or fraud",
+                "type": "string"
+              },
+              "request_replacement": {
+                "description": "Whether to order a replacement card: true or false",
+                "type": "string"
+              },
+              "card_last_four": {
+                "description": "Last four digits of the card to block",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own card is blocked.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "card_last_four",
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_debit_card___get_debit_card_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-debit-card___get_debit_card_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-debit-card___get_debit_card_details",
+          "description": "Returns debit card status, spending limits, or recent transactions",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "card_last_four": {
+                "description": "Last four digits of the debit card",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own card is found.",
+                "type": "string"
+              },
+              "query_subtype": {
+                "description": "Data type: status, limits, or transactions",
+                "type": "string"
+              }
+            },
+            "required": [
+              "card_last_four",
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_knowledge___get_feature_parity",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-knowledge___get_feature_parity",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-knowledge___get_feature_parity",
+          "description": "Returns which banking features are available across channels: voice, chat, mobile, and web",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "feature_area": {
+                "description": "Feature area to check, e.g. card_blocking, payments, or statements",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "toolName": "aria_banking_knowledge___search_knowledge_base",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-knowledge___search_knowledge_base",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-knowledge___search_knowledge_base",
+          "description": "Searches the Meridian Bank knowledge base for product information, policies, and self-service procedures",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "description": "Natural language search query",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_mortgage___get_mortgage_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-mortgage___get_mortgage_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-mortgage___get_mortgage_details",
+          "description": "Returns mortgage balance, interest rate, monthly payment, overpayment allowance, or remaining term",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own mortgage is found.",
+                "type": "string"
+              },
+              "mortgage_reference": {
+                "description": "Last four digits of the mortgage reference number",
+                "type": "string"
+              },
+              "query_subtype": {
+                "description": "Data type: balance, rate, monthly_payment, overpayment_allowance, or term",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id",
+              "mortgage_reference"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_products___analyse_spending",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-products___analyse_spending",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-products___analyse_spending",
+          "description": "Analyses spending patterns for an account or card across categories and time periods",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "description": "Time period: last_month, last_2_months, or last_3_months",
+                "type": "string"
+              },
+              "source_ref_last_four": {
+                "description": "Last four digits of the account or card",
+                "type": "string"
+              },
+              "source_type": {
+                "description": "Source type: current_account or credit_card",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "The customer's ID from the session context (customerId). Only that customer's own accounts and cards are analysed.",
+                "type": "string"
+              },
+              "category_filter": {
+                "description": "Optional spending category, e.g. groceries or utilities",
+                "type": "string"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_products___get_product_catalogue",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-products___get_product_catalogue",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-products___get_product_catalogue",
+          "description": "Returns available Meridian Bank products filtered by category",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "product_category": {
+                "description": "Category: current_accounts, savings, or credit_cards",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "toolName": "aria_banking_auth___send_push_challenge",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___send_push_challenge",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___send_push_challenge",
+          "description": "Sends an approval request with a two-digit match number to the customer's registered banking app, for one payment. Returns the number to read out and a challenge_id",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "payee": {
+                "description": "Who the payment is to, as confirmed by the customer",
+                "type": "string"
+              },
+              "amount": {
+                "description": "Payment amount, as confirmed by the customer, e.g. 250.00",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID from the session context",
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount",
+              "customer_id",
+              "payee"
+            ]
+          }
+        },
+        {
+          "toolName": "aria_banking_auth___verify_push_challenge",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___verify_push_challenge",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__aria-banking-auth___verify_push_challenge",
+          "description": "Checks the outcome of an app approval request. Returns verified true only when the customer approved with the correct match number",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "challenge_id": {
+                "description": "The challenge_id returned by send_push_challenge, unchanged",
+                "type": "string"
+              },
+              "selected_number": {
+                "description": "The two-digit number the customer says they chose in the app. Empty if they chose nothing",
+                "type": "string"
+              },
+              "customer_id": {
+                "description": "Customer ID from the session context",
+                "type": "string"
+              }
+            },
+            "required": [
+              "challenge_id",
+              "customer_id"
+            ]
+          }
+        },
+        {
+          "toolName": "Complete",
+          "toolType": "RETURN_TO_CONTROL",
+          "description": "Ends your part of the conversation: the customer needs nothing else, or the card disputes or mortgage assistant takes over (nextStep).",
+          "instruction": {
+            "instruction": "Use Complete to end your part of the conversation, with nextStep saying what happens next:\n- none: the customer has confirmed they need nothing else. Ask whether there's anything else first, unless <money_hub> says they have already said so.\n- card_dispute: the customer wants to dispute a card payment or doesn't recognise one, as <card_disputes> describes. The card disputes assistant takes over. Put everything they've said about the payment in handoverSummary.\n- mortgage_application: the customer wants to apply for a new mortgage, as <mortgage_applications> describes. The mortgage assistant takes over. Put what they want in handoverSummary and their situation in buyerType.\nWith card_dispute or mortgage_application, don't ask whether there's anything else and don't say goodbye: the conversation carries on with the other assistant.",
+            "examples": [
+              "<message>Let's sort that out for you.</message> (Complete, nextStep card_dispute)",
+              "<message>Thanks for chatting with Nationwide Building Society today. It was great helping you. Take care!</message> (Complete, nextStep none)"
+            ]
+          },
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "buyerType": {
+                "type": "string",
+                "description": "Only with mortgage_application: the customer's situation if they said it, otherwise unknown.",
+                "enum": [
+                  "first_time",
+                  "home_mover",
+                  "remortgage",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "description": "Reason of completion"
+              },
+              "nextStep": {
+                "type": "string",
+                "description": "none if the customer needs nothing else; card_dispute or mortgage_application if that assistant takes over now.",
+                "enum": [
+                  "none",
+                  "card_dispute",
+                  "mortgage_application"
+                ]
+              },
+              "handoverSummary": {
+                "type": "string",
+                "description": "Only with card_dispute or mortgage_application. card_dispute: everything the customer has already said about the payment, in one sentence: the retailer, roughly how much, when, which card, whether they made it, whether they still have the card. No card numbers. 'Wants to dispute a card payment.' if they have said nothing yet. mortgage_application: what they want, e.g. first-time buyer, flat in Leeds, has a deposit. No income or date of birth.",
+                "maxLength": 300
+              },
+              "screenCode": {
+                "type": "string",
+                "pattern": "^\\d{6}$",
+                "description": "Only with mortgage_application, and only if the customer quoted the 6-digit help code shown on their application screen. Leave it out otherwise."
+              }
+            },
+            "required": [
+              "reason",
+              "nextStep"
+            ]
+          },
+          "userInteractionConfiguration": {
+            "isUserConfirmationRequired": false
+          }
+        }
+      ],
+      "multiAgentConfigurations": [
+        {
+          "handoffAgentConfiguration": {
+            "agentTarget": {
+              "applicationId": "e72fd4c4-ab42-4906-8874-45943c301013"
+            },
+            "instruction": {
+              "instruction": "Hand the conversation to this agent when a verified customer (Level 2 or above) wants to understand their own money: where it goes, spending by category, regular payments and subscriptions, what's expected in the coming months, spending habits, or how to reach a savings goal. It explains with their real figures and never gives financial advice. It hands back with COMPLETE when done (or when they ask about something else) and ESCALATE when they want a person, ask for advice or seem vulnerable; the reason says what they want next. Do not use it for payments, disputes, cards or products."
+            },
+            "audioStreamingEnabled": false,
+            "immediateHandoff": false
+          }
+        }
+      ],
+      "connectInstanceArn": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293",
+      "locale": "en_GB"
+    }
+  },
+  "modifiedTime": "2026-10-18T10:22:23+00:00",
+  "visibilityStatus": "PUBLISHED",
+  "tags": {},
+  "origin": "CUSTOMER",
+  "status": "ACTIVE"
+}

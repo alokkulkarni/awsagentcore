@@ -1,0 +1,9 @@
+{
+  "_comment": "Fill in after creating them (README, 'Create everything'): the three module ARNs, and aria = the ARIA v2 version ARN that ai-agent/create_agent.sh prints. Then: python3 build_flows.py --config config.json",
+  "modules": {
+    "contact_setup": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/beb29da5-2496-45e3-8e14-f728d32534f2",
+    "customer_context": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/a3add37c-7e12-4041-9d31-29884e848a0c",
+    "decide_handback": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/06df046e-b67d-4746-8347-49cd0724387a"
+  },
+  "aria": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/a92a8491-2a82-45ee-bdbe-b7373b584f2d:3"
+}

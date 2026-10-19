@@ -1,0 +1,121 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "enableLogging",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": -220,
+      "y": 0
+    },
+    "ActionMetadata": {
+      "enableLogging": {
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "sessionInjector": {
+        "position": {
+          "x": 260,
+          "y": 0
+        }
+      },
+      "saveCustomerContext": {
+        "position": {
+          "x": 520,
+          "y": 0
+        }
+      },
+      "done": {
+        "position": {
+          "x": 780,
+          "y": 0
+        }
+      },
+      "contextFailed": {
+        "position": {
+          "x": 520,
+          "y": 320
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "enableLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Transitions": {
+        "NextAction": "sessionInjector"
+      }
+    },
+    {
+      "Identifier": "sessionInjector",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "arn:aws:lambda:eu-west-2:395402194296:function:aria-session-injector-qconnect",
+        "InvocationTimeLimitSeconds": "8",
+        "InvocationType": "SYNCHRONOUS",
+        "ResponseValidation": {
+          "ResponseType": "STRING_MAP"
+        }
+      },
+      "Transitions": {
+        "NextAction": "saveCustomerContext",
+        "Errors": [
+          {
+            "NextAction": "contextFailed",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "saveCustomerContext",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "sessionId": "$.External.sessionId",
+          "customerId": "$.External.customerId",
+          "authStatus": "$.External.authStatus",
+          "channel": "$.External.channel",
+          "preferredName": "$.External.preferredName",
+          "productSummary": "$.External.productSummary",
+          "productContext": "$.External.productContext",
+          "vulnerabilityContext": "$.External.vulnerabilityContext",
+          "priorSummary": "$.External.priorSummary",
+          "priorChannel": "$.External.priorChannel",
+          "priorContactId": "$.External.priorContactId",
+          "priorTranscript": "$.External.priorTranscript",
+          "locale": "$.External.locale",
+          "dateTime": "$.External.dateTime",
+          "instanceId": "$.External.instanceId",
+          "customerPhone": "$.CustomerEndpoint.Address"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "contextFailed",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "done",
+      "Type": "EndFlowModuleExecution",
+      "Parameters": {},
+      "Transitions": {}
+    },
+    {
+      "Identifier": "contextFailed",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}
