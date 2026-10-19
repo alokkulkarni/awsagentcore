@@ -47,7 +47,7 @@ MAX_BODY_BYTES = 4096
 
 # The app's own pages: one page (index.html) with its own router. The mortgage stages keep the mortgage page's
 # paths, because the mortgage assistant navigates by them.
-APP_PATHS = {"/", "/accounts", "/cards", "/cards/dispute", "/money-hub", "/mortgages", "/help",
+APP_PATHS = {"/", "/accounts", "/accounts/current", "/accounts/savings", "/cards", "/cards/dispute", "/money-hub", "/mortgages", "/help",
              "/apply/about-you", "/apply/property", "/apply/decision", "/apply/products", "/apply/documents",
              "/apply/review"}
 ASSET = re.compile(r"^(?:[a-z0-9-]+/)*[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(js|css|svg)$")       # no "..": names only
@@ -211,7 +211,10 @@ def web(event: dict) -> dict:
                      "avatar": money_api.avatar_on(), "verified": journeys.money_hub.verified_level(session["loa"]),
                      "disputePagesUrl": DISPUTE_PAGES_URL}
         elif path == "/api/app/accounts":
-            reply = {**home.accounts(money_api.hub, customer), "recent": home.recent(money_api.hub, customer, 12)}
+            wanted = _s(body, "account") if _s(body, "account") in home.ACCOUNT_PAGES else "current"
+            history = home.account_history(money_api.hub, customer, wanted, 12)
+            reply = {**home.accounts(money_api.hub, customer), "selected": history["selected"],
+                     "recent": history["transactions"]}
         elif path == "/api/app/cards":
             reply = home.cards(customer)
         elif path in ("/api/contact/call", "/api/contact/chat"):
