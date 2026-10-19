@@ -235,6 +235,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       const handle = await startAvatar({
         api, contactId: current.contactId, context: current.audioContext, callAudio: $('talk-audio'),
         video: $('avatar-video'), audio: $('avatar-audio'),
+        onStage: (words) => { if (live === current && current.avatarRun === run) showVideo(true, words); },
         onGone: (why) => {
           if (live !== current || current.avatarRun !== run) return;
           current.avatar = null;
@@ -264,6 +265,9 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
 
   async function startCall() {
     begin('call'); status('Starting your call…');
+    // Each step's time since Call was pressed, in the browser console: shows where a slow or failed call stalls.
+    const began = performance.now();
+    const mark = (step) => console.info(`[call] ${step} +${Math.round(performance.now() - began)} ms`);
     // Browsers only let a page start audio from a tap or click: the face's audio context is made now.
     const audioContext = hasAvatar() ? new AudioContext({ sampleRate: 24000 }) : null;
     try {
@@ -272,14 +276,17 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      mark('microphone ready');
       const started = await api('/contact/call', pageFields(context()));
+      mark('contact started');
       const chime = await import('/assets/vendor/chime.js');
+      mark('call library loaded');
       const logger = new chime.ConsoleLogger('call', chime.LogLevel.WARN);
       const devices = new chime.DefaultDeviceController(logger);
       const config = new chime.MeetingSessionConfiguration({ Meeting: started.meeting }, { Attendee: started.attendee });
       const session = new chime.DefaultMeetingSession(config, logger, devices);
       const current = { kind: 'call', region: started.region, participantToken: started.participantToken, session, stream,
-        contactId: started.contactId, audioContext, journey: started.journey, connected: false };
+        devices, contactId: started.contactId, audioContext, journey: started.journey, connected: false };
       live = current;
       onStarted({ journey: started.journey, contactId: started.contactId, kind: 'call' });
       const av = session.audioVideo;
@@ -287,6 +294,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       av.addObserver({
         audioVideoDidStart: () => {
           if (live !== current) return;
+          mark('audio connected');
           current.connected = true;
           clearTimeout(current.connecting);
           $('call-video').hidden = !(audioContext && !current.withPerson);       // Show/Hide video, once there's a call
@@ -299,17 +307,20 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         audioVideoDidStop: (why) => {
           if (live !== current) return;
           const code = why && why.statusCode ? why.statusCode() : '';
+          mark(`stopped (${current.connected ? 'after connecting' : 'before connecting'})`);
           if (code !== '') console.warn('call stopped, Chime status', code);
-          finish(current.connected ? 'The call has ended.' : 'The call couldn\'t connect. Please try again.');
+          finish(current.connected ? 'The call has ended.' : 'The call couldn\'t connect. A VPN or work network can block calls: try another network, or use Chat.');
         },
       });
       await av.startAudioInput(stream);
       await av.bindAudioElement($('talk-audio'));
       av.start();
+      mark('connecting');
       status('Connecting your call…');
       $('call-video').hidden = true;                // nothing to show or hide until the call connects
       current.connecting = setTimeout(() => {
-        if (live === current && !current.connected) hangUp('The call couldn\'t connect. Please try again.');
+        if (live === current && !current.connected) mark('gave up: audio never connected');
+        if (live === current && !current.connected) hangUp('The call couldn\'t connect. A VPN or work network can block calls: try another network, or use Chat.');
       }, CONNECT_WAIT_MS);
     } catch (error) {
       const words = error && error.name === 'NotAllowedError'
@@ -376,6 +387,9 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       if (current.audioContext) current.audioContext.close().catch(() => {});
       try { current.socket && current.socket.close(); } catch { /* already closed */ }
       try { current.session && current.session.audioVideo.stop(); } catch { /* already stopped */ }
+      // Release the call library's audio devices too, so the next call in this tab starts clean (each call made a
+      // new device controller and none was ever released).
+      try { current.devices && current.devices.destroy().catch(() => {}); } catch { /* already released */ }
       (current.stream ? current.stream.getTracks() : []).forEach((track) => track.stop());
     }
     $('talk-foot').hidden = true;

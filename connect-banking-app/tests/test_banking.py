@@ -457,7 +457,7 @@ class Pages(Base):
         self.assertIn("videoOn()", started, "the face starts only once the call's audio has connected")
         self.assertNotIn("if (audioContext) videoOn();", talk, "never alongside a call that is still connecting")
         self.assertIn("CONNECT_WAIT_MS", talk)
-        self.assertIn("The call couldn\\'t connect. Please try again.", talk)
+        self.assertIn("The call couldn\\'t connect. A VPN or work network can block calls: try another network, or use Chat.", talk)
         self.assertNotIn("carries on as normal", talk, "never claim a call that may not have connected carries on")
 
     def test_the_dispute_link_opens_in_the_app_only_from_the_dispute_pages_address(self):
