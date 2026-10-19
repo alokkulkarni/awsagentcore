@@ -26,6 +26,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -233,6 +234,21 @@ def _send_form_link(service: DisputeService, doors: Doors, customer_id: str, con
     return {"sent": True, "sentTo": f"the mobile ending {phone[-3:]}", "link": ""}
 
 
+def _when(action: dict) -> str:
+    """'2026-10-18T06:24:04Z' -> '18 Oct 2026'."""
+    return datetime.strptime(action["at"][:10], "%Y-%m-%d").strftime("%-d %b %Y")
+
+
+def _replacement_words(action: dict) -> str:
+    """What to tell the customer about their replacement card: new now, or already on its way (never a second)."""
+    if action.get("repeat"):
+        return (f"A replacement {action['cardType']} card was already ordered on {_when(action)}, so there's no need "
+                f"for another: it should arrive within {REPLACEMENT_DAYS} working days of that. "
+                f"Its reference is {action['reference']}.")
+    return (f"A replacement {action['cardType']} card is on its way and should arrive in {REPLACEMENT_DAYS} working "
+            f"days. Its reference is {action['reference']}.")
+
+
 def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: Doors,
                     customer_id: str, contact_id: str) -> dict:
     dispute_id = _text(body, "disputeId").strip().upper()
@@ -253,23 +269,20 @@ def _acxd_operation(operation: str, body: dict, service: DisputeService, doors: 
         card_type = _text(body, "cardType").strip().lower()
         blocked = service.card_action(customer_id, card_type, "blocked")
         card = f"{blocked['cardType']} card ending {blocked['cardLastFour']}"
+        said = (f"Your {card} was already blocked on {_when(blocked)}, so it can't be used." if blocked.get("repeat")
+                else f"Your {card} is now blocked, so it can't be used again.")
         reply = {"cardType": blocked["cardType"], "cardLastFour": blocked["cardLastFour"], "reference": blocked["reference"],
-                 "confirmation": f"Your {card} is now blocked, so it can't be used again. "
-                                 f"Your reference is {blocked['reference']}."}
+                 "confirmation": f"{said} Your reference is {blocked['reference']}."}
         if _text(body, "orderReplacement").strip().lower() in ("yes", "true", "y"):
             replaced = service.card_action(customer_id, card_type, "replacement_ordered")
             reply.update({"replacementOrdered": True, "replacementReference": replaced["reference"],
                           "arrivesInWorkingDays": REPLACEMENT_DAYS,
-                          "confirmation": reply["confirmation"] + f" A replacement {blocked['cardType']} card is on its "
-                                          f"way and should arrive in {REPLACEMENT_DAYS} working days. Its reference is "
-                                          f"{replaced['reference']}."})
+                          "confirmation": reply["confirmation"] + " " + _replacement_words(replaced)})
         return reply
     if operation == "orderReplacementCard":
         done = service.card_action(customer_id, _text(body, "cardType").strip().lower(), "replacement_ordered")
         return {"cardType": done["cardType"], "cardLastFour": done["cardLastFour"], "reference": done["reference"],
-                "arrivesInWorkingDays": REPLACEMENT_DAYS,
-                "confirmation": f"A replacement {done['cardType']} card is on its way and should arrive in "
-                                f"{REPLACEMENT_DAYS} working days. Its reference is {done['reference']}."}
+                "arrivesInWorkingDays": REPLACEMENT_DAYS, "confirmation": _replacement_words(done)}
     return _send_form_link(service, doors, customer_id, contact_id, dispute_id)          # sendFormLink
 
 

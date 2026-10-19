@@ -184,14 +184,35 @@ class DisputeService:
                 "merchant": transaction["merchant"], "amount": transaction["amount"],
                 "currency": transaction["currency"]}
 
+    _STANDING = {model.SUBMITTED: 3, model.WITH_ADVISER: 2, model.DRAFT: 1}     # withdrawn doesn't stand
+
+    def _disputes_by_payment(self, customer_id: str) -> dict[str, dict]:
+        """
+        Each payment's dispute that stands: the furthest along (submitted, then with an
+        adviser, then a draft), the newest of those. So a stray draft made after a
+        submitted dispute never hides it.
+        """
+        found: dict[str, dict] = {}
+        for dispute_id in (self.store.get(f"cust#{customer_id}") or {}).get("disputeIds") or []:
+            dispute = self.store.get(f"dispute#{dispute_id}")
+            if not dispute or dispute["status"] not in self._STANDING:
+                continue
+            current = found.get(dispute["transactionId"])
+            if not current or self._STANDING[dispute["status"]] >= self._STANDING[current["status"]]:
+                found[dispute["transactionId"]] = dispute                      # ids are oldest first: ties go to the newest
+        return found
+
     def _create(self, customer_id: str, transaction_id: str, who: str, fields: dict) -> dict:
-        """A new draft for one transaction, or the customer's existing draft for it."""
+        """
+        A new draft for one transaction, or the dispute the customer already has for it.
+        A payment is disputed once: a draft, one with an adviser and a submitted one all
+        stand, so starting again returns that dispute. Only a withdrawn one allows another.
+        """
         details = self._transaction_fields(customer_id, transaction_id)
         index = self.store.get(f"cust#{customer_id}") or {"version": 0, "disputeIds": []}
-        for dispute_id in index["disputeIds"]:
-            existing = self.store.get(f"dispute#{dispute_id}")
-            if existing and existing["status"] == model.DRAFT and existing["transactionId"] == transaction_id:
-                return existing
+        existing = self._disputes_by_payment(customer_id).get(transaction_id)
+        if existing:
+            return existing
         blocked = {a["cardLastFour"] for a in index.get("cardActions") or [] if a["action"] == "blocked"}
         if details["cardLastFour"] in blocked and "cardBlocked" not in fields:
             fields = {**fields, "cardBlocked": "yes"}            # blocked earlier in the call, before the dispute
@@ -315,6 +336,9 @@ class DisputeService:
             if not transaction_id:
                 return self.screen_status(session_id)             # nothing to keep until a payment is chosen
             dispute = self._create(customer_id, transaction_id, "page", clean)
+            if dispute["status"] != model.DRAFT:
+                words = self._already_disputed(dispute)["message"].split(". Don't")[0]
+                raise DisputeError("already_disputed", f"{words}.", 409)
             self.store.put(key, {**screen, "version": int(screen["version"]) + 1, "disputeId": dispute["disputeId"]},
                            expect=int(screen["version"]))
         details = self._transaction_fields(customer_id, transaction_id) if transaction_id else {}
@@ -377,9 +401,16 @@ class DisputeService:
         these and lets them choose. Each payment has a number that runs across the
         pages, so "number 7" means the same payment on any page.
         """
-        blocked = {a["cardLastFour"] for a in self._card_actions(customer_id) if a["action"] == "blocked"}
+        actions = self._card_actions(customer_id)
+        blocked = {a["cardLastFour"] for a in actions if a["action"] == "blocked"}
+        replaced = {a["cardLastFour"]: a for a in actions if a["action"] == "replacement_ordered"}
+
+        def card_status(last_four: str) -> str:
+            if last_four in replaced:
+                return f"blocked, replacement ordered {_day_words(replaced[last_four]['at'][:10])}"
+            return "blocked" if last_four in blocked else "active"
         cards = [{"cardType": c["card_type"], "cardLastFour": c["card_last_four"],
-                  "status": "blocked" if c["card_last_four"] in blocked else "active"}
+                  "status": card_status(c["card_last_four"])}
                  for c in model.customer_cards(customer_id)]
         if not cards:
             raise DisputeError("no_cards", "This customer has no cards with us.", 404)
@@ -409,11 +440,19 @@ class DisputeService:
                   if (not from_date or t["date"] >= from_date) and (not to_date or t["date"] <= to_date)]
         pages = max(1, -(-len(chosen) // PAYMENTS_PER_PAGE))
         first = (page - 1) * PAYMENTS_PER_PAGE
+        disputed = self._disputes_by_payment(customer_id)
+
+        def already(transaction_id: str) -> str:
+            dispute = disputed.get(transaction_id)
+            if not dispute:
+                return ""
+            return (f", already disputed {_day_words(dispute['createdAt'][:10])} "
+                    f"({model.STATUS_WORDS[dispute['status']].lower()}, reference {dispute['disputeId']})")
         payments = [{"number": numbers[t["transaction_id"]], "transactionId": t["transaction_id"], "date": t["date"],
                      "merchant": t["merchant"], "amount": t["amount"], "cardType": t["card_type"],
                      "cardLastFour": t["card_last_four"],
                      "label": f"{_day_words(t['date'])}, {t['merchant']}, £{t['amount']}, "
-                              f"{t['card_type']} card ending {t['card_last_four']}"}
+                              f"{t['card_type']} card ending {t['card_last_four']}{already(t['transaction_id'])}"}
                     for i, t in enumerate(chosen[first:first + PAYMENTS_PER_PAGE])]
         message = "" if payments else ("No payments in that period." if chosen == [] else "No more payments.")
         return {"today": datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y-%m-%d"),
@@ -438,7 +477,29 @@ class DisputeService:
     def assistant_start(self, customer_id: str, transaction_id: str, dispute_type: str) -> dict:
         fields = model.check_fields({"disputeType": dispute_type}) if dispute_type else {}
         chosen = self._chosen_payment(customer_id, transaction_id)
-        return self._assistant_reply(self._create(customer_id, chosen, "assistant", fields))
+        existing = self._disputes_by_payment(customer_id).get(chosen)
+        reply = self._assistant_reply(self._create(customer_id, chosen, "assistant", fields))
+        if existing:
+            reply.update(self._already_disputed(existing))
+        return reply
+
+    @staticmethod
+    def _already_disputed(dispute: dict) -> dict:
+        """reason and message for a payment that already has a dispute: carry on with it, never start another."""
+        ref, since = dispute["disputeId"], _day_words(dispute["createdAt"][:10])
+        if dispute["status"] == model.DRAFT:
+            return {"reason": "existing_draft",
+                    "message": f"This payment already has a dispute being filled in, {ref}, started {since}. "
+                               "Carry on with it; don't start another."}
+        if dispute["status"] == model.WITH_ADVISER:
+            return {"reason": "already_with_adviser",
+                    "message": f"This payment was already disputed on {since}, reference {ref}, and an adviser has "
+                               "it. Don't start another. Tell the customer it's already being looked at, and ask if "
+                               "there's anything else."}
+        return {"reason": "already_disputed",
+                "message": f"This payment was already disputed on {since}, reference {ref}, and it has been "
+                           "submitted. Don't start another. Tell the customer it's already being dealt with and "
+                           "they'll hear from us, and ask if there's anything else."}
 
     def assistant_update(self, customer_id: str, dispute_id: str, fields: dict) -> dict:
         self._owned(customer_id, dispute_id)
@@ -472,7 +533,7 @@ class DisputeService:
         earlier = next((a for a in reversed(self._card_actions(customer_id))
                         if a["cardLastFour"] == last_four and a["action"] == action), None)
         if earlier:
-            return earlier
+            return {**earlier, "repeat": True}           # done before: the same reference, never twice
         if action == "replacement_ordered" and "blocked" not in done:
             raise DisputeError("card_not_blocked", "Block the card first. A replacement is only sent for a blocked card.", 409)
         entry = {"action": action, "cardType": card_type, "cardLastFour": last_four,
