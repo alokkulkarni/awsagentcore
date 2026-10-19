@@ -56,9 +56,26 @@ MAX_BODY_BYTES = 512 * 1024
 MAX_TURNS_KEPT = 40
 SECRET_CACHE_SECONDS = 300
 
+# A verified customer's details are read from the contact once, then reused for this long. On a call, Connect
+# starts a new A2A session before every turn; re-reading the contact each time cost a Connect call per turn.
+CONTACT_REUSE_SECONDS = 10 * 60
+
 _TABLE = os.environ.get("MONEY_HUB_TABLE", "")
 store = DynamoStore(_TABLE, time.time) if _TABLE else MemoryStore(time.time)
 _secret_cache: dict[str, tuple[float, str]] = {}
+_clients: dict[str, Any] = {}
+
+
+def _client(name: str):
+    """One boto3 client per service for the life of this Lambda environment (making one takes ~100 ms)."""
+    if name not in _clients:
+        import boto3
+        if name == "bedrock-agentcore":
+            from botocore.config import Config
+            _clients[name] = boto3.client(name, config=Config(read_timeout=50, retries={"max_attempts": 1}))
+        else:
+            _clients[name] = boto3.client(name)
+    return _clients[name]
 
 
 # ── outside the Lambda (replaced in tests) ─────────────────────────────────────
@@ -74,8 +91,7 @@ def api_key() -> str:
     if kept and kept[0] > time.time():
         return kept[1]
     try:
-        import boto3
-        value = boto3.client("secretsmanager").get_secret_value(SecretId=secret_id).get("SecretString", "").strip()
+        value = _client("secretsmanager").get_secret_value(SecretId=secret_id).get("SecretString", "").strip()
     except Exception:
         logger.exception("Could not read the API key secret. Check secretsmanager:GetSecretValue and kms:Decrypt.")
         return ""
@@ -89,8 +105,7 @@ def contact_attributes(contact_id: str) -> dict:
     if not (instance_id and contact_id):
         return {}
     try:
-        import boto3
-        return boto3.client("connect").get_contact_attributes(
+        return _client("connect").get_contact_attributes(
             InstanceId=instance_id, InitialContactId=contact_id).get("Attributes", {})
     except Exception:
         logger.exception("Could not read the contact. Check connect:GetContactAttributes.")
@@ -99,18 +114,14 @@ def contact_attributes(contact_id: str) -> dict:
 
 def invoke_agent(payload: dict, session_id: str) -> dict:
     """The Strands agent on AgentCore Runtime, called with this Lambda's IAM role."""
-    import boto3
-    from botocore.config import Config
-    client = boto3.client("bedrock-agentcore", config=Config(read_timeout=50, retries={"max_attempts": 1}))
-    response = client.invoke_agent_runtime(agentRuntimeArn=os.environ["AGENT_RUNTIME_ARN"], qualifier="DEFAULT",
+    response = _client("bedrock-agentcore").invoke_agent_runtime(agentRuntimeArn=os.environ["AGENT_RUNTIME_ARN"], qualifier="DEFAULT",
                                            runtimeSessionId=session_id, payload=json.dumps(payload).encode())
     return json.loads(response["response"].read() or b"{}")
 
 
 def invoke_self(event: dict) -> None:
     """Poll mode: do the turn's work in a second, asynchronous invocation of this Lambda."""
-    import boto3
-    boto3.client("lambda").invoke(FunctionName=os.environ["AWS_LAMBDA_FUNCTION_NAME"], InvocationType="Event",
+    _client("lambda").invoke(FunctionName=os.environ["AWS_LAMBDA_FUNCTION_NAME"], InvocationType="Event",
                                   Payload=json.dumps(event).encode())
 
 
@@ -169,14 +180,25 @@ def _save(context_id: str, session: dict) -> None:
 def on_init(request_id, context_id: str, message: dict) -> dict:
     init = protocol.data_part(message, "initSession")
     contact_id = protocol.contact_id_of(str(init.get("contactArn") or ""))
-    attributes = contact_attributes(contact_id)
     existing = _load(context_id) or {}
     history = protocol.history_of(init)
+    # The same contact, already verified and read recently: its details stand (a customer's verification
+    # doesn't go away mid-contact). Anything else, including a customer not yet verified, is read afresh.
+    reuse = bool(existing.get("contactId") == contact_id and existing.get("customerId")
+                 and store.clock() - float(existing.get("readAt") or 0) < CONTACT_REUSE_SECONDS)
+    if reuse:
+        who = {k: existing.get(k, "") for k in ("customerId", "loa", "pageView", "firstName")}
+        who["readAt"] = existing["readAt"]
+        channel = _channel(init, {"channel": existing.get("channel", "")})
+    else:
+        attributes = contact_attributes(contact_id)
+        customer = verified_customer(attributes)
+        who = {"customerId": customer, "loa": _level(attributes) if customer else "",
+               "pageView": _page_view(attributes), "firstName": str(attributes.get("preferredName") or "")[:40],
+               "readAt": store.clock()}
+        channel = _channel(init, attributes)
     session = {
-        "contactId": contact_id, "customerId": verified_customer(attributes),
-        "loa": _level(attributes) if verified_customer(attributes) else "",
-        "pageView": _page_view(attributes),
-        "firstName": str(attributes.get("preferredName") or "")[:40], "channel": _channel(init, attributes),
+        "contactId": contact_id, **who, "channel": channel,
         "finishTypes": [t for t in init.get("supportedFinishTypes") or ["COMPLETE", "ESCALATE"]
                         if t in ("COMPLETE", "ESCALATE")],
         "tracing": bool(init.get("subscribeToTracingEvents", True)),
@@ -190,8 +212,8 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
         "tasks": existing.get("tasks", {}),
     }
     _save(context_id, session)
-    logger.info("event=INIT_SESSION verified=%s channel=%s history=%d", bool(session["customerId"]),
-                session["channel"], len(history))
+    logger.info("event=INIT_SESSION verified=%s channel=%s history=%d contact=%s", bool(session["customerId"]),
+                session["channel"], len(history), "reused" if reuse else "read")
     return protocol.init_session_response(request_id, context_id)
 
 
@@ -402,6 +424,13 @@ def _http(status: int, body: Any) -> dict:
 
 def lambda_handler(event: dict, context: Any) -> dict:
     event = event if isinstance(event, dict) else {}
+    if event.get("warm") is True and "requestContext" not in event:
+        # A scheduled keep-warm ping (scripts/keep_bridge_warm.sh): keeps this environment, its clients and the
+        # API key ready, so the first hand-off of a call doesn't pay for a cold start. Never touches a session.
+        api_key()
+        for name in ("connect", "bedrock-agentcore"):
+            _client(name)
+        return {"ok": True, "warm": True}
     if "bridgeWork" in event and "requestContext" not in event:            # poll mode's second half
         do_poll_work(event["bridgeWork"])
         return {"ok": True}

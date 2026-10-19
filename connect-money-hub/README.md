@@ -140,6 +140,13 @@ This creates:
 ✅ It ends with three ✓ tests: the agent card loads; a request without the key is refused; a session start
 with the key is accepted. It prints the **Bridge address**.
 
+**Optional, for quicker hand-offs:** keep the bridge warm, so the first hand-off in a call doesn't wait for the
+Lambda to start. It adds a schedule that pings the bridge every 5 minutes (dry run first):
+
+```bash
+./connect-money-hub/scripts/keep_bridge_warm.sh            # then again with --apply; --remove --apply undoes it
+```
+
 The key is made once, used for that one test, and never shown or read back. If you run the script again,
 the keyed test is skipped; that's expected.
 
