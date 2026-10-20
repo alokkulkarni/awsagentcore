@@ -5,6 +5,7 @@ mortgage and dispute services, and what the browser may load. No AWS.
 
 import io
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ sys.path[:0] = [str(APP), str(APP / "api"), str(ROOT / "connect-money-hub"), str
 
 import banking_api as app  # noqa: E402
 import money_api  # noqa: E402
-from bankapp import home, journeys, partners  # noqa: E402
+from bankapp import flowview, home, journeys, partners  # noqa: E402
 from moneyhub.service import MoneyHub  # noqa: E402
 from moneyhub.store import MemoryStore  # noqa: E402
 
@@ -37,6 +38,19 @@ class FakeConnect:
     def start_chat_contact(self, **request):
         self.calls.append(("chat", request))
         return {"ContactId": "22222222-2222-4333-8444-555555555555", "ParticipantToken": "pt-chat"}
+
+
+class FakeSSM:
+    """The flow view's setting: a value, or None for a parameter that doesn't exist (or can't be read)."""
+
+    def __init__(self, value):
+        self.value, self.reads = value, 0
+
+    def get_parameter(self, Name):
+        self.reads += 1
+        if self.value is None:
+            raise RuntimeError("ParameterNotFound")
+        return {"Parameter": {"Name": Name, "Value": self.value}}
 
 
 class FakePayload:
@@ -71,8 +85,12 @@ class Base(unittest.TestCase):
         money_api._connect = self.connect
         self.verified = money_api.hub.mint_link(JAMES, "2").split("#k=")[1]
         self.demo = money_api.hub.mint_link(JAMES).split("#k=")[1]
+        self.ssm = flowview._ssm = FakeSSM(None)
+        flowview._cached.update(at=-1e12, on=False)
+        os.environ.pop("FLOW_VIEW", None)
 
     def tearDown(self):
+        flowview._ssm = None
         money_api.CONNECT_INSTANCE_ID = money_api.CONTACT_FLOW_ID = ""
         money_api._connect = None
         partners._lambda = None
@@ -323,6 +341,24 @@ class Disputes(Base):
         contact = self.start_call()
         self.assertFalse(self.post("/api/disputes/live", token=self.verified, contactId=contact)[1]["formSent"])
 
+    def test_how_it_works_shows_this_conversations_dispute_by_its_stage_only(self):
+        os.environ["FLOW_VIEW"] = "on"
+        self.connect.get_contact_attributes = lambda InstanceId, InitialContactId: {"Attributes": {"entry": "aria"}}
+        contact = self.start_call()
+        _, found = self.post("/api/contact/journey", token=self.verified, contactId=contact)
+        self.assertEqual((found["specialist"], found["aria"]), ("card_dispute", False), "straight to the specialist")
+        self.assertEqual(found["dispute"], {"status": "started", "formSent": False})
+        self.service.mark_link_sent(self.dispute, "text")
+        self.assertTrue(self.post("/api/contact/journey", token=self.verified, contactId=contact)[1]["dispute"]["formSent"])
+        self.complete()
+        self.post("/api/disputes/submit", token=self.verified, disputeId=self.dispute)
+        self.assertEqual(self.post("/api/contact/journey", token=self.verified, contactId=contact)[1]["dispute"]["status"],
+                         "submitted", "a submitted dispute still shows, though it's no longer open")
+        later = __import__("datetime").datetime.fromtimestamp(NOW + 60, __import__("datetime").timezone.utc)
+        self.connect.describe_contact = lambda InstanceId, ContactId: {"Contact": {"Id": ContactId, "InitiationTimestamp": later}}
+        self.assertNotIn("dispute", self.post("/api/contact/journey", token=self.verified, contactId=contact)[1],
+                         "a dispute untouched since before this conversation isn't this conversation's")
+
     def test_the_form_opens_joined_to_this_call(self):
         contact = self.start_call()
         status, opened = self.post("/api/disputes/open", token=self.verified, contactId=contact, disputeId=self.dispute)
@@ -464,6 +500,122 @@ class Pages(Base):
         talk = (APP / "web" / "widget" / "talk.js").read_text()
         self.assertIn("words.indexOf(disputePagesUrl)", talk)
         self.assertIn("#k=([A-Za-z0-9_-]{16,128})", talk)
+
+
+class FakeContact(FakeConnect):
+    """Connect's record of a contact, as the flow view reads it."""
+
+    def __init__(self, contact=None, attributes=None):
+        super().__init__()
+        self.contact, self.attributes = contact or {}, attributes or {}
+
+    def describe_contact(self, InstanceId, ContactId):
+        return {"Contact": {"Id": ContactId, **self.contact}}
+
+    def get_contact_attributes(self, InstanceId, InitialContactId):
+        return {"Attributes": self.attributes}
+
+
+class HowItWorks(Base):
+    """The demo's "how it works" view: on and off at run time, and facts read from Connect's own record."""
+
+    ARIA = {"WisdomInfo": {"SessionArn": "arn:aws:wisdom:eu-west-2:1:session/a/s"}}
+
+    def start_chat(self, contact=None, attributes=None):
+        self.connect = money_api._connect = FakeContact(contact, attributes)
+        status, started = self.post("/api/contact/chat", token=self.verified, page="home")
+        self.assertEqual(status, 200)
+        return started["contactId"]
+
+    def test_it_is_off_unless_the_setting_says_on_and_a_missing_setting_is_off(self):
+        self.assertFalse(self.post("/api/app/home", token=self.verified)[1]["flowView"])
+        self.ssm.value = "off"
+        flowview._cached["at"] = -1e12
+        self.assertFalse(flowview.enabled())
+        self.ssm.value = "on"
+        flowview._cached["at"] = -1e12
+        self.assertTrue(self.post("/api/app/home", token=self.verified)[1]["flowView"])
+
+    def test_turning_it_off_needs_no_redeploy_and_shows_within_the_cache_time(self):
+        self.ssm.value = "on"
+        clock = [1000.0]
+        self.assertTrue(flowview.enabled(lambda: clock[0]))
+        self.ssm.value = "off"
+        clock[0] += flowview.CACHE_SECONDS - 1
+        self.assertTrue(flowview.enabled(lambda: clock[0]), "read at most every CACHE_SECONDS")
+        clock[0] += 2
+        self.assertFalse(flowview.enabled(lambda: clock[0]))
+        self.assertEqual(self.ssm.reads, 2)
+
+    def test_the_local_preview_can_turn_it_on_without_aws(self):
+        os.environ["FLOW_VIEW"] = "on"
+        self.assertTrue(flowview.enabled())
+        self.assertEqual(self.ssm.reads, 0)
+
+    def test_each_hand_over_the_flow_writes_names_its_specialist(self):
+        cases = [({"entry": "card_dispute", "appPage": "card_dispute"}, "card_dispute", "connect"),
+                 ({"entry": "aria", "handbackRoute": "card_dispute"}, "card_dispute", "connect"),
+                 ({"entry": "money_hub", "handbackRoute": "card_dispute"}, "card_dispute", "connect"),
+                 ({"entry": "web_widget"}, "mortgage", "connect"),
+                 ({"entry": "phone", "handbackRoute": "mortgage_livesync"}, "mortgage", "connect"),
+                 ({"entry": "money_hub", "appPage": "money_hub"}, "money_hub", "page"),
+                 ({"entry": "banking_app", "appPage": "home"}, "", ""),
+                 ({"entry": "banking_app", "handbackRoute": "end"}, "", "")]
+        for attributes, who, basis in cases:
+            found = flowview.state(self.ARIA, attributes)
+            self.assertEqual((found["specialist"], found["basis"]), (who, basis), attributes)
+
+    def test_a_colleague_is_waiting_once_aria_escalates_and_joined_once_connected(self):
+        self.assertEqual(flowview.state({}, {"handbackRoute": "human"})["colleague"], "waiting")
+        joined = flowview.state({"AgentInfo": {"ConnectedToAgentTimestamp": "2026-10-20T10:00:00Z"}}, {"handbackRoute": "human"})
+        self.assertEqual(joined["colleague"], "joined")
+        self.assertEqual(flowview.state({}, {})["colleague"], "")
+
+    def test_aria_ended_and_trouble_come_from_connects_record(self):
+        self.assertFalse(flowview.state({}, {})["aria"])
+        found = flowview.state({**self.ARIA, "DisconnectTimestamp": "2026-10-20T10:05:00Z"},
+                               {"handbackOutcome": "error", "handbackRoute": "end"})
+        self.assertEqual((found["aria"], found["ended"], found["trouble"]), (True, True, True))
+
+    def test_the_dispute_is_reported_by_its_stage_never_its_details(self):
+        found = flowview.state({}, {}, {"status": "submitted", "formSent": True, "merchant": "ELECTROWORLD", "amount": 499})
+        self.assertEqual(found["dispute"], {"status": "submitted", "formSent": True})
+        self.assertNotIn("dispute", flowview.state({}, {}, {"status": "withdrawn"}))
+
+    def test_the_journey_answers_only_when_on_and_only_for_this_links_own_conversation(self):
+        contact = self.start_chat({**self.ARIA}, {"entry": "banking_app", "handbackRoute": "card_dispute"})
+        status, reply = self.post("/api/contact/journey", token=self.verified, contactId=contact)
+        self.assertEqual((status, reply["error"]), (404, "flow_view_off"))
+        os.environ["FLOW_VIEW"] = "on"
+        status, reply = self.post("/api/contact/journey", token=self.verified, contactId=contact)
+        self.assertEqual(status, 200)
+        self.assertEqual((reply["aria"], reply["specialist"]), (True, "card_dispute"))
+        other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
+        self.assertEqual(self.post("/api/contact/journey", token=other, contactId=contact)[0], 404)
+        self.assertEqual(self.post("/api/contact/journey", token=self.verified, contactId="someone-elses")[0], 404)
+
+    def test_the_widget_tells_every_moment_and_the_view_never_touches_the_widget(self):
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        view = (APP / "web" / "flowview" / "flowview.js").read_text()
+        for moment in ("tell('starting'", "tell('started'", "tell('microphone')", "tell('connecting')",
+                       "tell('connected'", "tell('said'", "tell('video'", "tell('colleague')", "tell('ended'"):
+            self.assertIn(moment, talk)
+        self.assertIn("addEventListener('assistant'", view)
+        self.assertIn("const ariaIn = Boolean(f.aria);", view, "ARIA only on Connect's word, never on any answer")
+        self.assertIn("    tell('ended', { words });", talk, "a conversation that never got going still ends the view")
+        self.assertNotIn("getElementById", view, "the view builds its own elements and never reaches into the widget")
+        self.assertNotIn("innerHTML", view)
+        self.assertNotIn("style=", view, "the page's policy allows no inline styles")
+        app_js = (APP / "web" / "app.js").read_text()
+        self.assertIn("if (shared.me.flowView) import('/assets/flowview/flowview.js')", app_js, "loaded only when on")
+
+    def test_the_deploy_script_makes_the_setting_only_if_missing_and_never_overwrites_it(self):
+        script = (APP / "scripts" / "deploy_banking_app.sh").read_text()
+        made = next(line for line in script.splitlines() if "run aws ssm put-parameter" in line)
+        self.assertNotIn("--overwrite", made)
+        self.assertLess(script.index("aws ssm get-parameter"), script.index("run aws ssm put-parameter"))
+        self.assertIn('"Action": "ssm:GetParameter"', script)
+        self.assertIn('"connect:GetContactAttributes"', script)
 
 
 if __name__ == "__main__":
