@@ -8,6 +8,7 @@ services aren't reached (their pages still show and the forms work by hand).
 
     python3 connect-banking-app/scripts/local_preview.py [--port 8770] [--customer CUST-001] [--verified]
                                                          [--talk INSTANCE_ID FLOW_ID] [--partners] [--unverified]
+                                                         [--flow-view]
 
 It prints a link (with its secret after '#'); open it in a browser. Changes you make last until you stop it.
 
@@ -15,6 +16,7 @@ It prints a link (with its secret after '#'); open it in a browser. Changes you 
              the face on calls if connect-money-hub/.env has the Tavus settings (as the Money Hub preview does).
 --partners   uses the REAL mortgage and dispute services (their Lambdas and Live Sync keys) with your AWS
              credentials: help codes, submitting, the dispute form.
+--flow-view  shows the demo's "how it works" view with each chat or call (deployed, the SSM setting decides).
 --unverified the link is NOT verified (by default it is: the app stands for signed-in internet banking, so a
              contact from any page arrives verified, as when deployed).
 
@@ -53,7 +55,9 @@ def main() -> None:
     parser.add_argument("--talk", nargs=2, metavar=("INSTANCE_ID", "FLOW_ID"))
     parser.add_argument("--partners", action="store_true")
     parser.add_argument("--unverified", action="store_true")
+    parser.add_argument("--flow-view", action="store_true")
     args = parser.parse_args()
+    os.environ["FLOW_VIEW"] = "on" if args.flow_view else "off"      # never the deployed setting from here
     if args.partners:
         os.environ.update(MORTGAGE_FUNCTION_NAME="mortgage-livesync-api", MORTGAGE_TOUCHPOINT_SECRET="mortgage-livesync-api/touchpoint",
                           HELP_PHONE_NUMBER="02046394728", DISPUTE_FUNCTION_NAME="aria-card-dispute",

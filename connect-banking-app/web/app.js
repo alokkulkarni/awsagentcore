@@ -82,6 +82,7 @@ function stopWatching() { if (watch) clearTimeout(watch.timer); watch = null; }
 
 // Shows the dispute form: on the Cards page's "Your disputes" tab, going there if need be.
 function showDisputeForm({ sessionId = '', token = '' }) {
+  document.dispatchEvent(new CustomEvent('assistant', { detail: { type: 'dispute-form' } }));    // as talk.js tells
   if (routeOf(location.pathname) === 'cards' && current?.handle) {
     if (token) shared.pendingDispute = token;        // read by openLink
     if (sessionId) current.handle.openSession?.(sessionId); else current.handle.openLink?.();
@@ -133,6 +134,8 @@ async function start() {
   // A link that isn't signed in (not Level 2) still shows everything, but the assistant has to check who the
   // customer is: say so, rather than let it come as a surprise in the conversation.
   $('signed-out').hidden = Boolean(shared.me.verified);
+  // The demo's "how it works" view, only when the server's setting has it on (it follows the assistant's events).
+  if (shared.me.flowView) import('/assets/flowview/flowview.js').then((view) => view.setupFlowView({ api })).catch(() => {});
   if (shared.me.talk) {
     talk = setupTalk({
       api,

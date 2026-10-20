@@ -1,0 +1,83 @@
+/* "How it works" (flowview.js): a demo view, separate from the assistant. It uses the app's colours (styles.css), so
+   it follows light and dark mode with them.
+   Phones and tablets: a card across the top, just under the app's header (--flow-top), with the steps in a row.
+   Wide desktops: a card at the bottom left, away from the assistant at the bottom right, with the steps down. */
+.flow-view { position: fixed; z-index: 19; top: var(--flow-top, 72px); left: 12px; right: 12px;
+  max-height: calc(100vh - var(--flow-top, 72px) - 120px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink);
+  box-shadow: 0 12px 40px rgba(27, 31, 59, .22); animation: flow-in .2s ease-out; }
+@keyframes flow-in { from { transform: translateY(-8px); opacity: 0; } }
+.flow-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.flow-head h2 { margin: 0; font-size: 1rem; }
+.flow-sub { margin: 2px 0 0; color: var(--muted); font-size: .8rem; }
+.flow-actions { display: flex; gap: 4px; align-items: center; }
+.flow-tech { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft); color: var(--ink);
+  font: inherit; font-size: .75rem; cursor: pointer; white-space: nowrap; }
+.flow-tech[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.flow-icon { width: 30px; height: 30px; border: 0; border-radius: 8px; background: var(--bg); color: var(--ink);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; }
+
+/* The steps, joined by a line that fills in as the conversation gets there. */
+.flow-lane { list-style: none; display: flex; margin: 12px 0 8px; padding: 0; gap: 0; }
+.flow-node { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 6px; opacity: .45; transition: opacity .3s; }
+.flow-node::before { content: ""; position: absolute; top: 9px; right: 50%; width: 100%; height: 3px; background: var(--line); z-index: 0; }
+.flow-node:first-child::before { display: none; }
+.flow-dot { position: relative; z-index: 1; width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--line);
+  background: var(--card); box-sizing: border-box; transition: background .3s, border-color .3s; }
+.flow-words { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 0 2px; }
+.flow-name { font-size: .78rem; line-height: 1.2; }
+.flow-does { font-size: .68rem; line-height: 1.25; color: var(--muted); }
+.flow-node.is-done, .flow-node.is-active, .flow-node.is-failed, .flow-node.is-skipped { opacity: 1; }
+.flow-node.is-done .flow-dot { background: var(--in); border-color: var(--in); }
+.flow-node.is-done::before, .flow-node.is-active::before { background: var(--in); }
+.flow-node.is-active .flow-dot { border-color: var(--essential); background: var(--essential); animation: flow-pulse 1.4s ease-in-out infinite; }
+.flow-node.is-active .flow-name { color: var(--essential); }
+.flow-node.is-failed .flow-dot { background: var(--out); border-color: var(--out); }
+.flow-node.is-skipped { opacity: .6; }
+.flow-node.is-skipped .flow-dot { border-style: dashed; }
+.flow-node.is-skipped .flow-name { text-decoration: line-through; text-decoration-thickness: 1px; }
+@keyframes flow-pulse { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--essential) 22%, transparent); } }
+
+.flow-now { margin: 6px 0 2px; padding: 10px 12px; border-radius: 10px; background: var(--ess-soft); font-size: .92rem;
+  line-height: 1.4; font-weight: 600; }
+.flow-now-tech { display: none; margin: 4px 2px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .72rem; color: var(--muted); }
+.flow-view.tech .flow-now-tech:not(:empty) { display: block; }
+.flow-history-title { margin: 12px 0 4px; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.flow-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.flow-history li { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; font-size: .8rem; }
+.flow-time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.flow-line-tech { display: none; grid-column: 2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .7rem; color: var(--muted); }
+.flow-view.tech .flow-line-tech { display: block; }
+.flow-foot { margin: 10px 0 0; font-size: .7rem; color: var(--muted); }
+
+.flow-pill { position: fixed; z-index: 19; top: var(--flow-top, 72px); left: 12px; padding: 8px 14px; border: 0;
+  border-radius: 999px; background: linear-gradient(120deg, var(--brand), var(--brand-2)); color: var(--on-brand);
+  font: inherit; font-size: .85rem; cursor: pointer; box-shadow: 0 6px 20px rgba(27, 31, 59, .25); }
+
+/* Phones: the steps' second line would be too small to read; the sentence below carries it. */
+@media (max-width: 639px) {
+  .flow-view { max-height: 46vh; padding: 10px 12px; }
+  .flow-does { display: none; }
+  .flow-name { font-size: .7rem; }
+  .flow-history-title, .flow-foot { display: none; }
+  .flow-history li:nth-child(n+4) { display: none; }
+}
+@media (min-width: 640px) and (max-width: 1099px) {
+  .flow-view { left: 24px; right: auto; width: min(640px, calc(100vw - 48px)); }
+}
+
+/* Wide desktops: a column at the bottom left, the steps listed down it. */
+@media (min-width: 1100px) {
+  .flow-view { top: auto; bottom: 24px; left: 24px; right: auto; width: 360px; max-height: calc(100vh - var(--flow-top, 72px) - 32px); }
+  .flow-pill { top: auto; bottom: 24px; left: 24px; }
+  .flow-lane { flex-direction: column; gap: 10px; }
+  .flow-node { flex-direction: row; align-items: center; text-align: left; gap: 10px; }
+  .flow-node::before { top: auto; bottom: 50%; right: auto; left: 8px; width: 3px; height: calc(100% + 10px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-view, .flow-node.is-active .flow-dot { animation: none; }
+}

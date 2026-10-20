@@ -19,6 +19,7 @@ ENVIRONMENT VARIABLES (none are secrets)
     MORTGAGE_FUNCTION_NAME, MORTGAGE_TOUCHPOINT_SECRET, HELP_PHONE_NUMBER    the mortgage service
     DISPUTE_FUNCTION_NAME, DISPUTE_TOUCHPOINT_SECRET, DISPUTE_PAGES_URL     the dispute service
     DISPUTE_TABLE_NAME                                                      its table (the customer's disputes)
+    FLOW_VIEW_PARAMETER     the SSM parameter turning the demo's "how it works" view on or off (bankapp/flowview.py)
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import money_api
-from bankapp import disputes, home, journeys, partners
+from bankapp import disputes, flowview, home, journeys, partners
 from bankapp.products import PRODUCTS
 from moneyhub.service import MoneyHubError
 
@@ -151,6 +152,29 @@ def _began_at(contact_id: str) -> float:
     return began.timestamp() if hasattr(began, "timestamp") else 0.0
 
 
+def contact_journey(customer: str, contact_id: str, token: str) -> dict:
+    """For the demo's "how it works" view: where this link's own conversation has got to (bankapp/flowview.py)."""
+    if not flowview.enabled():
+        raise MoneyHubError("flow_view_off", "This view is turned off.", 404)
+    _own_contact(token, contact_id)
+    client = money_api.connect_client()
+    described = client.describe_contact(InstanceId=money_api.CONNECT_INSTANCE_ID, ContactId=contact_id)["Contact"]
+    attributes = client.get_contact_attributes(InstanceId=money_api.CONNECT_INSTANCE_ID,
+                                               InitialContactId=contact_id).get("Attributes", {})
+    began = described.get("InitiationTimestamp")
+    began = began.timestamp() if hasattr(began, "timestamp") else 0.0
+    dispute = None
+    try:
+        # The newest dispute this conversation touched (open or submitted), never one from before it. The service
+        # stamps whole seconds: allow for the second the conversation began in.
+        touched = [d for d in disputes.list_disputes(customer) if disputes._as_time(d["updatedAt"]) >= began - 1]
+        if touched:
+            dispute = {**touched[0], "formSent": disputes._as_time(touched[0]["formSentAt"]) >= began - 1}
+    except (disputes.NotAvailable, disputes.DisputeError):
+        pass
+    return flowview.state(described, attributes, dispute)
+
+
 def dispute_route(path: str, customer: str, body: dict, token: str, verified: bool = False) -> dict:
     """The customer's disputes; submitting one; during a conversation, the dispute being filled in and its form."""
     try:
@@ -214,7 +238,7 @@ def web(event: dict) -> dict:
         if path == "/api/app/home":
             reply = {**home.home(money_api.hub, customer), "talk": bool(money_api.CONNECT_INSTANCE_ID and money_api.CONTACT_FLOW_ID),
                      "avatar": money_api.avatar_on(), "verified": journeys.money_hub.verified_level(session["loa"]),
-                     "disputePagesUrl": DISPUTE_PAGES_URL}
+                     "disputePagesUrl": DISPUTE_PAGES_URL, "flowView": flowview.enabled()}
         elif path == "/api/app/accounts":
             wanted = _s(body, "account") if _s(body, "account") in home.ACCOUNT_PAGES else "current"
             history = home.account_history(money_api.hub, customer, wanted, 12)
@@ -224,6 +248,8 @@ def web(event: dict) -> dict:
             reply = home.cards(customer)
         elif path in ("/api/contact/call", "/api/contact/chat"):
             reply = start_contact(path.rsplit("/", 1)[-1], session, body, token)
+        elif path == "/api/contact/journey":
+            reply = contact_journey(customer, _s(body, "contactId"), token)
         elif path == "/api/mortgage/config":
             reply = partners.mortgage_config(REGION, money_api.CONNECT_INSTANCE_ID, PRODUCTS)
         elif path == "/api/mortgage/help-code":

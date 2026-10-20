@@ -96,7 +96,8 @@ python3 connect-banking-app/scripts/local_preview.py
 
 Open the link it prints. Everything works on sample data except the assistant (no AWS is touched). Add
 `--talk INSTANCE_ID FLOW_ID` for real chats and calls (and the face, using `connect-money-hub/.env`), and
-`--partners` for the real mortgage and dispute services, both with your AWS credentials.
+`--partners` for the real mortgage and dispute services, both with your AWS credentials. Add `--flow-view` to
+show the demo's "how it works" view with each chat or call.
 
 ## Deploy it
 
@@ -111,7 +112,9 @@ It reads the Money Hub, mortgage and dispute settings from their own deployments
 2. creates the HTTP API `aria-banking-app-pages`;
 3. with `--approve-origin`, adds the app's address to the Connect instance's approved origins (needed for chat
    and calls);
-4. tests the app and prints a demo link.
+4. creates the SSM parameter `/aria-banking-app/flow-view` for the "how it works" view, only if it doesn't
+   exist (`on`, or `--flow-view off`); an existing value is never changed;
+5. tests the app and prints a demo link.
 
 The demo link is verified (signed in). Add `--unverified-demo` for one that isn't, to test ARIA's own ID check.
 
@@ -133,6 +136,28 @@ Then, on the deployed app:
 | Mortgages → Call | The form opens; the mortgage assistant fills in fields as you answer, each marked "Filled by assistant"; the face on video |
 | Cards → Dispute on a payment → Chat | ARIA, then the dispute assistant; when it shares the form, **Open the form here** opens it in the app and it fills in |
 | Mortgage form → Get a help code, then phone the number | The call binds to your form, as on the mortgage page |
+| Money Hub → Call, then "I don't recognise a payment" | "How it works": ARIA, the Money Hub specialist, then the disputes specialist and the form |
+
+## The "how it works" view (for demos)
+
+When a chat or call starts, a card pops up beside the assistant and follows it in plain words: you, the secure
+line, the contact centre, ARIA, a specialist (Money Hub, disputes, mortgage) and a colleague, with what is
+happening now and a timed list of what happened. **Show the technology** swaps in the AWS names for a technical
+audience. It can be minimised or closed; it comes back with the next conversation.
+
+It is separate from the assistant: the widget only announces what happens (`assistant` events on `document`),
+and the view (`web/flowview/`) listens. The hand-overs come from Connect's own record of the contact
+(`/api/contact/journey`, `bankapp/flowview.py`): its Q in Connect session (ARIA), the attributes the flow writes as
+it hands over (`entry`, `handbackRoute`), the agent joining, and the dispute service. The Money Hub hand-over isn't
+recorded anywhere in Connect, so it is inferred from starting on the Money Hub page and ARIA's second answer.
+
+Turn it off or on at any time, without a redeploy (it shows within 30 seconds; reload the page):
+
+```bash
+aws ssm put-parameter --name /aria-banking-app/flow-view --region eu-west-2 --overwrite --value off   # or on
+```
+
+If the parameter is missing or can't be read, the view is off, and its script isn't even loaded.
 
 ## Things to know
 

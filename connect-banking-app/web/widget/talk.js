@@ -25,6 +25,9 @@ const CONNECT_WAIT_MS = 25000;
 // After the face fails to start, later calls in this page don't try it by themselves for a while (Tavus refusing,
 // for example out of credit, refuses every time). The customer can still press Show video.
 const VIDEO_REST_MS = 10 * 60 * 1000;
+// What happens in a conversation, for anything on the page that wants to follow it (the demo's "how it works" view,
+// flowview/): an 'assistant' event on document, { type, ... }. The widget doesn't know or care who listens.
+const tell = (type, detail = {}) => document.dispatchEvent(new CustomEvent('assistant', { detail: { type, ...detail } }));
 // Markdown emphasis shown as plain text (every message is written as text, never HTML).
 const plain = (words) => words.replace(/(\*\*|__)(.+?)\1/g, '$2');
 
@@ -118,6 +121,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       li.append(open);
     }
     $('chat-log').append(li);
+    tell('said', { who: me ? 'customer' : 'assistant' });
     if (!me) onActivity();          // the assistant may have just saved a goal or moved a payment
     $('talk-body').scrollTop = $('talk-body').scrollHeight;     // the overlay scrolls, never the page
   }
@@ -145,6 +149,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     showVideo(false);
     $('talk-end').textContent = kind === 'call' ? 'End call' : 'End chat';
     dock.live(kind);               // remembers the tab it started from
+    tell('starting', { kind });
   }
 
   // The first thing the customer says: where they are (the server words it for the page). Sent as an ordinary
@@ -175,6 +180,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       live = { kind: 'chat', region: started.region, participantToken: started.participantToken, opener: started.opener,
         contactId: started.contactId, journey: started.journey };
       onStarted({ journey: started.journey, contactId: started.contactId, kind: 'chat' });
+      tell('started', { kind: 'chat', journey: started.journey, contactId: started.contactId });
       const joined = await participant(started.region, 'connection', started.participantToken,
         { Type: ['WEBSOCKET', 'CONNECTION_CREDENTIALS'] });     // no ConnectParticipant: that's for streaming and agents
       live.connectionToken = joined.ConnectionCredentials.ConnectionToken;
@@ -184,6 +190,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         socket.send(JSON.stringify({ topic: 'aws/subscribe', content: { topics: ['aws/chat'] } }));
         live.heartbeat = setInterval(() => socket.send(JSON.stringify({ topic: 'aws/heartbeat' })), HEARTBEAT_MS);
         status('Connecting you to our assistant…');
+        tell('connected', { kind: 'chat' });
         typing(false);
         // Anything said before the websocket was listening (your first message, the greeting).
         const transcript = await participant(live.region, 'transcript', live.connectionToken,
@@ -231,6 +238,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     current.avatar = 'starting';
     current.avatarRun = run;
     showVideo(true, 'Starting video…');
+    tell('video', { state: 'starting' });
     try {
       const handle = await startAvatar({
         api, contactId: current.contactId, context: current.audioContext, callAudio: $('talk-audio'),
@@ -240,17 +248,20 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
           if (live !== current || current.avatarRun !== run) return;
           current.avatar = null;
           showVideo(false);
+          tell('video', { state: 'off' });
           status(`${why} Your call carries on.`);
         },
       });
       if (live !== current || current.avatarRun !== run) { handle.stop(); return; }     // ended or hidden meanwhile
       current.avatar = handle;
       showVideo(true);
+      tell('video', { state: 'on' });
     } catch (error) {
       if (live !== current || current.avatarRun !== run) return;
       current.avatar = null;
       videoFailedAt = Date.now();
       showVideo(false);
+      tell('video', { state: 'failed' });
       if (!current.withPerson) status('The video couldn\'t start. You\'re still on the call, by voice.');
     }
   }
@@ -277,6 +288,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       mark('microphone ready');
+      tell('microphone');
       const started = await api('/contact/call', pageFields(context()));
       mark('contact started');
       const chime = await import('/assets/vendor/chime.js');
@@ -289,12 +301,14 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         devices, contactId: started.contactId, audioContext, journey: started.journey, connected: false };
       live = current;
       onStarted({ journey: started.journey, contactId: started.contactId, kind: 'call' });
+      tell('started', { kind: 'call', journey: started.journey, contactId: started.contactId });
       const av = session.audioVideo;
       if (started.transcript) live.transcript = setInterval(() => readTranscript(started.contactId), TRANSCRIPT_EVERY_MS);
       av.addObserver({
         audioVideoDidStart: () => {
           if (live !== current) return;
           mark('audio connected');
+          tell('connected', { kind: 'call' });
           current.connected = true;
           clearTimeout(current.connecting);
           $('call-video').hidden = !(audioContext && !current.withPerson);       // Show/Hide video, once there's a call
@@ -316,6 +330,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
       await av.bindAudioElement($('talk-audio'));
       av.start();
       mark('connecting');
+      tell('connecting');
       status('Connecting your call…');
       $('call-video').hidden = true;                // nothing to show or hide until the call connects
       current.connecting = setTimeout(() => {
@@ -342,6 +357,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         videoOff();
         $('call-video').hidden = true;
         status('A colleague has joined the call.');
+        tell('colleague');
       }
       for (const line of said.lines || []) {
         const key = `${line.at}|${line.who}|${line.text}`;
@@ -402,6 +418,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     $('chat-input').value = '';
     dock.live('');
     status(words);
+    tell('ended', { words });       // also when it never got going (microphone refused, contact not started)
     if (current) onEnded();       // the assistant may have changed categories or goals
   }
 

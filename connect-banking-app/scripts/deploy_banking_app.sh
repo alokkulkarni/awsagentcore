@@ -13,7 +13,9 @@
 #   2. Lambda aria-banking-app (the app, and the Money Hub, mortgage and dispute
 #      code it reuses, packaged from their folders unchanged)
 #   3. HTTP API aria-banking-app-pages in front of it
-#   4. Tests, and a demo link to James's internet banking. The app is the customer's
+#   4. SSM parameter /aria-banking-app/flow-view (only if it doesn't exist; never
+#      overwritten): turns the demo's "how it works" view on or off at run time
+#   5. Tests, and a demo link to James's internet banking. The app is the customer's
 #      signed-in session, so the link is verified (Level 2): every page starts a
 #      contact that arrives verified, with that page's context, and ARIA doesn't
 #      ask the customer to prove who they are again.
@@ -24,7 +26,8 @@
 #
 # Usage:
 #   ./connect-banking-app/scripts/deploy_banking_app.sh [--region R] [--account-id A]
-#        [--instance-id ID] [--contact-flow-id ID] [--unverified-demo] [--approve-origin] [--dry-run]
+#        [--instance-id ID] [--contact-flow-id ID] [--unverified-demo] [--approve-origin]
+#        [--flow-view on|off] [--dry-run]
 #
 #   --unverified-demo a demo link that is NOT verified, so ARIA checks who the
 #                     customer is: for testing ARIA's own ID check only.
@@ -33,6 +36,10 @@
 #   --approve-origin  also adds the app's address to the Connect instance's
 #                     approved origins (needed for chat and calls; otherwise the
 #                     script prints the command for you to run).
+#   --flow-view       the "how it works" view's setting when it is first made
+#                     (default on). An existing setting is never changed: turn
+#                     it on or off at any time, without a redeploy, with
+#                     aws ssm put-parameter --name /aria-banking-app/flow-view --value off --overwrite
 #
 # Requirements: AWS CLI v2.27+, python3, zip, curl; Node.js 18+ and npm (the
 # call, face and Live Sync scripts: scripts/build_vendor.sh).
@@ -54,6 +61,8 @@ CONTACT_FLOW_ID="f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"      # conversation bot f
 DRY_RUN=false
 VERIFIED_DEMO=true        # the app stands for signed-in internet banking
 APPROVE_ORIGIN=false
+FLOW_VIEW_PARAMETER="/aria-banking-app/flow-view"           # "how it works", for demos (bankapp/flowview.py)
+FLOW_VIEW_FIRST="on"
 
 TABLE_NAME="aria-money-hub"                                 # the Money Hub's own table: one set of figures and goals
 FUNCTION_NAME="aria-banking-app"
@@ -75,6 +84,7 @@ while [[ $# -gt 0 ]]; do
         --unverified-demo) VERIFIED_DEMO=false; shift ;;
         --verified-demo)   VERIFIED_DEMO=true; shift ;;      # the default; kept so older commands still work
         --approve-origin)  APPROVE_ORIGIN=true; shift ;;
+        --flow-view)       [[ "${2:-}" == "on" || "${2:-}" == "off" ]] || die "--flow-view takes on or off."; FLOW_VIEW_FIRST="$2"; shift 2 ;;
         --dry-run)         DRY_RUN=true; shift ;;
         --help|-h)         sed -n '/^# Usage:/,/^# Requirements:/p' "$0" | sed -E 's/^# ?//'; exit 0 ;;
         *) die "Unknown argument: $1" ;;
@@ -164,9 +174,12 @@ statements = [
      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${TABLE_NAME}"},
     {"Sid": "StartContactsFromTheApp", "Effect": "Allow", "Action": ["connect:StartWebRTCContact", "connect:StartChatContact"],
      "Resource": ["${INSTANCE_ARN}", "${INSTANCE_ARN}/contact-flow/${CONTACT_FLOW_ID}", "${INSTANCE_ARN}/contact/*"]},
-    {"Sid": "ReadCallTranscripts", "Effect": "Allow", "Action": "connect:DescribeContact", "Resource": "${INSTANCE_ARN}/contact/*"},
+    {"Sid": "ReadCallTranscripts", "Effect": "Allow", "Action": ["connect:DescribeContact", "connect:GetContactAttributes"],
+     "Resource": "${INSTANCE_ARN}/contact/*"},
     {"Sid": "ReadCallTranscriptMessages", "Effect": "Allow", "Action": "wisdom:ListMessages",
      "Resource": "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*"},
+    {"Sid": "ReadTheFlowViewSetting", "Effect": "Allow", "Action": "ssm:GetParameter",
+     "Resource": "arn:aws:ssm:${REGION}:${ACCOUNT_ID}:parameter${FLOW_VIEW_PARAMETER}"},
 ]
 secrets, functions = json.loads('${SECRETS}'), json.loads('${FUNCTIONS}')
 if secrets:
@@ -185,6 +198,18 @@ open(sys.argv[1], "w").write(json.dumps({"Version": "2012-10-17", "Statement": s
 PY
 run aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name BankingApp --policy-document "file://$BUILD/policy.json"
 ok "Role ready."
+
+header "Step 1b - The demo's \"how it works\" view: SSM parameter ${FLOW_VIEW_PARAMETER}"
+FLOW_VIEW=$({ aws ssm get-parameter --name "$FLOW_VIEW_PARAMETER" --region "$REGION" --query Parameter.Value --output text 2>/dev/null || true; } | first_value)
+if [[ -n "$FLOW_VIEW" ]]; then
+    ok "Already set to '${FLOW_VIEW}': left as it is."
+else
+    run aws ssm put-parameter --name "$FLOW_VIEW_PARAMETER" --region "$REGION" --type String --value "$FLOW_VIEW_FIRST" \
+        --description "Banking app demo: show the 'how it works' view (on or off). Read at run time; no redeploy." \
+        --tags Key=app,Value=aria-banking-app >/dev/null
+    FLOW_VIEW="$FLOW_VIEW_FIRST"
+    ok "Created, set to '${FLOW_VIEW}'."
+fi
 
 header "Step 2 - Lambda ${FUNCTION_NAME}"
 step "Building the call, face and Live Sync scripts..."
@@ -207,7 +232,8 @@ values = {"MONEY_HUB_TABLE": "${TABLE_NAME}", "CONNECT_INSTANCE_ID": "${INSTANCE
           "TAVUS_SECRET_ID": "${TAVUS_SECRET_ID}", "MORTGAGE_FUNCTION_NAME": "${MORTGAGE_FUNCTION}",
           "MORTGAGE_TOUCHPOINT_SECRET": "${MORTGAGE_TP_SECRET}", "HELP_PHONE_NUMBER": "${HELP_PHONE}",
           "DISPUTE_FUNCTION_NAME": "${DISPUTE_FUNCTION}", "DISPUTE_TOUCHPOINT_SECRET": "${DISPUTE_TP_SECRET}",
-          "DISPUTE_PAGES_URL": "${DISPUTE_PAGES_URL}", "DISPUTE_TABLE_NAME": "${DISPUTE_TABLE}", "PUBLIC_BASE_URL": sys.argv[2]}
+          "DISPUTE_PAGES_URL": "${DISPUTE_PAGES_URL}", "DISPUTE_TABLE_NAME": "${DISPUTE_TABLE}", "FLOW_VIEW_PARAMETER": "${FLOW_VIEW_PARAMETER}",
+          "PUBLIC_BASE_URL": sys.argv[2]}
 open(sys.argv[1], "w").write(json.dumps({"Variables": {k: v for k, v in values.items() if v}}))
 PY
 }
@@ -255,7 +281,7 @@ else
     ok "The app's address is already an approved origin."
 fi
 
-header "Step 4 - Tests"
+header "Step 5 - Tests"
 DEMO_LINK=""
 if $DRY_RUN; then warn "Skipped in dry-run."; else
     code=""
@@ -284,6 +310,8 @@ cat <<SUMMARY
   Face on calls: $([[ -n "$TAVUS_SECRET_ID" ]] && echo "on (Tavus face ${TAVUS_FACE_ID})" || echo "off (voice only)")
   Mortgage form filled by its assistant: $([[ -n "$MORTGAGE_FUNCTION" ]] && echo "yes (Live Sync keys ${MORTGAGE_TP_SECRET})" || echo "no")
   Dispute form opens in the app: $([[ -n "$DISPUTE_FUNCTION" ]] && echo "yes (links from ${DISPUTE_PAGES_URL})" || echo "no")
+  "How it works" view (demos): ${FLOW_VIEW:-on}. Switch it, no redeploy (shows within 30 seconds; reload the page):
+    aws ssm put-parameter --name ${FLOW_VIEW_PARAMETER} --region ${REGION} --overwrite --value off   # or on
 
   If the mortgage or dispute ACXD application limits which websites may use its Live Sync keys,
   add ${APP_URL} there too (agentic CX designer, the application's Touchpoint settings).
