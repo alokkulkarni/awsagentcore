@@ -490,8 +490,12 @@ A **flow** is drawn on a **canvas**, a big empty page you can scroll and zoom.
 | **Escalate** | Ends the assistant's part and hands the customer back to Connect |
 | **Redirect** | Jumps to another flow |
 
-You build two flows. **Build `HandBackToARIA` first**, because the main flow jumps to it, and a
-Redirect can only choose a flow that exists.
+You build three flows. **Build `HandBackToARIA` and `BackToARIA` first**, because the main flow
+jumps to them, and a Redirect can only choose a flow that exists.
+
+- `HandBackToARIA` hands the customer to a colleague (despite its name: it was named before the way
+  back to ARIA existed; keep the name, the main flow already points at it).
+- `BackToARIA` hands the customer back to ARIA, for anything that isn't this dispute.
 
 ### 3a. Flow `HandBackToARIA`
 
@@ -527,8 +531,10 @@ Start → Generative text "handoffNote" → Generative text "handoffReason" → 
    2. From the second Generative text node, drag lines from **Success**, **Failure** and **Timeout**
       to it.
    3. Click it. **Message** (what the customer hears or reads):
-      "That's everything I need. A colleague will now check the form with you before it's
-      submitted. You won't need to repeat anything."
+      "That's everything I need. A colleague will take it from here. You won't need to repeat
+      anything."
+      (Already built with the older message, which said a colleague will check the form "before
+      it's submitted"? Change it to this one: a customer may have submitted it themselves.)
    4. Click **Add functionality** → **State modifications**. This is how values reach Connect.
       Add two rows with **Set**:
 
@@ -548,6 +554,43 @@ what the assistant saved, so they're always right.
 ✅ **Check:** four nodes in a row, every exit connected except the Escalate node's **Continuation**.
 **Validation** may mention that Continuation; that's expected.
 
+### 3a-2. Flow `BackToARIA`
+
+**What it does.** When the customer has finished with the dispute and wants something else (or
+nothing else), it writes one line saying what they want now and hands them back to Connect with
+`escalationReason` set to `back_to_aria`. Connect sees that and takes them back to ARIA (not to a
+colleague), with the line, so ARIA answers it straight away without greeting them again.
+
+```
+Start → Generative text "returnNote" → Escalate (escalationReason = back_to_aria)
+```
+
+1. **Create the flow.** **Resources** → **Flows** → **New flow**. **Name**: `BackToARIA`. Click
+   **Create flow**.
+2. **The line for ARIA.**
+   1. Add a **Generative text** node and drag a line from **Start** to it.
+   2. Click it. **Output variable**: `returnNote`.
+   3. **Prompt**: paste this, then replace `{System.transcript}` with the chip (type `{`, choose
+      **System**, then **transcript**):
+      "In one sentence for our main assistant, ARIA: what the customer wants help with now, in their words, then what happened with their card dispute (submitted by them, saved for later, or not going on). If they said they need nothing else, start with 'Nothing else:'. No card numbers. Conversation: {System.transcript}"
+3. **The hand-back.**
+   1. Add an **Escalate** node. From the Generative text node drag lines from **Success**,
+      **Failure** and **Timeout** to it.
+   2. Click it. **Message**: "Of course."
+   3. **Add functionality** → **State modifications**. Add two rows with **Set**:
+
+      | Context variable | Value |
+      |------------------|-------|
+      | `summary` | `{returnNote}` |
+      | `escalationReason` | `back_to_aria` |
+
+      `summary` is the chip (type `{`, choose `returnNote`). `escalationReason` is the plain words
+      `back_to_aria`, typed exactly: Connect compares it letter for letter.
+   4. Leave the Escalate node's **Continuation** unconnected.
+4. Click **Save**.
+
+✅ **Check:** three nodes in a row; the Escalate node sets `summary` and `escalationReason`.
+
 ### 3b. Flow `CardDispute` (the main flow)
 
 **What it does.** It's the whole conversation. It has two parts: an **opening** that asks the first
@@ -559,6 +602,7 @@ Start → Generative text "openingQuestion" ─ Success ────────
                                           └ Failure / Timeout ► Basic (fixed question) ───┤
                                                                                            ▼
                                         Live Sync node "CardDisputeAssistant" ─ exits ─► Redirect → HandBackToARIA
+                                                                                 └ Back to ARIA ► Redirect → BackToARIA
 ```
 
 1. **Create the flow.** Left menu → **Resources** → **Flows** → **New flow**. **Name**:
@@ -603,7 +647,8 @@ fixed question as a back-up.
 You are the card dispute assistant for the bank. The customer was just talking to our assistant,
 ARIA, and has been passed to you without being told: to them it is the same conversation. Never
 introduce yourself, never greet them again, and never ask for anything they already said. You
-handle the whole dispute. A colleague then checks it with the customer and submits it.
+handle the whole dispute. A colleague then checks it with the customer and submits it, unless the
+customer submits it themselves. For anything that isn't this dispute, ARIA helps again (Back to ARIA).
 
 Conversation details (empty when not known):
 channel: {channel} | first name: {firstName}
@@ -754,6 +799,19 @@ Step 7. Finish
   tell them whatHappensNext word for word, and don't use Escalation requested to have it checked;
   ask if there's anything else.
 
+When to go Back to ARIA
+- ARIA, our main assistant, helps with everything that isn't this dispute. Use Back to ARIA when the
+  customer is finished with this dispute and wants help with something else (an account, a
+  product, a question), or says they need nothing else. Finished means: they submitted it, or it's
+  saved for them or a colleague to finish later, or they don't want to go on with it.
+- Take Back to ARIA in that same turn, without a message of your own: the hand-back says "Of
+  course." and ARIA answers them next, in the same conversation. Never answer the other question
+  yourself, never say a colleague will help with it, and never say you are passing or transferring
+  them.
+- If they ask about something else while the dispute still needs details, ask once whether they'd
+  like to finish the dispute first or come back to it later (it's saved). Later: Back to ARIA.
+- Asking for a person is never Back to ARIA: it is Escalation requested.
+
 When you may use Escalation requested
 - Only when one of these is true: complete is true, they agreed your summary and haven't submitted
   it themselves; they ask for a
@@ -771,8 +829,7 @@ What you never do
 - Never give a full card number or phone number, and never read out a link on a phone call.
 - Never say you are transferring or connecting them unless you use Escalation requested in the
   same turn. Asking for a person is always Escalation requested.
-- If they ask about something other than this dispute, say your colleague can help with that too,
-  and carry on; it goes in the hand-over.
+- If they ask about something other than this dispute, follow "When to go Back to ARIA".
 
 Vulnerability
 - If the customer is distressed, confused, or mentions bereavement, illness or money worries,
@@ -947,13 +1004,14 @@ Tone
    `acxd/live-sync-actions.json`, copy all of it (`{"actions": []}`), and paste it in. It's empty on
    purpose: nothing on the page can confirm or submit.
 10. **Exit conditions.** These are the ways the assistant can finish. In the node, find **Exit
-    conditions** and add two. Paste the descriptions exactly; the assistant reads them to decide
+    conditions** and add three. Paste the descriptions exactly; the assistant reads them to decide
     when to leave.
 
     | Name | Description for the agent |
     |------|---------------------------|
     | `Escalation requested` | Use only when the dispute is complete and the customer agreed the summary, the customer asks for a person, the customer is vulnerable, the payment cannot be found, the customer is not verified, or a tool failed twice. Never to pass on something you can do with a tool. |
     | `Unable to help` | A Data request failed twice. |
+    | `Back to ARIA` | The customer is finished with this dispute (they submitted it, it's saved for later, or they don't want to go on) and wants help with something that isn't this dispute, or says they need nothing else. Never when they ask for a person: that is Escalation requested. |
 
     Each exit you add appears as a new exit dot on the node, next to its built-in **Timeout** and
     **Failure** exits. Don't add a "Task complete" exit: this assistant never finishes a dispute;
@@ -964,12 +1022,15 @@ Tone
        **`HandBackToARIA`**.
     2. Drag four lines from `CardDisputeAssistant` to the Redirect: from **Escalation requested**,
        **Unable to help**, **Timeout** and **Failure**.
+    3. Add a second **Redirect** node. Click it and choose the flow **`BackToARIA`**. Drag one line
+       from `CardDisputeAssistant`'s **Back to ARIA** exit to it.
 12. **Save**, then click **Validation** on the toolbar. It lists anything not connected. Fix each
     one by drawing the missing line. The only thing it may still mention is the Escalate node's
     Continuation in `HandBackToARIA`, which is fine.
 
 ✅ **Check:** the flow matches the picture at the top of 3b. The assistant node has a prompt, seven
-tools, no data capture, two exit conditions, and four lines to the Redirect.
+tools, no data capture, three exit conditions, four lines to the `HandBackToARIA` Redirect and one
+to the `BackToARIA` Redirect.
 
 ---
 

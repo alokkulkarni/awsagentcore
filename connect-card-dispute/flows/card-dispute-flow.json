@@ -58,6 +58,34 @@
           }
         }
       },
+      "CheckBackToAria": {
+        "position": {
+          "x": 560,
+          "y": -120
+        }
+      },
+      "SetBackToAria": {
+        "position": {
+          "x": 840,
+          "y": -200
+        },
+        "parameters": {
+          "Attributes": {
+            "returnSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "returnSummary"
+        ]
+      },
+      "ToAria": {
+        "position": {
+          "x": 1120,
+          "y": -200
+        }
+      },
       "BuildHandover": {
         "position": {
           "x": 700,
@@ -192,7 +220,7 @@
         "NextAction": "BuildHandover",
         "Conditions": [
           {
-            "NextAction": "BuildHandover",
+            "NextAction": "CheckBackToAria",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -213,6 +241,71 @@
           {
             "NextAction": "Disconnect",
             "ErrorType": "InputTimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckBackToAria",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.AgenticCX.ContextVariables.escalationReason"
+      },
+      "Transitions": {
+        "NextAction": "BuildHandover",
+        "Conditions": [
+          {
+            "NextAction": "SetBackToAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "back_to_aria"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "BuildHandover",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetBackToAria",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "returned",
+          "returnedFrom": "card_dispute",
+          "handbackRoute": "returned",
+          "returnSummary": "$.AgenticCX.ContextVariables.summary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToAria",
+        "Errors": [
+          {
+            "NextAction": "BuildHandover",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ToAria",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/2b4f7b5c-1351-42c8-acac-add07d0cbd00"
+      },
+      "Transitions": {
+        "NextAction": "BuildHandover",
+        "Errors": [
+          {
+            "NextAction": "BuildHandover",
+            "ErrorType": "NoMatchingError"
           }
         ]
       }
