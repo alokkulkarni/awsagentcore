@@ -192,9 +192,10 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
         status('Connecting you to our assistant…');
         tell('connected', { kind: 'chat' });
         typing(false);
-        // Anything said before the websocket was listening (your first message, the greeting).
+        // Anything said before the websocket was listening (your first message, the greeting): the latest 100,
+        // oldest first. (FORWARD needs a StartPosition, and Connect refused it with a 400.)
         const transcript = await participant(live.region, 'transcript', live.connectionToken,
-          { MaxResults: 100, ScanDirection: 'FORWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
+          { MaxResults: 100, ScanDirection: 'BACKWARD', SortOrder: 'ASCENDING' }).catch(() => ({}));
         (transcript.Transcript || []).forEach(onChatItem);
         if (live && !live.opened) live.openerTimer = setTimeout(sendOpener, READY_WAIT_MS);
       });

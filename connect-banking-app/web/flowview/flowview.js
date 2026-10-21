@@ -49,6 +49,7 @@ const SAY = {
   'video-on': ['The video is on. The face moves with ARIA\'s voice.', 'Video on'],
   'video-failed': ['The video couldn\'t start. The call carries on by voice.', 'Video not available'],
   'video-off': ['The video has stopped. The call carries on by voice.', 'Video stopped'],
+  returned: ['Done there, the specialist has handed you back to ARIA, with a note of where things stand.', 'Back to ARIA'],
   trouble: ['ARIA had a problem. The contact centre is handling it, so you aren\'t left stranded.', 'ARIA had a problem'],
 };
 const TECH = {
@@ -65,6 +66,7 @@ const TECH = {
   'dispute-form': 'Form opened in the app, joined to this contact by Live Sync',
   'colleague-waiting': 'Contact queued for an agent (handbackRoute human)',
   'colleague-joined': 'Agent connected (ConnectedToAgentTimestamp)',
+  returned: 'Specialist escalated with back_to_aria; the flow transferred back to ARIA (entry returned, returnSummary)',
   'video-starting': 'Tavus digital human starting, lip-synced to the call audio',
 };
 
@@ -185,8 +187,10 @@ export function setupFlowView({ api }) {
     const f = run.facts;
     // Connect's word first; until it comes, an opened dispute form means the disputes specialist is helping.
     const reported = f.specialist || (s.has('dispute-form') ? 'card_dispute' : run.journey === 'money_hub' ? 'money_hub' : '');
-    const who = reported === 'money_hub' ? (s.has('money_hub') ? 'money_hub' : '') : reported;
-    const handedOver = who === 'card_dispute' || who === 'mortgage';
+    // Back from the disputes specialist: ARIA is helping again, and the specialist's step stays done.
+    const back = Boolean(f.returned) && !f.specialist;
+    const who = back ? (f.returnedFrom === 'mortgage' ? 'mortgage' : 'card_dispute') : reported === 'money_hub' ? (s.has('money_hub') ? 'money_hub' : '') : reported;
+    const handedOver = !back && (who === 'card_dispute' || who === 'mortgage');
     const colleague = f.colleague || (s.has('colleague-joined') ? 'joined' : '');
     const lineUp = s.has('connected-chat') || s.has('connected-call');
     const ariaIn = Boolean(f.aria);       // Connect's word only: some journeys go straight to a specialist
@@ -195,7 +199,7 @@ export function setupFlowView({ api }) {
       line: run.failed ? 'failed' : lineUp ? 'done' : 'active',
       centre: !lineUp && !s.has('started') ? '' : ariaIn || who || colleague ? 'done' : 'active',
       aria: handedOver && !ariaIn ? 'skipped' : !ariaIn ? '' : handedOver || colleague ? 'done' : 'active',
-      specialist: !who ? '' : colleague ? 'done' : 'active',
+      specialist: !who ? '' : colleague || back ? 'done' : 'active',
       colleague: colleague ? 'active' : '',
     };
     if (run.ended) for (const key of Object.keys(state)) if (state[key] === 'active') state[key] = 'done';
@@ -226,6 +230,7 @@ export function setupFlowView({ api }) {
       if (facts.dispute && facts.dispute.status !== 'started') say(`dispute-${facts.dispute.status}`);
       if (facts.colleague) say(`colleague-${facts.colleague}`);
       if (facts.trouble) say('trouble');
+      if (facts.returned) say('returned');
       draw();
     } catch (error) {
       // Turned off on the server (or this link's conversation isn't found): take the view away.

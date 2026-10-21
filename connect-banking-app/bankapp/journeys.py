@@ -5,14 +5,15 @@ Which assistant helps, from the page the customer is on when they chat or call.
 
     Money Hub          entry=money_hub and the tab: exactly what the Money Hub page sends today, so the
                        session injector tells ARIA and ARIA hands over to the Money Hub agent.
-    Mortgage form      entry=web_widget with the application and its stage: what the mortgage page sends
-                       today, so "conversation bot flow" (Point B) passes the contact to the mortgage
-                       assistant, which fills the form through Live Sync.
-    Card dispute       entry=card_dispute, with the payment the customer chose as handoverSummary and their
-                       name as preferredName: "conversation bot flow" passes it straight to the card dispute
-                       assistant (the same pattern as the mortgage form's Point B), which starts from that
-                       payment. It doesn't wait for ARIA to decide to hand over. Only for a verified (Level 2+)
-                       link: otherwise it's entry=banking_app, appPage=card_dispute and ARIA checks who they are.
+    Mortgage form      entry=banking_app, appPage=mortgage, with the application and its stage: ARIA greets
+                       the customer and hands over at once (the session injector tells her the form is open);
+                       the bot flow then passes the contact to the mortgage assistant joined to this form
+                       (entry=web_widget, as the mortgage page's own Point B), which fills it through Live Sync.
+    Card dispute       entry=banking_app, appPage=card_dispute, with the payment the customer chose as
+                       handoverSummary and their name as preferredName: ARIA greets them and hands over to
+                       the card dispute assistant at once, naming that payment. An unverified link has ARIA
+                       check who they are first. (Both pages went straight to the assistant until 20 Oct 2026;
+                       now every page starts with ARIA, and the dispute assistant hands back to her.)
     Anything else      entry=banking_app and the page's name. ARIA helps on its own. In a chat, Accounts, Cards
                        and Help open with a line saying where the customer is (as the Money Hub does); on a
                        call the session injector gives ARIA the same as a known contact reason. Home sends
@@ -67,15 +68,13 @@ def attributes(page: str, customer_id: str, loa: str, view: str = "", stage: str
             raise ValueError("unknown mortgage stage")
         if not APPLICATION_ID.match(application_id or ""):
             raise ValueError("unknown application")
-        values = {"entry": "web_widget", "applicationId": application_id, "stage": stage}
-        if money_hub.verified_level(loa):
-            values["customerId"] = customer_id
-        return values
+        # ARIA first; the mortgage flow reads applicationId and stage when she hands over (and customerId if verified)
+        return {"entry": "banking_app", "appPage": "mortgage", "applicationId": application_id, "stage": stage,
+                **verified_fields(customer_id, loa)}
     verified = verified_fields(customer_id, loa)
-    if page == "card_dispute" and verified:
-        # Straight to the dispute assistant, which treats the contact as verified (it normally comes from ARIA after
-        # her ID check). An unverified link falls through to ARIA below, so she checks who they are first.
-        return {"entry": "card_dispute", "appPage": "card_dispute", "handoverSummary": dispute_summary(payment),
+    if page == "card_dispute":
+        # ARIA first, told which payment (the session injector), then the dispute assistant starting from it
+        return {"entry": "banking_app", "appPage": "card_dispute", "handoverSummary": dispute_summary(payment),
                 **({"preferredName": first_name} if first_name else {}), **verified}
     return {"entry": "banking_app", "appPage": page if page in PAGES else "home", **verified}
 

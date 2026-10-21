@@ -12,7 +12,7 @@ import { STAGES } from '../mortgage/context.js';
 import { startLiveSync } from '../mortgage/touchpoint.js';
 import { startScreenHelp } from '../mortgage/screenHelp.js';
 import { reviewApplication, dipOutcome } from '../mortgage/review.js';
-import { resendContext } from '../mortgage/contextResend.js';
+import { RESEND_AFTER_MS, resendContext } from '../mortgage/contextResend.js';
 import { createUi } from '../mortgage/ui.js';
 import { applicationId, saveForm, saveStage, savedForm, startAgain } from '../mortgage/state.js';
 
@@ -23,6 +23,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // stays here, and reaches whichever form is showing through `form`.
 let bound = null;            // { contactId, session, stopResend }
 let form = null;             // the mounted form: { ui, show, state, current }
+// Re-send times for the form's context: the mortgage page's own, then on while ARIA hands over.
+export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];
 let touchpoint = null;       // { create, analyzePageForms }, loaded once
 let config = null;           // the mortgage service's settings and Live Sync keys
 
@@ -50,8 +52,10 @@ async function bindLiveSync(contactId, { session } = {}) {
       config: { ...config, languageCode: 'en-GB', launchIcon: false } });
     bound = { contactId, session: live, stopResend: () => {} };
     await sendContext();
-    // The first context can arrive before the assistant's conversation exists: send it again a few times.
-    bound.stopResend = resendContext({ send: () => sendContext() });
+    // The first context can arrive before the assistant's conversation exists: send it again a few times. In this
+    // app ARIA greets first and then hands over, so the mortgage assistant can start well after the contact: keep
+    // re-sending for up to two minutes (the same context each time, so harmless).
+    bound.stopResend = resendContext({ send: () => sendContext(), delays: AFTER_ARIA_MS });
     form?.ui.setStatus('The assistant can see this form and fill it in with you. Anything it fills is marked.');
   } catch {
     form?.ui.setStatus('The assistant can talk with you, but it couldn\'t connect to this form. You can fill it in yourself.');
