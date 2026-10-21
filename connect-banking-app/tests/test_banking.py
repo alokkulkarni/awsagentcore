@@ -114,15 +114,24 @@ class WhoHelps(Base):
         self.assertEqual(self.attributes()["entry"], "money_hub")
         self.assertIn("Goals tab", reply["opener"])
 
-    def test_the_mortgage_form_goes_to_point_b_with_its_application_and_stage(self):
+    def test_the_mortgage_form_starts_with_aria_carrying_its_application_and_stage(self):
         status, reply = self.post("/api/contact/call", token=self.verified, page="mortgage", stage="property_loan",
                                   applicationId=APP_ID)
         self.assertEqual(status, 200)
-        self.assertEqual(self.attributes(), {"entry": "web_widget", "applicationId": APP_ID, "stage": "property_loan",
-                                             "customerId": JAMES})
-        self.assertEqual(self.connect.calls[-1][1]["ContactFlowId"], "flow-cbf", "the bot flow's Point B routes it")
+        sent = self.attributes()
+        self.assertEqual((sent["entry"], sent["appPage"], sent["applicationId"], sent["stage"], sent["customerId"]),
+                         ("banking_app", "mortgage", APP_ID, "property_loan", JAMES),
+                         "ARIA first; the mortgage flow reads the application when she hands over")
+        self.assertEqual(sent["authStatus"], "authenticated")
+        self.assertEqual(self.connect.calls[-1][1]["ContactFlowId"], "flow-cbf")
         self.assertEqual(reply["journey"], "mortgage")
         self.assertNotIn("pt-secret", json.dumps(self.attributes()))
+
+    def test_the_form_keeps_telling_the_assistant_its_fields_while_aria_hands_over(self):
+        apply = (APP / "web" / "pages" / "apply.js").read_text()
+        self.assertIn("resendContext({ send: () => sendContext(), delays: AFTER_ARIA_MS })", apply)
+        self.assertIn("export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];", apply,
+                      "ARIA greets and hands over first: the mortgage assistant can start well after the contact")
 
     def test_a_demo_link_never_carries_the_customer_onto_a_mortgage_contact(self):
         self.post("/api/contact/chat", token=self.demo, page="mortgage", stage="about_you", applicationId=APP_ID)
@@ -135,22 +144,25 @@ class WhoHelps(Base):
             self.assertEqual((status, reply["error"]), (400, "bad_request"))
         self.assertEqual(self.connect.calls, [])
 
-    def test_a_card_dispute_goes_straight_to_the_dispute_assistant_with_the_customers_own_payment(self):
+    def test_a_card_dispute_starts_with_aria_told_the_customers_own_payment(self):
         payment = home.cards(JAMES)["payments"][0]
         status, reply = self.post("/api/contact/chat", token=self.verified, page="card_dispute", paymentId=payment["id"])
         self.assertEqual(status, 200)
         sent = self.attributes()
-        self.assertEqual((sent["entry"], sent["appPage"], sent["customerId"]), ("card_dispute", "card_dispute", JAMES))
+        self.assertEqual((sent["entry"], sent["appPage"], sent["customerId"]), ("banking_app", "card_dispute", JAMES))
         self.assertEqual(sent["preferredName"], "James")
         self.assertIn(payment["merchant"], sent["handoverSummary"])
         self.assertIn(f"£{payment['amount']:.2f}", sent["handoverSummary"])
         self.assertIn(payment["merchant"], reply["opener"])
         self.assertIn(f"£{payment['amount']:.2f}", reply["opener"])
 
-    def test_an_unverified_dispute_goes_to_aria_for_her_id_check_not_straight_to_the_dispute_assistant(self):
+    def test_an_unverified_dispute_goes_to_aria_for_her_id_check_and_carries_no_customer(self):
         payment = home.cards(JAMES)["payments"][0]
         self.post("/api/contact/chat", token=self.demo, page="card_dispute", paymentId=payment["id"])
-        self.assertEqual(self.attributes(), {"entry": "banking_app", "appPage": "card_dispute"})
+        sent = self.attributes()
+        self.assertEqual((sent["entry"], sent["appPage"]), ("banking_app", "card_dispute"))
+        self.assertNotIn("customerId", sent)
+        self.assertNotIn("authStatus", sent)
 
     def test_a_payment_that_isnt_the_customers_is_never_named(self):
         _, reply = self.post("/api/contact/chat", token=self.verified, page="card_dispute", paymentId="TXN-9999-x")
@@ -558,12 +570,22 @@ class HowItWorks(Base):
                  ({"entry": "money_hub", "handbackRoute": "card_dispute"}, "card_dispute", "connect"),
                  ({"entry": "web_widget"}, "mortgage", "connect"),
                  ({"entry": "phone", "handbackRoute": "mortgage_livesync"}, "mortgage", "connect"),
+                 ({"entry": "web_widget", "appPage": "mortgage", "handbackRoute": "mortgage_form"}, "mortgage", "connect"),
+                 ({"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned"}, "", ""),
                  ({"entry": "money_hub", "appPage": "money_hub"}, "money_hub", "page"),
                  ({"entry": "banking_app", "appPage": "home"}, "", ""),
                  ({"entry": "banking_app", "handbackRoute": "end"}, "", "")]
         for attributes, who, basis in cases:
             found = flowview.state(self.ARIA, attributes)
             self.assertEqual((found["specialist"], found["basis"]), (who, basis), attributes)
+
+    def test_back_from_the_dispute_assistant_is_aria_again(self):
+        found = flowview.state(self.ARIA, {"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned",
+                                           "appPage": "card_dispute"})
+        self.assertEqual((found["specialist"], found["returned"], found["aria"], found["returnedFrom"]), ("", True, True, "card_dispute"))
+        mortgage = flowview.state(self.ARIA, {"entry": "returned", "returnedFrom": "mortgage", "handbackRoute": "returned"})
+        self.assertEqual((mortgage["specialist"], mortgage["returnedFrom"]), ("", "mortgage"))
+        self.assertFalse(flowview.state(self.ARIA, {"entry": "aria"})["returned"])
 
     def test_a_colleague_is_waiting_once_aria_escalates_and_joined_once_connected(self):
         self.assertEqual(flowview.state({}, {"handbackRoute": "human"})["colleague"], "waiting")

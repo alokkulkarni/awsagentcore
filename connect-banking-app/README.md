@@ -35,7 +35,7 @@ Nothing in `connect-money-hub/`, `connect-card-dispute/` or the mortgage repo is
 | `connect-money-hub` | The Money Hub API (`api/money_api.py`) and `moneyhub/` | Packaged with this app. The same DynamoDB table, so the app, the Money Hub page and the Money Hub agent always agree. Links, goals, call transcripts and the face work exactly as on the Money Hub page |
 | Mortgage Live Sync (`connect-livesync-mortgage`) | Its form modules (`web/mortgage/`: actions, stages, field rules, review, help code, Touchpoint binding) | Copied unchanged. Its deployed backend is called for submit and help codes through its **IAM door**, and its Live Sync keys come from its own secret |
 | `connect-card-dispute` | Its form's field rules, Live Sync binding and rows; its sample cards (`dispute_model.py`) | Copied or packaged unchanged. Its deployed service saves the form, exactly as its own page does |
-| Connect | "conversation bot flow", ARIA, the ACXD applications | Nothing changes. Mortgage calls use the flow's existing **Point B** (`entry=web_widget`) |
+| Connect | ARIA's bot flow (`connect-bot-flow-modular`), ARIA, the ACXD applications | Every page's contact starts with ARIA, who hands over to the Money Hub, mortgage or dispute assistant; the mortgage form is reached as the flow's **Point B** (`entry=web_widget`) |
 
 ## How the assistant knows where you are
 
@@ -45,41 +45,29 @@ never from the browser.**
 
 ```
 Money Hub page    entry=money_hub, moneyHubView=<tab>            → session injector → ARIA → Money Hub agent
-Mortgage form     entry=web_widget, applicationId, stage         → conversation bot flow, Point B → mortgage assistant
+Mortgage form     entry=banking_app, appPage=mortgage,           → ARIA greets you and hands over at once
+                  applicationId, stage                             → mortgage assistant joined to this form
                   then Touchpoint binds headless ("external") to that contact: Live Sync fills the form
-Card dispute      entry=card_dispute, handoverSummary, preferredName
-                                                                 → conversation bot flow → dispute assistant
-                  (needs the one flow change below; chat opens with "I'd like to dispute <the payment you chose>")
-                  an unverified link sends entry=banking_app instead, so ARIA checks who you are first
+Card dispute      entry=banking_app, appPage=card_dispute,       → ARIA greets you and hands over at once,
+                  handoverSummary (the payment), preferredName     naming the payment → dispute assistant
+                  (an unverified link: ARIA checks who you are first)
 Anything else     entry=banking_app, appPage=<page>              → ARIA
 ```
+
+Every page starts with ARIA (since 20 Oct 2026; the mortgage form and a chosen dispute used to go straight to their
+assistant). The session injector tells her which page and, for a dispute, which payment
+(`_banking_app_reason_vars` in `scripts/lambdas/session_injector_qconnect.py`); her prompt's
+`<from_internet_banking>` has her greet in one sentence and hand over in the same turn. For the mortgage form the
+bot flow's decision module sends the contact to the mortgage assistant with `entry=web_widget`, exactly as the
+mortgage page's own Point B, on chats and calls (`handbackRoute=mortgage_form`).
+
+**Back to ARIA.** When you've finished with a dispute (submitted it, saved it for later, or don't want to go on) and
+ask about anything else, the dispute assistant hands you back to ARIA, who answers straight away without greeting
+you again (`connect-card-dispute` rule R15). Asking for a person still goes to a colleague.
 
 A link minted at Level 2 or above adds the verified fields (`customerId`, `authStatus`, `LoA` …), as the Money Hub
 page does, and only then does a mortgage contact carry your `customerId`. The app's own demo link is always Level 2
 (it's the signed-in session); `--unverified-demo` makes one that isn't, for testing ARIA's ID check.
-
-### The one flow change disputes need
-
-Choosing **Dispute** next to a card payment sends the contact straight to the card dispute assistant, the same way
-the mortgage form reaches the mortgage assistant. It doesn't wait for ARIA to decide to hand over. The app
-sends the payment you chose as `handoverSummary` (from the server's own record, never the browser's) and your first
-name as `preferredName`, which are the two things the dispute assistant reads from ARIA's hand-over.
-
-In the Connect admin website, open **Routing → Flows → conversation bot flow**:
-
-1. Find the **Check contact attributes** block that checks `entry` (the one with the `web_widget` branch to
-   "Mortgage Live Sync handover").
-2. Add a condition: **Equals** `card_dispute`.
-3. Add a **Set contact attributes** block after that new branch. Set one attribute: **Key** `entry`, **Value**
-   `aria` (the value the dispute assistant expects). Don't set `handoverSummary` here: the app already sent it.
-4. Connect its **Success** to the existing **Transfer to flow** block for "Card dispute assistant". Don't go
-   through the Set contact attributes block that sits before it: it copies `handoverSummary` from Lex, which
-   is empty here, and would wipe the app's.
-5. Connect **Error** to the same Transfer to flow block. Then **Save** and **Publish**.
-
-Until that's published, a dispute contact falls through to ARIA as before. The session injector tells her it's a
-card dispute (`_banking_app_reason_vars` in `scripts/lambdas/session_injector_qconnect.py`, deployed as code
-only: zip plus `update-function-code` for `aria-session-injector-qconnect`).
 
 **Asking ARIA about a payment** from any page (or on the phone) works too: she verifies the customer and
 hands over with her Complete tool (`nextStep` = `card_dispute`), and the flow sends them to the dispute

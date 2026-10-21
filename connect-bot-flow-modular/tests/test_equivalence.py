@@ -224,6 +224,63 @@ class TheModularFlowMatchesTheLiveOne(unittest.TestCase):
         self.assertEqual((point_b[0], point_b[2]), (("transfer", "6788a011"), 0))
 
 
+class TheNewWaysIn(unittest.TestCase):
+    """Added 20 Oct 2026, so not in the live flow: back to ARIA from the card dispute assistant, and the internet
+    banking app's mortgage form starting with ARIA."""
+
+    def run_contact(self, channel, attributes, turns, recoveries=(), fail=()):
+        contact = Contact(channel, "", "authenticated", turns, list(recoveries), list(fail))
+        contact.attributes.update(attributes)
+        return run(MAIN, contact, MODULES), contact
+
+    def test_a_new_contact_marks_that_aria_has_her_session(self):
+        _, contact = self.run_contact("CHAT", {"entry": "banking_app"}, [("handback", HANDBACKS["escalate"])])
+        self.assertEqual(contact.attributes["ariaStarted"], "true")
+
+    def test_back_from_the_dispute_assistant_aria_carries_on_without_a_second_session(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "ariaStarted": "true"}
+        # A failing Connect assistant block would end the contact: reaching ARIA proves the block is skipped.
+        result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])], fail=["assistant1"])
+        self.assertEqual((result, contact.turns), (("transfer", "0978883b"), 1))
+        result, contact = self.run_contact("VOICE", back, [("handback", HANDBACKS["complete-bare"])], ["end"],
+                                           fail=["assistant1"])
+        self.assertEqual((result, contact.turns), (("disconnect", None), 1))
+
+    def test_back_from_the_dispute_assistant_skips_contact_setup(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "ariaStarted": "true"}
+        # Contact setup's failure branch hangs up: a returning customer must never run it again.
+        for fail in ("recording", "voice", "language"):
+            result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])], fail=[fail])
+            self.assertEqual((result, contact.turns), (("transfer", "0978883b"), 1), fail)
+
+    def test_back_without_an_aria_session_yet_gets_one_first(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute"}
+        self.assertEqual(self.run_contact("CHAT", back, [], fail=["assistant1"])[0], ("disconnect", None))
+        result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])])
+        self.assertEqual((result, contact.turns, contact.attributes["ariaStarted"]), (("transfer", "0978883b"), 1, "true"))
+
+    def test_the_apps_mortgage_form_goes_through_aria_to_the_form_on_chat_and_calls(self):
+        form = {"entry": "banking_app", "appPage": "mortgage", "applicationId": "MA-ABCDEFGH", "stage": "about_you"}
+        for channel in ("CHAT", "VOICE"):
+            for handback in ("start-mortgage", "complete-mortgage"):
+                result, contact = self.run_contact(channel, form, [("handback", HANDBACKS[handback])])
+                self.assertEqual(result, ("transfer", "6788a011"), (channel, handback))
+                self.assertEqual((contact.attributes["entry"], contact.attributes["applicationId"]),
+                                 ("web_widget", "MA-ABCDEFGH"), "the mortgage flow reads the form's own attributes")
+                self.assertEqual(contact.attributes["handoverSummary"], HANDBACKS[handback]["handoverSummary"])
+                self.assertNotIn("cliMatched", contact.attributes, "not the phone path")
+        # Connect lost the hand-back: the recovery Lambda's answer still reaches the form.
+        result, contact = self.run_contact("CHAT", form, [("error", {})], ["mortgage_application"])
+        self.assertEqual((result, contact.attributes["entry"]), (("transfer", "6788a011"), "web_widget"))
+
+    def test_a_failed_transfer_to_the_form_goes_back_to_aria(self):
+        form = {"entry": "banking_app", "appPage": "mortgage"}
+        result, contact = self.run_contact("CHAT", form, [("handback", HANDBACKS["start-mortgage"]),
+                                                          ("handback", HANDBACKS["escalate"])],
+                                           fail=["transfer:6788a011"])
+        self.assertEqual((result, contact.turns), (("transfer", "0978883b"), 2))
+
+
 class TheFilesAreImportable(unittest.TestCase):
     def test_structure(self):
         for path, document in NEW.items():

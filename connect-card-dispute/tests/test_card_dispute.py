@@ -1265,10 +1265,13 @@ class CxDesignerConfiguration(unittest.TestCase):
         for name in read:
             self.assertRegex(self.doc, rf"\| `{name}` \| `", f"{name} is set on the Escalate node")
 
-    def test_every_way_out_except_hanging_up_reaches_a_person_through_the_record(self):
+    def test_every_way_out_except_hanging_up_and_back_to_aria_reaches_a_person_through_the_record(self):
         out = self.blocks["CardDisputeAssistant"]["Transitions"]
         exits = {e["ErrorType"]: e["NextAction"] for e in out["Errors"]}
-        self.assertEqual((out["NextAction"], out["Conditions"][0]["NextAction"]), ("BuildHandover", "BuildHandover"))
+        self.assertEqual((out["NextAction"], out["Conditions"][0]["NextAction"]), ("BuildHandover", "CheckBackToAria"))
+        check = self.blocks["CheckBackToAria"]["Transitions"]
+        self.assertEqual((check["NextAction"], check["Errors"][0]["NextAction"]), ("BuildHandover", "BuildHandover"),
+                         "any other escalation still goes to a person")
         self.assertEqual(exits, {"NoMatchingError": "BuildHandover", "NoMatchingCondition": "BuildHandover",
                                  "InputTimeLimitExceeded": "Disconnect"})
         build = self.blocks["BuildHandover"]["Parameters"]
@@ -1281,6 +1284,36 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertEqual(self.blocks["HandoverUnavailable"]["Parameters"]["Attributes"]["topicCategory"], "fraud_security")
         self.assertTrue(self.blocks["ToHumanHandover"]["Parameters"]["ContactFlowId"].endswith(
             "/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"), "ARIA human handover, as ARIA's own escalations")
+
+    def test_finished_with_the_dispute_goes_back_to_aria_with_what_they_want_now(self):
+        check = self.blocks["CheckBackToAria"]
+        self.assertEqual(check["Parameters"]["ComparisonValue"], "$.AgenticCX.ContextVariables.escalationReason")
+        self.assertEqual(check["Transitions"]["Conditions"][0]["Condition"]["Operands"], [self.builder.BACK_TO_ARIA])
+        self.assertEqual(check["Transitions"]["Conditions"][0]["NextAction"], "SetBackToAria")
+        attributes = self.blocks["SetBackToAria"]["Parameters"]["Attributes"]
+        self.assertEqual(attributes, {"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned",
+                                      "returnSummary": "$.AgenticCX.ContextVariables.summary"})
+        self.assertEqual(self.blocks["SetBackToAria"]["Transitions"]["Errors"][0]["NextAction"], "BuildHandover",
+                         "if the way back fails, a person still helps")
+        self.assertTrue(self.blocks["ToAria"]["Parameters"]["ContactFlowId"].endswith(
+            "/contact-flow/2b4f7b5c-1351-42c8-acac-add07d0cbd00"), "ARIA's bot flow (modular)")
+        self.assertEqual(self.blocks["ToAria"]["Transitions"]["Errors"][0]["NextAction"], "BuildHandover")
+        # The guide's BackToARIA flow sets exactly the value the flow compares, as plain words.
+        back = self.doc.split("### 3a-2. Flow `BackToARIA`")[1].split("### 3b.")[0]
+        self.assertIn(f"| `escalationReason` | `{self.builder.BACK_TO_ARIA}` |", back)
+        self.assertIn("| `summary` | `{returnNote}` |", back)
+
+    def test_the_assistant_hands_other_questions_back_to_aria_never_to_a_colleague(self):
+        prompt = self.doc.split("**The assistant.**")[1].split("```")[1]
+        self.assertIn("When to go Back to ARIA", prompt)
+        self.assertIn("Asking for a person is never Back to ARIA: it is Escalation requested.", prompt)
+        self.assertNotIn("say your colleague can help with that too", prompt)
+        flat = " ".join(prompt.split())
+        self.assertIn("Never answer the other question yourself, never say a colleague will help with it", flat)
+        self.assertIn("without a message of your own", flat, "the hand-back node says it; not twice")
+        handback = self.doc.split("### 3a. Flow `HandBackToARIA`")[1].split("### 3a-2.")[0]
+        message = handback.split("**Message** (what the customer hears or reads):")[1].split("\n   4.")[0]
+        self.assertNotIn("before it's\n      submitted", message, "the customer may have submitted it themselves")
 
     def test_the_flow_copies_exactly_what_the_hand_over_operation_returns(self):
         service = DisputeService(MemoryStore(lambda: 0.0), lambda: 0.0)
@@ -1361,7 +1394,7 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertEqual(json.loads((FOLDER / "acxd" / "live-sync-actions.json").read_text()), {"actions": []})
         self.assertIn("Never submit, confirm or accept a dispute", self.doc)
         exits = self.doc.split("10. **Exit conditions.**")[1].split("\n11. ")[0]
-        self.assertEqual(re.findall(r"^    \| `([^`]+)` \|", exits, re.M), ["Escalation requested", "Unable to help"])
+        self.assertEqual(re.findall(r"^    \| `([^`]+)` \|", exits, re.M), ["Escalation requested", "Unable to help", "Back to ARIA"])
         self.assertNotIn("Task complete |", exits)
         self.assertFalse(any(re.search(r"submit|confirm", op, re.I) for op in dispute_web.ACXD_OPERATIONS))
 

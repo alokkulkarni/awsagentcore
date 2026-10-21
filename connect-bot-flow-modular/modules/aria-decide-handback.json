@@ -79,6 +79,24 @@
           "y": -160
         }
       },
+      "checkMortgageForm": {
+        "position": {
+          "x": 780,
+          "y": 0
+        }
+      },
+      "checkMortgageFormRecovered": {
+        "position": {
+          "x": 1560,
+          "y": 160
+        }
+      },
+      "mortgageForm": {
+        "position": {
+          "x": 1300,
+          "y": -800
+        }
+      },
       "recoverAfterError": {
         "position": {
           "x": 520,
@@ -208,7 +226,7 @@
             }
           },
           {
-            "NextAction": "checkChannelForMortgage",
+            "NextAction": "checkMortgageForm",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -276,7 +294,7 @@
             }
           },
           {
-            "NextAction": "checkChannelForMortgage",
+            "NextAction": "checkMortgageForm",
             "Condition": {
               "Operator": "Equals",
               "Operands": [
@@ -309,6 +327,81 @@
         "Errors": [
           {
             "NextAction": "routeCardDispute",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkMortgageForm",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.appPage"
+      },
+      "Transitions": {
+        "NextAction": "checkChannelForMortgage",
+        "Conditions": [
+          {
+            "NextAction": "mortgageForm",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "checkChannelForMortgage",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkMortgageFormRecovered",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.appPage"
+      },
+      "Transitions": {
+        "NextAction": "checkAuthenticated",
+        "Conditions": [
+          {
+            "NextAction": "mortgageForm",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "checkAuthenticated",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "mortgageForm",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "web_widget",
+          "handoverSummary": "$.Attributes.lexHandoverSummary",
+          "handbackRoute": "mortgage_form"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Errors": [
+          {
+            "NextAction": "routeHuman",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -506,7 +599,7 @@
             }
           },
           {
-            "NextAction": "checkAuthenticated",
+            "NextAction": "checkMortgageFormRecovered",
             "Condition": {
               "Operator": "Equals",
               "Operands": [

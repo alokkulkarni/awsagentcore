@@ -152,5 +152,53 @@ class EveryoneSeesTheSameJames(unittest.TestCase):
             self.assertEqual(home.first_name(customer_id), greeting)
 
 
+class PagesThatStartWithAria(unittest.TestCase):
+    """20 Oct 2026: the dispute and mortgage pages start with ARIA, and the dispute assistant hands back to her. The
+    session injector's words are what ARIA's prompt listens for (<from_internet_banking>)."""
+
+    PROMPT = (ROOT / "connect-bot-flow-modular" / "ai-agent" / "prompt" / "aria-orchestration-prompt-v2.yaml").read_text()
+
+    def reason(self, attributes):
+        found = {}
+        found.update(injector._banking_app_reason_vars(attributes.get("entry", ""), attributes.get("appPage", ""),
+                                                       attributes.get("handoverSummary", "")))
+        found.update(injector._returned_reason_vars(attributes.get("entry", ""), attributes.get("returnedFrom", ""),
+                                                    attributes.get("returnSummary", "")))
+        return found
+
+    def test_the_dispute_page_tells_aria_which_payment_in_the_words_her_prompt_listens_for(self):
+        from bankapp import journeys
+        payment = home.cards(JAMES)["payments"][0]
+        found = self.reason(journeys.attributes("card_dispute", JAMES, "2", payment=payment, first_name="James"))
+        self.assertTrue(found["contactReasonSummary"].startswith("Card dispute:"))
+        self.assertIn(payment["merchant"], found["contactReasonSummary"])
+        self.assertIn('"Card dispute:"', self.PROMPT)
+
+    def test_the_mortgage_page_tells_aria_the_form_is_open(self):
+        from bankapp import journeys
+        found = self.reason(journeys.attributes("mortgage", JAMES, "2", stage="about_you", application_id="MA-ABCDEFGH"))
+        self.assertTrue(found["contactReasonSummary"].startswith("Mortgage application:"))
+        self.assertEqual(found["topContactReasonCategory"], "mortgage")
+        self.assertIn('"Mortgage application:"', self.PROMPT)
+
+    def test_back_from_the_dispute_assistant_aria_gets_what_they_want_now(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "appPage": "money_hub",
+                "returnSummary": "Wants to know how to open a joint account; their dispute is submitted."}
+        found = self.reason(back)
+        self.assertEqual(found["contactReasonSummary"],
+                         "Back from card dispute: Wants to know how to open a joint account; their dispute is submitted.")
+        self.assertIn('"Back from card dispute:"', self.PROMPT)
+        self.assertIn('"Nothing else:" comes straight after the label', self.PROMPT)
+        self.assertEqual(self.reason({"entry": "aria", "appPage": "card_dispute"}), {}, "only a contact coming back")
+
+    def test_back_from_the_mortgage_assistant_aria_says_goodbye_knowing_where_the_application_stands(self):
+        back = {"entry": "returned", "returnedFrom": "mortgage", "appPage": "mortgage",
+                "returnSummary": "Nothing else: stopped at Property and loan, saved for later."}
+        found = self.reason(back)
+        self.assertEqual(found["contactReasonSummary"],
+                         "Back from mortgage application: Nothing else: stopped at Property and loan, saved for later.")
+        self.assertIn('"Back from mortgage application:"', self.PROMPT)
+
+
 if __name__ == "__main__":
     unittest.main()

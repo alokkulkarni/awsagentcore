@@ -11,6 +11,13 @@ transfers to when ARIA calls its StartCardDispute tool (SPEC Part 4).
     Agentic CX block "Card dispute"   the CX designer disputes assistant does the dispute
           │  any way out except the caller hanging up
           ▼
+    Back to ARIA?                     the assistant's BackToARIA flow escalates with
+          │  escalationReason back_to_aria: the customer has finished with the
+          │  dispute and wants something else (or nothing else). Their next
+          │  question goes on the contact (returnSummary, entry=returned) and the
+          │  contact goes back to ARIA's bot flow, which carries on without
+          │  greeting them again (SPEC rule R15)
+          ▼  anything else
     Lambda aria-card-dispute          builds the hand-over from the dispute record:
           │                           team, summary, dispute reference
           ▼
@@ -44,6 +51,8 @@ ACCOUNT_ID = "395402194296"
 INSTANCE_ID = "f969d4b4-f716-4974-a325-bb7899f2f293"
 WORKSPACE_ID = "55c49fa0-22f3-4dd3-823d-e353f4aee139"        # ariaworkspace
 HUMAN_HANDOVER_FLOW_ID = "0978883b-6892-41ab-81f4-528e0e0cc9bf"   # ARIA human handover
+ARIA_FLOW_ID = "2b4f7b5c-1351-42c8-acac-add07d0cbd00"            # ARIA conversation bot flow (modular)
+BACK_TO_ARIA = "back_to_aria"                                     # the BackToARIA flow's escalationReason
 DISPUTE_FUNCTION = "aria-card-dispute"
 
 FLOW_NAME = "Card dispute assistant"
@@ -66,12 +75,16 @@ CONTEXT_IN = {
 CONTEXT_OUT = ("summary", "escalationReason")
 # The Lambda's reply, copied onto the contact under the names ARIA human handover reads.
 HANDOVER_ATTRIBUTES = ("topicCategory", "customerIntent", "escalationReason", "conversationSummary", "disputeId")
+# Set on the way back to ARIA: her bot flow and session injector read them (connect-bot-flow-modular).
+RETURN_ATTRIBUTES = {"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned"}
 FALLBACK_SUMMARY = ("Card dispute: the hand-over summary could not be built. The details the assistant saved are "
                     "on the dispute form; open it from this screen pop.")
 
 
-def build(region, account_id, instance_id, workspace_id, application_id, alias, handover_flow_id, function) -> dict:
+def build(region, account_id, instance_id, workspace_id, application_id, alias, handover_flow_id, function,
+          aria_flow_id=ARIA_FLOW_ID) -> dict:
     handover_arn = f"arn:aws:connect:{region}:{account_id}:instance/{instance_id}/contact-flow/{handover_flow_id}"
+    aria_arn = f"arn:aws:connect:{region}:{account_id}:instance/{instance_id}/contact-flow/{aria_flow_id}"
     from_assistant = lambda name: f"$.AgenticCX.ContextVariables.{name}"        # noqa: E731
 
     laid_out = [
@@ -96,16 +109,41 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
                                              "ResponseDeliveryDelayInMilliseconds": 500},
                 "IdleChatTimeoutSeconds": 600,
             },
-            # Every way out reaches a person, through the record, except the caller hanging up.
+            # Every way out reaches a person, through the record, except the caller hanging up and the assistant's
+            # own way back to ARIA (an Escalation with escalationReason back_to_aria).
             "Transitions": {
                 "NextAction": "BuildHandover",
-                "Conditions": [{"NextAction": "BuildHandover",
+                "Conditions": [{"NextAction": "CheckBackToAria",
                                 "Condition": {"Operator": "Equals", "Operands": ["Escalation"]}}],
                 "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingError"},
                            {"NextAction": "BuildHandover", "ErrorType": "NoMatchingCondition"},
                            {"NextAction": "Disconnect", "ErrorType": "InputTimeLimitExceeded"}],
             },
         }, 420, 100),
+        ({
+            "Identifier": "CheckBackToAria",
+            "Type": "Compare",
+            "Parameters": {"ComparisonValue": from_assistant("escalationReason")},
+            "Transitions": {"NextAction": "BuildHandover",
+                            "Conditions": [{"NextAction": "SetBackToAria",
+                                            "Condition": {"Operator": "Equals", "Operands": [BACK_TO_ARIA]}}],
+                            "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingCondition"}]},
+        }, 560, -120),
+        ({
+            "Identifier": "SetBackToAria",
+            "Type": "UpdateContactAttributes",
+            "Parameters": {"Attributes": {**RETURN_ATTRIBUTES, "returnSummary": from_assistant("summary")},
+                           "TargetContact": "Current"},
+            "Transitions": {"NextAction": "ToAria",
+                            "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingError"}]},
+        }, 840, -200),
+        ({
+            "Identifier": "ToAria",
+            "Type": "TransferToFlow",
+            "Parameters": {"ContactFlowId": aria_arn},
+            "Transitions": {"NextAction": "BuildHandover",
+                            "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingError"}]},
+        }, 1120, -200),
         ({
             "Identifier": "BuildHandover",
             "Type": "InvokeLambdaFunction",
@@ -158,7 +196,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
         "IdleChatTimeoutSeconds": {"unit": 60}}
     metadata["RecordChannel"]["parameters"] = {"Attributes": {"disputeChannel": {"useDynamic": True}}}
     metadata["RecordChannel"]["dynamicParams"] = ["disputeChannel"]
-    lambda_attributes = laid_out[2][0]["Parameters"]["LambdaInvocationAttributes"]
+    lambda_attributes = next(a for a, _, _ in laid_out if a["Identifier"] == "BuildHandover")["Parameters"]["LambdaInvocationAttributes"]
     metadata["BuildHandover"]["parameters"] = {
         "LambdaFunctionARN": {"displayName": function},
         "LambdaInvocationAttributes": {k: {"useDynamic": True} for k, v in lambda_attributes.items() if v.startswith("$.")}}
@@ -166,6 +204,8 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
     metadata["SetHandover"]["parameters"] = {"Attributes": {name: {"useDynamic": True} for name in HANDOVER_ATTRIBUTES}}
     metadata["SetHandover"]["dynamicParams"] = list(HANDOVER_ATTRIBUTES)
     metadata["HandoverUnavailable"]["dynamicParams"] = []
+    metadata["SetBackToAria"]["parameters"] = {"Attributes": {"returnSummary": {"useDynamic": True}}}
+    metadata["SetBackToAria"]["dynamicParams"] = ["returnSummary"]
 
     return {
         "Version": "2019-10-30",
@@ -186,6 +226,7 @@ def main() -> None:
     parser.add_argument("--alias", default=NOT_CHOSEN, help="The alias of the environment you deployed it to")
     parser.add_argument("--handover-flow-id", default=HUMAN_HANDOVER_FLOW_ID, help="ID of 'ARIA human handover'")
     parser.add_argument("--function", default=DISPUTE_FUNCTION, help="The dispute Lambda's name")
+    parser.add_argument("--aria-flow-id", default=ARIA_FLOW_ID, help="ID of ARIA's bot flow (the way back to ARIA)")
     parser.add_argument("--output", default=str(Path(__file__).parent / "card-dispute-flow.json"))
     args = parser.parse_args()
     # The block needs the environment's alias CODE (like MyX46JWMLhtmdRWZgXTDe), not its name.
@@ -196,7 +237,7 @@ def main() -> None:
                      "in the Agentic CX block after import.")
 
     flow = build(args.region, args.account_id, args.instance_id, args.workspace_id, args.application_id,
-                 args.alias, args.handover_flow_id, args.function)
+                 args.alias, args.handover_flow_id, args.function, args.aria_flow_id)
     Path(args.output).write_text(json.dumps(flow, indent=2) + "\n")
     print(f"Wrote {args.output} ({len(flow['Actions'])} blocks)")
     if NOT_CHOSEN in (args.application_id, args.alias):

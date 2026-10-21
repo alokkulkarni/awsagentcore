@@ -8,7 +8,10 @@ anyone can follow (web/flowview/flowview.js). Read from Connect's own record of 
     a specialist        the contact attributes the flow writes as it hands over (connect-bot-flow-modular):
                           entry card_dispute or aria, or handbackRoute card_dispute    the card dispute assistant
                           entry web_widget, or handbackRoute mortgage_livesync         the mortgage assistant
+                            or mortgage_form
                           entry money_hub                                              the Money Hub agent (*)
+    back to ARIA        entry returned (returnedFrom card_dispute or mortgage): the specialist handed the customer
+                        back (dispute rule R15, mortgage FR-39)
     a colleague         handbackRoute human (waiting); AgentInfo.ConnectedToAgentTimestamp (joined)
     the dispute         the dispute service: a dispute this conversation started, sent or submitted
     ended               DisconnectTimestamp
@@ -71,7 +74,7 @@ def specialist(attributes: dict) -> tuple[str, str]:
     # The flow's own hand-overs come first: they are written later than where the contact started.
     if route == "card_dispute" or entry in ("card_dispute", "aria"):     # "aria": the flow's mark of a dispute
         return "card_dispute", "connect"
-    if route == "mortgage_livesync" or entry == "web_widget":
+    if route in ("mortgage_livesync", "mortgage_form") or entry == "web_widget":
         return "mortgage", "connect"
     if entry == "money_hub":
         return "money_hub", "page"
@@ -90,6 +93,8 @@ def state(described: dict, attributes: dict, dispute: dict | None = None) -> dic
         "specialist": who, "basis": basis, "colleague": colleague,
         "ended": bool(described.get("DisconnectTimestamp")),
         "trouble": attributes.get("handbackOutcome") == "error",       # ARIA's block failed; the flow carried on
+        "returned": attributes.get("entry") == "returned",              # back to ARIA from a specialist
+        "returnedFrom": attributes.get("returnedFrom", "") if attributes.get("entry") == "returned" else "",
     }
     if dispute and dispute.get("status") in DISPUTE_STATUSES:
         found["dispute"] = {"status": DISPUTE_STATUSES[dispute["status"]], "formSent": bool(dispute.get("formSent"))}

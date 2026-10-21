@@ -504,32 +504,62 @@ def _money_hub_reason_vars(entry: str, view: str) -> dict[str, str]:
 
 # A contact started from the internet banking app (connect-banking-app) carries entry=banking_app and the page
 # the customer was on. Like the Money Hub's tab, that page is their reason for getting in touch, so it is offered
-# to ARIA as the known contact reason and she opens with it ("Are you calling about your cards…?"). A card
-# dispute the customer chose in the app carries entry=card_dispute: the bot flow sends it straight to the card
-# dispute assistant, and only reaches ARIA (who then hands over with Complete, nextStep card_dispute) if the flow
-# has no route for it yet.
+# to ARIA as the known contact reason and she opens with it ("Are you calling about your cards…?").
+# Since 20 Oct 2026 the dispute and mortgage pages start with ARIA too, and she hands over at once
+# (<from_internet_banking> in her prompt): a card dispute names the payment the customer chose (the app's own
+# handoverSummary, never more than a card's last four digits), and the mortgage form is already joined to the
+# conversation. (Older app versions sent entry=card_dispute, which the bot flow takes straight to the dispute
+# assistant.)
 # Home adds nothing: ARIA opens with what she already knows about the customer. (Money Hub pages send
-# entry=money_hub, and the mortgage form goes to the mortgage assistant through the bot flow's Point B, so
-# neither comes here.)
+# entry=money_hub.)
 #   page: (topContactReason, routing category, what the customer was doing)
 BANKING_APP_PAGES = {
     "accounts": ("their accounts", "current_account", "looking at their accounts"),
     "cards": ("their cards and card payments", "debit_card", "looking at their cards and card payments"),
     "card_dispute": ("a card payment they want to dispute", "debit_card", "choosing a card payment to dispute"),
     "help": ("a question about internet banking", "general_banking", "on the Help page"),
+    "mortgage": ("their mortgage application", "mortgage", "filling in their mortgage application"),
 }
+# The label ARIA's prompt keys on (<from_internet_banking>); other pages are "Internet banking".
+BANKING_APP_LABELS = {"card_dispute": "Card dispute", "mortgage": "Mortgage application"}
 
 
-def _banking_app_reason_vars(entry: str, page: str) -> dict[str, str]:
+def _banking_app_reason_vars(entry: str, page: str, payment: str = "") -> dict[str, str]:
+    """payment: the app's description of the payment chosen on the dispute page (its handoverSummary)."""
     if entry not in ("banking_app", "card_dispute") or page not in BANKING_APP_PAGES:
         return {}
     reason, category, doing = BANKING_APP_PAGES[page]
-    label = "Card dispute" if page == "card_dispute" else "Internet banking"
+    label = BANKING_APP_LABELS.get(page, "Internet banking")
+    summary = f"{label}: the customer started this from internet banking, {doing}."
+    if page == "card_dispute" and payment:
+        summary = f"{label}: the customer chose this payment to dispute in internet banking. {payment}"
     return {
         "hasKnownContactReason": "true",
         "topContactReason": reason,
         "topContactReasonCategory": category,
-        "contactReasonSummary": f"{label}: the customer started this from internet banking, {doing}.",
+        "contactReasonSummary": summary[:SESSION_VALUE_MAX_CHARS],
+        "contactReasons": "",
+    }
+
+
+# Back from the card dispute assistant (connect-card-dispute, rule R15) or the mortgage application assistant
+# (connect-livesync-mortgage, FR-39): the customer finished there and wants something else, or nothing else. The
+# assistant's one line (returnSummary) says what they want now and what happened (the dispute; where the application
+# stands); ARIA answers it straight away, or says goodbye with it, without greeting them again.
+RETURNED_FROM = {"card_dispute": ("Back from card dispute", "what they asked after their card dispute"),
+                 "mortgage": ("Back from mortgage application", "what they asked after their mortgage application")}
+
+
+def _returned_reason_vars(entry: str, returned_from: str, summary: str) -> dict[str, str]:
+    if entry != "returned" or returned_from not in RETURNED_FROM:
+        return {}
+    label, reason = RETURNED_FROM[returned_from]
+    said = " ".join(summary.split()) or "They want help with something else."
+    return {
+        "hasKnownContactReason": "true",
+        "topContactReason": reason,
+        "topContactReasonCategory": "general_banking",
+        "contactReasonSummary": f"{label}: {said}"[:SESSION_VALUE_MAX_CHARS],
         "contactReasons": "",
     }
 
@@ -1005,7 +1035,8 @@ def handler(event: dict, context: Any) -> dict:
             })
             reason_vars = _build_contact_reason_vars(customer_id, auth_status, idv_loa)
             reason_vars.update(_money_hub_reason_vars(_attr("entry"), _attr("moneyHubView")))
-            reason_vars.update(_banking_app_reason_vars(_attr("entry"), _attr("appPage")))
+            reason_vars.update(_banking_app_reason_vars(_attr("entry"), _attr("appPage"), _attr("handoverSummary")))
+            reason_vars.update(_returned_reason_vars(_attr("entry"), _attr("returnedFrom"), _attr("returnSummary")))
             session_vars.update(reason_vars)
 
             logger.info(

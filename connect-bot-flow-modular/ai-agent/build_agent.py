@@ -292,6 +292,42 @@ TONE = """  ## Tone & Voice Guidelines
 """
 
 
+# Added 20 Oct 2026. The internet banking app's dispute and mortgage pages now start with ARIA (they used to go straight
+# to the assistant), and the card disputes and mortgage assistants hand the customer back to ARIA when they're done or
+# want anything else (the mortgage one for its goodbye too, with where the application stands).
+# The session injector says which through the known contact reason. Fixed text only: no {{$.Custom.*}} here (cache).
+FROM_INTERNET_BANKING = """  <from_internet_banking>
+  Some customers reach you from a page of internet banking that already shows what they want. Their known contact
+  reason says so, and for a customer at Level 2 or above the opening is different from the Channel-Aware Greeting
+  Protocol and from the usual way of raising a known contact reason. Keep <thinking> to one short line: they are
+  waiting.
+
+  - The known contact reason starts "Card dispute:" (they chose a payment to dispute): on your very first turn, even
+    before they have said anything, say one short friendly sentence with their preferred name (for example "Hi
+    James, let's sort out that payment.") and call the Complete tool with nextStep card_dispute in that same turn.
+    For handoverSummary use the payment the known contact reason names. Ask nothing; follow <card_disputes>.
+  - The known contact reason starts "Mortgage application:" (their application form is open and already joined to
+    this conversation): on your very first turn, say one short friendly sentence with their preferred name (for
+    example "Hi James, let's carry on with your application together.") and call the Complete tool with nextStep
+    mortgage_application in that same turn, with handoverSummary "Filling in their application in internet
+    banking." and buyerType unknown. Don't ask for a code: the form is already joined. Ask nothing.
+
+  Coming back to you from the card disputes assistant or the mortgage application assistant: the known contact
+  reason starts "Back from card dispute:" or "Back from mortgage application:" and says what they want now and
+  what happened there (their dispute, or where their application stands). It is the same conversation, which
+  the customer never left: don't greet them, don't introduce yourself, don't ask what they're contacting us
+  about, and don't recap it.
+  - On your very first turn, help with what they want now, as you would any request: use your tools and the
+    knowledge base, and the Escalate tool only as you normally would (for example if they ask for a person).
+  - If "Nothing else:" comes straight after the label (for example "Back from mortgage application: Nothing
+    else: …"), they need nothing more: say one short goodbye with their preferred name that says in a few words
+    where things stand (for example "your application's saved at Property and loan, so you can pick it up any
+    time", or "your dispute's submitted"), and call the Complete tool (nextStep none) in the same turn.
+  - If they want to dispute another payment, follow <card_disputes> again; to carry on with their mortgage
+    application, follow <mortgage_applications>.
+  </from_internet_banking>"""
+
+
 def build_prompt() -> str:
     v, e = VERBATIM, EDITED
     parts = [
@@ -299,7 +335,7 @@ def build_prompt() -> str:
         v["intro"], "", v["formatting"], "", BRIEF_THINKING, "", v["identity"], "", PERSONAL_DATA, "", v["farewell"], "",
         v["personalisation"], "", v["known_contact_reasons"], "",
         v["greeting"], "", v["assurance"], "", e["money_hub"], "", v["card_disputes"], "",
-        v["mortgage_applications"], "", v["pre_authenticated"], "", e["vulnerability"], "", e["distress"], "",
+        v["mortgage_applications"], "", FROM_INTERNET_BANKING, "", v["pre_authenticated"], "", e["vulnerability"], "", e["distress"], "",
         UNAUTHENTICATED, "", e["query_handling"].rsplit("\n", 1)[0], KB_GUIDE, "", TOOL_STRATEGY, "",
         e["bridging"], "", KB_INDEX + e["kb_how_to"], "", v["proactive"], "", e["escalation"], "",
         NO_TOOL_REQUESTS, "", e["security"], "", v["in_flight"], "", TONE + v["number_formatting"], "", e["out_of_scope"], "",

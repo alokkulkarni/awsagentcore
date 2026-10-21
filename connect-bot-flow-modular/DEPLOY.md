@@ -378,6 +378,90 @@ modules, the modular flow and the logging can stay: nothing live uses them once 
 
 ---
 
+## Back to ARIA, and every app page through ARIA (20 Oct 2026)
+
+What changes:
+- **The card dispute assistant hands back to ARIA** when the customer has finished with the dispute and asks about
+  anything else (or says they need nothing else), instead of passing them to a colleague. ARIA answers straight
+  away, without greeting them again. Asking for a person still goes to a colleague.
+- **The banking app's mortgage form and Cards → Dispute start with ARIA.** She greets in one sentence and hands
+  over in the same turn; the mortgage form still gets the mortgage assistant joined to it (on chat too, where
+  ARIA's mortgage hand-over used to go to a colleague).
+
+Do these in this order. **The banking app goes last**: until ARIA, her flow and the injector know the new
+pages, a mortgage-form chat would reach ARIA without the new rule.
+
+1. **Session injector** (code only, so its settings stay as they are). From the repository root:
+   ```bash
+   (cd scripts/lambdas && zip -q /tmp/injector.zip session_injector_qconnect.py)
+   aws lambda update-function-code --function-name aria-session-injector-qconnect --region eu-west-2 \
+       --zip-file fileb:///tmp/injector.zip --query LastModified --output text
+   ```
+2. **ARIA v2's prompt** (adds `<from_internet_banking>`): `./connect-bot-flow-modular/ai-agent/create_agent.sh
+   --update` (dry run), then `--update --apply`. It publishes a new version; put its ARN in `config.json` as `aria`.
+3. **Rebuild the flows**: `python3 connect-bot-flow-modular/build_flows.py --config connect-bot-flow-modular/config.json`.
+4. **Re-import the module `ARIA - Decide hand-back`** (Routing → Flow modules → open it → Import →
+   `modules/aria-decide-handback.json` → Save → **Publish**). New: `appPage=mortgage` → `mortgage_form`.
+5. **Re-import the main flow `ARIA conversation bot flow (modular)`** (`flows/aria-conversation-bot-flow.json`),
+   Save, **Publish**. New: `entry=returned` comes back to ARIA, skipping Contact setup (already done) and,
+   when she already has a session (`ariaStarted`), a second Connect assistant block; and `mortgage_form` → Mortgage
+   Live Sync handover.
+6. **The card dispute assistant** (Agentic CX designer, application "Card dispute"), following
+   `connect-card-dispute/acxd/disputes-assistant.md`:
+   - Part 3a: change the `HandBackToARIA` Escalate message to the new neutral one.
+   - Part 3a-2: build the new flow `BackToARIA`.
+   - Part 3b: paste the updated prompt into `CardDisputeAssistant`, add the exit condition **Back to ARIA**, and
+     draw its line to a Redirect → `BackToARIA`.
+   - Build and deploy the application (Part 4), to the same environment.
+7. **The card dispute Connect flow**: `python3 connect-card-dispute/flows/build_card_dispute_flow.py
+   --application-id 0695e7ea-b8a9-4514-a3f0-eb65fabe9afe --alias 1jVQrqDoXSeGFTnPa7HKw --output
+   /tmp/card-dispute-flow.json` (outside the repository: the committed file keeps placeholders), then import
+   `/tmp/card-dispute-flow.json` into **Card dispute assistant**, Save, **Publish**. New:
+   an escalation with `back_to_aria` goes back to ARIA's flow (`entry=returned`, `returnSummary`).
+8. **The banking app**: `./connect-banking-app/scripts/deploy_banking_app.sh --contact-flow-id
+   2b4f7b5c-1351-42c8-acac-add07d0cbd00`.
+
+### The mortgage assistant goes back to ARIA too (FR-39, `connect-livesync-mortgage` v1.23)
+
+When the customer is done with their application (or has submitted it, or wants something else), the mortgage
+assistant hands them back to ARIA with a note of where the application stands, and ARIA says goodbye or helps.
+A contact ARIA handed over isn't greeted twice. Do these after steps 1 to 7 above, before the banking app:
+
+1. **Session injector, again** (it now knows "Back from mortgage application"): repeat step 1.
+2. **ARIA, again** (her rule now covers both assistants): repeat step 2 (it publishes the next version), put its
+   ARN in `config.json`, repeat step 3, and re-import and publish the **main flow** (step 5). The decision module
+   hasn't changed.
+3. **The mortgage assistant** (Agentic CX designer, application "Mortgage application"), following
+   `connect-livesync-mortgage/docs/GUIDE.md` and `acxd/live-sync-node.md`:
+   - Part 4a-2: build the new flow `BackToARIA` (note, then Escalate "Of course." with `summary` and
+     `escalationReason` = `back_to_aria`).
+   - Part 4b step 2: paste the updated prompt (section 1 of `acxd/live-sync-node.md`), re-inserting each `{name}`.
+   - Part 4b step 3: on the web branch of the opening, add the second Split on `{handoverSummary}` is not empty →
+     Basic "I can see your application. Where would you like to carry on?"
+   - Part 4b step 5: rename the exit **Goodbye** to **Back to ARIA** with its new description, and connect it and
+     **Task complete** to a new Redirect → `BackToARIA`. Step 6: **Timeout** to its own "progress saved" Exit
+     application.
+   - Build and deploy to the same environment.
+4. **The Connect flow "Mortgage Live Sync handover"** (GUIDE 6.8c and 6.8d-0):
+   - Escalation branch: a new **Check contact attributes** on Agentic CX `escalationReason` **Equals**
+     `back_to_aria` → **Set contact attributes** (`entry`=`returned`, `returnedFrom`=`mortgage`,
+     `handbackRoute`=`returned`, `returnSummary` = Agentic CX `summary`) → **Transfer to flow** "ARIA conversation
+     bot flow (modular)". No match / errors → the existing hand-off notes block.
+   - Default branch's check: add **Equals** `back_to_aria` as the **first** condition, to the same Set contact
+     attributes block (it has an underscore, so it must come before **Contains** `_`).
+   - Save, **Publish**.
+
+Check:
+| Try | You should see |
+|---|---|
+| Mortgages → Chat → fill a field → "thanks, that's all for now" | "Of course." then ARIA: a short goodbye saying where the application stands |
+| Mortgages → Chat → "how do I open a joint account?" | "Of course." then ARIA answers, no greeting |
+| Mortgages → Chat | ARIA's one sentence, then the mortgage assistant without a second "Hello, I'm…" |
+| Money Hub → chat → "I want to dispute a payment" → finish and submit → "how do I open a joint account?" | "Of course." then ARIA answers about joint accounts, no greeting, no colleague |
+| Cards → Dispute on a payment → Chat | ARIA: "Hi James, let's sort out that payment." then the dispute assistant asks about that payment |
+| Mortgages → Chat | ARIA: one sentence, then the mortgage assistant; the form fills as you answer |
+| In the dispute, "can I speak to someone?" | A colleague, as before |
+
 ## Afterwards
 
 - **Changing ARIA v2** (prompt or tools):
