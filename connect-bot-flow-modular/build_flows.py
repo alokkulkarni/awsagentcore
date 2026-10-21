@@ -23,8 +23,17 @@ ARIA's session.
 
 Modules can't read the calling flow's Lex or External attributes, so the main flow copies ARIA's hand-back fields
 into contact attributes (lex*) before the decision module, and the module answers with one contact attribute,
-handbackRoute: card_dispute | mortgage_livesync | human | retry | end. The main flow has one Transfer block per
-destination.
+handbackRoute: card_dispute | mortgage_livesync | mortgage_form | human | retry | end. The main flow has one Transfer
+block per destination.
+
+Two ways in besides a new contact (added 20 Oct 2026):
+  - Back from the card dispute assistant (entry=returned): the customer finished the dispute and wants something
+    else. ARIA carries on: the flow skips Contact setup (already done) and her Connect assistant block when she has
+    already had a session on this contact (ariaStarted), runs Customer context again (the injector gives her the customer's next question as the
+    known contact reason) and goes straight back to her.
+  - The internet banking app's mortgage form (appPage=mortgage) now starts with ARIA. When she hands over for a
+    mortgage application, the decision module sends it to the mortgage assistant joined to that form
+    (entry=web_widget, handbackRoute=mortgage_form), on chat and on calls, as the form's own Point B does.
 
 The main flow names each module by ${MODULE_ARN_...} and ARIA by ${ARIA_AGENT_V2_ARN}. Import the modules and
 create ARIA v2 first, write their ARNs into config.json and run:  python3 build_flows.py --config config.json
@@ -209,17 +218,22 @@ def decide_handback() -> dict:
         # ARIA handed back through Lex: which tool did she use?
         compare("checkTool", f"{a}lexTool", [
             ("Escalate", "escalateToHuman"), ("Complete", "checkNextStep"),
-            ("StartMortgageApplication", "checkChannelForMortgage"), ("StartCardDispute", "disputeFromAria"),
+            ("StartMortgageApplication", "checkMortgageForm"), ("StartCardDispute", "disputeFromAria"),
         ], "done"),
         set_attributes("escalateToHuman", {
             "topicCategory": f"{a}lexTopicCategory", "escalationReason": f"{a}lexEscalationReason",
             "customerIntent": f"{a}lexCustomerIntent", "conversationSummary": f"{a}lexConversationSummary",
             "handbackRoute": "human"}, "done", "done"),
         compare("checkNextStep", f"{a}lexNextStep", [
-            ("card_dispute", "disputeFromAria"), ("mortgage_application", "checkChannelForMortgage"),
+            ("card_dispute", "disputeFromAria"), ("mortgage_application", "checkMortgageForm"),
         ], "recoverAfterComplete"),
         set_attributes("disputeFromAria", {"handoverSummary": f"{a}lexHandoverSummary", "entry": "aria",
                                            "handbackRoute": "card_dispute"}, "done", "routeCardDispute"),
+        # From the internet banking app's mortgage form: to the mortgage assistant joined to that form, on any channel
+        compare("checkMortgageForm", f"{a}appPage", [("mortgage", "mortgageForm")], "checkChannelForMortgage"),
+        compare("checkMortgageFormRecovered", f"{a}appPage", [("mortgage", "mortgageForm")], "checkAuthenticated"),
+        set_attributes("mortgageForm", {"entry": "web_widget", "handoverSummary": f"{a}lexHandoverSummary",
+                                        "handbackRoute": "mortgage_form"}, "done", "routeHuman"),
         compare("checkChannelForMortgage", "$.Channel",
                 [("CHAT", "mortgageByChat"), ("VOICE", "mortgageByPhone")], "done"),
         set_attributes("mortgageByChat", {
@@ -238,7 +252,7 @@ def decide_handback() -> dict:
         lambda_call("recoverAfterComplete", LAMBDA_HANDBACK_RECOVERY, "checkRecovered", "done",
                     inputs={"whenNothing": "end"}),
         compare("checkRecovered", "$.External.route", [
-            ("card_dispute", "routeCardDispute"), ("mortgage_application", "checkAuthenticated"),
+            ("card_dispute", "routeCardDispute"), ("mortgage_application", "checkMortgageFormRecovered"),
             ("escalate", "routeHuman"), ("end", "done"),
         ], "routeRetry"),
 
@@ -252,6 +266,7 @@ def decide_handback() -> dict:
         "checkTool": (2, -2), "escalateToHuman": (3, -4), "checkNextStep": (3, -2), "disputeFromAria": (4, -3),
         "checkChannelForMortgage": (4, -1), "mortgageByChat": (5, -2), "mortgageByPhone": (5, -1),
         "checkAuthenticated": (6, -1), "mortgageLiveSync": (7, -1),
+        "checkMortgageForm": (3, 0), "checkMortgageFormRecovered": (6, 1), "mortgageForm": (5, -5),
         "recoverAfterError": (2, 2), "recoverAfterComplete": (4, 1), "checkRecovered": (5, 1),
         "routeCardDispute": (7, -3), "routeHuman": (8, 0), "routeRetry": (7, 2), "done": (9, 0),
     }
@@ -278,12 +293,18 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
            "LexTimeoutSeconds": {"Text": "300"}}
     handback = {"handbackOutcome": "handback", **{k: f"$.Lex.SessionAttributes.{v}" for k, v in HANDBACK_FIELDS.items()}}
     actions = [
-        logging_on("contactSetup"),
+        logging_on("checkReturned"),
+        # Back from the card dispute assistant: Contact setup already ran when the contact first came in, and its
+        # failure branch hangs up, so a returning customer skips it
+        compare("checkReturned", "$.Attributes.entry", [("returned", "checkAriaStarted")], "contactSetup"),
         module_call("contactSetup", modules["contact_setup"], "checkEntry", "endContact"),
 
-        # Pages that go straight to an assistant (the mortgage form's Point B; a dispute chosen in internet banking)
+        # Pages that go straight to an assistant (the mortgage form's Point B; a dispute chosen in an older app)
         compare("checkEntry", "$.Attributes.entry",
                 [("web_widget", "toMortgageFromForm"), ("card_dispute", "disputeFromPage")], "connectAssistant"),
+        # Back to ARIA: her session on this contact goes on (a second Connect assistant block isn't needed); a
+        # contact that went straight to the dispute assistant has none yet, so it gets one now
+        compare("checkAriaStarted", "$.Attributes.ariaStarted", [("true", "customerContext")], "connectAssistant"),
         transfer("toMortgageFromForm", FLOW_MORTGAGE_LIVE_SYNC, "connectAssistant"),
         set_attributes("disputeFromPage", {"entry": "aria"}, "toCardDispute", "toCardDispute"),
 
@@ -291,7 +312,8 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         action("connectAssistant", "CreateWisdomSession", {"WisdomAssistantArn": ASSISTANT}, "saveAssistantSession",
                [("NoMatchingError", "endContact")]),
         action("saveAssistantSession", "UpdateContactData", {"WisdomSessionArn": "$.Wisdom.SessionArn"},
-               "customerContext", [("NoMatchingError", "endContact")]),
+               "markAriaStarted", [("NoMatchingError", "endContact")]),
+        set_attributes("markAriaStarted", {"ariaStarted": "true"}, "customerContext", "customerContext"),
         module_call("customerContext", modules["customer_context"], "talkToAria", "endContact"),
         action("talkToAria", "ConnectParticipantWithLexBot", lex, "markLexError", [
             ("InputTimeLimitExceeded", "retryAria"), ("NoMatchingCondition", "saveHandback"),
@@ -303,21 +325,26 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         # One destination each
         compare("routeHandback", "$.Attributes.handbackRoute", [
             ("card_dispute", "toCardDispute"), ("mortgage_livesync", "toMortgageFromAria"),
+            ("mortgage_form", "toMortgageFormFromAria"),
             ("human", "toHumanHandover"), ("retry", "retryAria"), ("end", "endContact"),
         ], "endContact"),
         transfer("toCardDispute", FLOW_CARD_DISPUTE, "endContact"),
         transfer("toMortgageFromAria", FLOW_MORTGAGE_LIVE_SYNC, "endContact"),
+        # The internet banking app's mortgage form: the same flow as Point B (it reads entry=web_widget). If the
+        # transfer fails, back to ARIA rather than a second Connect assistant session.
+        transfer("toMortgageFormFromAria", FLOW_MORTGAGE_LIVE_SYNC, "retryAria"),
         transfer("toHumanHandover", FLOW_HUMAN_HANDOVER, "endContact"),
         action("retryAria", "Loop", {"LoopCount": "2"}, "endContact", [("NoMatchingError", "endContact")],
                [("ContinueLooping", "talkToAria"), ("DoneLooping", "endContact")]),
         action("endContact", "DisconnectParticipant"),
     ]
     layout = {
-        LOGGING: (0, 0), "contactSetup": (1, 0), "checkEntry": (2, 0),
-        "toMortgageFromForm": (3, -2), "disputeFromPage": (3, 2),
-        "connectAssistant": (3, 0), "customerContext": (5, 0), "talkToAria": (6, 0),
+        LOGGING: (0, 0), "checkReturned": (0, -2), "contactSetup": (1, 0), "checkEntry": (2, 0),
+        "toMortgageFromForm": (3, -2), "disputeFromPage": (3, 2), "checkAriaStarted": (3, -1),
+        "connectAssistant": (3, 0), "markAriaStarted": (4, 1), "customerContext": (5, 0), "talkToAria": (6, 0),
         "saveHandback": (7, -1), "markLexError": (7, 1), "decideHandback": (8, 0), "routeHandback": (9, 0),
         "toCardDispute": (10, 2), "toMortgageFromAria": (10, -2), "toHumanHandover": (10, -1),
+        "toMortgageFormFromAria": (10, -3),
         "retryAria": (8, 3), "endContact": (11, 1),
     }
     return flow(actions, LOGGING, layout, fragments={"connectAssistant": "saveAssistantSession"})

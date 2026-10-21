@@ -13,6 +13,12 @@
           "y": 0
         }
       },
+      "checkReturned": {
+        "position": {
+          "x": 0,
+          "y": -320
+        }
+      },
       "contactSetup": {
         "position": {
           "x": 260,
@@ -37,6 +43,12 @@
           "y": 320
         }
       },
+      "checkAriaStarted": {
+        "position": {
+          "x": 780,
+          "y": -160
+        }
+      },
       "connectAssistant": {
         "position": {
           "x": 780,
@@ -47,6 +59,12 @@
         ],
         "fragments": {
           "SetContactData": "saveAssistantSession"
+        }
+      },
+      "markAriaStarted": {
+        "position": {
+          "x": 1040,
+          "y": 160
         }
       },
       "customerContext": {
@@ -103,6 +121,12 @@
           "y": -160
         }
       },
+      "toMortgageFormFromAria": {
+        "position": {
+          "x": 2600,
+          "y": -480
+        }
+      },
       "retryAria": {
         "position": {
           "x": 2080,
@@ -132,7 +156,34 @@
         "FlowLoggingBehavior": "Enabled"
       },
       "Transitions": {
-        "NextAction": "contactSetup"
+        "NextAction": "checkReturned"
+      }
+    },
+    {
+      "Identifier": "checkReturned",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.entry"
+      },
+      "Transitions": {
+        "NextAction": "contactSetup",
+        "Conditions": [
+          {
+            "NextAction": "checkAriaStarted",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "returned"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "contactSetup",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
       }
     },
     {
@@ -175,6 +226,33 @@
               "Operator": "Equals",
               "Operands": [
                 "card_dispute"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "connectAssistant",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkAriaStarted",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.ariaStarted"
+      },
+      "Transitions": {
+        "NextAction": "connectAssistant",
+        "Conditions": [
+          {
+            "NextAction": "customerContext",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "true"
               ]
             }
           }
@@ -245,10 +323,29 @@
         "WisdomSessionArn": "$.Wisdom.SessionArn"
       },
       "Transitions": {
-        "NextAction": "customerContext",
+        "NextAction": "markAriaStarted",
         "Errors": [
           {
             "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "markAriaStarted",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "ariaStarted": "true"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "customerContext",
+        "Errors": [
+          {
+            "NextAction": "customerContext",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -283,7 +380,7 @@
           "x-amz-lex:audio:max-length-ms:*:*": "30000",
           "x-amz-lex:audio:start-timeout-ms:*:*": "1500",
           "x-amz-lex:audio:start-timeout-ms:AmazonQinConnect:*": "8000",
-          "x-amz-lex:q-in-connect:ai-agent-arn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/a92a8491-2a82-45ee-bdbe-b7373b584f2d:3"
+          "x-amz-lex:q-in-connect:ai-agent-arn": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/a92a8491-2a82-45ee-bdbe-b7373b584f2d:4"
         },
         "LexTimeoutSeconds": {
           "Text": "300"
@@ -398,6 +495,15 @@
             }
           },
           {
+            "NextAction": "toMortgageFormFromAria",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage_form"
+              ]
+            }
+          },
+          {
             "NextAction": "toHumanHandover",
             "Condition": {
               "Operator": "Equals",
@@ -460,6 +566,22 @@
         "Errors": [
           {
             "NextAction": "endContact",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "toMortgageFormFromAria",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/6788a011-92c9-4616-ac94-1d103811da95"
+      },
+      "Transitions": {
+        "NextAction": "retryAria",
+        "Errors": [
+          {
+            "NextAction": "retryAria",
             "ErrorType": "NoMatchingError"
           }
         ]

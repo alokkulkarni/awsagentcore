@@ -75,6 +75,30 @@ def custom_variables(text):
     return set(re.findall(r"\{\{\$\.Custom\.(\w+)\}\}", text))
 
 
+class FromInternetBanking(unittest.TestCase):
+    """20 Oct 2026: the app's dispute and mortgage pages start with ARIA; the disputes assistant hands back to her."""
+
+    def test_the_section_is_fixed_text_after_the_hand_over_sections_and_before_the_session(self):
+        block = build_agent.FROM_INTERNET_BANKING
+        self.assertEqual(custom_variables(block), set(), "fixed text only: the session's values come last (cache)")
+        self.assertLess(NEW.index("</mortgage_applications>"), NEW.index("<from_internet_banking>"))
+        self.assertLess(NEW.index("</from_internet_banking>"), NEW.index("## Session Context"))
+
+    def test_each_page_hands_over_at_once_and_a_return_carries_on(self):
+        block = build_agent.FROM_INTERNET_BANKING
+        for reason, step in (('"Card dispute:"', "nextStep card_dispute"), ('"Mortgage application:"', "nextStep mortgage_application")):
+            rule = " ".join(block.split(reason, 1)[1].split("\n  - ", 1)[0].split())
+            self.assertIn("on your very first turn", rule)
+            self.assertIn(step, rule)
+            self.assertIn("Ask nothing", rule)
+        self.assertIn("Don't ask for a code: the form is already joined.", block)
+        back = " ".join(block.split('"Back from card dispute:" or "Back from mortgage application:"', 1)[1].split())
+        for rule in ("don't greet them", "don't introduce yourself", "don't recap it",
+                     '"Nothing else:" comes straight after the label', "says in a few words where things stand",
+                     "call the Complete tool (nextStep none)", "follow <mortgage_applications>"):
+            self.assertIn(rule, back)
+
+
 class ThePromptKeepsTheBusinessLogic(unittest.TestCase):
     def test_the_sections_customers_experience_are_word_for_word(self):
         for name, block in build_agent.VERBATIM.items():
