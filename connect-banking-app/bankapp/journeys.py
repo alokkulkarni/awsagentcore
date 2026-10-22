@@ -37,11 +37,23 @@ MORTGAGE_STAGES = {"about_you": "About you", "property_loan": "Property and loan
                    "dip_result": "Decision in Principle", "product_selection": "Choose a product",
                    "documents": "Documents", "review_submit": "Review and submit"}
 APPLICATION_ID = re.compile(r"^MA-[A-HJ-NP-Z2-9]{8}$")       # the mortgage page's own format
-# Every chat from the app starts with this as Connect's initial message ($.Media.InitialMessage). ARIA's bot flow
-# uses it to give her a turn straight away when an assistant hands the customer back to her (Connect can only start
-# a bot with the chat's initial message); the widget never shows it. It is in Connect's transcript, so it reads as
-# a plain note. Keep it the same as connect-bot-flow-modular/build_flows.py CHAT_MARKER and ARIA's prompt.
-CHAT_MARKER = "Chat started from internet banking."
+# Back from an assistant on a chat (the dispute or mortgage assistant handed the customer back to ARIA): the note the
+# widget sends ARIA as a message the moment her bot block starts, so she answers at once. The same words as the session
+# injector's known contact reason (scripts/lambdas/session_injector_qconnect.py _returned_reason_vars), which her
+# prompt acts on (<from_internet_banking>). The widget never shows it.
+RETURN_LABELS = {"card_dispute": "Back from card dispute", "mortgage": "Back from mortgage application"}
+
+
+def return_note(attributes: dict) -> str:
+    """The note for ARIA when the contact has just come back to her from an assistant, else ""."""
+    label = RETURN_LABELS.get(attributes.get("returnedFrom", ""))
+    if attributes.get("entry") != "returned" or not label:
+        return ""
+    said = " ".join(str(attributes.get("returnSummary") or "").split())
+    if attributes.get("returnIntent") == "escalate":
+        why = "".join(ch for ch in str(attributes.get("returnReason") or "") if ch.isalnum() or ch == "_")[:60] or "other"
+        return f"{label}: Colleague needed ({why}): {said or "The assistant couldn't carry on and left no notes."}"[:1000]
+    return f"{label}: {said or 'They want help with something else.'}"[:1000]
 
 
 def verified_fields(customer_id: str, loa: str) -> dict:
@@ -162,6 +174,4 @@ def start_request(kind: str, page: str, customer_id: str, loa: str, instance_id:
     request = money_hub.start_request(kind, customer_id, loa, view, instance_id, flow_id, client_token)
     request["Attributes"] = attributes(page, customer_id, loa, view, stage, application_id, payment, first_name)
     request["ParticipantDetails"] = {"DisplayName": "Customer"}
-    if kind == "chat":
-        request["InitialMessage"] = {"ContentType": "text/plain", "Content": CHAT_MARKER}
     return request

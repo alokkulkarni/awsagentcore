@@ -17,9 +17,11 @@ const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
 // ARIA only hears messages sent after its bot block has joined. The flow announces that with a (blank)
 // message; if none arrives, the opener is sent anyway after this long.
 const READY_WAIT_MS = 20000;
-// The chat's initial message (the server's bankapp/journeys.py CHAT_MARKER): a note for ARIA's bot flow, so she can
-// answer at once when an assistant hands the customer back to her. Never shown here.
-const CHAT_MARKER = 'Chat started from internet banking.';
+// Back from an assistant on a chat, ARIA only gets a turn when a message arrives. When her bot block starts again (the
+// flow announces it with a blank line, as at the start), the app asks whether the chat has just come back to her, and if
+// so sends her the note (the server's bankapp/journeys.py return_note) as a message: once per return, never shown here.
+const RETURN_NOTES = ['Back from card dispute:', 'Back from mortgage application:'];
+const isReturnNote = (words) => RETURN_NOTES.some((label) => (words || '').trim().startsWith(label));
 // A call is audio only: what's said on it is read back from the page Lambda this often, to show as text.
 const TRANSCRIPT_EVERY_MS = 2000;
 // A call whose audio hasn't connected by now never will (Connect gives up at 90 s, as "customer never arrived"):
@@ -133,9 +135,12 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     if (!item || (item.Id && seen.has(item.Id))) return;
     if (item.Id) seen.add(item.Id);
     if (item.Type === 'MESSAGE') {
-      if (item.ParticipantRole === 'CUSTOMER' && (item.Content || '').trim() === CHAT_MARKER) return;    // ours, not theirs
+      if (item.ParticipantRole === 'CUSTOMER' && isReturnNote(item.Content)) return;      // ours, not theirs
       if ((item.Content || '').trim()) show(item.ParticipantRole, item.Content);    // the flow's blank line isn't shown
-      if (item.ParticipantRole !== 'CUSTOMER') sendOpener();                       // ARIA is listening now
+      if (item.ParticipantRole !== 'CUSTOMER') {
+        if (live && live.opened && !(item.Content || '').trim()) sendReturnNote(); // ARIA's bot block started again
+        sendOpener();                                                               // ARIA is listening now
+      }
     }
     if (item.Type === 'EVENT' && item.ContentType === CHAT_ENDED) finish('The chat has ended.');
   }
@@ -169,6 +174,22 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     }
     typing(true);
     status('Connected.');
+  }
+
+  // Back to ARIA from an assistant: give her the note as a message, once per return.
+  async function sendReturnNote() {
+    const current = live;
+    if (!current || current.kind !== 'chat' || current.askingReturn || !current.connectionToken) return;
+    current.askingReturn = true;
+    try {
+      const back = await api('/contact/returned', { contactId: current.contactId });
+      if (live === current && back.note && back.key !== current.returnKey) {
+        current.returnKey = back.key;
+        await participant(current.region, 'message', current.connectionToken,
+          { ContentType: 'text/plain', Content: back.note, ClientToken: crypto.randomUUID() });
+      }
+    } catch { /* ARIA still answers the customer's next message */ }
+    current.askingReturn = false;
   }
 
   function typing(on) {
