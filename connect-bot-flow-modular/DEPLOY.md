@@ -415,8 +415,8 @@ pages, a mortgage-form chat would reach ARIA without the new rule.
    - Build and deploy the application (Part 4), to the same environment.
 7. **The card dispute Connect flow**: `python3 connect-card-dispute/flows/build_card_dispute_flow.py
    --application-id 0695e7ea-b8a9-4514-a3f0-eb65fabe9afe --alias 1jVQrqDoXSeGFTnPa7HKw --output
-   /tmp/card-dispute-flow.json` (outside the repository: the committed file keeps placeholders), then import
-   `/tmp/card-dispute-flow.json` into **Card dispute assistant**, Save, **Publish**. New:
+   connect-card-dispute/flows/card-dispute-flow.live.json` (ignored by git: the committed file keeps placeholders), then import
+   `connect-card-dispute/flows/card-dispute-flow.live.json` into **Card dispute assistant**, Save, **Publish**. New:
    an escalation with `back_to_aria` goes back to ARIA's flow (`entry=returned`, `returnSummary`).
 8. **The banking app**: `./connect-banking-app/scripts/deploy_banking_app.sh --contact-flow-id
    2b4f7b5c-1351-42c8-acac-add07d0cbd00`.
@@ -461,6 +461,113 @@ Check:
 | Cards → Dispute on a payment → Chat | ARIA: "Hi James, let's sort out that payment." then the dispute assistant asks about that payment |
 | Mortgages → Chat | ARIA: one sentence, then the mortgage assistant; the form fills as you answer |
 | In the dispute, "can I speak to someone?" | A colleague, as before |
+
+## Dispute updates go to the disputes assistant (21 Oct 2026)
+
+Asked "what's the status of my dispute?", ARIA offered a colleague (she has no tool that sees disputes). Now she
+hands it to the card disputes assistant like a new dispute (`<dispute_updates>`), and the assistant looks it up with
+`getDispute` (by reference, or from the payment's "already disputed" label) and tells them where it is. No Lambda or
+flow change.
+
+1. **ARIA**: `create_agent.sh --update`, then `--update --apply`; put the new version ARN in `config.json`, rebuild
+   (`build_flows.py --config config.json`), and re-import and publish the main flow. If you haven't yet done the
+   mortgage section's "ARIA, again", this one update covers both.
+2. **The card disputes assistant** (Agentic CX designer, "Card dispute"): paste the updated prompt into
+   `CardDisputeAssistant` (Part 3b, step 6; re-insert `{channel}`, `{firstName}`, `{handoverSummary}`) and the
+   updated **opening** prompt into the `openingQuestion` Generative text node (Part 3b, step 2; re-insert
+   `{handoverSummary}`). Build and deploy to the same environment.
+
+Check: Cards → Chat → "what's the status of my dispute DSP-…?" → "Let's find that for you." → the disputes
+assistant says where it is (and what happens next if it's submitted), then asks if there's anything else.
+
+## Back to ARIA on a chat: she answers straight away (21 Oct 2026)
+
+On a chat, ARIA only gets a turn when a message arrives. The customer's question had gone to the assistant that
+handed back, so ARIA sat silent until they typed it again (46 s on 21 Oct), and then answered twice. Now a returning
+chat starts her Lex block with the chat's initial message (`talkToAriaWithNote`, Connect's "Initialize bot with
+message", `$.Media.InitialMessage`: the only value an imported flow keeps). The internet banking app starts every chat
+with the note "Chat started from internet banking." (its widget hides it); the flow checks for it, and chats without it
+and calls use the usual block. ARIA answers from her known contact reason (the note), once.
+
+1. **ARIA**: `create_agent.sh --update`, then `--update --apply`; the new version ARN in `config.json`.
+2. **Main flow**: `build_flows.py --config config.json`, then re-import and publish "ARIA conversation bot flow
+   (modular)". It can go in before the app: until the app sends the note, the check falls through to the usual block.
+3. **The banking app**: `deploy_banking_app.sh --contact-flow-id 2b4f7b5c-1351-42c8-acac-add07d0cbd00`.
+
+Check: in a dispute, submit it, then "how do I open a joint account?" → "Of course." → ARIA answers within a few
+seconds, once, without you typing again.
+
+## Every hand-over shows, and a page move tells ARIA (21 Oct 2026)
+
+- **The Money Hub hand-over is recorded.** The Money Hub bridge marks the contact (`specialist#<contactId>` in the
+  Money Hub table) when a stint starts and when it hands back to ARIA. The banking app's "How it works" view reads it,
+  so "Money Hub specialist brought in" and "back to ARIA" show from any page, not only a chat started on the Money Hub
+  page. Disputes and mortgage already show from Connect's record; now every hand-over and hand-back shows as it
+  happens, a second one too.
+- **Moving page mid-conversation tells ARIA.** The banking app updates the contact's page attributes (`appPage`, the
+  Money Hub tab, the mortgage application and stage: what the flows route on) and ARIA's known contact reason
+  ("Moved to …:"), so her next turn uses that page's specialist (`<page_changes>`). Never `entry` or who the
+  customer is.
+
+1. **Money Hub bridge**: `./connect-money-hub/scripts/deploy_bridge.sh` with no options. It rewrites the bridge's
+   settings; on 21 Oct the live bridge used the defaults (`BRIDGE_MODE` sync, no `SILENCE_REPLY` or `WAIT_REPLY`), so
+   no options keeps them. If you've since set any, pass them again (`--mode`, `--silence-reply`, `--wait-reply`).
+2. **ARIA**: `create_agent.sh --update`, then `--update --apply`; the new version ARN in `config.json`; rebuild
+   (`build_flows.py --config config.json`) and re-import and publish the main flow (the flow itself is unchanged
+   apart from ARIA's version). One update covers this and the chat note above.
+3. **The banking app** (last): `deploy_banking_app.sh --contact-flow-id 2b4f7b5c-1351-42c8-acac-add07d0cbd00`. Its
+   role gains `connect:UpdateContactAttributes` and `qconnect`/`wisdom:UpdateSessionData` on ARIA's assistant.
+
+Check: start a chat on Accounts, ask about the transfer, move to Money Hub, ask "where can I cut my spending?" →
+"How it works" shows the Money Hub specialist brought in; then "thanks, that's all" → back to ARIA.
+
+## Only ARIA escalates to a person (21 Oct 2026)
+
+Principle: the specialists (Money Hub, disputes, mortgage) never hand a customer to a colleague. They go back to ARIA
+with what's needed, "colleague needed" included, and ARIA decides and escalates. The adviser's screen pop gets the
+specialist's full notes (ARIA's own summary is capped at 500 characters), the dispute reference, and for a mortgage
+the application view.
+
+| Part | Change |
+|---|---|
+| Card dispute flow | Every escalation and error builds the hand-over from the dispute record, then goes back to ARIA (`returnIntent=escalate`, `returnReason`, `returnSummary`); ARIA human handover only if that transfer fails (SPEC R16) |
+| Dispute assistant | Complete is not the end: sum up, offer "submit it yourself, or a colleague", wait; escalate only on "a colleague". `HandBackToARIA` says "Of course." |
+| Mortgage (`connect-livesync-mortgage` v1.24, FR-40) | The same through "Mortgage Live Sync handover" (GUIDE 6.8d-1); `HandToAdviser` says "Of course." |
+| Money Hub agent | Out-of-scope questions: "Let's sort that out.", never "a colleague will help" (it already hands back to ARIA) |
+| Session injector | "Back from …: Colleague needed (reason): notes" for ARIA, with the notes' topic |
+| ARIA | `<from_internet_banking>`: on "Colleague needed", escalate in the same turn with the notes; no second consent; never back to the same assistant (except to verify) |
+| Decision module | After ARIA escalates a colleague-needed return: the adviser gets the specialist's full notes; a mortgage keeps `topicCategory=mortgage_application` (the screen pop's application view) |
+| Hand-back recovery | The app's mortgage form on chat goes to the form's mortgage assistant, not a colleague (a bug: on chat ARIA's hand-over always goes through recovery) |
+| Overlay | "Specialist asked ARIA for a colleague" |
+
+In this order (ARIA and the injector before any assistant can send "colleague needed"; the banking app last):
+
+1. **Hand-back recovery**: `./scripts/deploy_handback_recovery.sh` (dry run), then `--apply`.
+2. **Session injector**: code only, as in "Back to ARIA" step 1.
+3. **Money Hub**: `./connect-money-hub/scripts/deploy_agent.sh` (the agent's prompt), and `deploy_bridge.sh` if not
+   done for the hand-over marks.
+4. **ARIA**: `create_agent.sh --update`, then `--update --apply`; the new version ARN in `config.json`; rebuild
+   (`build_flows.py --config config.json`); re-import and publish **the module "ARIA - Decide hand-back"** (it
+   changed), then the main flow.
+5. **The dispute assistant** (Agentic CX designer, "Card dispute"): the `HandBackToARIA` Escalate message to "Of
+   course."; paste the updated `CardDisputeAssistant` prompt (step 7, "say you'll get that sorted"); replace the
+   `Escalation requested` exit description; build and deploy to the same environment. Then the Connect flow:
+   `build_card_dispute_flow.py --application-id 0695e7ea-b8a9-4514-a3f0-eb65fabe9afe --alias 1jVQrqDoXSeGFTnPa7HKw
+   --output connect-card-dispute/flows/card-dispute-flow.live.json`, import into "Card dispute assistant", publish.
+6. **The mortgage assistant**: `HandToAdviser`'s Escalate message to "Of course." (GUIDE 4a), build and deploy. Then
+   the Connect flow, generated (the same as GUIDE 6.8, v1.24, with the live assistant block unchanged):
+   `python3 connect-bot-flow-modular/build_mortgage_handover_flow.py`, then import
+   `connect-bot-flow-modular/flows/mortgage-live-sync-handover.json` into "Mortgage Live Sync handover", check the
+   Agentic CX block still shows the application and environment, Save, **Publish**.
+7. **The banking app**: `deploy_banking_app.sh --contact-flow-id 2b4f7b5c-1351-42c8-acac-add07d0cbd00`.
+
+Check:
+| Try | You should see |
+|---|---|
+| A dispute to complete | A summary, then "submit it yourself, or I can pass it to a colleague"; no colleague until you choose one |
+| Choose a colleague | "Of course." then ARIA: passing you to a colleague; the adviser's screen pop has the dispute notes and reference |
+| Mortgages → Chat → "can I speak to an adviser?" | "Of course." then ARIA escalates; the screen pop opens the mortgage application view |
+| Money Hub → "I want to dispute a payment" | "Let's sort that out." (no colleague), then the disputes specialist |
 
 ## Afterwards
 

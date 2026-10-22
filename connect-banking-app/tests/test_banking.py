@@ -133,6 +133,18 @@ class WhoHelps(Base):
         self.assertIn("export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];", apply,
                       "ARIA greets and hands over first: the mortgage assistant can start well after the contact")
 
+    def test_every_chat_starts_with_the_note_aria_s_flow_uses_and_the_widget_hides(self):
+        self.post("/api/contact/chat", token=self.verified, page="cards")
+        self.assertEqual(self.connect.calls[-1][1]["InitialMessage"],
+                         {"ContentType": "text/plain", "Content": journeys.CHAT_MARKER})
+        self.post("/api/contact/call", token=self.verified, page="cards")
+        self.assertNotIn("InitialMessage", self.connect.calls[-1][1], "calls have no initial message")
+        flows = (ROOT / "connect-bot-flow-modular" / "build_flows.py").read_text()
+        self.assertIn(f'CHAT_MARKER = "{journeys.CHAT_MARKER}"', flows, "the flow checks for exactly this text")
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        self.assertIn(f"const CHAT_MARKER = '{journeys.CHAT_MARKER}';", talk)
+        self.assertIn("item.ParticipantRole === 'CUSTOMER' && (item.Content || '').trim() === CHAT_MARKER) return;", talk)
+
     def test_a_demo_link_never_carries_the_customer_onto_a_mortgage_contact(self):
         self.post("/api/contact/chat", token=self.demo, page="mortgage", stage="about_you", applicationId=APP_ID)
         self.assertNotIn("customerId", self.attributes())
@@ -520,12 +532,89 @@ class FakeContact(FakeConnect):
     def __init__(self, contact=None, attributes=None):
         super().__init__()
         self.contact, self.attributes = contact or {}, attributes or {}
+        self.updated = []
+
+    def update_contact_attributes(self, InstanceId, InitialContactId, Attributes):
+        self.updated.append(Attributes)
+        self.attributes = {**self.attributes, **Attributes}
+        return {}
 
     def describe_contact(self, InstanceId, ContactId):
         return {"Contact": {"Id": ContactId, **self.contact}}
 
     def get_contact_attributes(self, InstanceId, InitialContactId):
         return {"Attributes": self.attributes}
+
+
+class FakeQConnect:
+    def __init__(self):
+        self.updates = []
+
+    def update_session_data(self, assistantId, sessionId, data):
+        self.updates.append((assistantId, sessionId, {d["key"]: d["value"]["stringValue"] for d in data}))
+        return {}
+
+
+class PageMoves(Base):
+    """Moving page during a conversation: the attributes the flows route on, and ARIA's known contact reason."""
+
+    ARIA = {"WisdomInfo": {"SessionArn": "arn:aws:wisdom:eu-west-2:1:session/assistant-1/session-9"}}
+
+    def setUp(self):
+        super().setUp()
+        self.connect = money_api._connect = FakeContact(self.ARIA, {"entry": "returned", "appPage": "accounts",
+                                                                    "customerId": JAMES, "ariaStarted": "true"})
+        self.qconnect = money_api._qconnect = FakeQConnect()
+        self.assistant, money_api.ASSISTANT_ID = money_api.ASSISTANT_ID, "assistant-1"
+        _, started = self.post("/api/contact/chat", token=self.verified, page="accounts")
+        self.contact = started["contactId"]
+
+    def tearDown(self):
+        money_api._qconnect = None
+        money_api.ASSISTANT_ID = self.assistant
+        super().tearDown()
+
+    def test_moving_to_the_money_hub_tells_aria_and_the_bridge_where_they_are(self):
+        status, reply = self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="money_hub", view="goals")
+        self.assertEqual((status, reply["ariaTold"]), (200, True))
+        self.assertEqual(self.connect.updated[-1], {"appPage": "money_hub", "moneyHubView": "goals"})
+        assistant, session, said = self.qconnect.updates[-1]
+        self.assertEqual((assistant, session), ("assistant-1", "session-9"))
+        self.assertTrue(said["contactReasonSummary"].startswith("Moved to Money Hub:"))
+        self.assertIn("Goals tab", said["contactReasonSummary"])
+        self.assertEqual(said["topContactReasonCategory"], "money_hub")
+
+    def test_moving_to_the_mortgage_form_sets_what_its_hand_over_reads(self):
+        self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="mortgage", stage="property_loan",
+                  applicationId=APP_ID)
+        self.assertEqual(self.connect.updated[-1], {"appPage": "mortgage", "applicationId": APP_ID, "stage": "property_loan"},
+                         "decideHandback routes appPage=mortgage to the form; the mortgage flow reads the application")
+        self.assertTrue(self.qconnect.updates[-1][2]["contactReasonSummary"].startswith("Moved to Mortgage application:"))
+
+    def test_a_chosen_payment_is_named_from_the_customers_own_payments(self):
+        payment = home.cards(JAMES)["payments"][0]
+        self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="card_dispute", paymentId=payment["id"])
+        self.assertIn(payment["merchant"], self.qconnect.updates[-1][2]["contactReasonSummary"])
+
+    def test_a_page_move_never_changes_how_the_contact_came_in_or_who_it_is(self):
+        for page in ("home", "accounts", "cards", "money_hub", "mortgages", "help", "card_dispute"):
+            self.post("/api/contact/page", token=self.verified, contactId=self.contact, page=page)
+            for kept in ("entry", "customerId", "authStatus", "LoA", "handbackRoute", "ariaStarted", "handoverSummary"):
+                self.assertNotIn(kept, self.connect.updated[-1], (page, kept))
+        self.assertEqual(self.connect.attributes["entry"], "returned")
+
+    def test_only_this_links_own_conversation_and_a_real_page(self):
+        other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
+        self.assertEqual(self.post("/api/contact/page", token=other, contactId=self.contact, page="cards")[0], 404)
+        self.assertEqual(self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="admin")[1]["error"],
+                         "bad_request")
+        self.assertEqual(self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="mortgage",
+                                   stage="hacking", applicationId=APP_ID)[0], 400)
+
+    def test_before_aria_has_a_session_only_the_attributes_change(self):
+        self.connect.contact = {}
+        reply = self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="cards")[1]
+        self.assertEqual((reply["ariaTold"], self.qconnect.updates), (False, []))
 
 
 class HowItWorks(Base):
@@ -572,7 +661,7 @@ class HowItWorks(Base):
                  ({"entry": "phone", "handbackRoute": "mortgage_livesync"}, "mortgage", "connect"),
                  ({"entry": "web_widget", "appPage": "mortgage", "handbackRoute": "mortgage_form"}, "mortgage", "connect"),
                  ({"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned"}, "", ""),
-                 ({"entry": "money_hub", "appPage": "money_hub"}, "money_hub", "page"),
+                 ({"entry": "money_hub", "appPage": "money_hub"}, "", ""),      # the page alone proves nothing
                  ({"entry": "banking_app", "appPage": "home"}, "", ""),
                  ({"entry": "banking_app", "handbackRoute": "end"}, "", "")]
         for attributes, who, basis in cases:
@@ -615,6 +704,30 @@ class HowItWorks(Base):
         other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
         self.assertEqual(self.post("/api/contact/journey", token=other, contactId=contact)[0], 404)
         self.assertEqual(self.post("/api/contact/journey", token=self.verified, contactId="someone-elses")[0], 404)
+
+    def test_the_money_hub_agent_shows_from_the_bridge_s_mark_from_any_page(self):
+        start = {"moneyHubStartedAt": 100.0, "moneyHubFinishedAt": 0}
+        found = flowview.state(self.ARIA, {"entry": "banking_app", "appPage": "accounts"}, None, start)
+        self.assertEqual((found["specialist"], found["basis"], found["moneyHub"], found["back"]), ("money_hub", "connect", "active", ""))
+        done = flowview.state(self.ARIA, {"entry": "banking_app"}, None, {**start, "moneyHubFinishedAt": 130.0})
+        self.assertEqual((done["specialist"], done["moneyHub"], done["back"]), ("", "done", "money_hub"))
+        # A flow transfer (the dispute assistant) outranks a Money Hub stint the bridge never saw end.
+        self.assertEqual(flowview.state(self.ARIA, {"entry": "aria", "handbackRoute": "card_dispute"}, None, start)["specialist"],
+                         "card_dispute")
+        back = flowview.state(self.ARIA, {"entry": "returned", "returnedFrom": "mortgage", "handbackRoute": "returned"})
+        self.assertEqual((back["specialist"], back["back"]), ("", "mortgage"))
+
+    def test_the_key_is_the_one_the_money_hub_bridge_writes(self):
+        bridge = (ROOT / "connect-money-hub" / "bridge" / "a2a_bridge.py").read_text()
+        self.assertIn(f'SPECIALIST_KEY = "{flowview.SPECIALIST_KEY}"', bridge)
+
+    def test_the_journey_reads_the_money_hub_mark_for_this_contact(self):
+        os.environ["FLOW_VIEW"] = "on"
+        contact = self.start_chat({**self.ARIA}, {"entry": "banking_app", "appPage": "accounts"})
+        money_api.hub.store.put(flowview.SPECIALIST_KEY.format(contact_id=contact),
+                                {"moneyHubStartedAt": NOW, "moneyHubFinishedAt": 0})
+        reply = self.post("/api/contact/journey", token=self.verified, contactId=contact)[1]
+        self.assertEqual((reply["specialist"], reply["moneyHub"]), ("money_hub", "active"))
 
     def test_the_widget_tells_every_moment_and_the_view_never_touches_the_widget(self):
         talk = (APP / "web" / "widget" / "talk.js").read_text()

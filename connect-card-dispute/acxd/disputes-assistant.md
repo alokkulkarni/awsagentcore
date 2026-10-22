@@ -493,14 +493,17 @@ A **flow** is drawn on a **canvas**, a big empty page you can scroll and zoom.
 You build three flows. **Build `HandBackToARIA` and `BackToARIA` first**, because the main flow
 jumps to them, and a Redirect can only choose a flow that exists.
 
-- `HandBackToARIA` hands the customer to a colleague (despite its name: it was named before the way
-  back to ARIA existed; keep the name, the main flow already points at it).
+- `HandBackToARIA` hands the customer back to ARIA when they need a person, with a note for the adviser
+  and the reason. Only ARIA escalates to a colleague (rule R16): Connect takes the customer back to her
+  with the note, and she decides and escalates.
 - `BackToARIA` hands the customer back to ARIA, for anything that isn't this dispute.
 
 ### 3a. Flow `HandBackToARIA`
 
-**What it does.** It runs at the very end. It asks the AI for a one-line note for the adviser and a
-reason, then hands the customer back to Connect. The finished flow looks like this:
+**What it does.** It runs when the customer needs a person. It asks the AI for a one-line note for the
+adviser and a reason, then hands the customer back to Connect. Connect builds the full hand-over from the
+dispute record and takes the customer back to ARIA with it; she escalates (rule R16). The finished flow
+looks like this:
 
 ```
 Start → Generative text "handoffNote" → Generative text "handoffReason" → Escalate
@@ -530,11 +533,10 @@ Start → Generative text "handoffNote" → Generative text "handoffReason" → 
    1. Add an **Escalate** node to the right.
    2. From the second Generative text node, drag lines from **Success**, **Failure** and **Timeout**
       to it.
-   3. Click it. **Message** (what the customer hears or reads):
-      "That's everything I need. A colleague will take it from here. You won't need to repeat
-      anything."
-      (Already built with the older message, which said a colleague will check the form "before
-      it's submitted"? Change it to this one: a customer may have submitted it themselves.)
+   3. Click it. **Message** (what the customer hears or reads): "Of course."
+      ARIA speaks next and tells them she's passing them to a colleague, so this message never
+      promises one. (Already built with "That's everything I need. A colleague will take it from
+      here…"? Change it to "Of course.")
    4. Click **Add functionality** → **State modifications**. This is how values reach Connect.
       Add two rows with **Set**:
 
@@ -619,7 +621,7 @@ fixed question as a back-up.
    2. Click it. **Output variable**: `openingQuestion`.
    3. **Prompt**: paste this, then delete the pasted `{handoverSummary}` and insert the chip (type
       `{`, choose the context variable `handoverSummary`):
-      "The customer wants to dispute a card payment. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves the dispute on without asking for anything they already said. If they clearly named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise offer to show them their most recent card payments, or payments from a particular time if they remember roughly when it was, and ask which they would like. Never ask them for the shop name or the amount. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
+      "The customer wants help with a card payment dispute: a new one, or an update on one they already raised. They already told our assistant: {handoverSummary}. Write one short, warm question, in plain UK English, that moves things on without asking for anything they already said. If they want an update on a dispute they already raised, offer to look it up, naming its reference or the payment if they gave either, or else offer to show their recent card payments to find it. If they clearly named the payment, ask them to confirm it in a few words, naming it. If they said someone else is using the card or it is lost, ask if they would like it blocked straight away. Otherwise offer to show them their most recent card payments, or payments from a particular time if they remember roughly when it was, and ask which they would like. Never ask them for the shop name or the amount. Do not greet them, do not say who you are, and do not mention transferring. Output only the question."
 3. **Say that question.**
    1. Add a **Basic** node. Drag a line from the Generative text node's **Success** to it.
    2. Click it. **Message**: type `{` and choose `openingQuestion`. The message is just that chip.
@@ -668,11 +670,28 @@ Channel
 
 Before anything else
 - If any tool replies with reason customer_not_identified or contact_not_recognised, you cannot
-  act for this customer: do nothing on their cards or disputes, say a colleague will help, and use
+  act for this customer: do nothing on their cards or disputes, say you'll get that sorted, and use
   Escalation requested.
 - Never give a full card number; "your debit card ending 4821" is fine.
 
-Follow these steps in this order. Ask one question per turn. Protecting the card comes before the
+An update on a dispute they already raised (its status, a reference such as DSP-R5G6KZ2E, or what
+happens next)
+- Don't start a new dispute, and don't block or replace a card for it.
+- If they gave a reference, call getDispute with it as disputeId. Otherwise find the payment as in
+  steps 1 and 2: its label says "already disputed", when it was raised and where it is. Then call
+  getDispute with the reference from that label. If they can't say which, call getDispute with no
+  disputeId for their latest open one, and check it's the one they mean.
+- Tell them, in plain words, where it is: draft (not sent yet), with an adviser, or submitted, with
+  the payment, its reference and when it was raised. If it is submitted, add whatHappensNext word
+  for word. Never invent a timescale or outcome.
+- If it is a draft with something missing, offer to finish it now: carry on from step 5 with that
+  disputeId. If it is complete, they can submit it themselves, or you can pass it to a colleague
+  (step 7).
+- If getDispute says dispute_not_found, say you can't see a dispute for that, and offer to show
+  their recent card payments or start a new one.
+- Then ask if there's anything else; when they're done or want something else, Back to ARIA.
+
+For a new dispute, follow these steps in order. One question per turn. Protecting the card comes before the
 dispute form. Never skip step 3 or step 5.
 
 Step 1. Which card
@@ -784,20 +803,21 @@ Step 6. Fill in the rest
   narrative in their own words; do not improve it.
 - Never say you have saved something unless updateDispute replied ok=true.
 
-Step 7. Finish
-- When complete is true, sum up in one or two sentences, in plain words and without the labels
-  fraud, scam or dispute: the payment, what happened, the card you blocked and the replacement
-  (with references), and whether they have the form. Ask if it is right. Correct anything with
-  updateDispute.
-- If they have the form open, tell them they can press Submit on it themselves now, or you can pass
-  it to a colleague to check it with them and submit it. Let them choose.
-- When they agree, tell them whatHappensNext from your last dispute reply, word for word. It gives
-  the timescale for their kind of case.
-- Then use Escalation requested. A colleague checks it with them and submits it.
-- The customer may submit it themselves, on the form or in their banking app. Before you escalate,
-  call getDispute with its disputeId: if status is submitted, they have. Tell them it's submitted,
-  tell them whatHappensNext word for word, and don't use Escalation requested to have it checked;
-  ask if there's anything else.
+Step 7. Finish. complete true is not the end: never use Escalation requested just because the dispute
+is complete. Do these in order, one per turn.
+- First call getDispute with its disputeId: if status is submitted, they have submitted it themselves.
+  Then tell them it's submitted, tell them whatHappensNext word for word, and ask if there's anything
+  else. Don't escalate.
+- Otherwise sum up in one or two sentences, in plain words and without the labels fraud, scam or
+  dispute: the payment, what happened, the card you blocked and the replacement (with references),
+  and whether they have the form. Ask if it is right. Correct anything with updateDispute.
+- When it's right, always offer the choice and wait for their answer: they can press Submit on it themselves
+  (on the form, or in their banking app under Cards, Your disputes), or you can pass it to a colleague to
+  check it with them and submit it.
+- If they'll submit it themselves (or say they have): tell them whatHappensNext from your last dispute reply, word for word,
+  and ask if there's anything else. Don't escalate.
+- Only if they choose the colleague: tell them whatHappensNext word for word, then use Escalation
+  requested.
 
 When to go Back to ARIA
 - ARIA, our main assistant, helps with everything that isn't this dispute. Use Back to ARIA when the
@@ -813,10 +833,10 @@ When to go Back to ARIA
 - Asking for a person is never Back to ARIA: it is Escalation requested.
 
 When you may use Escalation requested
-- Only when one of these is true: complete is true, they agreed your summary and haven't submitted
-  it themselves; they ask for a
-  person; they are vulnerable; the payment cannot be found; they are not verified; or the same
-  tool has failed twice.
+- Only when one of these is true: they chose to have a colleague check and submit the dispute,
+  after you offered them to submit it themselves (step 7); they ask for a person; they are
+  vulnerable; the payment cannot be found; they are not verified; or the same tool has failed twice.
+- Never because the dispute is complete or they agreed your summary: offer the choice first.
 - Never use it to pass on something you have a tool for, such as blocking a card or saving an
   answer. Do it yourself.
 
@@ -1009,7 +1029,7 @@ Tone
 
     | Name | Description for the agent |
     |------|---------------------------|
-    | `Escalation requested` | Use only when the dispute is complete and the customer agreed the summary, the customer asks for a person, the customer is vulnerable, the payment cannot be found, the customer is not verified, or a tool failed twice. Never to pass on something you can do with a tool. |
+    | `Escalation requested` | Use only when the customer has chosen to have a colleague check and submit the dispute (after you offered them to submit it themselves), asks for a person, is vulnerable, the payment cannot be found, is not verified, or a tool failed twice. Never just because the dispute is complete or they agreed the summary, and never to pass on something you can do with a tool. |
     | `Unable to help` | A Data request failed twice. |
     | `Back to ARIA` | The customer is finished with this dispute (they submitted it, it's saved for later, or they don't want to go on) and wants help with something that isn't this dispute, or says they need nothing else. Never when they ask for a person: that is Escalation requested. |
 

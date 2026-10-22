@@ -23,7 +23,11 @@ transfers to when ARIA calls its StartCardDispute tool (SPEC Part 4).
           ▼
     Set contact attributes            the same attributes ARIA's Escalate tool sets
           ▼
-    Transfer to flow: ARIA human handover   the same path ARIA's own escalations take
+    Back to ARIA, colleague needed    only ARIA escalates to a person (SPEC rule R16): the
+          │                           contact goes back to her with returnIntent=escalate,
+          │                           the reason and those notes; she escalates with them
+          ▼  only if that transfer fails
+    Transfer to flow: ARIA human handover   the safety net
 
 It works the same on a phone call and on chat.
 
@@ -77,6 +81,10 @@ CONTEXT_OUT = ("summary", "escalationReason")
 HANDOVER_ATTRIBUTES = ("topicCategory", "customerIntent", "escalationReason", "conversationSummary", "disputeId")
 # Set on the way back to ARIA: her bot flow and session injector read them (connect-bot-flow-modular).
 RETURN_ATTRIBUTES = {"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned"}
+# What ARIA is asked to do when she has the customer back: "help" (they want something else), or "escalate" (a person
+# is needed; she decides and escalates, rule R16), with the reason and the hand-over notes.
+COLLEAGUE_NEEDED = {**RETURN_ATTRIBUTES, "returnIntent": "escalate", "returnReason": "$.Attributes.escalationReason",
+                    "returnSummary": "$.Attributes.conversationSummary"}
 FALLBACK_SUMMARY = ("Card dispute: the hand-over summary could not be built. The details the assistant saved are "
                     "on the dispute form; open it from this screen pop.")
 
@@ -132,7 +140,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
         ({
             "Identifier": "SetBackToAria",
             "Type": "UpdateContactAttributes",
-            "Parameters": {"Attributes": {**RETURN_ATTRIBUTES, "returnSummary": from_assistant("summary")},
+            "Parameters": {"Attributes": {**RETURN_ATTRIBUTES, "returnIntent": "help", "returnSummary": from_assistant("summary")},
                            "TargetContact": "Current"},
             "Transitions": {"NextAction": "ToAria",
                             "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingError"}]},
@@ -141,8 +149,9 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
             "Identifier": "ToAria",
             "Type": "TransferToFlow",
             "Parameters": {"ContactFlowId": aria_arn},
-            "Transitions": {"NextAction": "BuildHandover",
-                            "Errors": [{"NextAction": "BuildHandover", "ErrorType": "NoMatchingError"}]},
+            # ARIA unreachable: the one way to a person that doesn't go through her (rule R16's safety net).
+            "Transitions": {"NextAction": "ToHumanHandover",
+                            "Errors": [{"NextAction": "ToHumanHandover", "ErrorType": "NoMatchingError"}]},
         }, 1120, -200),
         ({
             "Identifier": "BuildHandover",
@@ -164,7 +173,7 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
             "Type": "UpdateContactAttributes",
             "Parameters": {"Attributes": {name: f"$.External.{name}" for name in HANDOVER_ATTRIBUTES},
                            "TargetContact": "Current"},
-            "Transitions": {"NextAction": "ToHumanHandover",
+            "Transitions": {"NextAction": "SetColleagueNeeded",
                             "Errors": [{"NextAction": "HandoverUnavailable", "ErrorType": "NoMatchingError"}]},
         }, 980, 20),
         ({
@@ -175,9 +184,16 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
                                           "escalationReason": "tool_failure",
                                           "conversationSummary": FALLBACK_SUMMARY},
                            "TargetContact": "Current"},
-            "Transitions": {"NextAction": "ToHumanHandover",
-                            "Errors": [{"NextAction": "ToHumanHandover", "ErrorType": "NoMatchingError"}]},
+            "Transitions": {"NextAction": "SetColleagueNeeded",
+                            "Errors": [{"NextAction": "SetColleagueNeeded", "ErrorType": "NoMatchingError"}]},
         }, 980, 240),
+        ({
+            "Identifier": "SetColleagueNeeded",
+            "Type": "UpdateContactAttributes",
+            "Parameters": {"Attributes": COLLEAGUE_NEEDED, "TargetContact": "Current"},
+            "Transitions": {"NextAction": "ToAria",
+                            "Errors": [{"NextAction": "ToHumanHandover", "ErrorType": "NoMatchingError"}]},
+        }, 1250, -80),
         ({
             "Identifier": "ToHumanHandover",
             "Type": "TransferToFlow",
@@ -206,6 +222,9 @@ def build(region, account_id, instance_id, workspace_id, application_id, alias, 
     metadata["HandoverUnavailable"]["dynamicParams"] = []
     metadata["SetBackToAria"]["parameters"] = {"Attributes": {"returnSummary": {"useDynamic": True}}}
     metadata["SetBackToAria"]["dynamicParams"] = ["returnSummary"]
+    dynamic = [k for k, v in COLLEAGUE_NEEDED.items() if v.startswith("$.")]
+    metadata["SetColleagueNeeded"]["parameters"] = {"Attributes": {k: {"useDynamic": True} for k in dynamic}}
+    metadata["SetColleagueNeeded"]["dynamicParams"] = dynamic
 
     return {
         "Version": "2019-10-30",

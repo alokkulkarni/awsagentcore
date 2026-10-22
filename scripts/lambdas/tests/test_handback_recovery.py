@@ -103,6 +103,18 @@ class FindsTheHandBack(unittest.TestCase):
         bad_code = recovery.find_hand_back(turn("Complete", {"nextStep": "mortgage_application", "screenCode": "12ab"}), "", AT)
         self.assertEqual(recovery.decide(bad_code, "VOICE")[1]["screenCode"], "")
 
+    def test_the_apps_mortgage_form_goes_to_the_form_on_chat_too_never_to_a_colleague(self):
+        # 21 Oct: on chat ARIA's hand-over always errors, so recovery decides; for the app's mortgage form it sent
+        # mortgage_application on chat to a colleague. The decision module routes it to the form (appPage=mortgage).
+        found = recovery.find_hand_back(turn("Complete", {"nextStep": "mortgage_application",
+                                                          "handoverSummary": "Filling in their application."}), "", AT + timedelta(seconds=2))
+        for channel in ("CHAT", "VOICE"):
+            route, attributes = recovery.decide(found, channel, "mortgage")
+            self.assertEqual(route, "mortgage_application", channel)
+            self.assertEqual(attributes, {"handoverSummary": "Filling in their application."})
+            self.assertNotIn("entry", attributes, "the decision module's mortgageForm sets entry=web_widget")
+        self.assertEqual(recovery.decide(found, "CHAT")[0], "escalate", "a chat not from the form: as before")
+
     def test_never_invents_or_replays_a_decision(self):
         self.assertIsNone(recovery.find_hand_back([], "", AT), "no trace")
         self.assertIsNone(recovery.find_hand_back(DISPUTE, "back-2", AT), "already handled")

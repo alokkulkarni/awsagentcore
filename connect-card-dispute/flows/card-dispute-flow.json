@@ -149,6 +149,26 @@
         },
         "dynamicParams": []
       },
+      "SetColleagueNeeded": {
+        "position": {
+          "x": 1250,
+          "y": -80
+        },
+        "parameters": {
+          "Attributes": {
+            "returnReason": {
+              "useDynamic": true
+            },
+            "returnSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "returnReason",
+          "returnSummary"
+        ]
+      },
       "ToHumanHandover": {
         "position": {
           "x": 1260,
@@ -280,6 +300,7 @@
           "entry": "returned",
           "returnedFrom": "card_dispute",
           "handbackRoute": "returned",
+          "returnIntent": "help",
           "returnSummary": "$.AgenticCX.ContextVariables.summary"
         },
         "TargetContact": "Current"
@@ -301,10 +322,10 @@
         "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/2b4f7b5c-1351-42c8-acac-add07d0cbd00"
       },
       "Transitions": {
-        "NextAction": "BuildHandover",
+        "NextAction": "ToHumanHandover",
         "Errors": [
           {
-            "NextAction": "BuildHandover",
+            "NextAction": "ToHumanHandover",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -350,7 +371,7 @@
         "TargetContact": "Current"
       },
       "Transitions": {
-        "NextAction": "ToHumanHandover",
+        "NextAction": "SetColleagueNeeded",
         "Errors": [
           {
             "NextAction": "HandoverUnavailable",
@@ -372,7 +393,31 @@
         "TargetContact": "Current"
       },
       "Transitions": {
-        "NextAction": "ToHumanHandover",
+        "NextAction": "SetColleagueNeeded",
+        "Errors": [
+          {
+            "NextAction": "SetColleagueNeeded",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "SetColleagueNeeded",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "returned",
+          "returnedFrom": "card_dispute",
+          "handbackRoute": "returned",
+          "returnIntent": "escalate",
+          "returnReason": "$.Attributes.escalationReason",
+          "returnSummary": "$.Attributes.conversationSummary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToAria",
         "Errors": [
           {
             "NextAction": "ToHumanHandover",

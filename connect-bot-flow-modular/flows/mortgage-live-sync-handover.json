@@ -1,0 +1,531 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "MortgageAssistant",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 100
+    },
+    "ActionMetadata": {
+      "MortgageAssistant": {
+        "position": {
+          "x": 280,
+          "y": 100
+        },
+        "isFriendlyName": false,
+        "parameters": {
+          "AgentConfiguration": {
+            "WorkspaceId": {
+              "displayName": "ariaworkspace",
+              "useDropdown": "true"
+            },
+            "ContextVariables": {
+              "entry": {
+                "displayName": "entry",
+                "useDynamic": true
+              },
+              "applicationId": {
+                "displayName": "applicationId",
+                "useDynamic": true
+              },
+              "stage": {
+                "displayName": "stage",
+                "useDynamic": true
+              },
+              "contactId": {
+                "useDynamic": true
+              },
+              "customerId": {
+                "displayName": "customerId",
+                "useDynamic": true
+              },
+              "firstName": {
+                "displayName": "firstName",
+                "useDynamic": true
+              },
+              "cliMatched": {
+                "displayName": "cliMatched",
+                "useDynamic": true
+              },
+              "handoverSummary": {
+                "displayName": "handoverSummary",
+                "useDynamic": true
+              },
+              "buyerType": {
+                "displayName": "buyerType",
+                "useDynamic": true
+              },
+              "screenCode": {
+                "displayName": "screenCode",
+                "useDynamic": true
+              }
+            },
+            "ApplicationId": {
+              "displayName": "Mortgage application"
+            },
+            "Alias": {
+              "displayName": "Production"
+            }
+          },
+          "SpeechRecognitionConfiguration": {
+            "SpeechRecognitionEngine": {
+              "displayName": "Amazon Connect agentic voice (recommended)"
+            }
+          },
+          "AudioFillerConfiguration": {
+            "AudioType": {
+              "displayName": "Typing - Quiet Qwerty"
+            }
+          },
+          "IdleChatTimeoutSeconds": {
+            "unit": 60
+          }
+        }
+      },
+      "CheckEscalation": {
+        "position": {
+          "x": 560,
+          "y": -120
+        },
+        "conditions": [],
+        "conditionMetadata": [
+          {
+            "id": "checkescalation-0",
+            "operator": {
+              "name": "Equals",
+              "value": "Equals",
+              "shortDisplay": "="
+            },
+            "value": "back_to_aria"
+          }
+        ]
+      },
+      "CheckDefault": {
+        "position": {
+          "x": 560,
+          "y": 360
+        },
+        "conditions": [],
+        "conditionMetadata": [
+          {
+            "id": "checkdefault-0",
+            "operator": {
+              "name": "Equals",
+              "value": "Equals",
+              "shortDisplay": "="
+            },
+            "value": "back_to_aria"
+          },
+          {
+            "id": "checkdefault-1",
+            "operator": {
+              "name": "Contains",
+              "value": "Contains",
+              "shortDisplay": "contains"
+            },
+            "value": "_"
+          },
+          {
+            "id": "checkdefault-2",
+            "operator": {
+              "name": "Equals",
+              "value": "Equals",
+              "shortDisplay": "="
+            },
+            "value": "other"
+          }
+        ]
+      },
+      "BackToHelp": {
+        "position": {
+          "x": 840,
+          "y": -280
+        },
+        "parameters": {
+          "Attributes": {
+            "returnSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "returnSummary"
+        ]
+      },
+      "HandoffNotes": {
+        "position": {
+          "x": 840,
+          "y": -40
+        },
+        "parameters": {
+          "Attributes": {
+            "escalationReason": {
+              "useDynamic": true
+            },
+            "conversationSummary": {
+              "useDynamic": true
+            },
+            "applicationId": {
+              "useDynamic": true
+            },
+            "stage": {
+              "useDynamic": true
+            },
+            "dipDecision": {
+              "useDynamic": true
+            },
+            "productId": {
+              "useDynamic": true
+            },
+            "docsOutstanding": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "escalationReason",
+          "conversationSummary",
+          "applicationId",
+          "stage",
+          "dipDecision",
+          "productId",
+          "docsOutstanding"
+        ]
+      },
+      "ErrorNotes": {
+        "position": {
+          "x": 840,
+          "y": 200
+        },
+        "parameters": {
+          "Attributes": {}
+        },
+        "dynamicParams": []
+      },
+      "ColleagueNeeded": {
+        "position": {
+          "x": 1120,
+          "y": 40
+        },
+        "parameters": {
+          "Attributes": {
+            "returnReason": {
+              "useDynamic": true
+            },
+            "returnSummary": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "returnReason",
+          "returnSummary"
+        ]
+      },
+      "ToAria": {
+        "position": {
+          "x": 1400,
+          "y": -120
+        },
+        "parameters": {
+          "ContactFlowId": {
+            "displayName": "ARIA conversation bot flow (modular)"
+          }
+        },
+        "ContactFlow": {
+          "text": "ARIA conversation bot flow (modular)"
+        }
+      },
+      "ToHuman": {
+        "position": {
+          "x": 1680,
+          "y": 120
+        },
+        "parameters": {
+          "ContactFlowId": {
+            "displayName": "ARIA human handover"
+          }
+        },
+        "ContactFlow": {
+          "text": "ARIA human handover"
+        }
+      },
+      "Disconnect": {
+        "position": {
+          "x": 1960,
+          "y": 280
+        }
+      }
+    },
+    "Annotations": []
+  },
+  "Actions": [
+    {
+      "Identifier": "MortgageAssistant",
+      "Type": "ConnectParticipantWithAgenticCX",
+      "Parameters": {
+        "AgentConfiguration": {
+          "WorkspaceId": "55c49fa0-22f3-4dd3-823d-e353f4aee139",
+          "ContextVariables": {
+            "entry": "$.Attributes.entry",
+            "applicationId": "$.Attributes.applicationId",
+            "stage": "$.Attributes.stage",
+            "contactId": "$.ContactId",
+            "customerId": "$.Attributes.customerId",
+            "firstName": "$.Attributes.preferredName",
+            "cliMatched": "$.Attributes.cliMatched",
+            "handoverSummary": "$.Attributes.handoverSummary",
+            "buyerType": "$.Attributes.buyerType",
+            "screenCode": "$.Attributes.screenCode"
+          },
+          "ApplicationId": "578ca0d9-1c21-4d5a-844e-0e0adff4b916",
+          "Alias": "MyX46JWMLhtmdRWZgXTDe"
+        },
+        "SpeechRecognitionConfiguration": {
+          "SpeechRecognitionEngine": "AMAZON_AGENTIC_VOICE"
+        },
+        "AudioFillerConfiguration": {
+          "Enabled": true,
+          "AudioType": "TYPING_QUIET_QWERTY",
+          "StartDelayInMilliseconds": 2500,
+          "MinimumPlayDurationInMilliseconds": 3000,
+          "ResponseDeliveryDelayInMilliseconds": 500
+        },
+        "IdleChatTimeoutSeconds": 600
+      },
+      "Transitions": {
+        "NextAction": "ErrorNotes",
+        "Conditions": [
+          {
+            "NextAction": "CheckEscalation",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "Escalation"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "ErrorNotes",
+            "ErrorType": "NoMatchingError"
+          },
+          {
+            "NextAction": "CheckDefault",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "InputTimeLimitExceeded"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckEscalation",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.AgenticCX.ContextVariables.escalationReason"
+      },
+      "Transitions": {
+        "NextAction": "HandoffNotes",
+        "Conditions": [
+          {
+            "NextAction": "BackToHelp",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "back_to_aria"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "HandoffNotes",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "CheckDefault",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.AgenticCX.ContextVariables.escalationReason"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Conditions": [
+          {
+            "NextAction": "BackToHelp",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "back_to_aria"
+              ]
+            }
+          },
+          {
+            "NextAction": "HandoffNotes",
+            "Condition": {
+              "Operator": "TextContains",
+              "Operands": [
+                "_"
+              ]
+            }
+          },
+          {
+            "NextAction": "HandoffNotes",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "other"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "BackToHelp",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "returned",
+          "returnedFrom": "mortgage",
+          "handbackRoute": "returned",
+          "returnIntent": "help",
+          "returnSummary": "$.AgenticCX.ContextVariables.summary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToAria",
+        "Errors": [
+          {
+            "NextAction": "HandoffNotes",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "HandoffNotes",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "mortgage_application",
+          "customerIntent": "start_mortgage_application",
+          "escalationReason": "$.AgenticCX.ContextVariables.escalationReason",
+          "conversationSummary": "$.AgenticCX.ContextVariables.summary",
+          "applicationId": "$.AgenticCX.ContextVariables.applicationId",
+          "stage": "$.AgenticCX.ContextVariables.stage",
+          "dipDecision": "$.AgenticCX.ContextVariables.dipDecision",
+          "productId": "$.AgenticCX.ContextVariables.productId",
+          "docsOutstanding": "$.AgenticCX.ContextVariables.docsOutstanding"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ColleagueNeeded",
+        "Errors": [
+          {
+            "NextAction": "ColleagueNeeded",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ErrorNotes",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "escalationReason": "mortgage_assistant_error",
+          "topicCategory": "mortgage_application",
+          "customerIntent": "start_mortgage_application"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ColleagueNeeded",
+        "Errors": [
+          {
+            "NextAction": "ToHuman",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ColleagueNeeded",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "entry": "returned",
+          "returnedFrom": "mortgage",
+          "handbackRoute": "returned",
+          "returnIntent": "escalate",
+          "returnReason": "$.Attributes.escalationReason",
+          "returnSummary": "$.Attributes.conversationSummary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ToAria",
+        "Errors": [
+          {
+            "NextAction": "ToHuman",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ToAria",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/2b4f7b5c-1351-42c8-acac-add07d0cbd00"
+      },
+      "Transitions": {
+        "NextAction": "ToHuman",
+        "Errors": [
+          {
+            "NextAction": "ToHuman",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ToHuman",
+      "Type": "TransferToFlow",
+      "Parameters": {
+        "ContactFlowId": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          {
+            "NextAction": "Disconnect",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

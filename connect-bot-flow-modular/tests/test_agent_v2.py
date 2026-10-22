@@ -75,6 +75,21 @@ def custom_variables(text):
     return set(re.findall(r"\{\{\$\.Custom\.(\w+)\}\}", text))
 
 
+class DisputeUpdates(unittest.TestCase):
+    """21 Oct 2026: asked for a dispute's status, ARIA offered a colleague; the disputes assistant can look it up."""
+
+    def test_aria_hands_a_status_question_to_the_disputes_assistant_like_a_new_dispute(self):
+        block = " ".join(build_agent.DISPUTE_UPDATES.split())
+        self.assertEqual(custom_variables(block), set(), "fixed text only (cache)")
+        for rule in ("a card dispute they already raised", "Follow <card_disputes> exactly as for a new dispute",
+                     "the Complete tool with nextStep card_dispute",
+                     "they want an update on a dispute they already raised",
+                     "Never say you can't check a dispute, never offer a colleague for it, and never escalate it yourself"):
+            self.assertIn(rule, block)
+        self.assertLess(NEW.index("</card_disputes>"), NEW.index("<dispute_updates>"))
+        self.assertLess(NEW.index("</dispute_updates>"), NEW.index("## Session Context"))
+
+
 class FromInternetBanking(unittest.TestCase):
     """20 Oct 2026: the app's dispute and mortgage pages start with ARIA; the disputes assistant hands back to her."""
 
@@ -83,6 +98,39 @@ class FromInternetBanking(unittest.TestCase):
         self.assertEqual(custom_variables(block), set(), "fixed text only: the session's values come last (cache)")
         self.assertLess(NEW.index("</mortgage_applications>"), NEW.index("<from_internet_banking>"))
         self.assertLess(NEW.index("</from_internet_banking>"), NEW.index("## Session Context"))
+
+    def test_only_aria_escalates_and_she_does_it_with_the_assistants_notes(self):
+        block = " ".join(build_agent.FROM_INTERNET_BANKING.split())
+        rule = block.split('If "Colleague needed (" comes straight after the label')[1]
+        for must in ("only you hand customers to colleagues", "In that same turn call the Escalate tool",
+                     "word for word (the adviser's screen also gets that assistant's full notes)", "customerIntent is what they need", "topicCategory is Most Likely Reason Category",
+                     'starting "Vulnerability flag:"', "is technical_issue", "they already agreed or asked: don't ask again",
+                     "No farewell", "Never send a customer who needs a colleague back to the same assistant",
+                     "customer_not_identified or contact_not_recognised"):
+            self.assertIn(must, rule)
+        self.assertEqual(custom_variables(block), set())
+
+    def test_a_page_move_mid_conversation_is_neither_an_opening_nor_a_question(self):
+        block = " ".join(build_agent.PAGE_CHANGES.split())
+        self.assertEqual(custom_variables(block), set(), "fixed text only (cache)")
+        for rule in ('starting "Moved to"', "it is not a new conversation", "Don't greet them, don't mention that they moved",
+                     "Wait for their next message", "bring in the Money Hub agent", "follow <card_disputes>",
+                     "follow <mortgage_applications>", "don't ask for a code"):
+            self.assertIn(rule, block)
+        self.assertIn('One starting "Moved to" follows <page_changes>.', " ".join(build_agent.FROM_INTERNET_BANKING.split()),
+                      "named in the section that would otherwise leave it open")
+        self.assertLess(NEW.index("</from_internet_banking>"), NEW.index("  <page_changes>\n"))
+        self.assertLess(NEW.index("</page_changes>"), NEW.index("## Session Context"))
+
+    def test_other_known_contact_reasons_are_plainly_out_of_scope_so_aria_doesnt_deliberate(self):
+        # 21 Oct: with no word on "Internet banking: … cards", ARIA argued it out and wrote her reasoning in the
+        # message (then the guardrail cut it off). The section now says, before anything else, what it doesn't cover.
+        block = " ".join(build_agent.FROM_INTERNET_BANKING.split())
+        opening = block.split("For a customer at Level 2 or above")[0]
+        self.assertIn("applies only when the known contact reason starts with one of the four labels below", opening)
+        self.assertIn('including one starting "Internet banking:" or "Money Hub:", is not covered here', opening)
+        self.assertIn("without weighing this section up", opening)
+        self.assertNotIn("<thinking>", block, "the brief-thinking rule covers it; naming it here invited more")
 
     def test_each_page_hands_over_at_once_and_a_return_carries_on(self):
         block = build_agent.FROM_INTERNET_BANKING
@@ -95,7 +143,9 @@ class FromInternetBanking(unittest.TestCase):
         back = " ".join(block.split('"Back from card dispute:" or "Back from mortgage application:"', 1)[1].split())
         for rule in ("don't greet them", "don't introduce yourself", "don't recap it",
                      '"Nothing else:" comes straight after the label', "says in a few words where things stand",
-                     "call the Complete tool (nextStep none)", "follow <mortgage_applications>"):
+                     "call the Complete tool (nextStep none)", "follow <mortgage_applications>",
+                     'your turn starts with the message "Chat started from internet banking."',
+                     "It's from us, not the customer: answer what the known contact reason says once, in one reply"):
             self.assertIn(rule, back)
 
 

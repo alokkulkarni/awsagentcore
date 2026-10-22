@@ -37,6 +37,11 @@ MORTGAGE_STAGES = {"about_you": "About you", "property_loan": "Property and loan
                    "dip_result": "Decision in Principle", "product_selection": "Choose a product",
                    "documents": "Documents", "review_submit": "Review and submit"}
 APPLICATION_ID = re.compile(r"^MA-[A-HJ-NP-Z2-9]{8}$")       # the mortgage page's own format
+# Every chat from the app starts with this as Connect's initial message ($.Media.InitialMessage). ARIA's bot flow
+# uses it to give her a turn straight away when an assistant hands the customer back to her (Connect can only start
+# a bot with the chat's initial message); the widget never shows it. It is in Connect's transcript, so it reads as
+# a plain note. Keep it the same as connect-bot-flow-modular/build_flows.py CHAT_MARKER and ARIA's prompt.
+CHAT_MARKER = "Chat started from internet banking."
 
 
 def verified_fields(customer_id: str, loa: str) -> dict:
@@ -79,6 +84,52 @@ def attributes(page: str, customer_id: str, loa: str, view: str = "", stage: str
     return {"entry": "banking_app", "appPage": page if page in PAGES else "home", **verified}
 
 
+# Moving page during a conversation (the app's /api/contact/page): the attributes the flows route on, and ARIA's known
+# contact reason, so her next turn knows where the customer is. "Moved to …:" never starts a first-turn opening or a
+# question (ARIA's <page_changes>), unlike "Money Hub:", "Card dispute:" or "Mortgage application:".
+MOVED_TO = {
+    "home": ("their internet banking home page", "general_banking", "Home", "the customer has moved to the internet banking home page."),
+    "accounts": ("their accounts", "current_account", "Accounts", "the customer is now looking at their accounts."),
+    "cards": ("their cards and card payments", "debit_card", "Cards", "the customer is now looking at their cards and card payments."),
+    "mortgages": ("our mortgages", "mortgage", "Mortgages", "the customer is now looking at our mortgages."),
+    "help": ("a question about internet banking", "general_banking", "Help", "the customer is now on the Help page."),
+}
+
+
+def page_attributes(page: str, view: str = "", stage: str = "", application_id: str = "") -> dict:
+    """What a page move changes on the contact: where the customer is, never who they are or how the contact came in
+    (entry, the verified fields and the hand-back attributes stay as the flow set them)."""
+    if page == "money_hub":
+        return {"appPage": "money_hub", "moneyHubView": view if view in money_hub.VIEWS else "out"}
+    if page == "mortgage":
+        if stage not in MORTGAGE_STAGES:
+            raise ValueError("unknown mortgage stage")
+        if not APPLICATION_ID.match(application_id or ""):
+            raise ValueError("unknown application")
+        return {"appPage": "mortgage", "applicationId": application_id, "stage": stage}
+    if page not in PAGES:
+        raise ValueError("unknown page")
+    return {"appPage": page}
+
+
+def moved_reason(page: str, view: str = "", stage: str = "", payment: dict | None = None) -> dict:
+    """ARIA's known contact reason after the customer moves to this page during the conversation."""
+    if page == "money_hub":
+        reason, category, label = "their Money Hub", "money_hub", "Money Hub"
+        said = f"the customer is now on their Money Hub page, on the {money_hub.VIEWS.get(view, 'Money out')} tab."
+    elif page == "mortgage":
+        reason, category, label = "their mortgage application", "mortgage", "Mortgage application"
+        said = (f"the customer is now filling in their mortgage application, on the {MORTGAGE_STAGES.get(stage, 'About you')} "
+                "step; the form is open and joined to this conversation.")
+    elif page == "card_dispute":
+        reason, category, label = "a card payment they want to dispute", "debit_card", "Card dispute"
+        said = f"the customer chose a payment to dispute. {dispute_summary(payment)}"
+    else:
+        reason, category, label, said = MOVED_TO.get(page, MOVED_TO["home"])
+    return {"hasKnownContactReason": "true", "topContactReason": reason, "topContactReasonCategory": category,
+            "contactReasonSummary": f"Moved to {label}: {said}"[:1024], "contactReasons": ""}
+
+
 def opener(page: str, view: str = "", stage: str = "", payment: dict | None = None) -> str:
     """The customer's first chat message, naming where they are, or "" for none. payment: the card payment they
     chose to dispute, from the server's own list (never words from the browser)."""
@@ -111,4 +162,6 @@ def start_request(kind: str, page: str, customer_id: str, loa: str, instance_id:
     request = money_hub.start_request(kind, customer_id, loa, view, instance_id, flow_id, client_token)
     request["Attributes"] = attributes(page, customer_id, loa, view, stage, application_id, payment, first_name)
     request["ParticipantDetails"] = {"DisplayName": "Customer"}
+    if kind == "chat":
+        request["InitialMessage"] = {"ContentType": "text/plain", "Content": CHAT_MARKER}
     return request

@@ -9,6 +9,7 @@
 #   1. IAM role aria-banking-app-role: read and write the Money Hub table; start
 #      chats and calls in the conversation bot flow and read their transcripts;
 #      read the face's Tavus key and the mortgage and dispute Live Sync keys;
+#      tell a contact and ARIA's session which page the customer moved to;
 #      invoke the mortgage and dispute Lambdas
 #   2. Lambda aria-banking-app (the app, and the Money Hub, mortgage and dispute
 #      code it reuses, packaged from their folders unchanged)
@@ -178,6 +179,14 @@ statements = [
      "Resource": "${INSTANCE_ARN}/contact/*"},
     {"Sid": "ReadCallTranscriptMessages", "Effect": "Allow", "Action": "wisdom:ListMessages",
      "Resource": "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*"},
+    # Moving page during a conversation: where the customer is, on the contact and in ARIA's session (as the session
+    # injector does at the start).
+    {"Sid": "TellTheContactWhereTheCustomerIs", "Effect": "Allow", "Action": "connect:UpdateContactAttributes",
+     "Resource": "${INSTANCE_ARN}/contact/*"},
+    {"Sid": "TellAriaWhereTheCustomerIs", "Effect": "Allow",
+     "Action": ["qconnect:UpdateSessionData", "wisdom:UpdateSessionData"],
+     "Resource": ["arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:assistant/${ASSISTANT_ID}",
+                  "arn:aws:wisdom:${REGION}:${ACCOUNT_ID}:session/${ASSISTANT_ID}/*"]},
     {"Sid": "ReadTheFlowViewSetting", "Effect": "Allow", "Action": "ssm:GetParameter",
      "Resource": "arn:aws:ssm:${REGION}:${ACCOUNT_ID}:parameter${FLOW_VIEW_PARAMETER}"},
 ]

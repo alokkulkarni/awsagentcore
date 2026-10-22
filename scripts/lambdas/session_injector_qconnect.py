@@ -550,14 +550,33 @@ RETURNED_FROM = {"card_dispute": ("Back from card dispute", "what they asked aft
                  "mortgage": ("Back from mortgage application", "what they asked after their mortgage application")}
 
 
-def _returned_reason_vars(entry: str, returned_from: str, summary: str) -> dict[str, str]:
+# Only ARIA escalates to a person (connect-card-dispute rule R16, connect-livesync-mortgage FR-40): an assistant that
+# finds the customer needs one sends them back with returnIntent=escalate, the reason and its hand-over notes, and
+# ARIA escalates with them ("Colleague needed (reason): notes", <from_internet_banking>).
+COLLEAGUE_CATEGORY = {"card_dispute": "fraud_security", "mortgage": "mortgage"}
+TOPIC_CATEGORIES = {"current_account", "savings_account", "mortgage", "credit_card", "debit_card", "fraud_security",
+                    "complaint", "general_banking"}
+
+
+def _returned_reason_vars(entry: str, returned_from: str, summary: str, intent: str = "", reason: str = "",
+                          category: str = "") -> dict[str, str]:
     if entry != "returned" or returned_from not in RETURNED_FROM:
         return {}
-    label, reason = RETURNED_FROM[returned_from]
+    label, about = RETURNED_FROM[returned_from]
     said = " ".join(summary.split()) or "They want help with something else."
+    if intent == "escalate":
+        why = "".join(ch for ch in reason if ch.isalnum() or ch == "_")[:60] or "other"
+        said = " ".join(summary.split()) or "The assistant couldn't carry on and left no notes."
+        return {
+            "hasKnownContactReason": "true",
+            "topContactReason": "a colleague, from " + about.split("after ", 1)[-1],
+            "topContactReasonCategory": category if category in TOPIC_CATEGORIES else COLLEAGUE_CATEGORY[returned_from],
+            "contactReasonSummary": f"{label}: Colleague needed ({why}): {said}"[:SESSION_VALUE_MAX_CHARS],
+            "contactReasons": "",
+        }
     return {
         "hasKnownContactReason": "true",
-        "topContactReason": reason,
+        "topContactReason": about,
         "topContactReasonCategory": "general_banking",
         "contactReasonSummary": f"{label}: {said}"[:SESSION_VALUE_MAX_CHARS],
         "contactReasons": "",
@@ -1036,7 +1055,8 @@ def handler(event: dict, context: Any) -> dict:
             reason_vars = _build_contact_reason_vars(customer_id, auth_status, idv_loa)
             reason_vars.update(_money_hub_reason_vars(_attr("entry"), _attr("moneyHubView")))
             reason_vars.update(_banking_app_reason_vars(_attr("entry"), _attr("appPage"), _attr("handoverSummary")))
-            reason_vars.update(_returned_reason_vars(_attr("entry"), _attr("returnedFrom"), _attr("returnSummary")))
+            reason_vars.update(_returned_reason_vars(_attr("entry"), _attr("returnedFrom"), _attr("returnSummary"),
+                                                     _attr("returnIntent"), _attr("returnReason"), _attr("topicCategory")))
             session_vars.update(reason_vars)
 
             logger.info(

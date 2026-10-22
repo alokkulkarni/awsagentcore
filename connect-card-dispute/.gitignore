@@ -2,3 +2,6 @@
 prompts/aria-orchestration-prompt-with-disputes.yaml
 # ARIA's AI agent as it was before attach_disputes_collaborator.sh changed it.
 backups/
+
+# The dispute flow with this account's application and alias, built for import (the committed card-dispute-flow.json keeps placeholders)
+flows/card-dispute-flow.live.json
