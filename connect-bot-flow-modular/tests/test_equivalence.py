@@ -56,8 +56,6 @@ def resolve(value, contact, external):
         return contact.lex.get(value.split(".", 3)[3], "")
     if value.startswith("$.External."):
         return external.get(value.split(".", 2)[2], "")
-    if value == "$.Media.InitialMessage":
-        return getattr(contact, "initial_message", "")
     return ""
 
 
@@ -255,38 +253,11 @@ class TheNewWaysIn(unittest.TestCase):
             result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])], fail=[fail])
             self.assertEqual((result, contact.turns), (("transfer", "0978883b"), 1), fail)
 
-    def test_back_on_a_chat_aria_starts_with_the_note_so_the_customer_needn_t_type_again(self):
+    def test_back_on_a_chat_goes_straight_to_aria_s_usual_block(self):
+        # The designer's Import drops "Initialize bot with message"; the banking app's widget gives ARIA the note instead.
+        self.assertNotIn("LexInitializationData", json.dumps(MAIN))
         blocks = {a["Identifier"]: a for a in MAIN["Actions"]}
-        noted, plain = blocks["talkToAriaWithNote"], blocks["talkToAria"]
-        self.assertEqual(noted["Parameters"]["LexInitializationData"], {"InitialMessage": "$.Media.InitialMessage"},
-                         "the only value the Flow Language keeps (a custom text is dropped on import)")
-        for block in MAIN["Actions"]:          # Connect refuses a Check contact attributes condition with no value
-            for condition in block["Transitions"].get("Conditions", []):
-                self.assertTrue(all(str(o).strip() for o in condition["Condition"]["Operands"]), block["Identifier"])
-        self.assertEqual({k: v for k, v in noted["Parameters"].items() if k != "LexInitializationData"}, plain["Parameters"],
-                         "the same bot, session attributes and ARIA version")
-        self.assertEqual(noted["Transitions"], plain["Transitions"], "the same hand-back handling")
-        self.assertNotIn("LexInitializationData", plain["Parameters"])
-
-        def first_lex_block(attributes, channel, initial=build_flows.CHAT_MARKER):
-            contact = Contact(channel, "", "authenticated", [], [], [])
-            contact.attributes.update(attributes)
-            contact.initial_message = initial
-            current = "checkReturnedTurn"
-            while blocks[current]["Type"] == "Compare":
-                value = resolve(blocks[current]["Parameters"]["ComparisonValue"], contact, {})
-                current = next((c["NextAction"] for c in blocks[current]["Transitions"]["Conditions"]
-                                if c["Condition"]["Operands"][0] == value), blocks[current]["Transitions"]["NextAction"])
-            return current
-
-        back = {"entry": "returned", "returnSummary": "Wants to open a joint account; dispute submitted."}
-        self.assertEqual(first_lex_block(back, "CHAT"), "talkToAriaWithNote")
-        self.assertEqual(first_lex_block(back, "VOICE"), "talkToAria", "initialising the bot is for chat only")
-        self.assertEqual(first_lex_block(back, "CHAT", initial=""), "talkToAria",
-                         "a chat without the app's note would take the Error branch (and recovery could loop it back)")
-        self.assertEqual(first_lex_block({"entry": "banking_app"}, "CHAT"), "talkToAria")
-        self.assertEqual(blocks["retryAria"]["Transitions"]["Conditions"][0]["NextAction"], "talkToAria",
-                         "a retry never repeats the note")
+        self.assertEqual(blocks["customerContext"]["Transitions"]["NextAction"], "talkToAria")
 
     def test_back_without_an_aria_session_yet_gets_one_first(self):
         back = {"entry": "returned", "returnedFrom": "card_dispute"}

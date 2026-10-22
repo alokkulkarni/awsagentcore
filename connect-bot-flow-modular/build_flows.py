@@ -288,12 +288,6 @@ def decide_handback() -> dict:
 # first turn this wait is silence on the line (a call on 19 Oct: 8.6 s of it before she greeted). Lex uses the most
 # specific key: "*:*" applies before any intent is running (only the first turn), and the AmazonQinConnect one to
 # every turn once ARIA is talking, which keeps the 8 s her silence handling ("I'm still here") is tuned for.
-# A chat that comes back to ARIA starts her turn with the chat's initial message (Connect's "Initialize bot with
-# message"). Through the Flow Language that can only be $.Media.InitialMessage (an imported custom text is dropped), so
-# the internet banking app starts every chat with this note (connect-banking-app bankapp/journeys.py CHAT_MARKER; its
-# widget hides it). The flow checks for it first: a chat without it would take the Error branch. What the customer
-# wants is in ARIA's known contact reason (the session injector, from returnSummary).
-CHAT_MARKER = "Chat started from internet banking."
 FIRST_TURN_WAIT_MS = "1500"
 ARIA_TURN_WAIT_MS = "8000"
 ARIA_INTENT = "AmazonQinConnect"          # coversatonalaibot's AMAZON.QInConnectIntent (bot version 3)
@@ -330,18 +324,11 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         action("saveAssistantSession", "UpdateContactData", {"WisdomSessionArn": "$.Wisdom.SessionArn"},
                "markAriaStarted", [("NoMatchingError", "endContact")]),
         set_attributes("markAriaStarted", {"ariaStarted": "true"}, "customerContext", "customerContext"),
-        module_call("customerContext", modules["customer_context"], "checkReturnedTurn", "endContact"),
-        # Back from an assistant on a chat: ARIA only gets a turn when a message arrives, and the customer's question
-        # went to that assistant, so she sat silent until they typed it again (21 Oct: 46 s). Start her Lex block
-        # with the chat's initial message instead (chat only), when it is the app's note; she answers from her
-        # known contact reason.
-        compare("checkReturnedTurn", "$.Attributes.entry", [("returned", "checkReturnChannel")], "talkToAria"),
-        compare("checkReturnChannel", "$.Channel", [("CHAT", "checkChatMarker")], "talkToAria"),
-        compare("checkChatMarker", "$.Media.InitialMessage", [(CHAT_MARKER, "talkToAriaWithNote")], "talkToAria"),
-        action("talkToAriaWithNote", "ConnectParticipantWithLexBot",
-               {**lex, "LexInitializationData": {"InitialMessage": "$.Media.InitialMessage"}}, "markLexError", [
-                   ("InputTimeLimitExceeded", "retryAria"), ("NoMatchingCondition", "saveHandback"),
-                   ("NoMatchingError", "markLexError")]),
+        # Back from an assistant on a chat, ARIA only gets a turn when a message arrives (her Lex block can't be started
+        # with one through an imported flow: the designer drops "Initialize bot with message"). The internet banking
+        # app's widget sends her the note as a message as soon as this block starts (connect-banking-app
+        # /api/contact/returned), so she answers at once.
+        module_call("customerContext", modules["customer_context"], "talkToAria", "endContact"),
         action("talkToAria", "ConnectParticipantWithLexBot", lex, "markLexError", [
             ("InputTimeLimitExceeded", "retryAria"), ("NoMatchingCondition", "saveHandback"),
             ("NoMatchingError", "markLexError")]),
@@ -369,7 +356,6 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         LOGGING: (0, 0), "checkReturned": (0, -2), "contactSetup": (1, 0), "checkEntry": (2, 0),
         "toMortgageFromForm": (3, -2), "disputeFromPage": (3, 2), "checkAriaStarted": (3, -1),
         "connectAssistant": (3, 0), "markAriaStarted": (4, 1), "customerContext": (5, 0), "talkToAria": (6, 0),
-        "checkReturnedTurn": (5, -2), "checkReturnChannel": (5, -3), "checkChatMarker": (6, -3), "talkToAriaWithNote": (6, -2),
         "saveHandback": (7, -1), "markLexError": (7, 1), "decideHandback": (8, 0), "routeHandback": (9, 0),
         "toCardDispute": (10, 2), "toMortgageFromAria": (10, -2), "toHumanHandover": (10, -1),
         "toMortgageFormFromAria": (10, -3),
