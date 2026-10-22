@@ -56,6 +56,8 @@ def resolve(value, contact, external):
         return contact.lex.get(value.split(".", 3)[3], "")
     if value.startswith("$.External."):
         return external.get(value.split(".", 2)[2], "")
+    if value == "$.Media.InitialMessage":
+        return getattr(contact, "initial_message", "")
     return ""
 
 
@@ -253,6 +255,39 @@ class TheNewWaysIn(unittest.TestCase):
             result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])], fail=[fail])
             self.assertEqual((result, contact.turns), (("transfer", "0978883b"), 1), fail)
 
+    def test_back_on_a_chat_aria_starts_with_the_note_so_the_customer_needn_t_type_again(self):
+        blocks = {a["Identifier"]: a for a in MAIN["Actions"]}
+        noted, plain = blocks["talkToAriaWithNote"], blocks["talkToAria"]
+        self.assertEqual(noted["Parameters"]["LexInitializationData"], {"InitialMessage": "$.Media.InitialMessage"},
+                         "the only value the Flow Language keeps (a custom text is dropped on import)")
+        for block in MAIN["Actions"]:          # Connect refuses a Check contact attributes condition with no value
+            for condition in block["Transitions"].get("Conditions", []):
+                self.assertTrue(all(str(o).strip() for o in condition["Condition"]["Operands"]), block["Identifier"])
+        self.assertEqual({k: v for k, v in noted["Parameters"].items() if k != "LexInitializationData"}, plain["Parameters"],
+                         "the same bot, session attributes and ARIA version")
+        self.assertEqual(noted["Transitions"], plain["Transitions"], "the same hand-back handling")
+        self.assertNotIn("LexInitializationData", plain["Parameters"])
+
+        def first_lex_block(attributes, channel, initial=build_flows.CHAT_MARKER):
+            contact = Contact(channel, "", "authenticated", [], [], [])
+            contact.attributes.update(attributes)
+            contact.initial_message = initial
+            current = "checkReturnedTurn"
+            while blocks[current]["Type"] == "Compare":
+                value = resolve(blocks[current]["Parameters"]["ComparisonValue"], contact, {})
+                current = next((c["NextAction"] for c in blocks[current]["Transitions"]["Conditions"]
+                                if c["Condition"]["Operands"][0] == value), blocks[current]["Transitions"]["NextAction"])
+            return current
+
+        back = {"entry": "returned", "returnSummary": "Wants to open a joint account; dispute submitted."}
+        self.assertEqual(first_lex_block(back, "CHAT"), "talkToAriaWithNote")
+        self.assertEqual(first_lex_block(back, "VOICE"), "talkToAria", "initialising the bot is for chat only")
+        self.assertEqual(first_lex_block(back, "CHAT", initial=""), "talkToAria",
+                         "a chat without the app's note would take the Error branch (and recovery could loop it back)")
+        self.assertEqual(first_lex_block({"entry": "banking_app"}, "CHAT"), "talkToAria")
+        self.assertEqual(blocks["retryAria"]["Transitions"]["Conditions"][0]["NextAction"], "talkToAria",
+                         "a retry never repeats the note")
+
     def test_back_without_an_aria_session_yet_gets_one_first(self):
         back = {"entry": "returned", "returnedFrom": "card_dispute"}
         self.assertEqual(self.run_contact("CHAT", back, [], fail=["assistant1"])[0], ("disconnect", None))
@@ -272,6 +307,32 @@ class TheNewWaysIn(unittest.TestCase):
         # Connect lost the hand-back: the recovery Lambda's answer still reaches the form.
         result, contact = self.run_contact("CHAT", form, [("error", {})], ["mortgage_application"])
         self.assertEqual((result, contact.attributes["entry"]), (("transfer", "6788a011"), "web_widget"))
+
+    def test_aria_escalating_a_colleague_needed_return_gives_the_adviser_the_specialist_s_full_notes(self):
+        notes = "Card dispute DSP-VBTXDRJK drafted. STARBUCKS, £4.77 on 2026-10-14; charged the wrong amount. " * 8
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "returnIntent": "escalate", "ariaStarted": "true",
+                "returnSummary": notes, "disputeId": "DSP-VBTXDRJK"}
+        result, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])])
+        self.assertEqual(result, ("transfer", "0978883b"))
+        self.assertEqual(contact.attributes["conversationSummary"], notes, "not ARIA's 500-character summary")
+        self.assertEqual(contact.attributes["escalationReason"], "customer_requested", "ARIA's decision stands")
+        self.assertEqual(contact.attributes["disputeId"], "DSP-VBTXDRJK")
+        # On chat ARIA's hand-back errors and the recovery Lambda decides: the notes still win.
+        result, contact = self.run_contact("CHAT", back, [("error", {})], ["escalate"])
+        self.assertEqual((result, contact.attributes["conversationSummary"]), (("transfer", "0978883b"), notes))
+
+    def test_a_mortgage_colleague_needed_keeps_the_topic_the_screen_pop_opens_the_application_for(self):
+        back = {"entry": "returned", "returnedFrom": "mortgage", "returnIntent": "escalate", "ariaStarted": "true",
+                "returnSummary": "Wants advice on which product.", "applicationId": "MA-ABCDEFGH"}
+        _, contact = self.run_contact("VOICE", back, [("handback", HANDBACKS["escalate"])])
+        self.assertEqual((contact.attributes["topicCategory"], contact.attributes["applicationId"]),
+                         ("mortgage_application", "MA-ABCDEFGH"))
+
+    def test_a_return_to_help_never_borrows_old_notes(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "returnIntent": "help", "ariaStarted": "true",
+                "returnSummary": "Wants a joint account."}
+        _, contact = self.run_contact("CHAT", back, [("handback", HANDBACKS["escalate"])])
+        self.assertEqual(contact.attributes["conversationSummary"], HANDBACKS["escalate"]["conversationSummary"])
 
     def test_a_failed_transfer_to_the_form_goes_back_to_aria(self):
         form = {"entry": "banking_app", "appPage": "mortgage"}

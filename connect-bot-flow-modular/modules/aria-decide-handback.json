@@ -135,8 +135,32 @@
       },
       "done": {
         "position": {
-          "x": 2340,
+          "x": 2860,
           "y": 0
+        }
+      },
+      "checkColleagueNeeded": {
+        "position": {
+          "x": 2340,
+          "y": -320
+        }
+      },
+      "keepSpecialistNotes": {
+        "position": {
+          "x": 2600,
+          "y": -480
+        }
+      },
+      "checkFromMortgage": {
+        "position": {
+          "x": 2600,
+          "y": -160
+        }
+      },
+      "mortgageScreenPop": {
+        "position": {
+          "x": 2860,
+          "y": -320
         }
       }
     }
@@ -266,10 +290,10 @@
         "TargetContact": "Current"
       },
       "Transitions": {
-        "NextAction": "done",
+        "NextAction": "checkColleagueNeeded",
         "Errors": [
           {
-            "NextAction": "done",
+            "NextAction": "checkColleagueNeeded",
             "ErrorType": "NoMatchingError"
           }
         ]
@@ -659,6 +683,98 @@
       "Parameters": {
         "Attributes": {
           "handbackRoute": "human"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "checkColleagueNeeded",
+        "Errors": [
+          {
+            "NextAction": "checkColleagueNeeded",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkColleagueNeeded",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.returnIntent"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Conditions": [
+          {
+            "NextAction": "keepSpecialistNotes",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "escalate"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "keepSpecialistNotes",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "conversationSummary": "$.Attributes.returnSummary"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "checkFromMortgage",
+        "Errors": [
+          {
+            "NextAction": "checkFromMortgage",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "checkFromMortgage",
+      "Type": "Compare",
+      "Parameters": {
+        "ComparisonValue": "$.Attributes.returnedFrom"
+      },
+      "Transitions": {
+        "NextAction": "done",
+        "Conditions": [
+          {
+            "NextAction": "mortgageScreenPop",
+            "Condition": {
+              "Operator": "Equals",
+              "Operands": [
+                "mortgage"
+              ]
+            }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "done",
+            "ErrorType": "NoMatchingCondition"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "mortgageScreenPop",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "topicCategory": "mortgage_application"
         },
         "TargetContact": "Current"
       },

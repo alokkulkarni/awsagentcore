@@ -223,7 +223,7 @@ def decide_handback() -> dict:
         set_attributes("escalateToHuman", {
             "topicCategory": f"{a}lexTopicCategory", "escalationReason": f"{a}lexEscalationReason",
             "customerIntent": f"{a}lexCustomerIntent", "conversationSummary": f"{a}lexConversationSummary",
-            "handbackRoute": "human"}, "done", "done"),
+            "handbackRoute": "human"}, "checkColleagueNeeded", "checkColleagueNeeded"),
         compare("checkNextStep", f"{a}lexNextStep", [
             ("card_dispute", "disputeFromAria"), ("mortgage_application", "checkMortgageForm"),
         ], "recoverAfterComplete"),
@@ -257,7 +257,15 @@ def decide_handback() -> dict:
         ], "routeRetry"),
 
         set_attributes("routeCardDispute", {"handbackRoute": "card_dispute"}, "done", "done"),
-        set_attributes("routeHuman", {"handbackRoute": "human"}, "done", "done"),
+        set_attributes("routeHuman", {"handbackRoute": "human"}, "checkColleagueNeeded", "checkColleagueNeeded"),
+        # Only ARIA escalates (dispute rule R16, mortgage FR-40). When an assistant sent the customer back because they
+        # need a person, the adviser gets that assistant's full notes (ARIA's summary is capped at 500 characters), and
+        # a mortgage keeps the topic the screen pop opens the application view for.
+        compare("checkColleagueNeeded", f"{a}returnIntent", [("escalate", "keepSpecialistNotes")], "done"),
+        set_attributes("keepSpecialistNotes", {"conversationSummary": f"{a}returnSummary"}, "checkFromMortgage",
+                       "checkFromMortgage"),
+        compare("checkFromMortgage", f"{a}returnedFrom", [("mortgage", "mortgageScreenPop")], "done"),
+        set_attributes("mortgageScreenPop", {"topicCategory": "mortgage_application"}, "done", "done"),
         set_attributes("routeRetry", {"handbackRoute": "retry"}, "done", "done"),
         action("done", "EndFlowModuleExecution"),
     ]
@@ -268,7 +276,9 @@ def decide_handback() -> dict:
         "checkAuthenticated": (6, -1), "mortgageLiveSync": (7, -1),
         "checkMortgageForm": (3, 0), "checkMortgageFormRecovered": (6, 1), "mortgageForm": (5, -5),
         "recoverAfterError": (2, 2), "recoverAfterComplete": (4, 1), "checkRecovered": (5, 1),
-        "routeCardDispute": (7, -3), "routeHuman": (8, 0), "routeRetry": (7, 2), "done": (9, 0),
+        "routeCardDispute": (7, -3), "routeHuman": (8, 0), "routeRetry": (7, 2), "done": (11, 0),
+        "checkColleagueNeeded": (9, -2), "keepSpecialistNotes": (10, -3), "checkFromMortgage": (10, -1),
+        "mortgageScreenPop": (11, -2),
     }
     return flow(actions, LOGGING, layout)
 
@@ -278,6 +288,12 @@ def decide_handback() -> dict:
 # first turn this wait is silence on the line (a call on 19 Oct: 8.6 s of it before she greeted). Lex uses the most
 # specific key: "*:*" applies before any intent is running (only the first turn), and the AmazonQinConnect one to
 # every turn once ARIA is talking, which keeps the 8 s her silence handling ("I'm still here") is tuned for.
+# A chat that comes back to ARIA starts her turn with the chat's initial message (Connect's "Initialize bot with
+# message"). Through the Flow Language that can only be $.Media.InitialMessage (an imported custom text is dropped), so
+# the internet banking app starts every chat with this note (connect-banking-app bankapp/journeys.py CHAT_MARKER; its
+# widget hides it). The flow checks for it first: a chat without it would take the Error branch. What the customer
+# wants is in ARIA's known contact reason (the session injector, from returnSummary).
+CHAT_MARKER = "Chat started from internet banking."
 FIRST_TURN_WAIT_MS = "1500"
 ARIA_TURN_WAIT_MS = "8000"
 ARIA_INTENT = "AmazonQinConnect"          # coversatonalaibot's AMAZON.QInConnectIntent (bot version 3)
@@ -314,7 +330,18 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         action("saveAssistantSession", "UpdateContactData", {"WisdomSessionArn": "$.Wisdom.SessionArn"},
                "markAriaStarted", [("NoMatchingError", "endContact")]),
         set_attributes("markAriaStarted", {"ariaStarted": "true"}, "customerContext", "customerContext"),
-        module_call("customerContext", modules["customer_context"], "talkToAria", "endContact"),
+        module_call("customerContext", modules["customer_context"], "checkReturnedTurn", "endContact"),
+        # Back from an assistant on a chat: ARIA only gets a turn when a message arrives, and the customer's question
+        # went to that assistant, so she sat silent until they typed it again (21 Oct: 46 s). Start her Lex block
+        # with the chat's initial message instead (chat only), when it is the app's note; she answers from her
+        # known contact reason.
+        compare("checkReturnedTurn", "$.Attributes.entry", [("returned", "checkReturnChannel")], "talkToAria"),
+        compare("checkReturnChannel", "$.Channel", [("CHAT", "checkChatMarker")], "talkToAria"),
+        compare("checkChatMarker", "$.Media.InitialMessage", [(CHAT_MARKER, "talkToAriaWithNote")], "talkToAria"),
+        action("talkToAriaWithNote", "ConnectParticipantWithLexBot",
+               {**lex, "LexInitializationData": {"InitialMessage": "$.Media.InitialMessage"}}, "markLexError", [
+                   ("InputTimeLimitExceeded", "retryAria"), ("NoMatchingCondition", "saveHandback"),
+                   ("NoMatchingError", "markLexError")]),
         action("talkToAria", "ConnectParticipantWithLexBot", lex, "markLexError", [
             ("InputTimeLimitExceeded", "retryAria"), ("NoMatchingCondition", "saveHandback"),
             ("NoMatchingError", "markLexError")]),
@@ -342,6 +369,7 @@ def main_flow(modules: dict, aria: str = ARIA_VERSION) -> dict:
         LOGGING: (0, 0), "checkReturned": (0, -2), "contactSetup": (1, 0), "checkEntry": (2, 0),
         "toMortgageFromForm": (3, -2), "disputeFromPage": (3, 2), "checkAriaStarted": (3, -1),
         "connectAssistant": (3, 0), "markAriaStarted": (4, 1), "customerContext": (5, 0), "talkToAria": (6, 0),
+        "checkReturnedTurn": (5, -2), "checkReturnChannel": (5, -3), "checkChatMarker": (6, -3), "talkToAriaWithNote": (6, -2),
         "saveHandback": (7, -1), "markLexError": (7, 1), "decideHandback": (8, 0), "routeHandback": (9, 0),
         "toCardDispute": (10, 2), "toMortgageFromAria": (10, -2), "toHumanHandover": (10, -1),
         "toMortgageFormFromAria": (10, -3),
