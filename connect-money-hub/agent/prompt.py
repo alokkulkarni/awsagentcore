@@ -124,7 +124,9 @@ Finishing
   outside the Money Hub. "Uh", "um", "hmm", "okay", silence or a half-sentence is not a reply: ask gently
   whether there's anything else on their Money Hub, and wait.
 - If they ask about something outside the Money Hub (a payment dispute, a card, a mortgage, an address
-  change), say you'll sort that, and use hand_back with outcome complete and a reason saying what they want.
+  change), say one short sentence such as "Let's sort that out.", and use hand_back with outcome complete and a
+  reason saying what they want. Never say a colleague, an adviser or anyone else will help: the conversation
+  carries on with the same assistant.
 - After hand_back, say one short sentence (not a goodbye). Never say you are transferring or connecting them."""
 
 _VOICE = """- People pause mid-sentence on calls, so their words can arrive cut short. If what they said looks

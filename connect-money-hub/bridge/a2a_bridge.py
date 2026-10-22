@@ -157,6 +157,23 @@ def _channel(init: dict, attributes: dict) -> str:
 
 # ── sessions ────────────────────────────────────────────────────────────────────
 
+# Whether the Money Hub agent is helping on a contact, for the internet banking app's "How it works" view
+# (connect-banking-app bankapp/flowview.py reads it from the same table). Nothing in Connect records this hand-over, so
+# the bridge does: written only when a stint starts (INIT_SESSION while not already helping) and when it finishes
+# (a COMPLETE or ESCALATE handed back to ARIA), never on every turn.
+SPECIALIST_KEY = "specialist#{contact_id}"
+
+
+def _mark_contact(contact_id: str, **fields) -> None:
+    if not contact_id:
+        return
+    try:
+        key = SPECIALIST_KEY.format(contact_id=contact_id)
+        store.put(key, {**(store.get(key) or {}), **fields, "expiresAt": store.clock() + SESSION_SECONDS})
+    except Exception:                                   # a demo view: never at the cost of the conversation
+        logger.warning("specialist mark not saved")
+
+
 def _session_key(context_id: str) -> str:
     return f"sess#{hashlib.sha256(context_id.encode()).hexdigest()}"
 
@@ -210,7 +227,11 @@ def on_init(request_id, context_id: str, message: dict) -> dict:
         **({"inflight": existing["inflight"]} if existing.get("inflight") else {}),
         **({"lastAnswer": existing["lastAnswer"]} if existing.get("lastAnswer") else {}),
         "tasks": existing.get("tasks", {}),
+        "helping": bool(existing.get("helping")) and existing.get("contactId") == contact_id,
     }
+    if not session["helping"]:                          # a new stint for this contact
+        session["helping"] = True
+        _mark_contact(contact_id, moneyHubStartedAt=store.clock(), moneyHubFinishedAt=0)
     _save(context_id, session)
     logger.info("event=INIT_SESSION verified=%s channel=%s history=%d contact=%s", bool(session["customerId"]),
                 session["channel"], len(history), "reused" if reuse else "read")
@@ -332,6 +353,9 @@ def _answer(request_id, context_id: str, task_id: str, session: dict, text: str,
         finish = None
     if finish:
         finish = {"type": finish["type"], "reason": str(finish.get("reason") or "Money Hub conversation finished.")[:500]}
+        if session.get("helping"):                      # handed back to ARIA: the stint is over
+            session["helping"] = False
+            _mark_contact(session.get("contactId", ""), moneyHubFinishedAt=store.clock(), moneyHubFinish=finish["type"])
     if not turn.get("silence"):                 # silence isn't part of the conversation the agent sees
         session["transcript"] = session.get("transcript", []) + [{"role": "user", "text": text},
                                                                  {"role": "assistant", "text": reply}]

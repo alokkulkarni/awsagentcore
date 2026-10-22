@@ -195,6 +195,18 @@ class Prompt(unittest.TestCase):
         self.assertNotIn("ending 4 8 2 1", system_prompt("CHAT"))
 
 
+class HandingBack(unittest.TestCase):
+    """21 Oct: asked about a card payment, the agent said "A colleague will help you get that sorted." and handed
+    back; ARIA, not a colleague, takes it (she hands it to the dispute assistant)."""
+
+    def test_something_outside_the_money_hub_goes_back_to_aria_without_promising_a_colleague(self):
+        text = " ".join(system_prompt("CHAT", "James").split())
+        rule = text.split("If they ask about something outside the Money Hub")[1].split("After hand_back")[0]
+        self.assertIn('"Let\'s sort that out."', rule)
+        self.assertIn("Never say a colleague, an adviser or anyone else will help", rule)
+        self.assertIn("hand_back with outcome complete", rule)
+
+
 class PromptCaching(unittest.TestCase):
     """The fixed part is cached once and shared; only the date, the customer and the page come after it."""
 

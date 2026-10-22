@@ -73,6 +73,36 @@ class Bridge(unittest.TestCase):
         self.post(init_session(**kw))
         self.post(channel_ready(kw.get("context", "ctx-1")))
 
+    # ── the internet banking app's "How it works" view: when the Money Hub agent helps ──
+
+    def mark(self):
+        return bridge.store.get(bridge.SPECIALIST_KEY.format(contact_id=CONTACT)) or {}
+
+    def test_a_stint_is_marked_on_the_contact_when_it_starts_and_when_it_hands_back(self):
+        self.start()
+        self.assertEqual((self.mark()["moneyHubStartedAt"], self.mark()["moneyHubFinishedAt"]), (1_800_000_000.0, 0))
+        self.answer["finish"] = {"type": "COMPLETE", "reason": "Finished: nothing else."}
+        self.post(turn("that's all, thanks"))
+        self.assertEqual((self.mark()["moneyHubFinishedAt"], self.mark()["moneyHubFinish"]), (1_800_000_000.0, "COMPLETE"))
+        self.assertIn("expiresAt", self.mark())
+
+    def test_the_mark_is_written_only_when_a_stint_starts_or_ends_never_every_turn(self):
+        writes = []
+        put = bridge.store.put
+        bridge.store.put = lambda key, item, **kw: (writes.append(key), put(key, item, **kw))[1]
+        for _ in range(3):
+            self.post(init_session())                       # a call: a new session before each turn
+            self.post(turn("and my goals?"))
+        self.assertEqual(writes.count(bridge.SPECIALIST_KEY.format(contact_id=CONTACT)), 1)
+
+    def test_brought_in_again_after_handing_back_is_a_new_stint(self):
+        self.start()
+        self.answer["finish"] = {"type": "COMPLETE", "reason": "Back to ARIA."}
+        self.post(turn("thanks"))
+        self.answer["finish"] = None
+        self.post(init_session())                           # ARIA brings the Money Hub agent in again
+        self.assertEqual(self.mark()["moneyHubFinishedAt"], 0)
+
     # ── latency (19 Oct): on a call Connect starts a session before every turn ──
 
     def _counting_reads(self):
