@@ -113,13 +113,19 @@ def find_hand_back(spans: list[dict], handled: str, now: datetime) -> dict | Non
     return None
 
 
-def decide(hand_back: dict, channel: str = "CHAT") -> tuple[str, dict]:
-    """(route, contact attributes to set) for a recovered hand-back, as the flow's own blocks would set them."""
+def decide(hand_back: dict, channel: str = "CHAT", app_page: str = "") -> tuple[str, dict]:
+    """(route, contact attributes to set) for a recovered hand-back, as the flow's own blocks would set them.
+    app_page: the contact's appPage (the internet banking app's page)."""
     tool, args = hand_back["tool"], hand_back["arguments"]
     step = args.get("nextStep", "")
     summary = str(args.get("handoverSummary", ""))[:300]
     if tool == "StartCardDispute" or (tool == "Complete" and step == "card_dispute"):
         return "card_dispute", {"handoverSummary": summary or "Wants to dispute a card payment.", "entry": "aria"}
+    # The internet banking app's mortgage form, on chat and calls alike: the decision module sends
+    # mortgage_application with appPage=mortgage to the mortgage assistant joined to that form (it sets entry itself).
+    if (tool == "StartMortgageApplication" or (tool == "Complete" and step == "mortgage_application")) \
+            and app_page == "mortgage":
+        return "mortgage_application", {"handoverSummary": summary or "Filling in their application in internet banking."}
     if (tool == "StartMortgageApplication" or (tool == "Complete" and step == "mortgage_application")) \
             and channel == "VOICE":
         code = str(args.get("screenCode", ""))
@@ -157,7 +163,8 @@ def lambda_handler(event: dict, context=None) -> dict:
         if not hand_back:
             logger.info("contact=%s no unhandled hand-back in ARIA's trace", contact_id)
             return {"route": nothing}
-        route, attributes = decide(hand_back, contact.get("Channel", "CHAT"))
+        route, attributes = decide(hand_back, contact.get("Channel", "CHAT"),
+                                   (contact.get("Attributes") or {}).get("appPage", ""))
         if route == "none":
             return {"route": nothing}
         _client("connect").update_contact_attributes(
