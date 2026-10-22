@@ -177,6 +177,16 @@ def contact_journey(customer: str, contact_id: str, token: str) -> dict:
     return flowview.state(described, attributes, dispute, money_hub_mark)
 
 
+def contact_assistant(body: dict, token: str) -> dict:
+    """Which of the flow's own assistants has this link's own conversation now ("mortgage", "card_dispute" or "" for
+    ARIA): the mortgage form re-sends its fields when the mortgage assistant takes over. Not the demo view's: always on."""
+    contact_id = _s(body, "contactId")
+    _own_contact(token, contact_id)
+    attributes = money_api.connect_client().get_contact_attributes(
+        InstanceId=money_api.CONNECT_INSTANCE_ID, InitialContactId=contact_id).get("Attributes", {})
+    return {"assistant": flowview.specialist(attributes)[0]}
+
+
 def returned_note(body: dict, token: str) -> dict:
     """Has this link's own chat just come back to ARIA from an assistant? {note, key}: the widget sends the note to ARIA
     once per key (journeys.return_note), the moment her bot block starts."""
@@ -291,6 +301,8 @@ def web(event: dict) -> dict:
             reply = returned_note(body, token)
         elif path == "/api/contact/page":
             reply = page_moved(session, body, token)
+        elif path == "/api/contact/assistant":
+            reply = contact_assistant(body, token)
         elif path == "/api/contact/journey":
             reply = contact_journey(customer, _s(body, "contactId"), token)
         elif path == "/api/mortgage/config":
