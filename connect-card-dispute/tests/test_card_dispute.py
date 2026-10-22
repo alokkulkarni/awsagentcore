@@ -1265,13 +1265,26 @@ class CxDesignerConfiguration(unittest.TestCase):
         for name in read:
             self.assertRegex(self.doc, rf"\| `{name}` \| `", f"{name} is set on the Escalate node")
 
-    def test_every_way_out_except_hanging_up_and_back_to_aria_reaches_a_person_through_the_record(self):
+    def test_every_way_out_except_hanging_up_goes_back_to_aria_who_alone_escalates(self):
         out = self.blocks["CardDisputeAssistant"]["Transitions"]
         exits = {e["ErrorType"]: e["NextAction"] for e in out["Errors"]}
         self.assertEqual((out["NextAction"], out["Conditions"][0]["NextAction"]), ("BuildHandover", "CheckBackToAria"))
         check = self.blocks["CheckBackToAria"]["Transitions"]
         self.assertEqual((check["NextAction"], check["Errors"][0]["NextAction"]), ("BuildHandover", "BuildHandover"),
-                         "any other escalation still goes to a person")
+                         "any other escalation builds the hand-over from the record")
+        # Rule R16: the hand-over goes back to ARIA, who escalates; a person directly only if she can't be reached.
+        for name in ("SetHandover", "HandoverUnavailable"):
+            self.assertEqual(self.blocks[name]["Transitions"]["NextAction"], "SetColleagueNeeded")
+        self.assertEqual(self.blocks["SetColleagueNeeded"]["Parameters"]["Attributes"], {
+            "entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned", "returnIntent": "escalate",
+            "returnReason": "$.Attributes.escalationReason", "returnSummary": "$.Attributes.conversationSummary"})
+        self.assertEqual(self.blocks["SetColleagueNeeded"]["Transitions"]["NextAction"], "ToAria")
+        self.assertEqual(self.blocks["ToAria"]["Transitions"]["Errors"][0]["NextAction"], "ToHumanHandover",
+                         "the safety net: ARIA unreachable")
+        reaching_a_person = {a["Identifier"] for a in self.flow["Actions"]
+                             if any(t.get("NextAction") == "ToHumanHandover"
+                                    for t in [a.get("Transitions", {})] + a.get("Transitions", {}).get("Errors", []))}
+        self.assertEqual(reaching_a_person, {"ToAria", "SetColleagueNeeded"}, "only when the way back to ARIA fails")
         self.assertEqual(exits, {"NoMatchingError": "BuildHandover", "NoMatchingCondition": "BuildHandover",
                                  "InputTimeLimitExceeded": "Disconnect"})
         build = self.blocks["BuildHandover"]["Parameters"]
@@ -1279,8 +1292,6 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertEqual(build["LambdaInvocationAttributes"]["operation"], "handover")
         self.assertEqual(build["ResponseValidation"], {"ResponseType": "STRING_MAP"})
         self.assertEqual(self.blocks["BuildHandover"]["Transitions"]["Errors"][0]["NextAction"], "HandoverUnavailable")
-        for name in ("SetHandover", "HandoverUnavailable"):
-            self.assertEqual(self.blocks[name]["Transitions"]["NextAction"], "ToHumanHandover")
         self.assertEqual(self.blocks["HandoverUnavailable"]["Parameters"]["Attributes"]["topicCategory"], "fraud_security")
         self.assertTrue(self.blocks["ToHumanHandover"]["Parameters"]["ContactFlowId"].endswith(
             "/contact-flow/0978883b-6892-41ab-81f4-528e0e0cc9bf"), "ARIA human handover, as ARIA's own escalations")
@@ -1292,12 +1303,12 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertEqual(check["Transitions"]["Conditions"][0]["NextAction"], "SetBackToAria")
         attributes = self.blocks["SetBackToAria"]["Parameters"]["Attributes"]
         self.assertEqual(attributes, {"entry": "returned", "returnedFrom": "card_dispute", "handbackRoute": "returned",
-                                      "returnSummary": "$.AgenticCX.ContextVariables.summary"})
+                                      "returnIntent": "help", "returnSummary": "$.AgenticCX.ContextVariables.summary"},
+                         "returnIntent help: a later return never inherits an earlier escalate")
         self.assertEqual(self.blocks["SetBackToAria"]["Transitions"]["Errors"][0]["NextAction"], "BuildHandover",
                          "if the way back fails, a person still helps")
         self.assertTrue(self.blocks["ToAria"]["Parameters"]["ContactFlowId"].endswith(
             "/contact-flow/2b4f7b5c-1351-42c8-acac-add07d0cbd00"), "ARIA's bot flow (modular)")
-        self.assertEqual(self.blocks["ToAria"]["Transitions"]["Errors"][0]["NextAction"], "BuildHandover")
         # The guide's BackToARIA flow sets exactly the value the flow compares, as plain words.
         back = self.doc.split("### 3a-2. Flow `BackToARIA`")[1].split("### 3b.")[0]
         self.assertIn(f"| `escalationReason` | `{self.builder.BACK_TO_ARIA}` |", back)
@@ -1314,6 +1325,37 @@ class CxDesignerConfiguration(unittest.TestCase):
         handback = self.doc.split("### 3a. Flow `HandBackToARIA`")[1].split("### 3a-2.")[0]
         message = handback.split("**Message** (what the customer hears or reads):")[1].split("\n   4.")[0]
         self.assertNotIn("before it's\n      submitted", message, "the customer may have submitted it themselves")
+        self.assertIn('"Of course."', message, "ARIA says she's passing them on; the assistant never promises a colleague")
+
+    def test_an_update_on_a_dispute_already_raised_is_looked_up_never_a_new_one(self):
+        prompt = " ".join(self.doc.split("**The assistant.**")[1].split("```")[1].split())
+        update = prompt.split("An update on a dispute they already raised")[1].split("For a new dispute, follow these steps in order")[0]
+        for rule in ("Don't start a new dispute, and don't block or replace a card for it.",
+                     "call getDispute with it as disputeId", 'its label says "already disputed"',
+                     "If it is submitted, add whatHappensNext word for word.", "Never invent a timescale or outcome.",
+                     "dispute_not_found", "Back to ARIA"):
+            self.assertIn(rule, update)
+        self.assertLess(prompt.index("An update on a dispute they already raised"), prompt.index("Step 1. Which card"))
+        opening = " ".join(self.doc.split("**The opening.**")[1].split("**The assistant.**")[0].split())
+        self.assertIn("a new one, or an update on one they already raised", opening)
+        self.assertIn("If they want an update on a dispute they already raised, offer to look it up", opening)
+        # getDispute reads the customer's own dispute by its reference, whatever its status (rule R11 keeps it theirs)
+        self.assertIn("disputeId", self.READS["getDispute"])
+
+    def test_a_complete_dispute_is_offered_to_the_customer_to_submit_before_any_colleague(self):
+        # 21 Oct: complete, the assistant escalated at once, without the summary or the choice; the customer, queued,
+        # then asked about something else and no one could answer.
+        prompt = " ".join(self.doc.split("**The assistant.**")[1].split("```")[1].split())
+        finish = prompt.split("Step 7. Finish.")[1].split("When to go Back to ARIA")[0]
+        self.assertIn("never use Escalation requested just because the dispute is complete", finish)
+        self.assertLess(finish.index("always offer the choice and wait for their answer"), finish.index("Only if they choose the colleague"))
+        self.assertIn("Don't escalate.", finish)
+        rules = prompt.split("When you may use Escalation requested")[1].split("What you never do")[0]
+        self.assertIn("they chose to have a colleague check and submit the dispute, after you offered them to submit it themselves", rules)
+        self.assertIn("Never because the dispute is complete or they agreed your summary", rules)
+        exit_row = next(line for line in self.doc.splitlines() if line.startswith("    | `Escalation requested` |"))
+        self.assertIn("Never just because the dispute is complete or they agreed the summary", exit_row)
+        self.assertNotIn("Use only when the dispute is complete and the customer agreed the summary", exit_row)
 
     def test_the_flow_copies_exactly_what_the_hand_over_operation_returns(self):
         service = DisputeService(MemoryStore(lambda: 0.0), lambda: 0.0)
