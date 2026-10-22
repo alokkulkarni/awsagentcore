@@ -133,6 +133,16 @@ class WhoHelps(Base):
         self.assertIn("export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];", apply,
                       "ARIA greets and hands over first: the mortgage assistant can start well after the contact")
 
+    def test_the_form_binds_to_a_conversation_that_began_on_another_page(self):
+        apply = (APP / "web" / "pages" / "apply.js").read_text()
+        self.assertNotIn("journey === 'mortgage'", apply,
+                         "a chat begun on Home and brought here (ARIA hands to the mortgage assistant) must see the form")
+        self.assertIn("if (shared.liveContact) bindLiveSync(shared.liveContact.contactId);", apply)
+        self.assertIn("contactStarted(info) { bindLiveSync(info.contactId); }", apply)
+        self.assertIn("api('/contact/assistant', { contactId })", apply)
+        self.assertIn("bound.stopResend = resendContext({ send: () => sendContext(), delays: RESEND_AFTER_MS });", apply,
+                      "the fields go again on the mortgage page's schedule when the mortgage assistant takes over")
+
     def test_a_chat_starts_with_no_initial_message(self):
         self.post("/api/contact/chat", token=self.verified, page="cards")
         self.assertNotIn("InitialMessage", self.connect.calls[-1][1], "the opener goes once ARIA listens")
@@ -594,6 +604,16 @@ class PageMoves(Base):
             for kept in ("entry", "customerId", "authStatus", "LoA", "handbackRoute", "ariaStarted", "handoverSummary"):
                 self.assertNotIn(kept, self.connect.updated[-1], (page, kept))
         self.assertEqual(self.connect.attributes["entry"], "returned")
+
+    def test_the_form_can_ask_which_assistant_has_the_conversation_with_the_demo_view_off(self):
+        self.assertFalse(flowview.enabled(), "Base leaves the demo view off")
+        self.assertEqual(self.post("/api/contact/assistant", token=self.verified, contactId=self.contact),
+                         (200, {"assistant": ""}), "back with ARIA")
+        self.connect.attributes.update(entry="web_widget", handbackRoute="mortgage_form")
+        self.assertEqual(self.post("/api/contact/assistant", token=self.verified, contactId=self.contact)[1],
+                         {"assistant": "mortgage"})
+        other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
+        self.assertEqual(self.post("/api/contact/assistant", token=other, contactId=self.contact)[0], 404)
 
     def test_only_this_links_own_conversation_and_a_real_page(self):
         other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]

@@ -7,6 +7,8 @@
 // (Point B, entry=web_widget). The page then binds Touchpoint to that same contact in its headless mode
 // ("external": it draws nothing and opens no call), and the mortgage assistant's Live Sync fills, navigates and
 // highlights here exactly as on the mortgage page. Help by phone (a code the caller quotes) binds the same way.
+// A conversation that began elsewhere in the app and comes here binds too: ARIA brings the mortgage assistant in,
+// and the page sends it the form's fields again when it takes over (watchAssistant).
 import { $, api, text } from '../lib.js';
 import { STAGES } from '../mortgage/context.js';
 import { startLiveSync } from '../mortgage/touchpoint.js';
@@ -21,10 +23,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Live Sync outlives a page change (the customer can look at their accounts mid-call and come back): the session
 // stays here, and reaches whichever form is showing through `form`.
-let bound = null;            // { contactId, session, stopResend }
+let bound = null;            // { contactId, session, stopResend, watch }
 let form = null;             // the mounted form: { ui, show, state, current }
 // Re-send times for the form's context: the mortgage page's own, then on while ARIA hands over.
 export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];
+const WATCH_MS = 4000;       // how often a bound form asks which assistant has the conversation
 let touchpoint = null;       // { create, analyzePageForms }, loaded once
 let config = null;           // the mortgage service's settings and Live Sync keys
 
@@ -56,14 +59,37 @@ async function bindLiveSync(contactId, { session } = {}) {
     // app ARIA greets first and then hands over, so the mortgage assistant can start well after the contact: keep
     // re-sending for up to two minutes (the same context each time, so harmless).
     bound.stopResend = resendContext({ send: () => sendContext(), delays: AFTER_ARIA_MS });
+    watchAssistant(contactId);
     form?.ui.setStatus('The assistant can see this form and fill it in with you. Anything it fills is marked.');
   } catch {
     form?.ui.setStatus('The assistant can talk with you, but it couldn\'t connect to this form. You can fill it in yourself.');
   }
 }
 
+// ARIA brings the mortgage assistant in whenever she decides to (a conversation can begin anywhere in the app and come
+// here minutes later), and the fields sent before it joined went to her. Each time it takes over, send them again
+// on the mortgage page's own schedule (its conversation starts a moment after the hand-over).
+function watchAssistant(contactId) {
+  let was = '';
+  const look = async () => {
+    if (bound?.contactId !== contactId) return;
+    try {
+      const { assistant } = await api('/contact/assistant', { contactId });
+      if (assistant === 'mortgage' && was !== 'mortgage' && bound?.contactId === contactId) {
+        bound.stopResend();
+        await sendContext().catch(() => {});
+        bound.stopResend = resendContext({ send: () => sendContext(), delays: RESEND_AFTER_MS });
+      }
+      was = assistant || '';
+    } catch { /* not answered this time: the next look, or the conversation's end, settles it */ }
+    if (bound?.contactId === contactId) bound.watch = setTimeout(look, WATCH_MS);
+  };
+  bound.watch = setTimeout(look, WATCH_MS);
+}
+
 function unbind() {
   bound?.stopResend();
+  clearTimeout(bound?.watch);
   bound = null;
   form?.ui.setStatus('');
 }
@@ -173,14 +199,15 @@ export async function mount({ shared, talk }) {
 
   show(current, true);       // the browser's back and forward re-open this page at their stage (the app's router)
 
-  // A conversation already going on this journey (started here or on the Mortgages page): bind to it now.
-  if (shared.liveContact?.journey === 'mortgage') bindLiveSync(shared.liveContact.contactId);
+  // A conversation already going on (started here, on the Mortgages page, or anywhere else and brought here): bind to
+  // it now, so whenever the mortgage assistant has it, it sees this form.
+  if (shared.liveContact) bindLiveSync(shared.liveContact.contactId);
 
   const handle = {
     context: () => ({ page: 'mortgage', stage: current.scope, applicationId: appId, formPath: current.path,
       label: `Mortgage application · ${current.title}`, launcher: 'Help with your application',
       note: 'The assistant fills in the form with you as you talk, and you can change anything. Choosing a product is up to you.' }),
-    contactStarted(info) { if (info.journey === 'mortgage') bindLiveSync(info.contactId); },
+    contactStarted(info) { bindLiveSync(info.contactId); },
     contactEnded(info) { if (bound && (!info || info.contactId === bound.contactId)) unbind(); },
     unmount() { ui.stop(); form = null; },
   };
