@@ -25,6 +25,7 @@ ENVIRONMENT VARIABLES (none are secrets)
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -176,6 +177,17 @@ def contact_journey(customer: str, contact_id: str, token: str) -> dict:
     return flowview.state(described, attributes, dispute, money_hub_mark)
 
 
+def returned_note(body: dict, token: str) -> dict:
+    """Has this link's own chat just come back to ARIA from an assistant? {note, key}: the widget sends the note to ARIA
+    once per key (journeys.return_note), the moment her bot block starts."""
+    contact_id = _s(body, "contactId")
+    _own_contact(token, contact_id)
+    attributes = money_api.connect_client().get_contact_attributes(
+        InstanceId=money_api.CONNECT_INSTANCE_ID, InitialContactId=contact_id).get("Attributes", {})
+    note = journeys.return_note(attributes)
+    return {"note": note, "key": hashlib.sha256(note.encode()).hexdigest()[:16] if note else ""}
+
+
 def page_moved(session: dict, body: dict, token: str) -> dict:
     """The customer moved to another page during this link's own conversation: the contact attributes the flows route
     on (the mortgage form's application, the Money Hub tab), and ARIA's known contact reason for her next turn."""
@@ -275,6 +287,8 @@ def web(event: dict) -> dict:
             reply = home.cards(customer)
         elif path in ("/api/contact/call", "/api/contact/chat"):
             reply = start_contact(path.rsplit("/", 1)[-1], session, body, token)
+        elif path == "/api/contact/returned":
+            reply = returned_note(body, token)
         elif path == "/api/contact/page":
             reply = page_moved(session, body, token)
         elif path == "/api/contact/journey":

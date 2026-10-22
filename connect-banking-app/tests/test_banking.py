@@ -133,17 +133,9 @@ class WhoHelps(Base):
         self.assertIn("export const AFTER_ARIA_MS = [...RESEND_AFTER_MS, 45000, 60000, 90000, 120000];", apply,
                       "ARIA greets and hands over first: the mortgage assistant can start well after the contact")
 
-    def test_every_chat_starts_with_the_note_aria_s_flow_uses_and_the_widget_hides(self):
+    def test_a_chat_starts_with_no_initial_message(self):
         self.post("/api/contact/chat", token=self.verified, page="cards")
-        self.assertEqual(self.connect.calls[-1][1]["InitialMessage"],
-                         {"ContentType": "text/plain", "Content": journeys.CHAT_MARKER})
-        self.post("/api/contact/call", token=self.verified, page="cards")
-        self.assertNotIn("InitialMessage", self.connect.calls[-1][1], "calls have no initial message")
-        flows = (ROOT / "connect-bot-flow-modular" / "build_flows.py").read_text()
-        self.assertIn(f'CHAT_MARKER = "{journeys.CHAT_MARKER}"', flows, "the flow checks for exactly this text")
-        talk = (APP / "web" / "widget" / "talk.js").read_text()
-        self.assertIn(f"const CHAT_MARKER = '{journeys.CHAT_MARKER}';", talk)
-        self.assertIn("item.ParticipantRole === 'CUSTOMER' && (item.Content || '').trim() === CHAT_MARKER) return;", talk)
+        self.assertNotIn("InitialMessage", self.connect.calls[-1][1], "the opener goes once ARIA listens")
 
     def test_a_demo_link_never_carries_the_customer_onto_a_mortgage_contact(self):
         self.post("/api/contact/chat", token=self.demo, page="mortgage", stage="about_you", applicationId=APP_ID)
@@ -615,6 +607,58 @@ class PageMoves(Base):
         self.connect.contact = {}
         reply = self.post("/api/contact/page", token=self.verified, contactId=self.contact, page="cards")[1]
         self.assertEqual((reply["ariaTold"], self.qconnect.updates), (False, []))
+
+
+class BackToAria(Base):
+    """22 Oct: back from the dispute assistant on a chat, ARIA waited for the customer to type and, when they did, still
+    thought they were with that assistant. The widget now gives her the note as a message when her bot block starts."""
+
+    def setUp(self):
+        super().setUp()
+        self.connect = money_api._connect = FakeContact({}, {"entry": "returned", "returnedFrom": "card_dispute",
+                                                             "returnIntent": "help",
+                                                             "returnSummary": "Wants a joint account; dispute submitted."})
+        self.contact = self.post("/api/contact/chat", token=self.verified, page="cards")[1]["contactId"]
+
+    def test_the_note_is_the_known_contact_reason_aria_acts_on_once_per_return(self):
+        status, reply = self.post("/api/contact/returned", token=self.verified, contactId=self.contact)
+        self.assertEqual((status, reply["note"]), (200, "Back from card dispute: Wants a joint account; dispute submitted."))
+        self.assertEqual(self.post("/api/contact/returned", token=self.verified, contactId=self.contact)[1]["key"], reply["key"],
+                         "the same return: the widget sends it once")
+        self.connect.attributes["returnSummary"] = "Wants a mortgage."
+        self.assertNotEqual(self.post("/api/contact/returned", token=self.verified, contactId=self.contact)[1]["key"], reply["key"])
+
+    def test_a_colleague_needed_return_carries_the_reason(self):
+        self.connect.attributes.update(returnIntent="escalate", returnReason="dispute_ready_for_review")
+        note = self.post("/api/contact/returned", token=self.verified, contactId=self.contact)[1]["note"]
+        self.assertEqual(note, "Back from card dispute: Colleague needed (dispute_ready_for_review): Wants a joint account; dispute submitted.")
+
+    def test_nothing_to_send_unless_the_chat_came_back_and_only_for_this_links_own_chat(self):
+        self.connect.attributes = {"entry": "banking_app", "appPage": "cards"}
+        self.assertEqual(self.post("/api/contact/returned", token=self.verified, contactId=self.contact)[1], {"note": "", "key": ""})
+        other = money_api.hub.mint_link("CUST-002", "2").split("#k=")[1]
+        self.assertEqual(self.post("/api/contact/returned", token=other, contactId=self.contact)[0], 404)
+
+    def test_the_note_matches_the_session_injector_s_words(self):
+        sys.path.insert(0, str(ROOT / "scripts" / "lambdas"))
+        try:
+            import session_injector_qconnect as injector
+        except Exception:                                   # the injector needs boto3 at import
+            self.skipTest("injector not importable here")
+        for attrs in ({"entry": "returned", "returnedFrom": "mortgage", "returnIntent": "help", "returnSummary": "Nothing else: saved at Property and loan."},
+                      {"entry": "returned", "returnedFrom": "card_dispute", "returnIntent": "escalate", "returnReason": "vulnerability",
+                       "returnSummary": "Upset; bereavement."}):
+            expected = injector._returned_reason_vars(attrs["entry"], attrs["returnedFrom"], attrs["returnSummary"],
+                                                      attrs["returnIntent"], attrs.get("returnReason", ""), "")["contactReasonSummary"]
+            self.assertEqual(journeys.return_note(attrs), expected)
+
+    def test_the_widget_sends_it_when_aria_s_bot_block_starts_and_hides_it(self):
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        self.assertIn("if (live && live.opened && !(item.Content || '').trim()) sendReturnNote();", talk)
+        self.assertIn("back.key !== current.returnKey", talk, "once per return")
+        self.assertIn("if (item.ParticipantRole === 'CUSTOMER' && isReturnNote(item.Content)) return;", talk)
+        for label in journeys.RETURN_LABELS.values():
+            self.assertIn(f"'{label}:'", talk)
 
 
 class HowItWorks(Base):

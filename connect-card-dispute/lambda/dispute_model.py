@@ -56,13 +56,15 @@ TYPE_WORDS = {UNAUTHORISED: "Payment the customer did not make", SCAM: "Customer
 # What the assistant tells the customer happens next, by case. It says only this,
 # word for word, so it never invents a timescale or promises an outcome.
 # PLACEHOLDER WORDING: replace with your bank's approved text before real use.
+# Said word for word. Nothing about a colleague: only ARIA hands a customer to a person (rule R16), and many customers
+# submit their dispute themselves.
 WHAT_HAPPENS_NEXT = {
     UNAUTHORISED: ("Our fraud team will investigate this payment. Fraud cases are usually looked into within "
-                   "15 working days, and we'll keep you updated. A colleague will now check the details with you."),
+                   "15 working days, and we'll keep you updated."),
     SCAM: ("Our fraud team will review what happened. Scam cases are usually reviewed within 15 working days, and "
-           "whether any money can be recovered depends on the case. A colleague will now check the details with you."),
+           "whether any money can be recovered depends on the case."),
     MERCHANT: ("We'll ask the retailer to respond on your behalf. Most card disputes are settled within 8 weeks, and "
-               "it can take longer if the retailer challenges it. A colleague will now check the details with you."),
+               "it can take longer if the retailer challenges it."),
 }
 YES_NO = ("yes", "no")
 

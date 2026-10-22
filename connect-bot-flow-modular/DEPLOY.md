@@ -393,10 +393,12 @@ pages, a mortgage-form chat would reach ARIA without the new rule.
 
 1. **Session injector** (code only, so its settings stay as they are). From the repository root:
    ```bash
-   (cd scripts/lambdas && zip -q /tmp/injector.zip session_injector_qconnect.py)
+   ./scripts/build_injector_zip.sh /tmp/injector.zip       # the injector plus the sample bank's data (moneyhub/)
    aws lambda update-function-code --function-name aria-session-injector-qconnect --region eu-west-2 \
        --zip-file fileb:///tmp/injector.zip --query LastModified --output text
    ```
+   Always build it with `build_injector_zip.sh`: a zip of the .py file alone leaves out the sample bank's data, and
+   ARIA loses the customer's products ("moneyhub/data.py is not in this package" in its log).
 2. **ARIA v2's prompt** (adds `<from_internet_banking>`): `./connect-bot-flow-modular/ai-agent/create_agent.sh
    --update` (dry run), then `--update --apply`. It publishes a new version; put its ARN in `config.json` as `aria`.
 3. **Rebuild the flows**: `python3 connect-bot-flow-modular/build_flows.py --config connect-bot-flow-modular/config.json`.
@@ -482,6 +484,9 @@ assistant says where it is (and what happens next if it's submitted), then asks 
 
 ## Back to ARIA on a chat: she answers straight away (21 Oct 2026)
 
+> **Superseded on 22 Oct 2026** by "Back to ARIA on a chat: the app gives ARIA the note". The return branch and the
+> chat's initial message described here were removed: the designer's Import dropped the setting they relied on.
+
 On a chat, ARIA only gets a turn when a message arrives. The customer's question had gone to the assistant that
 handed back, so ARIA sat silent until they typed it again (46 s on 21 Oct), and then answered twice. Now a returning
 chat starts her Lex block with the chat's initial message (`talkToAriaWithNote`, Connect's "Initialize bot with
@@ -520,6 +525,24 @@ seconds, once, without you typing again.
 
 Check: start a chat on Accounts, ask about the transfer, move to Money Hub, ask "where can I cut my spending?" →
 "How it works" shows the Money Hub specialist brought in; then "thanks, that's all" → back to ARIA.
+
+## Back to ARIA on a chat: the app gives ARIA the note (22 Oct 2026)
+
+On a chat ARIA only gets a turn when a message arrives, so back from an assistant she waited for the customer to type,
+and then answered as if they were still with that assistant. Two Connect levers didn't hold: the designer's Import drops
+"Initialize bot with message" (and the API refused the flow with it), and updating her session data mid-conversation
+didn't change her next turn. Now, when ARIA's bot block starts again (Connect posts its blank line), the banking app's
+widget asks `/api/contact/returned` and, for a return, sends ARIA the note as a message: "Back from card dispute: …"
+(the injector's words; hidden in the widget; once per return). The main flow no longer has a return branch, so it imports
+as usual. Calls are unchanged (Connect gives ARIA an empty turn after its silence wait).
+
+1. **ARIA** (the note now arrives as a message): `create_agent.sh --update`, then `--update --apply`; the version in
+   `config.json`; `build_flows.py --config config.json`; import the main flow, Save, **Publish**.
+2. **Session injector**, built with `./scripts/build_injector_zip.sh` (see "Back to ARIA" step 1): a .py-only zip left
+   out the sample bank's data on 22 Oct.
+3. **Dispute Lambda** ("what happens next" no longer promises a colleague):
+   `./connect-card-dispute/scripts/deploy_card_dispute.sh --skip-gateway --dry-run`, then without `--dry-run`.
+4. **The banking app**: `deploy_banking_app.sh --contact-flow-id 2b4f7b5c-1351-42c8-acac-add07d0cbd00`.
 
 ## Only ARIA escalates to a person (21 Oct 2026)
 

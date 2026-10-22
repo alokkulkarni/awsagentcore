@@ -144,8 +144,10 @@ class FromInternetBanking(unittest.TestCase):
         for rule in ("don't greet them", "don't introduce yourself", "don't recap it",
                      '"Nothing else:" comes straight after the label', "says in a few words where things stand",
                      "call the Complete tool (nextStep none)", "follow <mortgage_applications>",
-                     'your turn starts with the message "Chat started from internet banking."',
-                     "It's from us, not the customer: answer what the known contact reason says once, in one reply"):
+                     "the same note also arrives as a message, word for word",
+                     "It's from us, not the customer: act on it as this section says, once, in one reply",
+                     "even if your last message in the conversation handed them over",
+                     "Never say they're still with, or waiting for, that assistant"):
             self.assertIn(rule, back)
 
 

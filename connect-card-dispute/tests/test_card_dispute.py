@@ -1357,6 +1357,13 @@ class CxDesignerConfiguration(unittest.TestCase):
         self.assertIn("Never just because the dispute is complete or they agreed the summary", exit_row)
         self.assertNotIn("Use only when the dispute is complete and the customer agreed the summary", exit_row)
 
+    def test_what_happens_next_never_promises_a_colleague(self):
+        # 22 Oct: a customer who had submitted their own dispute was told "A colleague will now check the details
+        # with you." Only ARIA hands a customer to a person (R16).
+        import dispute_model
+        for kind, words in dispute_model.WHAT_HAPPENS_NEXT.items():
+            self.assertNotIn("colleague", words.lower(), kind)
+
     def test_the_flow_copies_exactly_what_the_hand_over_operation_returns(self):
         service = DisputeService(MemoryStore(lambda: 0.0), lambda: 0.0)
         copied = self.blocks["SetHandover"]["Parameters"]["Attributes"]
