@@ -163,7 +163,8 @@ class PagesThatStartWithAria(unittest.TestCase):
         found.update(injector._banking_app_reason_vars(attributes.get("entry", ""), attributes.get("appPage", ""),
                                                        attributes.get("handoverSummary", "")))
         found.update(injector._returned_reason_vars(attributes.get("entry", ""), attributes.get("returnedFrom", ""),
-                                                    attributes.get("returnSummary", "")))
+                                                    attributes.get("returnSummary", ""), attributes.get("returnIntent", ""),
+                                                    attributes.get("returnReason", ""), attributes.get("topicCategory", "")))
         return found
 
     def test_the_dispute_page_tells_aria_which_payment_in_the_words_her_prompt_listens_for(self):
@@ -190,6 +191,26 @@ class PagesThatStartWithAria(unittest.TestCase):
         self.assertIn('"Back from card dispute:"', self.PROMPT)
         self.assertIn('"Nothing else:" comes straight after the label', self.PROMPT)
         self.assertEqual(self.reason({"entry": "aria", "appPage": "card_dispute"}), {}, "only a contact coming back")
+
+    def test_a_colleague_needed_comes_back_to_aria_with_the_reason_and_notes_in_words_her_prompt_listens_for(self):
+        back = {"entry": "returned", "returnedFrom": "card_dispute", "returnIntent": "escalate",
+                "returnReason": "dispute_ready_for_review", "topicCategory": "debit_card",
+                "returnSummary": "Card dispute DSP-VBTXDRJK drafted. STARBUCKS, £4.77; charged the wrong amount."}
+        found = self.reason(back)
+        self.assertEqual(found["contactReasonSummary"], "Back from card dispute: Colleague needed (dispute_ready_for_review): "
+                                                        "Card dispute DSP-VBTXDRJK drafted. STARBUCKS, £4.77; charged the wrong amount.")
+        self.assertEqual(found["topContactReasonCategory"], "debit_card")
+        self.assertIn('If "Colleague needed (" comes straight after the label', self.PROMPT)
+        mortgage = self.reason({"entry": "returned", "returnedFrom": "mortgage", "returnIntent": "escalate",
+                                "returnReason": "advice_requested", "topicCategory": "mortgage_application",
+                                "returnSummary": "Wants advice on which product."})
+        self.assertEqual(mortgage["topContactReasonCategory"], "mortgage", "ARIA's own category, not the mortgage flow's")
+        failed = self.reason({**back, "returnReason": "mortgage_assistant_error", "returnSummary": "", "returnedFrom": "mortgage"})
+        self.assertEqual(failed["contactReasonSummary"],
+                         "Back from mortgage application: Colleague needed (mortgage_assistant_error): "
+                         "The assistant couldn't carry on and left no notes.")
+        helped = self.reason({**back, "returnIntent": "help"})
+        self.assertNotIn("Colleague needed", helped["contactReasonSummary"], "a later return never inherits escalate")
 
     def test_back_from_the_mortgage_assistant_aria_says_goodbye_knowing_where_the_application_stands(self):
         back = {"entry": "returned", "returnedFrom": "mortgage", "appPage": "mortgage",

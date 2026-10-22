@@ -17,6 +17,9 @@ const CHAT_ENDED = 'application/vnd.amazonaws.connect.event.chat.ended';
 // ARIA only hears messages sent after its bot block has joined. The flow announces that with a (blank)
 // message; if none arrives, the opener is sent anyway after this long.
 const READY_WAIT_MS = 20000;
+// The chat's initial message (the server's bankapp/journeys.py CHAT_MARKER): a note for ARIA's bot flow, so she can
+// answer at once when an assistant hands the customer back to her. Never shown here.
+const CHAT_MARKER = 'Chat started from internet banking.';
 // A call is audio only: what's said on it is read back from the page Lambda this often, to show as text.
 const TRANSCRIPT_EVERY_MS = 2000;
 // A call whose audio hasn't connected by now never will (Connect gives up at 90 s, as "customer never arrived"):
@@ -130,6 +133,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     if (!item || (item.Id && seen.has(item.Id))) return;
     if (item.Id) seen.add(item.Id);
     if (item.Type === 'MESSAGE') {
+      if (item.ParticipantRole === 'CUSTOMER' && (item.Content || '').trim() === CHAT_MARKER) return;    // ours, not theirs
       if ((item.Content || '').trim()) show(item.ParticipantRole, item.Content);    // the flow's blank line isn't shown
       if (item.ParticipantRole !== 'CUSTOMER') sendOpener();                       // ARIA is listening now
     }

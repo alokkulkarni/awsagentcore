@@ -43,13 +43,17 @@ const SAY = {
   'dispute-form': ['Your dispute form is open on the Cards page. Watch it fill in as you talk.', 'Dispute form opened for you'],
   'dispute-submitted': ['Your dispute has been submitted.', 'Dispute submitted'],
   'dispute-with_adviser': ['Your dispute has gone to one of our colleagues to finish.', 'Dispute passed to a colleague'],
+  'colleague-asked': ['The specialist has asked ARIA for a colleague: only ARIA hands you to a person, with everything so far.', 'Specialist asked ARIA for a colleague'],
   'colleague-waiting': ['ARIA is passing you to a colleague, with a summary, so you don\'t have to repeat yourself.', 'Passing to a colleague'],
   'colleague-joined': ['A colleague has joined. The AI has stepped back.', 'Colleague joined'],
   'video-starting': ['Starting the video: a digital face that speaks ARIA\'s words. It\'s an AI, not a person.', 'Video starting'],
   'video-on': ['The video is on. The face moves with ARIA\'s voice.', 'Video on'],
   'video-failed': ['The video couldn\'t start. The call carries on by voice.', 'Video not available'],
   'video-off': ['The video has stopped. The call carries on by voice.', 'Video stopped'],
-  returned: ['Done there, the specialist has handed you back to ARIA, with a note of where things stand.', 'Back to ARIA'],
+  page: ['You moved page. ARIA now knows where you are, and brings in that page\'s specialist if you need one.', 'You moved page'],
+  'back-money_hub': ['The Money Hub specialist has handed back to ARIA.', 'Back to ARIA from the Money Hub specialist'],
+  'back-card_dispute': ['Done with the dispute, the disputes specialist has handed you back to ARIA, with a note of where it stands.', 'Back to ARIA from the disputes specialist'],
+  'back-mortgage': ['Done with the application for now, the mortgage assistant has handed you back to ARIA, with where it stands.', 'Back to ARIA from the mortgage assistant'],
   trouble: ['ARIA had a problem. The contact centre is handling it, so you aren\'t left stranded.', 'ARIA had a problem'],
 };
 const TECH = {
@@ -60,13 +64,16 @@ const TECH = {
   'connected-chat': 'Websocket subscribed to the chat (Participant Service)',
   'connected-call': 'Audio connected; the contact flow runs',
   aria: 'Amazon Q in Connect session created for the contact',
-  money_hub: 'ARIA calls the Money Hub agent as a tool (A2A to AgentCore). Inferred: Connect doesn\'t record this hand-over',
+  money_hub: 'ARIA calls the Money Hub agent over A2A (AgentCore); the bridge marks the contact',
   card_dispute: 'Contact flow transfers to the dispute assistant (handbackRoute card_dispute)',
   mortgage: 'Contact flow transfers to the mortgage assistant (Live Sync)',
   'dispute-form': 'Form opened in the app, joined to this contact by Live Sync',
   'colleague-waiting': 'Contact queued for an agent (handbackRoute human)',
   'colleague-joined': 'Agent connected (ConnectedToAgentTimestamp)',
-  returned: 'Specialist escalated with back_to_aria; the flow transferred back to ARIA (entry returned, returnSummary)',
+  'back-money_hub': 'The Money Hub agent finished (COMPLETE or ESCALATE) and ARIA carries on',
+  'back-card_dispute': 'Dispute assistant escalated with back_to_aria; the flow transferred back to ARIA (entry returned)',
+  'back-mortgage': 'Mortgage assistant escalated with back_to_aria; the flow transferred back to ARIA (entry returned)',
+  page: 'Contact attributes (appPage) and ARIA\'s session data (known contact reason) updated',
   'video-starting': 'Tavus digital human starting, lip-synced to the call audio',
 };
 
@@ -165,8 +172,9 @@ export function setupFlowView({ api }) {
     place();
   }
 
-  function say(key) {
-    if (!run || run.seen.has(key)) return;
+  // again: a moment that can happen more than once (a second hand-over, a second page move).
+  function say(key, { again = false } = {}) {
+    if (!run || (!again && run.seen.has(key))) return;
     run.seen.add(key);
     const [sentence, line] = SAY[key] || [key, key];
     now.textContent = sentence;
@@ -185,11 +193,10 @@ export function setupFlowView({ api }) {
     if (!run) return;
     const s = run.seen;
     const f = run.facts;
-    // Connect's word first; until it comes, an opened dispute form means the disputes specialist is helping.
-    const reported = f.specialist || (s.has('dispute-form') ? 'card_dispute' : run.journey === 'money_hub' ? 'money_hub' : '');
-    // Back from the disputes specialist: ARIA is helping again, and the specialist's step stays done.
-    const back = Boolean(f.returned) && !f.specialist;
-    const who = back ? (f.returnedFrom === 'mortgage' ? 'mortgage' : 'card_dispute') : reported === 'money_hub' ? (s.has('money_hub') ? 'money_hub' : '') : reported;
+    // Connect's word (and the Money Hub bridge's) first; until it comes, an opened dispute form means the disputes
+    // specialist is helping. Back from a specialist: ARIA is helping again, and the specialist's step stays done.
+    const back = f.specialist ? '' : run.backFrom || f.back || '';
+    const who = f.specialist || back || (s.has('dispute-form') ? 'card_dispute' : '');
     const handedOver = !back && (who === 'card_dispute' || who === 'mortgage');
     const colleague = f.colleague || (s.has('colleague-joined') ? 'joined' : '');
     const lineUp = s.has('connected-chat') || s.has('connected-call');
@@ -225,12 +232,24 @@ export function setupFlowView({ api }) {
       if (run !== current) return;
       current.facts = facts;
       if (facts.aria) say('aria');
-      if (facts.specialist && facts.basis === 'connect') say(facts.specialist);
+      // Each hand-over and each hand-back as it happens, so a second one shows too. Who handed back is the
+      // specialist seen last here (the server can't order a dispute's return against a Money Hub stint); its own
+      // guess (facts.back) only for a view that opened mid-conversation.
+      if (facts.specialist !== current.lastSpecialist) {
+        if (facts.specialist) {
+          say(facts.specialist, { again: true });
+          current.backFrom = '';
+        } else {
+          current.backFrom = current.lastSpecialist || facts.back || '';
+          if (current.backFrom) say(`back-${current.backFrom}`, { again: true });
+        }
+        current.lastSpecialist = facts.specialist;
+      }
       if (facts.dispute?.formSent) say('dispute-form');
       if (facts.dispute && facts.dispute.status !== 'started') say(`dispute-${facts.dispute.status}`);
+      if (facts.colleagueAsked) say('colleague-asked');
       if (facts.colleague) say(`colleague-${facts.colleague}`);
       if (facts.trouble) say('trouble');
-      if (facts.returned) say('returned');
       draw();
     } catch (error) {
       // Turned off on the server (or this link's conversation isn't found): take the view away.
@@ -245,7 +264,7 @@ export function setupFlowView({ api }) {
 
   function begin(kind) {
     stop();
-    run = { kind, journey: '', contactId: '', began: Date.now(), seen: new Set(), facts: {}, answers: 0, timer: 0, ended: false, failed: false };
+    run = { kind, journey: '', contactId: '', began: Date.now(), seen: new Set(), facts: {}, lastSpecialist: '', backFrom: '', timer: 0, ended: false, failed: false };
     history.replaceChildren();
     show();
     say(`starting-${kind}`);
@@ -268,18 +287,14 @@ export function setupFlowView({ api }) {
       case 'connected': say(`connected-${run.kind}`); break;
       case 'said':
         if (e.who === 'assistant') {
-          // Whose answer it is comes from Connect (ARIA, or a specialist the flow went straight to), not from here.
-          run.answers += 1;
+          // Whose answer it is comes from Connect and the Money Hub bridge (look()), not from here.
           say('replied');
-          // Started on the Money Hub page: ARIA greets, then brings in the Money Hub specialist, whose answer is
-          // the next one. Connect doesn't record that hand-over, so this is the page's best reading of it.
-          const startedOnHub = run.facts.specialist ? run.facts.specialist === 'money_hub' : run.journey === 'money_hub';
-          if (startedOnHub && run.answers >= 2) say('money_hub');
         }
         break;
       case 'video': say(`video-${e.state}`); break;
       case 'colleague': say('colleague-joined'); break;
       case 'dispute-form': say('dispute-form'); break;
+      case 'page': say('page', { again: true }); if (e.label) now.textContent = `You moved to ${e.label}. ${SAY.page[0].split('. ').slice(1).join('. ')}`; break;
       case 'ended': {
         const current = run;
         current.failed = !current.seen.has('connected-chat') && !current.seen.has('connected-call');

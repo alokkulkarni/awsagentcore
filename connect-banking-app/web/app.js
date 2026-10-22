@@ -13,6 +13,7 @@ const TITLES = { home: 'Home', accounts: 'Accounts', cards: 'Cards', 'money-hub'
 const NAV = { home: 'home', accounts: 'accounts', cards: 'cards', 'money-hub': 'money_hub',
   mortgages: 'mortgages', apply: 'mortgages', help: 'help' };
 const DISPUTE_WATCH_MS = 4000;     // how often, during a conversation, the app looks for the dispute form being sent
+const PAGE_SETTLE_MS = 1500;       // a page (or Money Hub tab) the customer stays on this long is told to the assistant
 const routeOf = (path) => (path.startsWith('/apply/') ? 'apply' : ROUTES[path] || 'home');
 
 // Shared between pages and the assistant while the app is open.
@@ -51,6 +52,7 @@ async function render() {
   current = { name, handle: null };
   current.handle = await page.mount({ main, navigate, shared, talk: () => talk, message: (words) => text('message', words) });
   talk?.contextChanged();
+  pageMoved();
   window.scrollTo({ top: 0 });
   main.focus({ preventScroll: true });
 }
@@ -92,6 +94,28 @@ function showDisputeForm({ sessionId = '', token = '' }) {
   if (token) shared.pendingDispute = token;
   navigate('/cards/dispute');
 }
+
+// During a conversation, moving to another page (or Money Hub tab) is told to the assistant: the contact's page
+// attributes and ARIA's known contact reason, so her next turn knows where they are and can bring in that page's
+// specialist (the server's page_moved). Only a real change, once it has settled; never the page it started on.
+const pageKey = (c) => [c.page, c.view || '', c.stage || '', c.applicationId || '', c.paymentId || ''].join('|');
+let toldPage = { key: '', timer: 0 };
+function pageMoved() {
+  const contact = shared.liveContact;
+  if (!contact) return;
+  clearTimeout(toldPage.timer);
+  toldPage.timer = setTimeout(async () => {
+    const now = pageContext();
+    if (shared.liveContact !== contact || pageKey(now) === toldPage.key) return;
+    toldPage.key = pageKey(now);
+    document.dispatchEvent(new CustomEvent('assistant', { detail: { type: 'page', label: now.label } }));   // as talk.js tells
+    try {
+      await api('/contact/page', { contactId: contact.contactId, page: now.page, view: now.view || '', stage: now.stage || '',
+        applicationId: now.applicationId || '', paymentId: now.paymentId || '' });
+    } catch { /* the conversation carries on; the next move tries again */ }
+  }, PAGE_SETTLE_MS);
+}
+document.addEventListener('click', () => setTimeout(pageMoved));      // a tab or a payment chosen on the same page
 
 // The assistant asks this whenever it needs to know where the customer is.
 function pageContext() {
@@ -143,6 +167,7 @@ async function start() {
       hasAvatar: () => Boolean(shared.me.avatar),
       onStarted(info) {
         shared.liveContact = info;
+        toldPage = { key: pageKey(pageContext()), timer: 0 };        // where it started: nothing to tell yet
         watchDisputes(info);
         // A mortgage conversation fills the form: be on it (starting from the Mortgages page goes straight there).
         if (info.journey === 'mortgage' && routeOf(location.pathname) !== 'apply') {

@@ -163,6 +163,7 @@ def contact_journey(customer: str, contact_id: str, token: str) -> dict:
                                                InitialContactId=contact_id).get("Attributes", {})
     began = described.get("InitiationTimestamp")
     began = began.timestamp() if hasattr(began, "timestamp") else 0.0
+    money_hub_mark = money_api.hub.store.get(flowview.SPECIALIST_KEY.format(contact_id=contact_id))
     dispute = None
     try:
         # The newest dispute this conversation touched (open or submitted), never one from before it. The service
@@ -172,7 +173,33 @@ def contact_journey(customer: str, contact_id: str, token: str) -> dict:
             dispute = {**touched[0], "formSent": disputes._as_time(touched[0]["formSentAt"]) >= began - 1}
     except (disputes.NotAvailable, disputes.DisputeError):
         pass
-    return flowview.state(described, attributes, dispute)
+    return flowview.state(described, attributes, dispute, money_hub_mark)
+
+
+def page_moved(session: dict, body: dict, token: str) -> dict:
+    """The customer moved to another page during this link's own conversation: the contact attributes the flows route
+    on (the mortgage form's application, the Money Hub tab), and ARIA's known contact reason for her next turn."""
+    contact_id = _s(body, "contactId")
+    _own_contact(token, contact_id)
+    page = _s(body, "page")
+    payment = _payment(session["customerId"], body) if page == "card_dispute" else None
+    try:
+        changed = journeys.page_attributes(page, _s(body, "view"), _s(body, "stage"), _s(body, "applicationId"))
+    except ValueError:
+        raise MoneyHubError("bad_request", "That page can't be told to the assistant.")
+    client = money_api.connect_client()
+    client.update_contact_attributes(InstanceId=money_api.CONNECT_INSTANCE_ID, InitialContactId=contact_id,
+                                     Attributes=changed)
+    described = client.describe_contact(InstanceId=money_api.CONNECT_INSTANCE_ID, ContactId=contact_id)["Contact"]
+    session_arn = (described.get("WisdomInfo") or {}).get("SessionArn", "")
+    told = False
+    if session_arn and money_api.ASSISTANT_ID:          # no session yet: ARIA hasn't joined, nothing to tell her
+        reason = journeys.moved_reason(page, _s(body, "view"), _s(body, "stage"), payment)
+        money_api.qconnect_client().update_session_data(
+            assistantId=money_api.ASSISTANT_ID, sessionId=session_arn.rsplit("/", 1)[-1],
+            data=[{"key": k, "value": {"stringValue": v}} for k, v in reason.items() if v])
+        told = True
+    return {"page": page, "ariaTold": told}
 
 
 def dispute_route(path: str, customer: str, body: dict, token: str, verified: bool = False) -> dict:
@@ -248,6 +275,8 @@ def web(event: dict) -> dict:
             reply = home.cards(customer)
         elif path in ("/api/contact/call", "/api/contact/chat"):
             reply = start_contact(path.rsplit("/", 1)[-1], session, body, token)
+        elif path == "/api/contact/page":
+            reply = page_moved(session, body, token)
         elif path == "/api/contact/journey":
             reply = contact_journey(customer, _s(body, "contactId"), token)
         elif path == "/api/mortgage/config":
