@@ -403,7 +403,7 @@ For each ARIA Lambda function, add the layer ARN. For Python 3.12 in eu-west-2:
 
 ```bash
 # The ADOT layer for Python in eu-west-2
-ADOT_LAYER_ARN="arn:aws:lambda:eu-west-2:901920570463:layer:aws-otel-python-amd64-ver-1-30-0:1"
+ADOT_LAYER_ARN="arn:aws:lambda:eu-west-2:<account-id>:layer:aws-otel-python-amd64-ver-1-30-0:1"
 
 # Add to a Lambda function
 aws lambda update-function-configuration \
@@ -1571,7 +1571,7 @@ Key tasks:
 | Events API | `https://{your-environment-id}.live.dynatrace.com/api/v2/events/ingest` |
 | AWS Region | `eu-west-2` |
 | Lambda runtime | Python 3.12 |
-| ADOT Layer (Python/eu-west-2) | `arn:aws:lambda:eu-west-2:901920570463:layer:aws-otel-python-amd64-ver-1-30-0:1` |
+| ADOT Layer (Python/eu-west-2) | `arn:aws:lambda:eu-west-2:<account-id>:layer:aws-otel-python-amd64-ver-1-30-0:1` |
 
 ## Quick Reference — Secrets Manager Keys
 

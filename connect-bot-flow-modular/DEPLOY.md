@@ -35,7 +35,7 @@ Checked on 18 Oct 2026, so you don't need to redo these:
 ```bash
 cd /Users/alokkulkarni/Documents/Development/awsagentcore
 export AWS_REGION=eu-west-2
-aws sts get-caller-identity --query Account --output text        # must print 395402194296
+aws sts get-caller-identity --query Account --output text        # must print <account-id>
 aws --version                                                     # AWS CLI v2
 python3 -m unittest discover -s connect-bot-flow-modular/tests    # OK (skipped=1)
 ```
@@ -163,7 +163,7 @@ It prints, in order:
 - `created <agent id>` and `published version 1`: **aria-conversation-agent-v2**, with 21 tools, the Money Hub collaborator and guardrail v3;
 - `linked 3 profiles to the agent and version 1`.
 
-It finishes with **`ARIA v2: arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-…/<agent id>:1`**. Copy that
+It finishes with **`ARIA v2: arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/e6991ed4-…/<agent id>:1`**. Copy that
 whole line: you need it in Phase 4.
 
 Check it in the Connect admin website: **AI agent designer → AI agents → aria-conversation-agent-v2**. You should
@@ -187,7 +187,7 @@ First make sure nothing already uses these names (you're creating new modules, n
 must print nothing:
 
 ```bash
-aws connect list-contact-flow-modules --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+aws connect list-contact-flow-modules --instance-id <instance-id> \
     --query "ContactFlowModulesSummaryList[?starts_with(Name, 'ARIA - ')].Name" --output text
 ```
 
@@ -209,7 +209,7 @@ Then in the Connect admin website, **for each module in this order**:
 Then get the three ARNs:
 
 ```bash
-aws connect list-contact-flow-modules --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+aws connect list-contact-flow-modules --instance-id <instance-id> \
     --query "ContactFlowModulesSummaryList[?starts_with(Name, 'ARIA - ')].[Name, Arn]" --output table
 ```
 
@@ -225,11 +225,11 @@ Edit `connect-bot-flow-modular/config.json` and replace the four placeholders:
 ```json
 {
   "modules": {
-    "contact_setup":    "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/<id 1>",
-    "customer_context": "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/<id 2>",
-    "decide_handback":  "arn:aws:connect:eu-west-2:395402194296:instance/f969d4b4-f716-4974-a325-bb7899f2f293/flow-module/<id 3>"
+    "contact_setup":    "arn:aws:connect:eu-west-2:<account-id>:instance/<instance-id>/flow-module/<id 1>",
+    "customer_context": "arn:aws:connect:eu-west-2:<account-id>:instance/<instance-id>/flow-module/<id 2>",
+    "decide_handback":  "arn:aws:connect:eu-west-2:<account-id>:instance/<instance-id>/flow-module/<id 3>"
   },
-  "aria": "arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/<agent id>:1"
+  "aria": "arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/<agent id>:1"
 }
 ```
 
@@ -253,7 +253,7 @@ python3 /Users/alokkulkarni/.claude/skills/amazon-connect-flow-builder/scripts/v
 This must print nothing (no flow has the name yet):
 
 ```bash
-aws connect list-contact-flows --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+aws connect list-contact-flows --instance-id <instance-id> \
     --query "ContactFlowSummaryList[?Name=='ARIA conversation bot flow (modular)'].Id" --output text
 ```
 
@@ -278,7 +278,7 @@ run `build_flows.py --config config.json` again.
 Get its flow ID for testing:
 
 ```bash
-aws connect list-contact-flows --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 --contact-flow-types CONTACT_FLOW \
+aws connect list-contact-flows --instance-id <instance-id> --contact-flow-types CONTACT_FLOW \
     --query "ContactFlowSummaryList[?Name=='ARIA conversation bot flow (modular)'].Id" --output text
 ```
 
@@ -290,7 +290,7 @@ Run the banking app on your laptop against the **modular** flow. These are real 
 credentials:
 
 ```bash
-python3 connect-banking-app/scripts/local_preview.py --talk f969d4b4-f716-4974-a325-bb7899f2f293 <modular flow id>
+python3 connect-banking-app/scripts/local_preview.py --talk <instance-id> <modular flow id>
 ```
 
 Open the link it prints. Then:

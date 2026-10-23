@@ -286,14 +286,14 @@ The KMS CMK key policy should follow the principle of least privilege:
     {
       "Sid": "Enable IAM User Permissions",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::123456789012:root"},
+      "Principal": {"AWS": "arn:aws:iam::<account-id>:root"},
       "Action": "kms:*",
       "Resource": "*"
     },
     {
       "Sid": "Allow Decrypt Lambda to use key",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::123456789012:role/aria-dtmf-decrypt-role"},
+      "Principal": {"AWS": "arn:aws:iam::<account-id>:role/aria-dtmf-decrypt-role"},
       "Action": ["kms:Decrypt", "kms:DescribeKey"],
       "Resource": "*"
     },

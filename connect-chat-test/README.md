@@ -100,8 +100,8 @@ The OIDC role needs these Amazon Connect permissions:
     "connectparticipant:DisconnectParticipant"
   ],
   "Resource": [
-    "arn:aws:connect:eu-west-2:ACCOUNT_ID:instance/f969d4b4-f716-4974-a325-bb7899f2f293",
-    "arn:aws:connect:eu-west-2:ACCOUNT_ID:instance/f969d4b4-f716-4974-a325-bb7899f2f293/*"
+    "arn:aws:connect:eu-west-2:ACCOUNT_ID:instance/<instance-id>",
+    "arn:aws:connect:eu-west-2:ACCOUNT_ID:instance/<instance-id>/*"
   ]
 }
 ```

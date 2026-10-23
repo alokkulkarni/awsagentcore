@@ -4,7 +4,7 @@
 |---|---|
 | Status | Built and unit-tested locally. **Not deployed.** All AWS changes are manual (see [README.md](README.md)). |
 | Source design | *CLI identification and caller verification on Amazon Connect* (8 Oct 2026) |
-| Connect instance | `conversationbot` (`f969d4b4-f716-4974-a325-bb7899f2f293`, eu-west-2) |
+| Connect instance | `conversationbot` (`<instance-id>`, eu-west-2) |
 | Hands over to | `conversation bot flow` (`f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f`) |
 
 ## 1. Problem

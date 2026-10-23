@@ -360,7 +360,7 @@ chmod +x scripts/deploy_mcp_gateway.sh
 [INFO]  Creating DynamoDB table: aria-transcript-store...
 [OK]    DynamoDB table created with TTL: aria-transcript-store
 [INFO]  Creating Support Lambda IAM role: aria-banking-support-lambda-role-dev...
-[OK]    Support Lambda role created: arn:aws:iam::395402194296:role/aria-banking-support-lambda-role-dev
+[OK]    Support Lambda role created: arn:aws:iam::<account-id>:role/aria-banking-support-lambda-role-dev
 [WARN]  CONNECT_ASSISTANT_ID is not set. The session injector will deploy but ARIA cannot
 [WARN]  personalise sessions until ASSISTANT_ID is configured...
 [INFO]  Deploying support Lambda: aria-banking-session-injector-dev...
@@ -371,8 +371,8 @@ chmod +x scripts/deploy_mcp_gateway.sh
 [OK]    Lambda created: aria-banking-voice-to-chat-transfer-dev
 ...
 [INFO]  Creating AgentCore MCP Gateway: aria-banking-mcp-gateway-dev...
-[OK]    MCP Gateway created: aria-banking-mcp-gateway-dev-ef2c4avfuy
-[INFO]  Gateway URL: https://aria-banking-mcp-gateway-dev-ef2c4avfuy.gateway.bedrock-agentcore.eu-west-2.amazonaws.com/mcp
+[OK]    MCP Gateway created: aria-banking-mcp-gateway-dev-<gateway-suffix>
+[INFO]  Gateway URL: https://aria-banking-mcp-gateway-dev-<gateway-suffix>.gateway.bedrock-agentcore.eu-west-2.amazonaws.com/mcp
 ...
 =======================================================================
   Deployment Complete!
@@ -402,7 +402,7 @@ After you have worked through Parts A–E and collected your Connect IDs, run th
   --instance-id  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
   --assistant-id yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy \
   --flow-id      zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \
-  --queue-id     "arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE" \
+  --queue-id     "arn:aws:connect:eu-west-2:<account-id>:instance/INST/queue/QUEUE" \
   --chat-widget-url "https://yourbank.example.com/chat" \
   --sms-number   "+441234567890" \
   --source-phone "+441234567890"
@@ -414,7 +414,7 @@ Alternatively, set these as environment variables so you don't have to type them
 export CONNECT_INSTANCE_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 export CONNECT_ASSISTANT_ID="yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 export CONNECT_CONTACT_FLOW_ID="zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
-export CONNECT_QUEUE_ID="arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE"
+export CONNECT_QUEUE_ID="arn:aws:connect:eu-west-2:<account-id>:instance/INST/queue/QUEUE"
 export CHAT_WIDGET_URL="https://yourbank.example.com/chat"
 export SMS_ORIGINATION_NUMBER="+441234567890"
 export SOURCE_PHONE_NUMBER="+441234567890"
@@ -542,7 +542,7 @@ You will be shown the full list of resources that will be deleted and asked to c
 
 **Step A.1b — Access URL**
 - Enter a unique subdomain, e.g. `meridian-aria`
-- This becomes your admin URL: `https://meridian-aria.my.connect.aws/`
+- This becomes your admin URL: `https://<instance-alias>.my.connect.aws/`
 
 **Step A.1c — Administrator**
 - Enter a username (e.g. `admin`) and a secure password
@@ -603,7 +603,7 @@ To receive inbound calls, you need a phone number assigned to your instance.
 
 > Official docs: [Claim a phone number](https://docs.aws.amazon.com/connect/latest/adminguide/claim-phone-number.html)
 
-1. In your Connect admin website (`https://meridian-aria.my.connect.aws/`)
+1. In your Connect admin website (`https://<instance-alias>.my.connect.aws/`)
 2. Left menu → **Channels** → **Phone numbers**
 3. Click **Claim a number**
 4. Select:
@@ -668,7 +668,7 @@ CLI commands later in this guide.
    **Assistant details** — this shows your **Assistant ID** and **Assistant ARN**
 5. Copy and save both:
    - **Assistant ID** (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
-   - **Assistant ARN** (format: `arn:aws:wisdom:eu-west-2:395402194296:assistant/...`)
+   - **Assistant ARN** (format: `arn:aws:wisdom:eu-west-2:<account-id>:assistant/...`)
    You will need the Assistant ID for every `aws qconnect` CLI command and for Block 8 (Connect
    Assistant) in the contact flow.
 
@@ -1846,8 +1846,8 @@ issued by your Connect instance. Two fields must be set on the gateway's CUSTOM_
 
 | Field | Value | Purpose |
 |---|---|---|
-| **Discovery URL** | `https://meridian-aria.my.connect.aws/.well-known/openid-configuration` | Tells the gateway which OIDC issuer to trust |
-| **Allowed Audience** | The **gateway ID** (e.g. `aria-banking-mcp-gateway-dev-ndrocvgxlr`) | Must match the `aud` claim in JWTs that Connect issues when calling the gateway |
+| **Discovery URL** | `https://<instance-alias>.my.connect.aws/.well-known/openid-configuration` | Tells the gateway which OIDC issuer to trust |
+| **Allowed Audience** | The **gateway ID** (e.g. `aria-banking-mcp-gateway-dev-<gateway-suffix>`) | Must match the `aud` claim in JWTs that Connect issues when calling the gateway |
 
 > ⚠️ **Common mistake**: Setting `allowedClients` to the Connect instance ID (instead of
 > `allowedAudience` to the gateway ID) will prevent Connect from authenticating, and the
@@ -1878,7 +1878,7 @@ You can verify the configuration in the **Bedrock AgentCore** console → **Gate
 `aria-banking-mcp-gateway-dev` → **Configuration** tab. You should see:
 - **Authorizer type**: `Custom JWT`
 - **Discovery URL**: the Connect instance URL above
-- **Allowed audience**: the gateway ID (e.g. `aria-banking-mcp-gateway-dev-ndrocvgxlr`)
+- **Allowed audience**: the gateway ID (e.g. `aria-banking-mcp-gateway-dev-<gateway-suffix>`)
 
 > **Why this matters**: Without CUSTOM_JWT auth (correct Discovery URL + audience), two things break:
 > 1. The Connect instance selector in step 5 below will be greyed out
@@ -1944,7 +1944,7 @@ aws connect list-integration-associations \
   --query "IntegrationAssociationSummaryList[?IntegrationType=='WISDOM_ASSISTANT']"
 ```
 The `IntegrationArn` must point to `meridian-aria-domain`
-(`arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749`).
+(`arn:aws:wisdom:eu-west-2:<account-id>:assistant/9b416072-0bca-4117-aa38-7a734a58f749`).
 If it points to a different assistant, the AI Agent Builder is showing the wrong agent list.
 To fix:
 ```bash
@@ -1957,7 +1957,7 @@ aws connect delete-integration-association \
 aws connect create-integration-association \
   --instance-id b2d9a0d2-982c-410b-abf1-dcaaf01d66fe \
   --integration-type WISDOM_ASSISTANT \
-  --integration-arn arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749 \
+  --integration-arn arn:aws:wisdom:eu-west-2:<account-id>:assistant/9b416072-0bca-4117-aa38-7a734a58f749 \
   --region eu-west-2
 ```
 
@@ -2058,7 +2058,7 @@ contact flow's Block 8 (Connect Assistant) will reference.
 
 10. After publishing, note down:
     - **Agent ID** (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
-    - **Agent ARN** (format: `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/...`)
+    - **Agent ARN** (format: `arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/...`)
     - The ARN is what Block 8 in the contact flow needs
 
 > **Draft vs Published**: Only the Published version is visible to contact flows. If the agent shows as
@@ -3085,8 +3085,8 @@ Before moving to Part E, collect all the identifiers you will need:
 | Resource | Where to find it | Example format |
 |---|---|---|
 | **Q Connect Assistant ID** | AI Agent Designer → ⓘ icon top right | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| **Q Connect Assistant ARN** | AI Agent Designer → ⓘ icon top right | `arn:aws:wisdom:eu-west-2:395402194296:assistant/...` |
-| **Orchestration Agent ARN** | AI Agents tab → click agent → copy ARN | `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/...` |
+| **Q Connect Assistant ARN** | AI Agent Designer → ⓘ icon top right | `arn:aws:wisdom:eu-west-2:<account-id>:assistant/...` |
+| **Orchestration Agent ARN** | AI Agents tab → click agent → copy ARN | `arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/...` |
 | **Guardrail ID** | AI Guardrails tab → click guardrail | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | **Orchestration Prompt ID** | AI Prompts tab → click prompt | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 
@@ -3607,7 +3607,7 @@ transcription feed (voice transcript from Contact Lens, or chat message stream) 
 5. Click the block
 6. Under the **Config** tab:
    - **Amazon Connect assistant domain ARN**: Paste your Q Connect assistant ARN
-     (format: `arn:aws:wisdom:eu-west-2:395402194296:assistant/<assistant-id>`)
+     (format: `arn:aws:wisdom:eu-west-2:<account-id>:assistant/<assistant-id>`)
    - **Orchestration AI agent**: Select your published **ARIA Orchestration** agent
 7. Click **Save**
 
@@ -3848,7 +3848,7 @@ Add the snippet before the closing `</body>` tag:
 <script type="text/javascript">
   (function(w, d, x, id){
     s=d.createElement('script');
-    s.src='https://dtn7rvxwwlhud.cloudfront.net/amazon-connect-chat-interface-client.js';
+    s.src='https://<distribution>.cloudfront.net/amazon-connect-chat-interface-client.js';
     s.async=1;
     s.id=id;
     d.getElementsByTagName('head')[0].appendChild(s);
@@ -4238,7 +4238,7 @@ Expected output: a table showing the role name and ARN. If this returns a `NoSuc
 You need two IAM execution roles — one per Lambda function. Each role follows the **principle of least
 privilege**: it grants only the exact permissions needed for that Lambda to do its job.
 
-Replace `395402194296` with your actual AWS account ID throughout this step.
+Replace `<account-id>` with your actual AWS account ID throughout this step.
 Replace `YOUR_CONNECT_INSTANCE_ID` with your Connect instance ID.
 
 #### Trust policy (same for both roles)
@@ -4377,7 +4377,7 @@ aws lambda add-permission \
   --statement-id AllowConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID \
+  --source-arn arn:aws:connect:eu-west-2:<account-id>:instance/YOUR_CONNECT_INSTANCE_ID \
   --region eu-west-2
 ```
 
@@ -4461,7 +4461,7 @@ aws lambda create-function \
   --role "$ROLE_ARN" \
   --zip-file fileb://chat-to-voice-transfer.zip \
   --region eu-west-2 \
-  --environment "Variables={INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,CONTACT_FLOW_ID=YOUR_FLOW_ID,QUEUE_ID=arn:aws:connect:eu-west-2:395402194296:instance/INST/queue/QUEUE,SOURCE_PHONE_NUMBER=+441234567890,DYNAMODB_TABLE=aria-transcript-store}"
+  --environment "Variables={INSTANCE_ID=YOUR_CONNECT_INSTANCE_ID,CONTACT_FLOW_ID=YOUR_FLOW_ID,QUEUE_ID=arn:aws:connect:eu-west-2:<account-id>:instance/INST/queue/QUEUE,SOURCE_PHONE_NUMBER=+441234567890,DYNAMODB_TABLE=aria-transcript-store}"
 
 # 3. Add Connect resource-based policy
 aws lambda add-permission \
@@ -4469,7 +4469,7 @@ aws lambda add-permission \
   --statement-id AllowConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID \
+  --source-arn arn:aws:connect:eu-west-2:<account-id>:instance/YOUR_CONNECT_INSTANCE_ID \
   --region eu-west-2
 ```
 
@@ -4830,7 +4830,7 @@ Save the following as `scripts/iam/update-contact-attrs-policy.json`:
       "Sid": "UpdateContactAttributes",
       "Effect": "Allow",
       "Action": "connect:UpdateContactAttributes",
-      "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR_CONNECT_INSTANCE_ID/contact/*"
+      "Resource": "arn:aws:connect:eu-west-2:<account-id>:instance/YOUR_CONNECT_INSTANCE_ID/contact/*"
     }
   ]
 }
@@ -5974,7 +5974,7 @@ This is the bridge that routes customer speech from the Lex bot to your Q Connec
 3. In the **Enable Connect AI agents intent** dialog:
    - Use the dropdown to select the **ARN of your Q Connect assistant**
    - The ARN is: `arn:aws:wisdom:eu-west-2:<ACCOUNT_ID>:assistant/<ASSISTANT_ID>`
-   - For Meridian ARIA: `arn:aws:wisdom:eu-west-2:395402194296:assistant/9b416072-0bca-4117-aa38-7a734a58f749`
+   - For Meridian ARIA: `arn:aws:wisdom:eu-west-2:<account-id>:assistant/9b416072-0bca-4117-aa38-7a734a58f749`
 4. Choose **Confirm**
 
 > The `AMAZON.QinConnectIntent` is an Amazon Lex built-in intent that delegates the conversation
@@ -6913,7 +6913,7 @@ to invoke your session injector Lambda:
      "Action": "lambda:InvokeFunction",
      "Condition": {
        "StringEquals": {
-         "aws:SourceAccount": "395402194296"
+         "aws:SourceAccount": "<account-id>"
        }
      }
    }
@@ -7182,13 +7182,13 @@ The Lambda code is at: `scripts/lambdas/aria_dtmf_decrypt.py`
       "Sid": "GetPrivateKey",
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:eu-west-2:395402194296:secret:meridian/connect/dtmf-private-key-*"
+      "Resource": "arn:aws:secretsmanager:eu-west-2:<account-id>:secret:meridian/connect/dtmf-private-key-*"
     },
     {
       "Sid": "KMSDecryptForSecrets",
       "Effect": "Allow",
       "Action": "kms:Decrypt",
-      "Resource": "arn:aws:kms:eu-west-2:395402194296:key/<YOUR_KMS_KEY_ID>"
+      "Resource": "arn:aws:kms:eu-west-2:<account-id>:key/<YOUR_KMS_KEY_ID>"
     },
     {
       "Sid": "CloudWatchLogs",
@@ -7198,7 +7198,7 @@ The Lambda code is at: `scripts/lambdas/aria_dtmf_decrypt.py`
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/aria-dtmf-decrypt:*"
+      "Resource": "arn:aws:logs:eu-west-2:<account-id>:log-group:/aws/lambda/aria-dtmf-decrypt:*"
     }
   ]
 }
@@ -7246,16 +7246,16 @@ zip -j /tmp/aria_dtmf_decrypt.zip scripts/lambdas/aria_dtmf_decrypt.py
 aws lambda create-function \
   --function-name aria-dtmf-decrypt \
   --runtime python3.11 \
-  --role arn:aws:iam::395402194296:role/aria-dtmf-decrypt-role \
+  --role arn:aws:iam::<account-id>:role/aria-dtmf-decrypt-role \
   --handler aria_dtmf_decrypt.handler \
   --zip-file fileb:///tmp/aria_dtmf_decrypt.zip \
   --timeout 10 \
   --memory-size 256 \
   --environment "Variables={
-    PRIVATE_KEY_SECRET_ARN=arn:aws:secretsmanager:eu-west-2:395402194296:secret:meridian/connect/dtmf-private-key-XXXXXX,
+    PRIVATE_KEY_SECRET_ARN=arn:aws:secretsmanager:eu-west-2:<account-id>:secret:meridian/connect/dtmf-private-key-XXXXXX,
     CONNECT_KEY_ID=a1b2c3d4-e5f6-7890-abcd-ef1234567890
   }" \
-  --layers arn:aws:lambda:eu-west-2:395402194296:layer:aria-dtmf-dependencies:1 \
+  --layers arn:aws:lambda:eu-west-2:<account-id>:layer:aria-dtmf-dependencies:1 \
   --region eu-west-2
 ```
 
@@ -7270,7 +7270,7 @@ aws lambda add-permission \
   --statement-id AllowConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-arn arn:aws:connect:eu-west-2:395402194296:instance/<YOUR_CONNECT_INSTANCE_ID> \
+  --source-arn arn:aws:connect:eu-west-2:<account-id>:instance/<YOUR_CONNECT_INSTANCE_ID> \
   --region eu-west-2
 ```
 
@@ -8176,8 +8176,8 @@ aws iam put-role-policy \
               "Effect":"Allow",
               "Action":["dynamodb:GetItem"],
               "Resource":[
-                  "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-card-bins",
-                  "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-customer-cards"
+                  "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-card-bins",
+                  "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-customer-cards"
               ]
           },
           {
@@ -8198,7 +8198,7 @@ sleep 15
 ```bash
 zip /tmp/dtmf_validate.zip scripts/lambdas/aria_dtmf_validate.py
 
-ROLE_ARN="arn:aws:iam::395402194296:role/aria-lambda-dtmf-validate-role"
+ROLE_ARN="arn:aws:iam::<account-id>:role/aria-lambda-dtmf-validate-role"
 
 aws lambda create-function \
   --function-name aria-dtmf-validate \
@@ -8228,7 +8228,7 @@ aws lambda add-permission \
   --statement-id ConnectInvoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-account 395402194296 \
+  --source-account <account-id> \
   --region eu-west-2
 ```
 
@@ -8244,7 +8244,7 @@ KEY_ID=$(aws kms describe-key --key-id alias/aria-dtmf-key --query KeyMetadata.K
 
 # Add the validate role to the key policy via the KMS console:
 # KMS → Customer managed keys → aria-dtmf-key → Key policy → Edit
-# Add: "arn:aws:iam::395402194296:role/aria-lambda-dtmf-validate-role"
+# Add: "arn:aws:iam::<account-id>:role/aria-lambda-dtmf-validate-role"
 # with actions: ["kms:Decrypt", "kms:DescribeKey"]
 ```
 
@@ -8766,7 +8766,7 @@ In every **Get customer input** block in your Connect flows that invokes Lex, ad
 
 ---
 
-*Guide authored for ARIA Banking Agent — AWS Account `395402194296`, region `eu-west-2`.*
+*Guide authored for ARIA Banking Agent — AWS Account `<account-id>`, region `eu-west-2`.*
 *Always verify against the latest [Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/).*
 
 ---
@@ -8968,7 +8968,7 @@ Click **Add new queue** to save.
 > **After creating each queue**, click into it. The UUID at the end of the browser URL
 > is the `callbackQueueId`. Copy and save each UUID — you will need them in Step L.6.
 >
-> Example URL: `https://your-instance.my.connect.aws/routing/queues/`**`a1b2c3d4-e5f6-...`**
+> Example URL: `https://<instance-alias>.my.connect.aws/routing/queues/`**`a1b2c3d4-e5f6-...`**
 
 #### L.5.2 — Set outbound caller ID on each callback queue
 
@@ -9026,7 +9026,7 @@ main queue IDs. You need to add three new fields to each row:
 | Field name | What it contains | Example value |
 |---|---|---|
 | `callbackQueueId` | UUID of the dedicated callback queue | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
-| `callbackQueueArn` | Full ARN of the callback queue | `arn:aws:connect:eu-west-2:395402194296:instance/.../queue/...` |
+| `callbackQueueArn` | Full ARN of the callback queue | `arn:aws:connect:eu-west-2:<account-id>:instance/.../queue/...` |
 | `callbackQueueName` | Human-readable name | `Mortgage Callback` |
 
 #### Step 1: Run the deploy script to add placeholder fields
@@ -9332,7 +9332,7 @@ Add conditions at the bottom of the block:
 | Setting | Value |
 |---|---|
 | Block type | **Invoke AWS Lambda function** |
-| Function ARN | `arn:aws:lambda:eu-west-2:395402194296:function:aria-callback-scheduler:prod` |
+| Function ARN | `arn:aws:lambda:eu-west-2:<account-id>:function:aria-callback-scheduler:prod` |
 | Success output | → Block 7 |
 | Error / Lambda error output | → Block 6b |
 
@@ -9818,5 +9818,5 @@ automatically used.
 
 ---
 
-*Guide authored for ARIA Banking Agent — AWS Account `395402194296`, region `eu-west-2`.*
+*Guide authored for ARIA Banking Agent — AWS Account `<account-id>`, region `eu-west-2`.*
 *Always verify against the latest [Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/).*

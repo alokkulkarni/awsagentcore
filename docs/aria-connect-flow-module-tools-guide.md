@@ -474,7 +474,7 @@ Open the AI Prompt assigned to ARIA (`ARIA-Banking-Orchestration-Prompt`):
       properties:
         queue_arn:
           type: string
-          description: The ARN of the Connect queue to check, e.g. arn:aws:connect:eu-west-2:395402194296:instance/.../queue/...
+          description: The ARN of the Connect queue to check, e.g. arn:aws:connect:eu-west-2:<account-id>:instance/.../queue/...
         max_wait_seconds:
           type: string
           description: Maximum acceptable wait time in seconds. Use 120 for standard, 30 for urgent/safeguarding.

@@ -152,7 +152,7 @@ Any other route to a human can use the same flow later.
 | ARIA escalating to a human today | This builds on that path | Ask ARIA for a person and reach a queue |
 | An agent user who can log in to the **agent workspace** | The assistant panel only appears there | Open the agent workspace from the Connect admin website |
 | The `Agent` security profile | It already has the two permissions needed: view the assistant, and view real-time Contact Lens | Users → Security profiles → Agent |
-| AWS CLI v2, signed in to account `395402194296` | To run the deploy script | `aws sts get-caller-identity` |
+| AWS CLI v2, signed in to account `<account-id>` | To run the deploy script | `aws sts get-caller-identity` |
 | Python 3.10 or later and `zip` | Tests and packaging | `python3 --version` |
 
 Values used in this guide. They are already written into the flow JSON.
@@ -160,7 +160,7 @@ Values used in this guide. They are already written into the flow JSON.
 | Name | Value |
 |---|---|
 | Region | `eu-west-2` |
-| Connect instance | `f969d4b4-f716-4974-a325-bb7899f2f293` |
+| Connect instance | `<instance-id>` |
 | Assistant | `e6991ed4-e11c-4194-8d20-13889a36bd15` |
 | Agent-assist AI agent | `my-agent-assistant-agent`, currently version 3 |
 | Agent-assist prompt | `agent-assistance-promnpt`, currently version 2 |
@@ -333,7 +333,7 @@ Only a failure to queue ends the contact.
 and this value, changing the last number to your agent version:
 
 ```
-arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:4
+arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/26ca6380-17fe-4828-bc53-537e1154ecbb:4
 ```
 
 The Lambda switches the contact's session to that agent. Without it the panel shows a greeting and
@@ -520,7 +520,7 @@ Open `ARIA agent assist`, click the **AWS Lambda function** block, and add a sec
 
 - **Key:** `briefingAgentArn` (set manually)
 - **Value:** the agent's ARN followed by a colon and the version, for example
-  `arn:aws:wisdom:eu-west-2:395402194296:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/<agent-id>:1`
+  `arn:aws:wisdom:eu-west-2:<account-id>:ai-agent/e6991ed4-e11c-4194-8d20-13889a36bd15/<agent-id>:1`
 
 **Save**, then **Publish**. Run the deploy script once so the Lambda has the matching code.
 

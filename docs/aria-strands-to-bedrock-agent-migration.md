@@ -823,7 +823,7 @@ aws iam put-role-policy \
         "dynamodb:DeleteItem",
         "dynamodb:Query"
       ],
-      "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-pii-vault"
+      "Resource": "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-pii-vault"
     }]
   }'
 ```
@@ -1029,7 +1029,7 @@ zip aria_pii_handler.zip aria_pii_handler.py
 aws lambda create-function \
   --function-name aria-banking-pii \
   --runtime python3.12 \
-  --role arn:aws:iam::395402194296:role/aria-banking-tools-lambda-role \
+  --role arn:aws:iam::<account-id>:role/aria-banking-tools-lambda-role \
   --handler aria_pii_handler.lambda_handler \
   --zip-file fileb://aria_pii_handler.zip \
   --timeout 25 \

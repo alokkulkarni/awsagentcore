@@ -91,11 +91,11 @@ Check each of these. If one isn't true, stop and sort it out first.
   ```bash
   git checkout feature/dispute-agents && git pull
   ```
-- [ ] **The AWS CLI works** for account `395402194296`. Test it:
+- [ ] **The AWS CLI works** for account `<account-id>`. Test it:
   ```bash
   aws sts get-caller-identity --query Account --output text
   ```
-  It should print `395402194296`.
+  It should print `<account-id>`.
 - [ ] `python3`, `zip`, `curl` and `npm` are installed (`npm -v` prints a number).
 - [ ] The **agent-assist** screen pop already works (from `connect-agent-assist`).
 - [ ] The **mortgage Live Sync assistant** works in agentic CX designer, in workspace `ariaworkspace`.

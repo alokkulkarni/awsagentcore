@@ -14,8 +14,8 @@ it. Its output follows straight away. IDs are saved as they're made, so you can 
 
 ## Before you start (once)
 
-1. **A new, empty AWS account.** The script refuses the account today's system runs in (`395402194296`), and any
-   account that already has `aria-*` or `mortgage-livesync-*` resources: every script uses fixed names and would
+1. **A new, empty AWS account.** The script refuses the account today's system runs in, and any account
+   that already has `aria-*` or `mortgage-livesync-*` resources: every script uses fixed names and would
    quietly reuse them.
 2. **Sign in to it** with the AWS CLI (`aws sso login --profile …`).
 3. **Bedrock model access** in that account and region: open Bedrock → *Model access* once and accept any terms

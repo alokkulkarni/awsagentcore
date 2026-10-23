@@ -97,7 +97,7 @@ Check each of these:
 |---|---|
 | The bridge is deployed | `deploy_bridge.sh` has run and printed a **Bridge address**. The script stops if it finds no Function URL or no secret |
 | AWS CLI **2.27 or newer** | `aws --version`. Older CLIs lack `--auth-config` and `--allowed-ai-agents`. If an older CLI comes first on your PATH and a newer one is installed (often `~/.local/bin/aws`), the script finds and uses the newer one |
-| Signed in to account `395402194296` | `aws sts get-caller-identity`. The script stops if you are signed in elsewhere |
+| Signed in to account `<account-id>` | `aws sts get-caller-identity`. The script stops if you are signed in elsewhere |
 | ARIA's new prompt (and any guardrail change) is **published** | README step 5. The script points ARIA at the newest published version of each |
 | The instance is on the **Connect Customer** tier | Agent-to-agent collaboration isn't available on Customer Basic. The script tells you if this is the problem |
 | A Lex bot with `AMAZON.QInConnectIntent` | Already in place: it is the bot in `conversation bot flow` |
@@ -401,7 +401,7 @@ aws appintegrations list-applications --region eu-west-2 \
 
 # 2. The instance association
 aws connect list-integration-associations --region eu-west-2 \
-  --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 --integration-type APPLICATION
+  --instance-id <instance-id> --integration-type APPLICATION
 
 # 3. ARIA's collaborators, prompt and guardrail
 aws qconnect get-ai-agent --region eu-west-2 \
@@ -430,7 +430,7 @@ Read from AWS on 17 October 2026:
 | Setting | Value |
 |---|---|
 | A2A application | `aria-money-hub` (ID `e72fd4c4-ab42-4906-8874-45943c301013`), type `A2A_SERVER` |
-| Its address | the bridge's Function URL, `https://bcndcza6wuib2ua433zvuwmh640rvrxu.lambda-url.eu-west-2.on.aws/` |
+| Its address | the bridge's Function URL, `https://<function-url-id>.lambda-url.eu-west-2.on.aws/` |
 | Instance association | present |
 | ARIA's collaborators | one: the Money Hub, talks to the customer, text, ARIA decides when |
 | ARIA's prompt and guardrail | prompt version 25, guardrail version 3 |

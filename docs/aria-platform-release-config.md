@@ -2,7 +2,7 @@
 
 > **Document type:** Living configuration management + release tracking document  
 > **Region:** `eu-west-2`  
-> **Account:** `395402194296`  
+> **Account:** `<account-id>`  
 > **Last audited:** 2026-04-25 (updated 2026-04-25 — Connect flow bugs resolved)  
 > **Audience:** Engineering, DevOps, Security
 
@@ -70,7 +70,7 @@
 ## 3. API Gateway
 
 ### `aria-dtmf-status-proxy-api` (ID: `bz8frqf9f9`)
-Endpoint: `https://bz8frqf9f9.execute-api.eu-west-2.amazonaws.com`
+Endpoint: `https://<api-id>.execute-api.eu-west-2.amazonaws.com`
 
 | # | Route | Deploy Status | Target Lambda | Teardown Script | Notes |
 |---|---|---|---|---|---|
@@ -79,7 +79,7 @@ Endpoint: `https://bz8frqf9f9.execute-api.eu-west-2.amazonaws.com`
 | 3 | `POST /dtmf-configure` | 🆕 Not yet built | `aria-dtmf-config` (new) | TBD | **New:** agent submits validation config options before capture starts |
 
 ### `aws-tf-elements-api` (ID: `9kmyip1cq7`)
-Endpoint: `https://9kmyip1cq7.execute-api.eu-west-2.amazonaws.com`
+Endpoint: `https://<api-id>.execute-api.eu-west-2.amazonaws.com`
 
 | # | Route | Deploy Status | Notes |
 |---|---|---|---|
@@ -91,8 +91,8 @@ Endpoint: `https://9kmyip1cq7.execute-api.eu-west-2.amazonaws.com`
 
 | # | Bucket / Asset | Deploy Status | Last Modified | Teardown Script | Notes |
 |---|---|---|---|---|---|
-| 1 | `aria-dtmf-panel-395402194296/dtmf-panel/index.html` | ⚠️ Deployed — update pending | 2026-04-24 | `deploy_dtmf_lambda.sh teardown` | Needs `awaiting_config` in STATUS_MAP + config form UI |
-| 2 | `aria-dtmf-panel-395402194296/dtmf-launcher/index.html` | ✅ Deployed | 2026-04-24 | `deploy_dtmf_lambda.sh teardown` | Detects active session, opens panel popup |
+| 1 | `aria-dtmf-panel-<account-id>/dtmf-panel/index.html` | ⚠️ Deployed — update pending | 2026-04-24 | `deploy_dtmf_lambda.sh teardown` | Needs `awaiting_config` in STATUS_MAP + config form UI |
+| 2 | `aria-dtmf-panel-<account-id>/dtmf-launcher/index.html` | ✅ Deployed | 2026-04-24 | `deploy_dtmf_lambda.sh teardown` | Detects active session, opens panel popup |
 | 3 | `meridian-connect-widget-prod` | ✅ Deployed | 2026-04-23 | `deploy_connect_widget.sh` (manual bucket delete) | Meridian Bank Connect chat widget |
 | 4 | `nationwide-connect-widget-prod` | ✅ Deployed | 2026-04-24 | `deploy_nationwide_chat_widget.sh` (manual bucket delete) | Nationwide Connect chat widget |
 | 5 | `meridian-bank-knowledgebase` | ✅ Deployed | 2026-04-23 | Manual `aws s3 rb --force` | Bedrock knowledge base source documents |
@@ -102,7 +102,7 @@ Endpoint: `https://9kmyip1cq7.execute-api.eu-west-2.amazonaws.com`
 
 ## 5. Amazon Connect
 
-### Connect Instance: `f969d4b4-f716-4974-a325-bb7899f2f293`
+### Connect Instance: `<instance-id>`
 
 #### Contact Flows
 

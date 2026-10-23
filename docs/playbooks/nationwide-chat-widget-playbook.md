@@ -43,7 +43,7 @@ The Nationwide widget follows the same hosted-widget pattern as Meridian with Na
 
 1. `src/main.jsx` mounts the React app.
 2. `src/App.jsx` renders a Nationwide-style page with logo header, product navigation, award badges, product icons, and promo panels.
-3. `index.html` loads `https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` and configures `amazon_connect(...)`.
+3. `index.html` loads `https://<instance-alias>.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` and configures `amazon_connect(...)`.
 4. `src/components/ConnectChatWidget.jsx` uses a `MutationObserver` to relabel transcript participants from `BOT` to `ARIA` and from `SYSTEM` to `Nationwide`.
 5. `scripts/deploy_nationwide_chat_widget.sh` builds the app, uploads `dist/` to S3, creates or reuses CloudFront resources, and invalidates cache.
 
@@ -78,7 +78,7 @@ flowchart LR
 | App shell | `nationwide_chat_widget/src/App.jsx` | Nationwide landing page with logo image, product navigation, awards, icons, and promo cards |
 | Local dev port | `nationwide_chat_widget/vite.config.js` | `4001` for dev server and preview |
 | Public assets | `nationwide_chat_widget/public/` | `favicon.svg`, `nationwide-logo.png` |
-| Widget script URL | `nationwide_chat_widget/index.html` | `https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
+| Widget script URL | `nationwide_chat_widget/index.html` | `https://<instance-alias>.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
 | Widget bootstrap API | `nationwide_chat_widget/index.html` | `amazon_connect('styles'|'snippetId'|'supportedMessagingContentTypes'|'customDisplayNames'|'contactAttributes', ...)` |
 | Participant relabeling | `nationwide_chat_widget/src/components/ConnectChatWidget.jsx` | `BOT -> ARIA`, `SYSTEM -> Nationwide` |
 

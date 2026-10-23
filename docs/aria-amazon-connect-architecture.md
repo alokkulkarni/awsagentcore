@@ -661,7 +661,7 @@ def build_response(message, session_attrs, close=False, escalate=False):
       "Action": [
         "bedrock-agentcore:InvokeAgentRuntime"
       ],
-      "Resource": "arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY"
+      "Resource": "arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-ubLoKG8xsY"
     }
   ]
 }

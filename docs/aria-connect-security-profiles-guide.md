@@ -468,13 +468,13 @@ First, add resource tags to your AI Agent, AI Prompt, and AI Guardrail in the Co
 ```bash
 # Tag the AI Agent
 aws connect tag-resource \
-  --resource-arn "arn:aws:connect:eu-west-2:395402194296:instance/<INSTANCE_ID>/ai-agent/<AGENT_ID>" \
+  --resource-arn "arn:aws:connect:eu-west-2:<account-id>:instance/<INSTANCE_ID>/ai-agent/<AGENT_ID>" \
   --tags '{"Project":"ARIA","Domain":"Banking","Environment":"Production"}' \
   --region eu-west-2
 
 # Tag the AI Prompt
 aws connect tag-resource \
-  --resource-arn "arn:aws:connect:eu-west-2:395402194296:instance/<INSTANCE_ID>/ai-prompt/<PROMPT_ID>" \
+  --resource-arn "arn:aws:connect:eu-west-2:<account-id>:instance/<INSTANCE_ID>/ai-prompt/<PROMPT_ID>" \
   --tags '{"Project":"ARIA","Domain":"Banking"}' \
   --region eu-west-2
 ```
@@ -698,7 +698,7 @@ aws cloudwatch put-metric-alarm \
   --threshold 1 \
   --comparison-operator "GreaterThanOrEqualToThreshold" \
   --evaluation-periods 1 \
-  --alarm-actions "arn:aws:sns:eu-west-2:395402194296:aria-security-alerts" \
+  --alarm-actions "arn:aws:sns:eu-west-2:<account-id>:aria-security-alerts" \
   --region eu-west-2
 ```
 

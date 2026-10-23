@@ -76,7 +76,7 @@ Existing ARIA AgentCore Runtime
 - Amazon Connect instance with **AI Agents** feature enabled (available on instances created after mid-2024; enable in instance settings if needed)
 - IAM permissions: `bedrock-agentcore:*`, `connect:*`, `lambda:*`, `iam:*`
 - Python 3.12 for Lambda functions
-- AWS CLI configured for account `395402194296`, region `eu-west-2`
+- AWS CLI configured for account `<account-id>`, region `eu-west-2`
 
 ---
 
@@ -474,7 +474,7 @@ zip aria_auth_handler.zip aria_auth_handler.py
 aws lambda create-function \
   --function-name aria-banking-auth \
   --runtime python3.12 \
-  --role arn:aws:iam::395402194296:role/aria-banking-tools-lambda-role \
+  --role arn:aws:iam::<account-id>:role/aria-banking-tools-lambda-role \
   --handler aria_auth_handler.lambda_handler \
   --zip-file fileb://aria_auth_handler.zip \
   --timeout 25 \
@@ -604,7 +604,7 @@ aws iam put-role-policy \
     "Statement": [{
       "Effect": "Allow",
       "Action": ["bedrock-agentcore:InvokeGateway"],
-      "Resource": "arn:aws:bedrock-agentcore:eu-west-2:395402194296:gateway/*"
+      "Resource": "arn:aws:bedrock-agentcore:eu-west-2:<account-id>:gateway/*"
     }]
   }'
 ```
@@ -649,7 +649,7 @@ Amazon Connect requires the AgentCore Gateway to be registered as a **third-part
 aws connect create-integration-association \
   --instance-id <your-connect-instance-id> \
   --integration-type CASES_DOMAIN \
-  --integration-arn "arn:aws:bedrock-agentcore:eu-west-2:395402194296:gateway/<gateway-id>" \
+  --integration-arn "arn:aws:bedrock-agentcore:eu-west-2:<account-id>:gateway/<gateway-id>" \
   --region eu-west-2
 ```
 
@@ -961,10 +961,10 @@ Both paths can be deployed simultaneously for A/B testing or redundancy — they
 
 | Resource | Value |
 |---|---|
-| AWS Account | `395402194296` |
+| AWS Account | `<account-id>` |
 | Region | `eu-west-2` |
-| ARIA AgentCore Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY` |
-| Lambda tool role | `arn:aws:iam::395402194296:role/aria-banking-tools-lambda-role` |
+| ARIA AgentCore Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-ubLoKG8xsY` |
+| Lambda tool role | `arn:aws:iam::<account-id>:role/aria-banking-tools-lambda-role` |
 | Lambda timeout | 25 seconds (under 30s MCP Gateway limit) |
 | Connect locale | `en_GB` |
 | Connect voice | Amy (Nova Sonic Generative) |

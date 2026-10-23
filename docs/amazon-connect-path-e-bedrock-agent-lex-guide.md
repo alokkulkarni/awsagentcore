@@ -169,7 +169,7 @@ Wiring MCP Gateway through Path E would require a Lambda action group that calls
 
 | Item | Requirement |
 |---|---|
-| AWS Account | `395402194296` |
+| AWS Account | `<account-id>` |
 | Region | `eu-west-2` (London) throughout unless stated |
 | Amazon Connect instance | Created in eu-west-2 (from Path A guide or Option D guide) |
 | IAM | Admin or permissions: `bedrock:*`, `lambda:*`, `lex:*`, `iam:*` |
@@ -212,7 +212,7 @@ for handler in auth account customer debit_card credit_card mortgage escalation;
   aws lambda create-function \
     --function-name "$fn_name" \
     --runtime python3.12 \
-    --role arn:aws:iam::395402194296:role/aria-banking-tools-lambda-role \
+    --role arn:aws:iam::<account-id>:role/aria-banking-tools-lambda-role \
     --handler "aria_${handler}_handler.lambda_handler" \
     --zip-file "fileb://${handler}.zip" \
     --timeout 25 \
@@ -232,7 +232,7 @@ for fn in auth account customer debit-card credit-card mortgage escalation; do
     --statement-id "AllowBedrockAgentInvoke" \
     --action "lambda:InvokeFunction" \
     --principal "bedrock.amazonaws.com" \
-    --source-account "395402194296" \
+    --source-account "<account-id>" \
     --region eu-west-2
 done
 ```
@@ -257,7 +257,7 @@ aws iam create-role \
       "Action": "sts:AssumeRole",
       "Condition": {
         "StringEquals": {
-          "aws:SourceAccount": "395402194296"
+          "aws:SourceAccount": "<account-id>"
         }
       }
     }]
@@ -288,7 +288,7 @@ aws iam put-role-policy \
     "Statement": [{
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-*"
+      "Resource": "arn:aws:lambda:eu-west-2:<account-id>:function:aria-banking-*"
     }]
   }'
 ```
@@ -504,7 +504,7 @@ mkdir -p /tmp/aria-agent-schemas
 
 ```bash
 # Helper: upload schema to S3 (Bedrock Agent requires schemas in S3)
-SCHEMA_BUCKET="aria-agent-schemas-395402194296"
+SCHEMA_BUCKET="aria-agent-schemas-<account-id>"
 aws s3 mb "s3://$SCHEMA_BUCKET" --region eu-west-2 2>/dev/null || true
 
 # Upload each schema
@@ -521,7 +521,7 @@ aws bedrock-agent create-agent-action-group \
   --action-group-name auth-tools \
   --description "Customer authentication and identity verification" \
   --action-group-executor '{
-    "lambda": "arn:aws:lambda:eu-west-2:395402194296:function:aria-banking-auth"
+    "lambda": "arn:aws:lambda:eu-west-2:<account-id>:function:aria-banking-auth"
   }' \
   --api-schema '{
     "s3": {
@@ -576,7 +576,7 @@ If you already have `ARIA-Connect-Bot` from the Path A guide, you can add the `A
 BOT_ID=$(aws lexv2-models create-bot \
   --bot-name ARIA-PathE-Bot \
   --description "ARIA Lex bot for Path E — delegates to Managed Bedrock Agent" \
-  --role-arn "arn:aws:iam::395402194296:role/aria-lex-bot-role" \
+  --role-arn "arn:aws:iam::<account-id>:role/aria-lex-bot-role" \
   --data-privacy '{"childDirected": false}' \
   --idle-session-ttl-in-seconds 900 \
   --region eu-west-2 \
@@ -613,7 +613,7 @@ aws iam put-role-policy \
       {
         "Effect": "Allow",
         "Action": "bedrock:InvokeAgent",
-        "Resource": "arn:aws:bedrock:eu-west-2:395402194296:agent-alias/'"$AGENT_ID"'/'"$ALIAS_ID"'"
+        "Resource": "arn:aws:bedrock:eu-west-2:<account-id>:agent-alias/'"$AGENT_ID"'/'"$ALIAS_ID"'"
       },
       {
         "Effect": "Allow",
@@ -965,7 +965,7 @@ Enable detailed logging in the Bedrock console: **Agents → aria-banking-agent 
 **Issue: Lambda permission error from Bedrock Agent**
 - Confirm resource-based policy on Lambda allows `bedrock.amazonaws.com`
 - Confirm the Agent IAM role has `lambda:InvokeFunction` on `aria-banking-*`
-- Tighten: add `--source-arn arn:aws:bedrock:eu-west-2:395402194296:agent/$AGENT_ID` to Lambda permission
+- Tighten: add `--source-arn arn:aws:bedrock:eu-west-2:<account-id>:agent/$AGENT_ID` to Lambda permission
 
 **Issue: Escalation not triggering**
 - Check that `escalate_to_human` Lambda sets `{"escalation_requested": true}` in its return
@@ -1356,11 +1356,11 @@ Assign supervisors the **CallCenterManager** security profile and the **Agent** 
 
 | Resource | Value |
 |---|---|
-| AWS Account | `395402194296` |
+| AWS Account | `<account-id>` |
 | Region | `eu-west-2` |
-| Lambda tools role | `arn:aws:iam::395402194296:role/aria-banking-tools-lambda-role` |
-| Bedrock Agent role | `arn:aws:iam::395402194296:role/aria-bedrock-agent-role` |
-| Lex bot role | `arn:aws:iam::395402194296:role/aria-lex-bot-role` |
+| Lambda tools role | `arn:aws:iam::<account-id>:role/aria-banking-tools-lambda-role` |
+| Bedrock Agent role | `arn:aws:iam::<account-id>:role/aria-bedrock-agent-role` |
+| Lex bot role | `arn:aws:iam::<account-id>:role/aria-lex-bot-role` |
 | Lex bot name | `ARIA-PathE-Bot` |
 | Connect locale | `en_GB` |
 | Connect voice | Amy (Nova Sonic Generative) |

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Built and unit-tested locally. **Not deployed.** All AWS changes are manual (see [README.md](README.md)) |
-| Connect instance | `conversationbot` (`f969d4b4-f716-4974-a325-bb7899f2f293`, eu-west-2) |
+| Connect instance | `conversationbot` (`<instance-id>`, eu-west-2) |
 | Assistant | `conversational-ai-domain` (`e6991ed4-e11c-4194-8d20-13889a36bd15`) |
 | AI agent | `my-agent-assistant-agent` (`26ca6380-17fe-4828-bc53-537e1154ecbb`), version 3 today |
 

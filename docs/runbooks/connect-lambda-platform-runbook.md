@@ -420,7 +420,7 @@ Test invocation:
 ```bash
 cd /Users/alokkulkarni/Documents/Development/awsagentcore
 SESSION_INJECTOR_PAYLOAD=$(cat <<JSON
-{"Details":{"ContactData":{"ContactId":"inj-001","Channel":"VOICE","InstanceARN":"arn:aws:connect:${AWS_REGION}:${AWS_ACCOUNT_ID}:instance/${CONNECT_INSTANCE_ID}","CustomerEndpoint":{"Address":"+447765309252","Type":"TELEPHONE_NUMBER"},"Attributes":{}},"Parameters":{}}}
+{"Details":{"ContactData":{"ContactId":"inj-001","Channel":"VOICE","InstanceARN":"arn:aws:connect:${AWS_REGION}:${AWS_ACCOUNT_ID}:instance/${CONNECT_INSTANCE_ID}","CustomerEndpoint":{"Address":"<test-caller-number>","Type":"TELEPHONE_NUMBER"},"Attributes":{}},"Parameters":{}}}
 JSON
 )
 aws lambda invoke \
@@ -613,7 +613,7 @@ cd /Users/alokkulkarni/Documents/Development/awsagentcore
 aws lambda invoke \
   --function-name "aria-banking-chat-to-voice-transfer-${ENV}" \
   --cli-binary-format raw-in-base64-out \
-  --payload '{"Details":{"Parameters":{"contactId":"chat-123","customerId":"CUST-001","authStatus":"authenticated","locale":"en-GB","customerPhone":"+447765309252","agentId":"agent-456","transferMode":"aria"},"ContactData":{"ContactId":"chat-123"}}}' \
+  --payload '{"Details":{"Parameters":{"contactId":"chat-123","customerId":"CUST-001","authStatus":"authenticated","locale":"en-GB","customerPhone":"<test-caller-number>","agentId":"agent-456","transferMode":"aria"},"ContactData":{"ContactId":"chat-123"}}}' \
   connect-lambda-platform-chat-to-voice-response.json && cat connect-lambda-platform-chat-to-voice-response.json
 ```
 
@@ -624,7 +624,7 @@ cd /Users/alokkulkarni/Documents/Development/awsagentcore
 aws lambda invoke \
   --function-name "aria-banking-voice-to-chat-transfer-${ENV}" \
   --cli-binary-format raw-in-base64-out \
-  --payload '{"Details":{"Parameters":{"contactId":"voice-123","customerId":"CUST-001","authStatus":"authenticated","locale":"en-GB","customerPhone":"+447765309252","agentId":"agent-456","transferMode":"aria"},"ContactData":{"ContactId":"voice-123"}}}' \
+  --payload '{"Details":{"Parameters":{"contactId":"voice-123","customerId":"CUST-001","authStatus":"authenticated","locale":"en-GB","customerPhone":"<test-caller-number>","agentId":"agent-456","transferMode":"aria"},"ContactData":{"ContactId":"voice-123"}}}' \
   connect-lambda-platform-voice-to-chat-response.json && cat connect-lambda-platform-voice-to-chat-response.json
 ```
 
