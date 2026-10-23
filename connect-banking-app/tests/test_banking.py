@@ -247,6 +247,22 @@ class Partners(Base):
         self.assertEqual(fake.invoked[-1][1], {"operation": "createHelpCode",
                                                "payload": {"applicationId": APP_ID, "stage": "documents"}})
 
+    def test_the_customers_click_reaches_the_mortgage_service_as_its_declaration(self):
+        """connect-livesync-mortgage backend/src/submit.js accepts only declaration {accepted: true, source:
+        'customer_click'} (its own page door, page.js, makes it from `declared`); a bare `declared` is always refused."""
+        fake = FakeLambda({"statusCode": 200, "body": json.dumps({"ok": True, "reference": "MR-1"})})
+        partners._lambda = fake
+        submit = dict(token=self.verified, applicationId=APP_ID, productId="FX5-999", dipDecision="accept",
+                      documents=["payslips", "bank_statement", "photo_id"])
+        self.post("/api/mortgage/submit", declared=True, **submit)
+        payload = fake.invoked[-1][1]["payload"]
+        self.assertEqual(payload["declaration"], {"accepted": True, "source": "customer_click"})
+        self.assertNotIn("declared", payload)
+        for not_clicked in (False, "true", None):
+            self.post("/api/mortgage/submit", declared=not_clicked, **submit)
+            self.assertEqual(fake.invoked[-1][1]["payload"]["declaration"], {"accepted": False, "source": "page"},
+                             not_clicked)
+
     def test_only_the_mortgage_page_operations_can_be_reached(self):
         with self.assertRaises(partners.PartnerError):
             partners.mortgage("runDecisionInPrinciple", {})
