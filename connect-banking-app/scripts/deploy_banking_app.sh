@@ -27,7 +27,7 @@
 #
 # Usage:
 #   ./connect-banking-app/scripts/deploy_banking_app.sh [--region R] [--account-id A]
-#        [--instance-id ID] [--contact-flow-id ID] [--unverified-demo] [--approve-origin]
+#        [--instance-id ID] [--contact-flow-id ID] [--assistant-id ID] [--unverified-demo] [--approve-origin]
 #        [--flow-view on|off] [--dry-run]
 #
 #   --unverified-demo a demo link that is NOT verified, so ARIA checks who the
@@ -57,7 +57,7 @@ header() { echo -e "\n${CYAN}== $* ==${RESET}"; }
 REGION="${AWS_REGION:-eu-west-2}"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
 INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
-ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"         # Amazon Q in Connect assistant behind ARIA (call transcripts)
+ASSISTANT_ID="${ASSISTANT_ID:-e6991ed4-e11c-4194-8d20-13889a36bd15}"   # Amazon Q in Connect assistant behind ARIA (call transcripts)
 CONTACT_FLOW_ID="f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"      # conversation bot flow (its Point B passes mortgage calls on)
 DRY_RUN=false
 VERIFIED_DEMO=true        # the app stands for signed-in internet banking
@@ -82,6 +82,7 @@ while [[ $# -gt 0 ]]; do
         --account-id)      ACCOUNT_ID="$2"; shift 2 ;;
         --instance-id)     INSTANCE_ID="$2"; shift 2 ;;
         --contact-flow-id) CONTACT_FLOW_ID="$2"; shift 2 ;;
+        --assistant-id)    ASSISTANT_ID="$2"; shift 2 ;;
         --unverified-demo) VERIFIED_DEMO=false; shift ;;
         --verified-demo)   VERIFIED_DEMO=true; shift ;;      # the default; kept so older commands still work
         --approve-origin)  APPROVE_ORIGIN=true; shift ;;

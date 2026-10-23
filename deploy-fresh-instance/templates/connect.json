@@ -1,0 +1,41 @@
+{
+  "_about": "What the new instance gets besides its defaults (Basic Hours, BasicQueue, Basic Routing Profile, Admin and Agent security profiles come with every new instance). Queue names match today's, so the routing table and the flows map onto them by name.",
+  "attributes": {
+    "CONTACTFLOW_LOGS": "true",
+    "CONTACT_LENS": "true",
+    "AUTO_RESOLVE_BEST_VOICES": "true",
+    "EARLY_MEDIA": "true",
+    "MULTI_PARTY_CONFERENCE": "true",
+    "MULTI_PARTY_CHAT_CONFERENCE": "true",
+    "ENHANCED_CONTACT_MONITORING": "true",
+    "ENHANCED_CHAT_MONITORING": "true",
+    "MESSAGE_STREAMING": "true"
+  },
+  "queues": [
+    {"name": "Mortgage Advisors", "description": "Mortgage applications and advice"},
+    {"name": "Credit Cards", "description": "Credit card questions"},
+    {"name": "Current Account and savings account Queue", "description": "Current and savings accounts, debit cards"},
+    {"name": "Fraud Security Queue", "description": "Fraud and security"},
+    {"name": "Complaints queue", "description": "Complaints"},
+    {"name": "Bereavement Team", "description": "Bereavement support"},
+    {"name": "Power Of Attorney Team", "description": "Power of attorney"},
+    {"name": "branch Services", "description": "Branch services"}
+  ],
+  "default_queue": "BasicQueue",
+  "default_hours": "Basic Hours",
+  "default_routing_profile": "Basic Routing Profile",
+  "flows": {
+    "main":              {"name": "ARIA conversation bot flow (modular)", "type": "CONTACT_FLOW"},
+    "human_handover":    {"name": "ARIA human handover", "type": "CONTACT_FLOW"},
+    "agent_assist":      {"name": "ARIA agent assist", "type": "CONTACT_FLOW"},
+    "screen_pop":        {"name": "ARIA-Agent-Screen-Pop-Flow", "type": "CONTACT_FLOW"},
+    "card_dispute":      {"name": "Card dispute assistant", "type": "CONTACT_FLOW"},
+    "mortgage_handover": {"name": "Mortgage Live Sync handover", "type": "CONTACT_FLOW"},
+    "mortgage_entry":    {"name": "Mortgage Live Sync entry", "type": "CONTACT_FLOW"}
+  },
+  "modules": {
+    "contact_setup":    {"name": "ARIA - Contact setup", "file": "connect-bot-flow-modular/modules/aria-contact-setup.json"},
+    "customer_context": {"name": "ARIA - Customer context", "file": "connect-bot-flow-modular/modules/aria-customer-context.json"},
+    "decide_handback":  {"name": "ARIA - Decide hand-back", "file": "connect-bot-flow-modular/modules/aria-decide-handback.json"}
+  }
+}

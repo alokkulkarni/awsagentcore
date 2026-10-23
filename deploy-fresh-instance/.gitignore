@@ -1,0 +1,8 @@
+# A run's IDs, logs (they can hold the banking app's demo link) and what it sent to Connect
+state/
+# The designer SDK
+acxd/node_modules/
+# Your settings
+*.env
+!config.example.env
+__pycache__/

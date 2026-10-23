@@ -29,7 +29,7 @@
 set -euo pipefail
 
 REGION="${AWS_REGION:-eu-west-2}"
-ACCOUNT_ID="395402194296"
+ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"   # override for another account (deploy-fresh-instance sets it)
 FUNCTION_NAME="aria-money-hub-bridge"
 ROLE_NAME="aria-money-hub-bridge-warmer"
 SCHEDULE_NAME="aria-money-hub-bridge-warm"

@@ -74,7 +74,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # ---------------------------------------------------------------------------
 # Configuration — edit these values to match your environment
 # ---------------------------------------------------------------------------
-AWS_ACCOUNT_ID="395402194296"
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"   # override for another account (deploy-fresh-instance sets it)
 AWS_REGION="${AWS_REGION:-eu-west-2}"
 ENV="${ENV:-prod}"
 PROJECT="aria-banking"
