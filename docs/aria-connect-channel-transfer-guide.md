@@ -756,7 +756,7 @@ Create a page at your `CHAT_WIDGET_URL` path (e.g. `https://app.meridianbank.co.
   <script type="text/javascript">
     (function(w, d, x, id){
       s=d.createElement('script');
-      s.src='https://dtn7rvxwwlhud.cloudfront.net/amazon-connect-chat-interface-client.js';
+      s.src='https://<distribution>.cloudfront.net/amazon-connect-chat-interface-client.js';
       s.async=1;
       s.id=id;
       d.getElementsByTagName('head')[0].appendChild(s);
@@ -1408,7 +1408,7 @@ Both transfer Lambdas need the following IAM permissions attached to their execu
         "connect:ListRealtimeContactAnalysisSegmentsV2"
       ],
       "Resource": [
-        "arn:aws:connect:eu-west-2:395402194296:instance/*"
+        "arn:aws:connect:eu-west-2:<account-id>:instance/*"
       ]
     },
     {
@@ -1436,8 +1436,8 @@ Both transfer Lambdas need the following IAM permissions attached to their execu
         "dynamodb:Query"
       ],
       "Resource": [
-        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store",
-        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store/index/*"
+        "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store",
+        "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store/index/*"
       ]
     },
     {
@@ -1448,7 +1448,7 @@ Both transfer Lambdas need the following IAM permissions attached to their execu
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:eu-west-2:395402194296:log-group:/aws/lambda/*"
+      "Resource": "arn:aws:logs:eu-west-2:<account-id>:log-group:/aws/lambda/*"
     }
   ]
 }

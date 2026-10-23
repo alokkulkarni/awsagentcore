@@ -63,11 +63,11 @@ Tick each one:
   cd ~/Documents/Development/awsagentcore
   git fetch && git checkout feature/money-hub && git pull
   ```
-- [ ] **AWS CLI signed in** to account `395402194296`:
+- [ ] **AWS CLI signed in** to account `<account-id>`:
   ```bash
   aws sts get-caller-identity --query Account --output text
   ```
-  ✅ prints `395402194296`.
+  ✅ prints `<account-id>`.
 - [ ] **AWS CLI new enough.** Step 5 needs a newer CLI than 2.35.11. Check with `aws --version`, and update
   if needed: on a Mac, `brew upgrade awscli` (or the installer from the AWS website).
 - [ ] **Docker Desktop is running.** Step 3 builds the agent's container. Check with `docker buildx version`.
@@ -267,7 +267,7 @@ asks the customer to verify first, just like a normal chat.
 You can also try the buttons from your laptop before deploying. This starts real contacts with your AWS
 sign-in:
 ```bash
-python3 connect-money-hub/scripts/local_preview.py --talk f969d4b4-f716-4974-a325-bb7899f2f293 f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f --verified
+python3 connect-money-hub/scripts/local_preview.py --talk <instance-id> f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f --verified
 ```
 
 ---

@@ -569,7 +569,7 @@ aws secretsmanager put-resource-policy \
       {
         "Effect": "Allow",
         "Principal": {
-          "AWS": "arn:aws:iam::123456789012:role/aria-dtmf-decrypt-role"
+          "AWS": "arn:aws:iam::<account-id>:role/aria-dtmf-decrypt-role"
         },
         "Action": "secretsmanager:GetSecretValue",
         "Resource": "*"
@@ -581,7 +581,7 @@ aws secretsmanager put-resource-policy \
         "Resource": "*",
         "Condition": {
           "StringNotEquals": {
-            "aws:PrincipalArn": "arn:aws:iam::123456789012:role/aria-dtmf-decrypt-role"
+            "aws:PrincipalArn": "arn:aws:iam::<account-id>:role/aria-dtmf-decrypt-role"
           }
         }
       }

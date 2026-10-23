@@ -1,7 +1,7 @@
 # Step-by-Step: Connect ARIA to Amazon Connect via Lex V2 + Nova Sonic S2S
 
 > **Goal**: Route PSTN telephone calls to your existing ARIA AgentCore banking agent using Amazon Connect + Amazon Lex V2 + Amazon Nova Sonic Speech-to-Speech.
-> **Stack**: Existing ARIA agent running on `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY`
+> **Stack**: Existing ARIA agent running on `arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-ubLoKG8xsY`
 > **Region**: eu-west-2 (London) throughout unless stated
 > **Level**: Step-by-step for beginners — every click is described
 
@@ -87,11 +87,11 @@ Phone number matches CRM?
 
 | Item | Requirement |
 |---|---|
-| AWS Account | Same account as your AgentCore runtime (`395402194296`) |
+| AWS Account | Same account as your AgentCore runtime (`<account-id>`) |
 | IAM | Admin or a user with `AmazonConnect_FullAccess`, `AmazonLexFullAccess`, `AWSLambda_FullAccess` |
 | AWS CLI | Configured with `aws configure` pointing to `eu-west-2` |
 | AgentCore runtime | Running and reachable (verified from prior deployment) |
-| Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY` |
+| Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-ubLoKG8xsY` |
 | Session Injector Lambda | Deployed (`aria-session-injector` - see `scripts/deploy_mcp_gateway.sh`) |
 | Fulfillment Lambda | Deployed (`aria-lex-fulfillment` - see `scripts/deploy.sh`) |
 
@@ -113,7 +113,7 @@ Phone number matches CRM?
 
 1. Select **Store users in Amazon Connect** (simplest for initial setup)
 2. In **Access URL**, enter a unique subdomain: `meridian-aria`
-   - Your Connect admin URL will be: `https://meridian-aria.my.connect.aws`
+   - Your Connect admin URL will be: `https://<instance-alias>.my.connect.aws`
 3. Click **Next**
 
 ### Step 1.3 - Add Administrator
@@ -146,7 +146,7 @@ Phone number matches CRM?
 2. Click **Create instance**
 3. Wait about 2 minutes for provisioning
 4. Note your **Instance ARN** - you will need it later:
-   - Format: `arn:aws:connect:eu-west-2:395402194296:instance/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
+   - Format: `arn:aws:connect:eu-west-2:<account-id>:instance/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
    - Also note just the **Instance ID** (the UUID part after `instance/`)
 
 ### Step 1.7 - Claim a Phone Number
@@ -286,7 +286,7 @@ Aliases are required for Connect integration. An alias is like a pointer to a sp
    - **Principal**: `lexv2.amazonaws.com`
    - **Action**: `lambda:InvokeFunction`
    - **Source ARN**: (your Lex bot alias ARN)
-     Format: `arn:aws:lex:eu-west-2:395402194296:bot-alias/BOTID/ALIASID`
+     Format: `arn:aws:lex:eu-west-2:<account-id>:bot-alias/BOTID/ALIASID`
 10. Click **Save**
 
 > Tip: Alternatively, run via CLI:
@@ -296,7 +296,7 @@ Aliases are required for Connect integration. An alias is like a pointer to a sp
 >   --statement-id lex-invoke-permission \
 >   --action lambda:InvokeFunction \
 >   --principal lexv2.amazonaws.com \
->   --source-arn "arn:aws:lex:eu-west-2:395402194296:bot-alias/YOUR_BOT_ID/YOUR_ALIAS_ID" \
+>   --source-arn "arn:aws:lex:eu-west-2:<account-id>:bot-alias/YOUR_BOT_ID/YOUR_ALIAS_ID" \
 >   --region eu-west-2
 > ```
 
@@ -798,13 +798,13 @@ Here is every block and every output connection you need to make:
 This shows exactly where each piece of data lives at each stage of a call:
 
 ```
-CALL ARRIVES: caller phone = "+447765309252", ContactId = "abc-123-def-456"
+CALL ARRIVES: caller phone = "<test-caller-number>", ContactId = "abc-123-def-456"
 
 Block 3 writes:
   $.Attributes.contactId = "abc-123-def-456"
 
 Block 4 runs aria-session-injector Lambda:
-  Lambda receives: ContactId="abc-123-def-456", callerPhone="+447765309252"
+  Lambda receives: ContactId="abc-123-def-456", callerPhone="<test-caller-number>"
   Lambda looks up phone in CRM:
     FOUND ->
       Returns (all as $.External.*):
@@ -995,11 +995,11 @@ Before making a real call, verify the Lambda works with a simulated Connect even
   "Details": {
     "ContactData": {
       "ContactId": "test-contact-12345",
-      "InstanceARN": "arn:aws:connect:eu-west-2:395402194296:instance/YOUR-INSTANCE-ID",
+      "InstanceARN": "arn:aws:connect:eu-west-2:<account-id>:instance/YOUR-INSTANCE-ID",
       "Channel": "VOICE",
       "Attributes": {},
       "CustomerEndpoint": {
-        "Address": "+447765309252",
+        "Address": "<test-caller-number>",
         "Type": "TELEPHONE_NUMBER"
       },
       "SystemEndpoint": {
@@ -1015,7 +1015,7 @@ Before making a real call, verify the Lambda works with a simulated Connect even
 ```
 
 4. Click **Test**
-5. Expected response (phone `+447765309252` maps to `CUST-001` in the stub data):
+5. Expected response (phone `<test-caller-number>` maps to `CUST-001` in the stub data):
 
 ```json
 {
@@ -1083,10 +1083,10 @@ Expected: ARIA asks for the customer's ID before providing any data.
 
 ### Step 8.3 - Test via Real Phone Call
 
-1. Log into the Connect admin at `https://meridian-aria.my.connect.aws`
+1. Log into the Connect admin at `https://<instance-alias>.my.connect.aws`
 2. Click the phone icon (top right) to open the Contact Control Panel (CCP)
 3. Set your status to **Available**
-4. Call your claimed phone number from test number `+447765309252` (James Hartley in stub data)
+4. Call your claimed phone number from test number `<test-caller-number>` (James Hartley in stub data)
 5. You should hear the greeting spoken by Nova Sonic
 6. Say: "What is my balance?"
 7. ARIA should respond immediately with account details (no authentication needed - pre-auth worked)
@@ -1124,7 +1124,7 @@ To view: AWS Console -> **CloudWatch** -> **Log groups** -> search for the log g
 The stub phone-to-customer mapping in `session_injector.py` is:
 ```python
 _PHONE_TO_CUSTOMER = {
-    "+447765309252": "CUST-001",   # James Hartley
+    "<test-caller-number>": "CUST-001",   # James Hartley
     "+447700900001": "CUST-002",   # Sarah Chen
     ...
 }
@@ -1196,15 +1196,15 @@ The fulfillment Lambda may not be reading `customerId` from session attributes, 
 
 | Item | Value |
 |---|---|
-| AgentCore Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-ubLoKG8xsY` |
+| AgentCore Runtime ARN | `arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-ubLoKG8xsY` |
 | Lex Bot Name | `ARIA-Connect-Bot` |
 | Lex Bot Alias | `production` |
 | Session Injector Lambda | `aria-session-injector` |
 | Fulfillment Lambda | `aria-lex-fulfillment` |
 | Fulfillment IAM Role | `aria-lambda-fulfillment-role` |
-| Connect Instance | `meridian-aria.my.connect.aws` |
+| Connect Instance | `<instance-alias>.my.connect.aws` |
 | Connect Region | `eu-west-2` |
 | Nova Sonic Voice | `Amy` (en-GB, Generative) |
 | AgentCore Session Header | `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` |
-| Test phone -> CUST-001 | `+447765309252` (James Hartley) |
+| Test phone -> CUST-001 | `<test-caller-number>` (James Hartley) |
 | Test phone -> CUST-002 | `+447700900001` (Sarah Chen) |

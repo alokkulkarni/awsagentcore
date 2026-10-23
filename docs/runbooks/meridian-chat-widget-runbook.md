@@ -55,7 +55,7 @@ git status --short
 
 ```bash
 cd /Users/alokkulkarni/Documents/Development/awsagentcore
-grep -n "snippetId\|customDisplayNames\|contactAttributes\|conversationalbot.my.connect.aws" connect-chat-widget/index.html
+grep -n "snippetId\|customDisplayNames\|contactAttributes\|<instance-alias>.my.connect.aws" connect-chat-widget/index.html
 grep -n "BOT\|SYSTEM\|ARIA\|Meridian Bank" connect-chat-widget/src/components/ConnectChatWidget.jsx
 ```
 
@@ -306,7 +306,7 @@ curl -I https://<cloudfront-domain>
 1. Open the deployed Meridian widget URL in Chrome.
 2. Open **DevTools -> Network**.
 3. Click the chat launcher.
-4. Confirm requests to the Amazon Connect hosted widget load successfully from `conversationalbot.my.connect.aws`.
+4. Confirm requests to the Amazon Connect hosted widget load successfully from `<instance-alias>.my.connect.aws`.
 5. Filter Network for `StartChatContact`, `connectparticipant`, or `websocket` traffic.
 6. If the hosted widget surfaces a `StartChatContact` request, confirm it returns `200`.
 7. Confirm the chat session opens and a persistent chat transport (for example WebSocket or equivalent long-lived Connect chat connection) is established.
@@ -391,7 +391,7 @@ rm -f cloudfront-disable-config.json
 
 ### Chat launcher missing entirely
 
-- Confirm the external script from `conversationalbot.my.connect.aws` loads.
+- Confirm the external script from `<instance-alias>.my.connect.aws` loads.
 - Confirm no ad-blocker or browser extension is suppressing the hosted widget.
 
 ---

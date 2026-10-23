@@ -136,7 +136,7 @@ From the repo root. The scripts use the AWS CLI, plus the boto3 in `~/.venvs/ari
 ## Test it without touching the live flow
 
 ```bash
-python3 connect-banking-app/scripts/local_preview.py --talk f969d4b4-f716-4974-a325-bb7899f2f293 <modular flow id>
+python3 connect-banking-app/scripts/local_preview.py --talk <instance-id> <modular flow id>
 ```
 
 Then run through these:
@@ -163,7 +163,7 @@ ARIA unchanged for rollback.
   flow. (`connect-money-hub/scripts/connect_collaborator.sh` only changes the live ARIA.)
 - **A routing change:** edit `build_flows.py`. If the live flow changed too, refresh the reference first:
   ```bash
-  aws connect describe-contact-flow --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+  aws connect describe-contact-flow --instance-id <instance-id> \
       --contact-flow-id f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f --query ContactFlow.Content --output text \
       | python3 -m json.tool > connect-bot-flow-modular/reference/conversation-bot-flow-live.json
   ```

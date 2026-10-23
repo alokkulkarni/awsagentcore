@@ -11,12 +11,12 @@ The following parameters are accepted by `marketplace/cloudformation/dtmf-secure
 
 | Parameter | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `ConnectInstanceId` | String | *(required)* | Amazon Connect instance UUID | `f969d4b4-f716-4974-a325-bb7899f2f293` |
-| `ConnectInstanceArn` | String | *(required)* | Full ARN of the Connect instance | `arn:aws:connect:eu-west-2:123456789012:instance/f969d4b4-...` |
+| `ConnectInstanceId` | String | *(required)* | Amazon Connect instance UUID | `<instance-id>` |
+| `ConnectInstanceArn` | String | *(required)* | Full ARN of the Connect instance | `arn:aws:connect:eu-west-2:<account-id>:instance/f969d4b4-...` |
 | `ConnectKeyId` | String | *(required)* | Key ID from Connect Security Keys (Step 2 of deployment) | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `PrivateKeySecretArn` | String | *(required)* | Secrets Manager ARN of the RSA private key PEM | `arn:aws:secretsmanager:eu-west-2:...:secret:aria/dtmf-private-key-AbCdEf` |
 | `KmsKeyArn` | String | *(required)* | ARN of the KMS CMK that encrypts the secret and DynamoDB | `arn:aws:kms:eu-west-2:...:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| `CustomerDataLambdaArn` | String | `""` (empty) | ARN of the buyer-provided ownership-check Lambda | `arn:aws:lambda:eu-west-2:123456789012:function:my-customer-data-fn` |
+| `CustomerDataLambdaArn` | String | `""` (empty) | ARN of the buyer-provided ownership-check Lambda | `arn:aws:lambda:eu-west-2:<account-id>:function:my-customer-data-fn` |
 | `SessionTTLHours` | Number | `2` | DynamoDB session auto-expiry in hours | `2` |
 | `EnableBinCheck` | String | `"true"` | Whether validate Lambda checks the `aria-card-bins` table | `"true"` or `"false"` |
 | `SessionsTableName` | String | `"dtmf_active_sessions"` | DynamoDB table name for active sessions | `"dtmf_active_sessions"` |
@@ -106,7 +106,7 @@ Contact attributes are the primary mechanism for passing state between Lambda fu
 |---|---|---|---|
 | `SESSIONS_TABLE_NAME` | Yes | DynamoDB sessions table name | `dtmf_active_sessions` |
 | `CONNECT_INSTANCE_ARN` | Yes | Full ARN of the Connect instance | `arn:aws:connect:eu-west-2:...:instance/f969d4b4-...` |
-| `ALLOWED_ORIGIN` | Yes | CORS allowed origin (CloudFront domain) | `https://d1bkzzc74letv0.cloudfront.net` |
+| `ALLOWED_ORIGIN` | Yes | CORS allowed origin (CloudFront domain) | `https://<distribution>.cloudfront.net` |
 | `AWS_REGION` | Auto | Set by Lambda runtime | `eu-west-2` |
 | `LOG_LEVEL` | No | Python logging level | `INFO` |
 
@@ -183,8 +183,8 @@ Returns the current DTMF capture status for a specific contact.
 **Request:**
 ```http
 GET /dtmf-status?contactId=abc12345-def6-7890-ghij-klmnopqrstuv HTTP/1.1
-Host: bz8frqf9f9.execute-api.eu-west-2.amazonaws.com
-Origin: https://d1bkzzc74letv0.cloudfront.net
+Host: <api-id>.execute-api.eu-west-2.amazonaws.com
+Origin: https://<distribution>.cloudfront.net
 ```
 
 **Success Response (200):**
@@ -231,8 +231,8 @@ Returns the currently active DTMF capture session (if any). Used by the launcher
 **Request:**
 ```http
 GET /dtmf-active HTTP/1.1
-Host: bz8frqf9f9.execute-api.eu-west-2.amazonaws.com
-Origin: https://d1bkzzc74letv0.cloudfront.net
+Host: <api-id>.execute-api.eu-west-2.amazonaws.com
+Origin: https://<distribution>.cloudfront.net
 ```
 
 **Active Session Response (200):**

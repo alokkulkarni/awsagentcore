@@ -30,7 +30,7 @@ Before you begin, ensure the following are in place.
 ### Amazon Connect Instance
 
 You need an existing Amazon Connect instance. Note:
-- **Instance ID** (UUID format, e.g. `f969d4b4-f716-4974-a325-bb7899f2f293`)
+- **Instance ID** (UUID format, e.g. `<instance-id>`)
 - **Instance ARN** (`arn:aws:connect:<region>:<account>:instance/<instanceId>`)
 - The instance must have **Lambda integrations enabled** (this is the default for all instances)
 
@@ -95,8 +95,8 @@ The script will:
 
 ```
 === OUTPUT ===
-PrivateKeySecretArn: arn:aws:secretsmanager:eu-west-2:123456789012:secret:aria/dtmf-private-key-AbCdEf
-KmsKeyArn:           arn:aws:kms:eu-west-2:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+PrivateKeySecretArn: arn:aws:secretsmanager:eu-west-2:<account-id>:secret:aria/dtmf-private-key-AbCdEf
+KmsKeyArn:           arn:aws:kms:eu-west-2:<account-id>:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Public key PEM (add this to Amazon Connect Security Keys):
 -----BEGIN PUBLIC KEY-----
@@ -145,8 +145,8 @@ marketplace/cloudformation/dtmf-secure-capture.yaml
 
 | Parameter | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `ConnectInstanceId` | String | *(required)* | Your Connect instance UUID | `f969d4b4-f716-4974-a325-bb7899f2f293` |
-| `ConnectInstanceArn` | String | *(required)* | Full Connect instance ARN | `arn:aws:connect:eu-west-2:123456789012:instance/f969d4b4-...` |
+| `ConnectInstanceId` | String | *(required)* | Your Connect instance UUID | `<instance-id>` |
+| `ConnectInstanceArn` | String | *(required)* | Full Connect instance ARN | `arn:aws:connect:eu-west-2:<account-id>:instance/f969d4b4-...` |
 | `ConnectKeyId` | String | *(required)* | Key ID from Step 2 | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
 | `PrivateKeySecretArn` | String | *(required)* | Secrets Manager ARN from Step 1 | `arn:aws:secretsmanager:eu-west-2:...` |
 | `KmsKeyArn` | String | *(required)* | KMS CMK ARN from Step 1 | `arn:aws:kms:eu-west-2:...:key/...` |
@@ -175,11 +175,11 @@ aws cloudformation deploy \
   --region eu-west-2 \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
-    ConnectInstanceId=f969d4b4-f716-4974-a325-bb7899f2f293 \
-    ConnectInstanceArn=arn:aws:connect:eu-west-2:123456789012:instance/f969d4b4-f716-4974-a325-bb7899f2f293 \
+    ConnectInstanceId=<instance-id> \
+    ConnectInstanceArn=arn:aws:connect:eu-west-2:<account-id>:instance/<instance-id> \
     ConnectKeyId=a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
-    PrivateKeySecretArn=arn:aws:secretsmanager:eu-west-2:123456789012:secret:aria/dtmf-private-key-AbCdEf \
-    KmsKeyArn=arn:aws:kms:eu-west-2:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+    PrivateKeySecretArn=arn:aws:secretsmanager:eu-west-2:<account-id>:secret:aria/dtmf-private-key-AbCdEf \
+    KmsKeyArn=arn:aws:kms:eu-west-2:<account-id>:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
     Environment=prod
 ```
 
@@ -189,12 +189,12 @@ Once the stack completes, note these outputs from the **Outputs** tab. You will 
 
 | Output Key | Description | Example |
 |---|---|---|
-| `CloudFrontDomain` | Agent panel URL base | `d1bkzzc74letv0.cloudfront.net` |
-| `ApiGatewayUrl` | API Gateway base URL | `https://bz8frqf9f9.execute-api.eu-west-2.amazonaws.com` |
+| `CloudFrontDomain` | Agent panel URL base | `<distribution>.cloudfront.net` |
+| `ApiGatewayUrl` | API Gateway base URL | `https://<api-id>.execute-api.eu-west-2.amazonaws.com` |
 | `SessionsTableName` | DynamoDB sessions table | `dtmf_active_sessions` |
 | `BinsTableName` | DynamoDB BIN table | `aria-card-bins` |
-| `LauncherUrl` | Full launcher URL for Agent Workspace | `https://d1bkzzc74letv0.cloudfront.net/dtmf-launcher/index.html` |
-| `PanelUrl` | Full panel URL | `https://d1bkzzc74letv0.cloudfront.net/dtmf-panel/index.html` |
+| `LauncherUrl` | Full launcher URL for Agent Workspace | `https://<distribution>.cloudfront.net/dtmf-launcher/index.html` |
+| `PanelUrl` | Full panel URL | `https://<distribution>.cloudfront.net/dtmf-panel/index.html` |
 
 ---
 
@@ -227,7 +227,7 @@ The script performs the following:
 
 > **Contact flows should always reference the `:prod` alias ARN**, never `$LATEST`:
 > ```
-> arn:aws:lambda:eu-west-2:123456789012:function:aria-dtmf-decrypt:prod
+> arn:aws:lambda:eu-west-2:<account-id>:function:aria-dtmf-decrypt:prod
 > ```
 
 For non-interactive deployments (CI/CD), all values can be passed as flags:
@@ -241,8 +241,8 @@ bash scripts/deploy_dtmf_lambda.sh deploy \
   --kms-key-arn arn:aws:kms:... \
   --sessions-table dtmf_active_sessions \
   --bins-table aria-card-bins \
-  --api-url https://bz8frqf9f9.execute-api.eu-west-2.amazonaws.com \
-  --cf-domain d1bkzzc74letv0.cloudfront.net
+  --api-url https://<api-id>.execute-api.eu-west-2.amazonaws.com \
+  --cf-domain <distribution>.cloudfront.net
 ```
 
 ---
@@ -375,7 +375,7 @@ Expected output: item with `contactId`, `collectionPurpose`, `status`, `ttl`.
 
 ```bash
 aws connect get-contact-attributes \
-  --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+  --instance-id <instance-id> \
   --initial-contact-id <ContactId> \
   --region eu-west-2
 ```
@@ -484,7 +484,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Sum --period 300 --threshold 1 \
   --comparison-operator GreaterThanOrEqualToThreshold \
   --evaluation-periods 1 \
-  --alarm-actions arn:aws:sns:eu-west-2:123456789012:dtmf-alerts
+  --alarm-actions arn:aws:sns:eu-west-2:<account-id>:dtmf-alerts
 ```
 
 Repeat for each Lambda function.

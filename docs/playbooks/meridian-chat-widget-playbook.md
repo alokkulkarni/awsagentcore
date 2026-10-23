@@ -43,7 +43,7 @@ The Meridian widget is a thin React host page around the Amazon Connect hosted c
 
 1. `src/main.jsx` mounts the React app.
 2. `src/App.jsx` renders the Meridian landing page shell.
-3. `index.html` loads `https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` and configures `amazon_connect(...)`.
+3. `index.html` loads `https://<instance-alias>.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` and configures `amazon_connect(...)`.
 4. `src/components/ConnectChatWidget.jsx` uses a `MutationObserver` to relabel Connect transcript participants from `BOT` to `ARIA` and from `SYSTEM` to `Meridian Bank`.
 5. `scripts/deploy_connect_widget.sh` builds the app, uploads `dist/` to S3, creates or reuses CloudFront resources, and invalidates cache.
 
@@ -66,7 +66,7 @@ flowchart LR
 | App shell | `connect-chat-widget/src/App.jsx` | Meridian landing page with hero, feature cards, and footer |
 | Local dev port | `connect-chat-widget/vite.config.js` | `4000` for `vite` dev server and preview |
 | Public assets | `connect-chat-widget/public/` | `favicon.svg` |
-| Widget script URL | `connect-chat-widget/index.html` | `https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
+| Widget script URL | `connect-chat-widget/index.html` | `https://<instance-alias>.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
 | Widget bootstrap API | `connect-chat-widget/index.html` | `amazon_connect('styles'|'customDisplayNames'|'snippetId'|'supportedMessagingContentTypes'|'contactAttributes', ...)` |
 | Participant relabeling | `connect-chat-widget/src/components/ConnectChatWidget.jsx` | `BOT -> ARIA`, `SYSTEM -> Meridian Bank` |
 | Brand colours | `connect-chat-widget/src/index.css`, `index.html` | `#123456`, `#1a4a7a`, accent `#0ea5e9` |

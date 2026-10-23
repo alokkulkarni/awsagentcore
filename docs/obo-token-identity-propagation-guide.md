@@ -50,7 +50,7 @@ propagation, the tool call looks like this:
 ```
 Tool:       get_account_balance
 Parameters: { "account_type": "savings" }
-Called by:  arn:aws:iam::395402194296:role/aria-banking-mcp-lambda-role-dev
+Called by:  arn:aws:iam::<account-id>:role/aria-banking-mcp-lambda-role-dev
 ```
 
 The Lambda tool knows:
@@ -206,8 +206,8 @@ A JWT is a small piece of text with three parts separated by dots:
 The **payload** contains **claims** — facts about the token holder, for example:
 ```json
 {
-  "iss": "https://meridian-aria.my.connect.aws",
-  "aud": "aria-banking-mcp-gateway-dev-ndrocvgxlr",
+  "iss": "https://<instance-alias>.my.connect.aws",
+  "aud": "aria-banking-mcp-gateway-dev-<gateway-suffix>",
   "sub": "connect-session-abc123",
   "customerId": "CUST-8823",
   "authStatus": "authenticated",
@@ -220,7 +220,7 @@ verify the signature — if a single character of the payload was changed, the
 signature check fails. This is what makes JWTs tamper-proof.
 
 The **CUSTOM_JWT** in your setup is issued by Amazon Connect's OIDC endpoint
-(discoverable at `https://meridian-aria.my.connect.aws/.well-known/openid-configuration`).
+(discoverable at `https://<instance-alias>.my.connect.aws/.well-known/openid-configuration`).
 Your AgentCore Gateway is configured with this discovery URL, so it can fetch
 Connect's public key and validate any JWT issued by that Connect instance.
 
@@ -514,7 +514,7 @@ It calls it using a **CUSTOM_JWT** that it issues from its own OIDC provider.
 
 This JWT is:
 - Signed by the Connect instance's private key
-- Discoverable via `https://meridian-aria.my.connect.aws/.well-known/openid-configuration`
+- Discoverable via `https://<instance-alias>.my.connect.aws/.well-known/openid-configuration`
 - Valid for a short period (typically 5 minutes)
 - Addressed to the specific gateway ID (`aud` claim = gateway ID)
 
@@ -539,8 +539,8 @@ claims (the exact set depends on your Connect version, but this is the standard 
 
 ```json
 {
-  "iss": "https://meridian-aria.my.connect.aws",
-  "aud": "aria-banking-mcp-gateway-dev-ndrocvgxlr",
+  "iss": "https://<instance-alias>.my.connect.aws",
+  "aud": "aria-banking-mcp-gateway-dev-<gateway-suffix>",
   "sub": "connect-ai-agent-session",
   "iat": 1715940600,
   "exp": 1715940900,
@@ -567,8 +567,8 @@ the Session Injector — without trusting anything the LLM passed as a parameter
 The gateway was configured with:
 
 ```
-Discovery URL:     https://meridian-aria.my.connect.aws/.well-known/openid-configuration
-Allowed Audience:  aria-banking-mcp-gateway-dev-ndrocvgxlr
+Discovery URL:     https://<instance-alias>.my.connect.aws/.well-known/openid-configuration
+Allowed Audience:  aria-banking-mcp-gateway-dev-<gateway-suffix>
 ```
 
 When a request arrives, the gateway:
@@ -947,7 +947,7 @@ Add permission to call STS:
 {
   "Effect": "Allow",
   "Action": ["sts:AssumeRole", "sts:TagSession"],
-  "Resource": "arn:aws:iam::395402194296:role/aria-tool-execution-role-dev"
+  "Resource": "arn:aws:iam::<account-id>:role/aria-tool-execution-role-dev"
 }
 ```
 
@@ -962,7 +962,7 @@ Trust policy (allows assumption only when `AuthStatus = authenticated`):
   "Statement": [{
     "Effect": "Allow",
     "Principal": {
-      "AWS": "arn:aws:iam::395402194296:role/aria-banking-mcp-gateway-role-dev"
+      "AWS": "arn:aws:iam::<account-id>:role/aria-banking-mcp-gateway-role-dev"
     },
     "Action": "sts:AssumeRole",
     "Condition": {
@@ -986,7 +986,7 @@ Permissions (what the tool execution role can do):
 {
   "Effect": "Allow",
   "Action": ["dynamodb:GetItem", "dynamodb:Query"],
-  "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/meridian-bank-accounts",
+  "Resource": "arn:aws:dynamodb:eu-west-2:<account-id>:table/meridian-bank-accounts",
   "Condition": {
     "ForAllValues:StringEquals": {
       "dynamodb:LeadingKeys": ["${aws:PrincipalTag/CustomerId}"]
@@ -1011,7 +1011,7 @@ def assume_tool_execution_role(customer_id: str, auth_status: str,
                                 session_id: str) -> dict:
     sts = boto3.client("sts")
     response = sts.assume_role(
-        RoleArn="arn:aws:iam::395402194296:role/aria-tool-execution-role-dev",
+        RoleArn="arn:aws:iam::<account-id>:role/aria-tool-execution-role-dev",
         RoleSessionName=f"{customer_id[:32]}-{session_id[:20]}",
         DurationSeconds=300,
         Tags=[
@@ -1170,7 +1170,7 @@ Before going to production with real customer data, verify all of the following:
 | **Contact attributes** | Key-value pairs on the live contact; set in Blocks 4V/3C; passed to the Session Injector |
 | **CUSTOM_JWT** | The short-lived JWT that Connect's AI Agent service issues when calling the AgentCore Gateway |
 | **OIDC** | A standard for publishing public keys so other services can verify JWTs from your issuer |
-| **Discovery URL** | The URL where your Connect instance publishes its public key; format is `https://your-instance.my.connect.aws/.well-known/openid-configuration` |
+| **Discovery URL** | The URL where your Connect instance publishes its public key; format is `https://<instance-alias>.my.connect.aws/.well-known/openid-configuration` |
 | **Allowed Audience** | The `aud` claim the gateway checks in every JWT — must equal the gateway's own ID |
 | **JWT** | A signed, self-contained token with identity claims; tamper-evident because the signature breaks if any claim is changed |
 | **STS AssumeRole** | API call that exchanges your identity for a different IAM role's temporary credentials |
@@ -1203,5 +1203,5 @@ Before going to production with real customer data, verify all of the following:
 
 ---
 
-*Guide applies to: ARIA Banking Agent, `eu-west-2`, AWS Account `395402194296`.*
+*Guide applies to: ARIA Banking Agent, `eu-west-2`, AWS Account `<account-id>`.*
 *Always verify against the latest [Amazon Connect Administrator Guide](https://docs.aws.amazon.com/connect/latest/adminguide/).*

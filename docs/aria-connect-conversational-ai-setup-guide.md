@@ -84,8 +84,8 @@ Before you start, confirm all of the following:
 | Connect instance has AI Agents enabled | Instance Settings → AI features | Toggle is available on instances created after mid-2024 |
 | AWS account ID noted | AWS console top right | Used throughout |
 | IAM admin permissions | IAM console | Need `connect:*`, `bedrock-agentcore:*`, `qconnect:*`, `lambda:*`, `iam:*` |
-| AWS CLI installed and configured | Terminal: `aws --version` | Profile should target `eu-west-2`, account `395402194296` |
-| ARIA AgentCore runtime already deployed | From checkpoint 029 and prior work | Runtime ARN: `arn:aws:bedrock-agentcore:eu-west-2:395402194296:runtime/aria_banking_agent-xedQS9HNJe` |
+| AWS CLI installed and configured | Terminal: `aws --version` | Profile should target `eu-west-2`, account `<account-id>` |
+| ARIA AgentCore runtime already deployed | From checkpoint 029 and prior work | Runtime ARN: `arn:aws:bedrock-agentcore:eu-west-2:<account-id>:runtime/aria_banking_agent-xedQS9HNJe` |
 | Python 3.12 available locally | Terminal: `python3 --version` | For Lambda function packaging |
 
 ---
@@ -110,7 +110,7 @@ Connect AI Agents (formerly Amazon Q in Connect) must be enabled on your Connect
 2. Choose **AI agents** in the left menu.
 3. Copy the **Assistant ARN** shown — it looks like:
    ```
-   arn:aws:wisdom:eu-west-2:395402194296:assistant/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+   arn:aws:wisdom:eu-west-2:<account-id>:assistant/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
    ```
 4. Extract the ID after the last `/` — this is your `ASSISTANT_ID`. Keep it handy.
 
@@ -751,12 +751,12 @@ aws iam put-role-policy \
       {
         "Effect": "Allow",
         "Action": ["connect:DescribeContact", "connect:GetContactAttributes"],
-        "Resource": "arn:aws:connect:eu-west-2:395402194296:instance/*"
+        "Resource": "arn:aws:connect:eu-west-2:<account-id>:instance/*"
       },
       {
         "Effect": "Allow",
         "Action": ["wisdom:UpdateSessionData", "qconnect:UpdateSessionData"],
-        "Resource": "arn:aws:wisdom:eu-west-2:395402194296:assistant/*"
+        "Resource": "arn:aws:wisdom:eu-west-2:<account-id>:assistant/*"
       }
     ]
   }'
@@ -839,7 +839,7 @@ aws lambda add-permission \
   --statement-id allow-connect-invoke \
   --action lambda:InvokeFunction \
   --principal connect.amazonaws.com \
-  --source-account 395402194296 \
+  --source-account <account-id> \
   --region eu-west-2
 ```
 
@@ -951,7 +951,7 @@ aws iam put-role-policy \
           "dynamodb:PutItem",
           "dynamodb:UpdateItem"
         ],
-        "Resource": "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-session-memory"
+        "Resource": "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-session-memory"
       }
     ]
   }'
@@ -1148,8 +1148,8 @@ aws iam put-role-policy \
           "dynamodb:Query"
         ],
         "Resource": [
-          "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store",
-          "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store/index/*"
+          "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store",
+          "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store/index/*"
         ]
       }
     ]
@@ -1174,8 +1174,8 @@ cat > /tmp/transcript-store-write.json << 'EOF'
         "dynamodb:GetItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store",
-        "arn:aws:dynamodb:eu-west-2:395402194296:table/aria-transcript-store/index/*"
+        "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store",
+        "arn:aws:dynamodb:eu-west-2:<account-id>:table/aria-transcript-store/index/*"
       ]
     }
   ]

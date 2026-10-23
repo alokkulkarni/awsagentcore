@@ -13,7 +13,7 @@ npm run dev          # http://localhost:4000
 ## CORS / CSP notes
 
 The widget loads an external script and opens an iframe from
-`https://conversationalbot.my.connect.aws`. Two things must be correct for it
+`https://<instance-alias>.my.connect.aws`. Two things must be correct for it
 to work:
 
 ### 1. Content-Security-Policy (this app)
@@ -39,7 +39,7 @@ The widget configuration lives in `src/components/ConnectChatWidget.jsx`:
 
 | Setting | Value |
 |---|---|
-| Script URL | `https://conversationalbot.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
+| Script URL | `https://<instance-alias>.my.connect.aws/connectwidget/static/amazon-connect-chat-interface-client.js` |
 | Widget instance ID | `9ed4221c-dc38-4ab2-a475-d2a8209c0d6a` |
 | Snippet ID | see `ConnectChatWidget.jsx` |
 | Brand colour | `#123456` |

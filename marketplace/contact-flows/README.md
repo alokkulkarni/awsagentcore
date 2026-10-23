@@ -251,7 +251,7 @@ Use these values to test validation logic end-to-end:
 | Purpose | Valid test input | Expected result |
 |---------|-----------------|-----------------|
 | `full_card_number` | `4532015112830366` (Visa, passes Luhn) | success |
-| `full_card_number` | `1234567890123456` (fails Luhn) | validation_failed |
+| `full_card_number` | `<account-id>3456` (fails Luhn) | validation_failed |
 | `card_last_four` | `1234` | success |
 | `card_last_four` | `12345` | validation_failed (5 digits) |
 | `ssn` | `123456789` | success (format ok) |

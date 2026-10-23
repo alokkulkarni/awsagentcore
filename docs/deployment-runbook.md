@@ -550,7 +550,7 @@ The React client is built and deployed to CloudFront by `scripts/deploy.sh`. Ver
 ```bash
 ./scripts/deploy.sh status
 # Note the CloudFront URL, e.g.:
-# CloudFront: https://d1abcdef12345.cloudfront.net
+# CloudFront: https://<distribution>.cloudfront.net
 
 ARIA_CF_URL="<cloudfront-url-from-status>"
 curl -s -o /dev/null -w "%{http_code}" "$ARIA_CF_URL"

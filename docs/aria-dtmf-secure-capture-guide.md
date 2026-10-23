@@ -1801,7 +1801,7 @@ cd /path/to/awsagentcore
 
 ./scripts/deploy_dtmf_lambda.sh deploy-panel \
   --instance-id          YOUR_CONNECT_INSTANCE_ID \
-  --connect-instance-url https://meridian-bank.my.connect.aws \
+  --connect-instance-url https://<instance-alias>.my.connect.aws \
   --region eu-west-2
 ```
 
@@ -1810,7 +1810,7 @@ cd /path/to/awsagentcore
 | Argument | Where to find it |
 |---|---|
 | `--instance-id` | Amazon Connect > Your instance > Instance ARN (last UUID after `instance/`) |
-| `--connect-instance-url` | The URL you use to log into Connect (e.g. `https://meridian-bank.my.connect.aws`) |
+| `--connect-instance-url` | The URL you use to log into Connect (e.g. `https://<instance-alias>.my.connect.aws`) |
 
 **What the command does step by step:**
 
@@ -1827,9 +1827,9 @@ cd /path/to/awsagentcore
 
 ```
 OK  DTMF Status Panel deployed successfully!
-    S3 Bucket:       s3://aria-dtmf-panel-123456789012/dtmf-panel/
+    S3 Bucket:       s3://aria-dtmf-panel-<account-id>/dtmf-panel/
     CloudFront ID:   E1ABC2DEF3GHI4J
-    Panel URL:       https://d1234abcdef567.cloudfront.net/dtmf-panel/index.html
+    Panel URL:       https://<distribution>.cloudfront.net/dtmf-panel/index.html
 
 NOTE: CloudFront distributions take 5-15 minutes to fully propagate.
 After propagation, complete Steps 6.2 and 6.3 in the console.
@@ -1848,7 +1848,7 @@ Amazon Connect will not load third-party apps unless their domain is explicitly 
 1. Go to **Amazon Connect > Your instance > Approved origins**
 2. Click **Add domain**
 3. Enter the CloudFront domain _(just the domain, not the file path)_:  
-   `https://d1234abcdef567.cloudfront.net`
+   `https://<distribution>.cloudfront.net`
 4. Click **Save**
 
 > Do not include `/dtmf-panel/index.html` — just the `https://XXXXXXXX.cloudfront.net` part.
@@ -1861,7 +1861,7 @@ Amazon Connect will not load third-party apps unless their domain is explicitly 
 2. Click **Add integration**
 3. Configure:
    - **Application name:** `DTMF Status Panel`
-   - **URL:** _(the full URL)_ `https://d1234abcdef567.cloudfront.net/dtmf-panel/index.html`
+   - **URL:** _(the full URL)_ `https://<distribution>.cloudfront.net/dtmf-panel/index.html`
    - **Application scope:** `Contact` _(refreshes per call, not per agent session)_
 4. Click **Save**
 
@@ -1877,7 +1877,7 @@ If the script is unavailable, deploy manually:
 # Step 1: Edit the panel HTML
 # Open client/dtmf-status-panel/index.html
 # Find line approx. 349:
-#   const CONNECT_INSTANCE_URL = "https://meridian-bank.my.connect.aws";
+#   const CONNECT_INSTANCE_URL = "https://<instance-alias>.my.connect.aws";
 # Replace with your actual instance URL and save.
 
 # Step 2: Create S3 bucket (eu-west-2 example)
@@ -1906,7 +1906,7 @@ aws s3 cp client/dtmf-status-panel/index.html \
 #  Viewer protocol: Redirect HTTP to HTTPS
 #  Click Create distribution
 
-# Step 6: Note the CloudFront domain name (e.g. d1234abcdef567.cloudfront.net)
+# Step 6: Note the CloudFront domain name (e.g. <distribution>.cloudfront.net)
 # Then complete Steps 6.2 and 6.3 above.
 ```
 

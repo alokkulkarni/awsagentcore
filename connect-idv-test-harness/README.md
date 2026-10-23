@@ -175,7 +175,7 @@ Part F explains why.
 | You need | Why | How to check |
 |---|---|---|
 | The main flow working today | The harness hands over to it | Call your normal number and reach ARIA |
-| AWS CLI v2, signed in to account `395402194296` | To run the deploy script | `aws sts get-caller-identity` |
+| AWS CLI v2, signed in to account `<account-id>` | To run the deploy script | `aws sts get-caller-identity` |
 | Permission to create IAM roles and Lambda functions | The deploy script creates one of each | Ask your AWS administrator if unsure |
 | Admin access to the Connect instance `conversationbot` | To create a flow and assign a number | Open the Connect admin website |
 | Python 3.10 or later, `zip`, `openssl` | Tests and packaging | `python3 --version` |
@@ -186,7 +186,7 @@ Values used in this guide. They are already written into the flow JSON.
 | Name | Value |
 |---|---|
 | Region | `eu-west-2` |
-| Connect instance ID | `f969d4b4-f716-4974-a325-bb7899f2f293` |
+| Connect instance ID | `<instance-id>` |
 | Main flow | `conversation bot flow` (`f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f`) |
 | New Lambda | `aria-idv-test-harness` |
 | New flow | `ARIA IDV Test Harness` |
@@ -229,8 +229,8 @@ The script needs no options. Its defaults are your `conversationbot` instance:
 | Setting | Default | Override with |
 |---|---|---|
 | Region | `eu-west-2` | `--region` |
-| Account | `395402194296` | `--account-id` |
-| Connect instance | `f969d4b4-f716-4974-a325-bb7899f2f293` | `--instance-id` |
+| Account | `<account-id>` | `--account-id` |
+| Connect instance | `<instance-id>` | `--instance-id` |
 | Lambda name | `aria-idv-test-harness` | `--function-name` |
 | Role name | `aria-lambda-idv-test-harness-role` | `--role-name` |
 | Bank name | `Nationwide Building Society` | `--bank-name` |
@@ -382,7 +382,7 @@ unverified**.
 ### Why
 
 Today the injector treats a known phone number as proof of identity. Suppose you call from
-`+447765309252` (mapped to James), run the full journey, and deliberately fail verification. The
+`<test-caller-number>` (mapped to James), run the full journey, and deliberately fail verification. The
 harness hands over with an empty `customerId`. The injector sees an empty `customerId`, falls back
 to your phone number, and ARIA greets you as James, fully authenticated. The failed verification is
 undone.
@@ -665,7 +665,7 @@ under **Show additional flow information** in the flow editor).
 
 ```bash
 aws connect start-chat-contact --region eu-west-2 \
-    --instance-id f969d4b4-f716-4974-a325-bb7899f2f293 \
+    --instance-id <instance-id> \
     --contact-flow-id <FLOW_ID> \
     --participant-details DisplayName=Tester \
     --attributes idvSessionToken='<session token>',idvStepUpToken='<sca token>'

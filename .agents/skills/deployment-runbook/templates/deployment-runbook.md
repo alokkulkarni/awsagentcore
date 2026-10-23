@@ -36,7 +36,7 @@ Use this runbook to deploy the [PROJECT_NAME] web application into production wi
 | STACK_NAME | CloudFormation stack name for the production service | [STACK_NAME] |
 | AWS_REGION | Deployment region for all AWS CLI commands | [AWS_REGION] |
 | RELEASE_TAG | Approved Git tag or immutable release label | 2025.04.3 |
-| AWS_ACCOUNT_ID | Target AWS account that owns the ECR repository | 123456789012 |
+| AWS_ACCOUNT_ID | Target AWS account that owns the ECR repository | <account-id> |
 | ECS_CLUSTER | Production ECS cluster name | [PROJECT_NAME]-prod-cluster |
 | ECS_SERVICE | Production ECS service name | [PROJECT_NAME]-web |
 | ECR_REPOSITORY | Repository that stores the web image | [PROJECT_NAME]-web |
@@ -53,7 +53,7 @@ export PROJECT_NAME="[PROJECT_NAME]"
 export STACK_NAME="[STACK_NAME]"
 export AWS_REGION="[AWS_REGION]"
 export RELEASE_TAG="2025.04.3"
-export AWS_ACCOUNT_ID="123456789012"
+export AWS_ACCOUNT_ID="<account-id>"
 export ECS_CLUSTER="${PROJECT_NAME}-prod-cluster"
 export ECS_SERVICE="${PROJECT_NAME}-web"
 export ECR_REPOSITORY="${PROJECT_NAME}-web"
