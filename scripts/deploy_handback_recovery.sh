@@ -24,9 +24,10 @@
 set -euo pipefail
 
 REGION="${AWS_REGION:-eu-west-2}"
-ACCOUNT_ID="395402194296"
-INSTANCE_ID="f969d4b4-f716-4974-a325-bb7899f2f293"
-ASSISTANT_ID="e6991ed4-e11c-4194-8d20-13889a36bd15"
+# Override all three for another account or instance (deploy-fresh-instance sets them).
+ACCOUNT_ID="${AWS_ACCOUNT_ID:-395402194296}"
+INSTANCE_ID="${INSTANCE_ID:-f969d4b4-f716-4974-a325-bb7899f2f293}"
+ASSISTANT_ID="${ASSISTANT_ID:-e6991ed4-e11c-4194-8d20-13889a36bd15}"
 FUNCTION="aria-handback-recovery"
 ROLE="aria-handback-recovery-role"
 APPLY=false

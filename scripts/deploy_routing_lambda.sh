@@ -42,7 +42,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAMBDA_DIR="${SCRIPT_DIR}/lambdas"
 LAMBDA_SOURCE="${LAMBDA_DIR}/aria_routing_lookup.py"
-STATE_FILE="${SCRIPT_DIR}/.deploy-routing-state.json"
+STATE_FILE="${ROUTING_STATE_FILE:-${SCRIPT_DIR}/.deploy-routing-state.json}"   # deploy-fresh-instance keeps its own
 
 FUNCTION_NAME="aria-routing-lookup"
 ALIAS_NAME="prod"
