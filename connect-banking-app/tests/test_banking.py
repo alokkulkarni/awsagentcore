@@ -507,6 +507,24 @@ class Pages(Base):
         self.assertIn("declaredByClick = e.isTrusted", apply, "only the customer's own click ticks the declaration")
         self.assertIn("input: 'external'", apply, "Touchpoint binds headless to the widget's own contact")
 
+    def test_add_to_home_screen_saves_the_link_and_the_address_hides_it_otherwise(self):
+        lib = (APP / "web" / "lib.js").read_text()
+        self.assertIn("if (location.hash) history.replaceState(null, '', location.pathname);", lib,
+                      "the secret still leaves the address as soon as the app opens")
+        self.assertIn("history.replaceState(history.state, '', `${location.pathname}#k=${encodeURIComponent(token)}`);", lib)
+        self.assertIn("shownTimer = setTimeout(hideLink, ms);", lib, "and goes again by itself")
+        self.assertIn("export function forgetLink() {\n  hideLink();", lib)
+        home = (APP / "web" / "homescreen.js").read_text()
+        self.assertIn("if (!button || !dialog || standalone() || !touch()) return;", home,
+                      "only on a phone or tablet, never inside the Home Screen app itself")
+        self.assertIn("if (!showLink()) return;\n    dialog.showModal();", home, "on the customer's own tap only")
+        self.assertIn("dialog.addEventListener('close', hideLink);", home, "closing the steps wipes it")
+        page = (APP / "web" / "index.html").read_text()
+        for needed in ('id="home-screen"', 'id="home-screen-steps"', 'id="home-screen-apple"', 'id="home-screen-other"',
+                       'id="home-screen-done"'):
+            self.assertIn(needed, page)
+        self.assertNotIn('rel="manifest"', page, "a manifest's start_url would replace the saved address and lose the link")
+
     def test_the_panel_can_be_resized_while_the_face_is_showing(self):
         styles = (APP / "web" / "styles.css").read_text()
         self.assertNotIn(":has(#avatar", styles, "a height floor with the face showing froze the phone sheet at 80vh")

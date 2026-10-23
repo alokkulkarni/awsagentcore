@@ -2,6 +2,7 @@
 // connected while the customer moves between pages. Each page module fills in its template and says what the
 // assistant should know about it (its context). Every value is written as text, never as HTML.
 import { $, api, forgetLink, readLink, text, whenExpired } from './lib.js';
+import { hideHomeScreen, setupHomeScreen } from './homescreen.js';
 import { setupTalk } from './widget/talk.js';
 
 // Address -> page module. The mortgage stages keep the mortgage page's own paths (its assistant navigates by them).
@@ -125,6 +126,7 @@ function pageContext() {
 
 function forget(words = 'This device has forgotten your internet banking. Open it from your link to see it again.') {
   forgetLink();
+  hideHomeScreen();
   for (const id of ['forget', 'talk-launcher', 'talk-panel']) $(id).hidden = true;
   text('user-name', '');
   $('page').replaceChildren($('message'));
@@ -148,6 +150,7 @@ async function start() {
     return;
   }
   $('forget').hidden = false;
+  setupHomeScreen();
   try {
     shared.me = await api('/app/home');
   } catch (error) {

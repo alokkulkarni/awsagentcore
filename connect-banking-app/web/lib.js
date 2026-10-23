@@ -1,5 +1,7 @@
 // Shared by every page. The page link's secret lives only here, in memory and in this device's storage, and
-// goes only in the body of this app's own API calls (never in an address, so never in a log or a Referer).
+// goes only in the body of this app's own API calls (never in a request's address, so never in a log or a
+// Referer). It is back after "#" in the address bar only while the customer adds the app to their Home Screen
+// (showLink): the shortcut saves the address as it is, and a Home Screen app has storage of its own.
 // Every value is written as text, never as HTML.
 export const $ = (id) => document.getElementById(id);
 export const text = (id, value) => { const node = $(id); if (node) node.textContent = value; };
@@ -35,7 +37,24 @@ export function readLink() {
   return token;
 }
 
+// For Add to Home Screen, on the customer's request only: the secret back after "#" for that moment. hideLink, the
+// next page change (the router's pushState drops it) or `ms` wipe it again.
+let shownTimer = 0;
+export function showLink(ms = 120000) {
+  if (!token) return false;
+  history.replaceState(history.state, '', `${location.pathname}#k=${encodeURIComponent(token)}`);
+  clearTimeout(shownTimer);
+  shownTimer = setTimeout(hideLink, ms);
+  return true;
+}
+
+export function hideLink() {
+  clearTimeout(shownTimer);
+  if (location.hash) history.replaceState(history.state, '', location.pathname);
+}
+
 export function forgetLink() {
+  hideLink();
   token = '';
   store.remove(localStorage, LINK_KEY);
   try { sessionStorage.clear(); } catch { /* nothing kept */ }
