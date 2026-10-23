@@ -1,0 +1,61 @@
+{
+  "_about": "IDs of the system as it runs today (read from Connect on 23 Oct 2026). The committed flow and agent JSON across the repo carries these; deploy-fresh-instance swaps each one for the new instance's ID of the resource with the same name (py/rebase.py), then checks none is left.",
+  "account": "395402194296",
+  "region": "eu-west-2",
+  "instance": "f969d4b4-f716-4974-a325-bb7899f2f293",
+  "assistant": "e6991ed4-e11c-4194-8d20-13889a36bd15",
+  "kb_association": "19016f17-21e9-4596-a423-4fdc7d9f103f",
+  "guardrail": "ade1cb50-b97f-4e62-a904-3b9668f6360e",
+  "gateway": "aria-banking-mcp-gateway-prod-11grjuxyru",
+  "lex_bot_alias": "5CE3XMSSPB/PAKRDSHDKA",
+  "flows": {
+    "main": "2b4f7b5c-1351-42c8-acac-add07d0cbd00",
+    "human_handover": "0978883b-6892-41ab-81f4-528e0e0cc9bf",
+    "agent_assist": "c1c827fb-d488-46e9-9000-f7ee96b7b343",
+    "screen_pop": "4b85d55a-3d5d-4ff8-88b1-33034272e86d",
+    "card_dispute": "6395dd02-3215-4db1-af9f-c98412eec2f1",
+    "mortgage_handover": "6788a011-92c9-4616-ac94-1d103811da95",
+    "mortgage_entry": "6c7282de-b7d8-4222-8686-f94ce4082a7b",
+    "legacy_conversation_bot_flow": "f6d6545f-c9ae-4ca4-a4d8-6fdc8ba0494f"
+  },
+  "modules": {
+    "contact_setup": "beb29da5-2496-45e3-8e14-f728d32534f2",
+    "customer_context": "a3add37c-7e12-4041-9d31-29884e848a0c",
+    "decide_handback": "06df046e-b67d-4746-8347-49cd0724387a"
+  },
+  "queues": {
+    "Fraud Security Queue": "42646d26-77fb-49f7-a525-a40856c97539",
+    "Current Account and savings account Queue": "846c08b2-574a-415f-84d3-11d46a5f8a16",
+    "Bereavement Team": "8bf823e5-2f07-4749-a2e7-88ebc0b04533",
+    "Power Of Attorney Team": "a19328b4-68cb-4850-90ba-714e3fa88bb0",
+    "Mortgage Advisors": "a87c313c-53dc-4272-8a20-03b7f2cce4a7",
+    "Complaints queue": "ac5724b6-3602-4045-bb60-1fa81a6fa22c",
+    "BasicQueue": "ae9b5b06-06e6-487c-945e-e67dc1462ea9",
+    "Credit Cards": "d3037cfb-f265-47ff-a28e-f96bf6ab1279",
+    "branch Services": "eee53991-6dc9-42e3-941f-0ccc78b762ce"
+  },
+  "hours": {"Basic Hours": "e86d392d-42b3-472d-801f-37f343a766a1"},
+  "security_profiles": {
+    "Admin": "91a41717-5cbe-4786-9431-7157e3f2c9cc",
+    "Agent": "d7ddaa88-1e98-4a08-ba71-55aa8c4bd6e5",
+    "ARIA AI agent collaborators": "935d689f-71d5-4774-bf20-e5a784bc04a9"
+  },
+  "ai_agents": {
+    "aria": "a92a8491-2a82-45ee-bdbe-b7373b584f2d",
+    "agent_assist": "26ca6380-17fe-4828-bc53-537e1154ecbb",
+    "briefing": "dd42d889-1093-47d2-9f02-66694c1e81f8"
+  },
+  "ai_prompts": {
+    "aria": "f6369a3e-ec46-4799-8fa0-9e379a5016a0",
+    "agent_assist": "43ec3f14-15d0-44d2-8f62-9d76b958c338",
+    "briefing": "9e4bf077-89c3-49a8-849a-88103d0ef772"
+  },
+  "apps": {"money_hub": "e72fd4c4-ab42-4906-8874-45943c301013"},
+  "acxd": {
+    "workspace": "55c49fa0-22f3-4dd3-823d-e353f4aee139",
+    "mortgage_app": "578ca0d9-1c21-4d5a-844e-0e0adff4b916",
+    "mortgage_alias": "MyX46JWMLhtmdRWZgXTDe",
+    "dispute_app": "0695e7ea-b8a9-4514-a3f0-eb65fabe9afe",
+    "dispute_alias": "1jVQrqDoXSeGFTnPa7HKw"
+  }
+}

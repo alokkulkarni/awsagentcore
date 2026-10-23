@@ -1,0 +1,12 @@
+{
+  "name": "deploy-fresh-instance-acxd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Captures the agentic CX designer apps from today's workspace and recreates them in a new one",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "amazon-connect-acxd-sdk": "0.2.0",
+    "@aws-sdk/client-secrets-manager": "3.645.0"
+  }
+}
