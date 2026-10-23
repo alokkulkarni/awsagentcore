@@ -218,6 +218,16 @@ class Orchestrator(unittest.TestCase):
                 if f'"${name}"' in line and "printf" not in line and "ACXD_API_KEY=" not in line and "secret " not in line:
                     self.fail(f"${name} on a command line: {line.strip()}")
 
+    def test_nothing_deploy_sh_needs_is_git_ignored(self):
+        """The repo root ignores every lib/ folder: lib/ui.sh was once left out of a commit unnoticed."""
+        import subprocess
+        needed = ["deploy.sh", "lib/ui.sh", "config.example.env"] + [f"py/{p.name}" for p in (PACKAGE / "py").glob("*.py")] \
+            + [f"acxd/{p.name}" for p in (PACKAGE / "acxd").glob("*.mjs")] + ["acxd/package.json"]
+        for rel in needed:
+            self.assertTrue((PACKAGE / rel).exists(), rel)
+            ignored = subprocess.run(["git", "check-ignore", "-q", rel], cwd=PACKAGE).returncode == 0
+            self.assertFalse(ignored, f"{rel} is git-ignored, so it would never be committed")
+
     def test_errors_stop_the_run(self):
         self.assertIn("set -Eeuo pipefail", self.TEXT)
         self.assertIn('"step_${id//-/_}"          # a plain call', self.TEXT)
