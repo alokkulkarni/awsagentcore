@@ -312,9 +312,13 @@ def web(event: dict) -> dict:
         elif path == "/api/mortgage/help-code/status":
             reply = partners.mortgage("helpCodeStatus", {"helpSessionId": _s(body, "helpSessionId")})
         elif path == "/api/mortgage/submit":
+            # The declaration as the mortgage service checks it (its own page door makes the same from `declared`):
+            # accepted only when the page saw the customer's own click.
+            clicked = body.get("declared") is True
             reply = partners.mortgage("submitApplication", {
                 "applicationId": _s(body, "applicationId"), "productId": _s(body, "productId"),
-                "dipDecision": _s(body, "dipDecision") or None, "declared": body.get("declared") is True,
+                "dipDecision": _s(body, "dipDecision") or None,
+                "declaration": {"accepted": True, "source": "customer_click"} if clicked else {"accepted": False, "source": "page"},
                 "documents": [d for d in body.get("documents") or [] if d in ("payslips", "bank_statement", "photo_id")]})
         elif path == "/api/dispute/config":
             reply = {**partners.dispute_config(REGION, money_api.CONNECT_INSTANCE_ID), "pagesUrl": DISPUTE_PAGES_URL}

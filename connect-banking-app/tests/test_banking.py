@@ -247,6 +247,22 @@ class Partners(Base):
         self.assertEqual(fake.invoked[-1][1], {"operation": "createHelpCode",
                                                "payload": {"applicationId": APP_ID, "stage": "documents"}})
 
+    def test_the_customers_click_reaches_the_mortgage_service_as_its_declaration(self):
+        """connect-livesync-mortgage backend/src/submit.js accepts only declaration {accepted: true, source:
+        'customer_click'} (its own page door, page.js, makes it from `declared`); a bare `declared` is always refused."""
+        fake = FakeLambda({"statusCode": 200, "body": json.dumps({"ok": True, "reference": "MR-1"})})
+        partners._lambda = fake
+        submit = dict(token=self.verified, applicationId=APP_ID, productId="FX5-999", dipDecision="accept",
+                      documents=["payslips", "bank_statement", "photo_id"])
+        self.post("/api/mortgage/submit", declared=True, **submit)
+        payload = fake.invoked[-1][1]["payload"]
+        self.assertEqual(payload["declaration"], {"accepted": True, "source": "customer_click"})
+        self.assertNotIn("declared", payload)
+        for not_clicked in (False, "true", None):
+            self.post("/api/mortgage/submit", declared=not_clicked, **submit)
+            self.assertEqual(fake.invoked[-1][1]["payload"]["declaration"], {"accepted": False, "source": "page"},
+                             not_clicked)
+
     def test_only_the_mortgage_page_operations_can_be_reached(self):
         with self.assertRaises(partners.PartnerError):
             partners.mortgage("runDecisionInPrinciple", {})
@@ -490,6 +506,32 @@ class Pages(Base):
         apply = sources["apply.js"]
         self.assertIn("declaredByClick = e.isTrusted", apply, "only the customer's own click ticks the declaration")
         self.assertIn("input: 'external'", apply, "Touchpoint binds headless to the widget's own contact")
+
+    def test_add_to_home_screen_saves_the_link_and_the_address_hides_it_otherwise(self):
+        lib = (APP / "web" / "lib.js").read_text()
+        self.assertIn("if (location.hash) history.replaceState(null, '', location.pathname);", lib,
+                      "the secret still leaves the address as soon as the app opens")
+        self.assertIn("history.replaceState(history.state, '', `${location.pathname}#k=${encodeURIComponent(token)}`);", lib)
+        self.assertIn("shownTimer = setTimeout(hideLink, ms);", lib, "and goes again by itself")
+        self.assertIn("export function forgetLink() {\n  hideLink();", lib)
+        home = (APP / "web" / "homescreen.js").read_text()
+        self.assertIn("if (!button || !dialog || standalone() || !touch()) return;", home,
+                      "only on a phone or tablet, never inside the Home Screen app itself")
+        self.assertIn("if (!showLink()) return;\n    dialog.showModal();", home, "on the customer's own tap only")
+        self.assertIn("dialog.addEventListener('close', hideLink);", home, "closing the steps wipes it")
+        page = (APP / "web" / "index.html").read_text()
+        for needed in ('id="home-screen"', 'id="home-screen-steps"', 'id="home-screen-apple"', 'id="home-screen-other"',
+                       'id="home-screen-done"'):
+            self.assertIn(needed, page)
+        self.assertNotIn('rel="manifest"', page, "a manifest's start_url would replace the saved address and lose the link")
+
+    def test_the_panel_can_be_resized_while_the_face_is_showing(self):
+        styles = (APP / "web" / "styles.css").read_text()
+        self.assertNotIn(":has(#avatar", styles, "a height floor with the face showing froze the phone sheet at 80vh")
+        self.assertIn(".avatar { max-height: min(34vh, calc(var(--talk-h, 55vh) * .45)); }", styles,
+                      "the face shrinks with the sheet")
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        self.assertIn("dock.roomForFace();", talk, "the panel still grows once when the face starts")
 
     def test_every_script_the_app_loads_later_is_one_it_serves(self):
         """import(), worklets and the Touchpoint path: each must be an address this Lambda answers (a wrong one only

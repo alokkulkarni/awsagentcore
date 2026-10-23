@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Internet Banking — Nationwide Building Society (demo)</title>
+  <meta name="apple-mobile-web-app-title" content="Banking (demo)">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/assets/styles.css">
   <script type="module" src="/assets/app.js"></script>
@@ -28,10 +29,27 @@
       </nav>
       <div class="app-user">
         <span class="app-user-name" id="user-name"></span>
-        <button type="button" class="forget" id="forget" hidden title="Remove internet banking from this device">Forget this device</button>
+        <button type="button" class="forget" id="home-screen" hidden aria-haspopup="dialog" aria-label="Add to Home Screen"><span class="wide-only">Add to </span>Home Screen</button>
+        <button type="button" class="forget" id="forget" hidden title="Remove internet banking from this device" aria-label="Forget this device">Forget <span class="wide-only">this </span>device</button>
       </div>
     </div>
   </header>
+
+  <!-- Add to Home Screen (homescreen.js): the link is in the address bar only while this is open. -->
+  <dialog class="home-screen-steps" id="home-screen-steps" aria-labelledby="home-screen-title">
+    <h2 id="home-screen-title">Add this to your Home Screen</h2>
+    <ol id="home-screen-apple">
+      <li>Tap <strong>Share</strong> <span aria-hidden="true">⬆</span> in your browser's toolbar.</li>
+      <li>Tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+    </ol>
+    <ol id="home-screen-other">
+      <li>Open your browser's menu <span aria-hidden="true">⋮</span>.</li>
+      <li>Choose <strong>Add to Home screen</strong> (or <strong>Install app</strong>).</li>
+    </ol>
+    <p>The shortcut opens your internet banking straight away. Your link shows in the address bar
+      only until you close this, so don't share the address meanwhile.</p>
+    <button type="button" id="home-screen-done">Done</button>
+  </dialog>
 
   <main class="wrap app-main" id="page" tabindex="-1">
     <p class="app-message" id="message" role="status"></p>

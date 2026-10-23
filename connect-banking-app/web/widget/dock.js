@@ -157,6 +157,13 @@ export function setupDock({ context: pageContext }) {
     minimise,
     hide() { panel.hidden = true; launcher.hidden = false; launcher.setAttribute('aria-expanded', 'false'); context(); apply(); },
     refresh: context,
+    // The face is starting: grow the panel once (if it's shorter) so the face and some captions fit. Not a floor:
+    // the customer can drag it smaller or larger straight away, and the face shrinks with it (styles.css).
+    roomForFace() {
+      const l = limits();
+      const room = clamp(PHONE.matches ? window.innerHeight * 0.8 : 480, l.minH, l.maxH);
+      if (size().h < room) resize(room);
+    },
     live(kind) {
       liveKind = kind || '';
       startedOn = kind ? pageContext() : null;
