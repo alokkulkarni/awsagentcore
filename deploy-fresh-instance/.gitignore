@@ -6,3 +6,5 @@ acxd/node_modules/
 *.env
 !config.example.env
 __pycache__/
+# The repo root ignores every lib/ folder; this one holds the step UI deploy.sh sources.
+!lib/
