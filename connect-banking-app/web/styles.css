@@ -347,14 +347,13 @@ html.talk-sheet-open body { padding-bottom: calc(var(--talk-pad) + 16px); }   /*
   background: rgba(13, 20, 34, .72); color: #fff; font-size: .72rem; font-weight: 600; letter-spacing: .02em; }
 .avatar-note { position: absolute; inset: auto 0 0; padding: 18px 12px 10px; color: #fff; font-size: .85rem;
   background: linear-gradient(transparent, rgba(13, 20, 34, .8)); }
-/* With the face showing, the panel grows so the captions stay in view beneath it. */
+/* With the face showing, the panel grows once to make room (dock.js roomForFace), and the customer can still drag
+   it to any height: the face shrinks with the panel, so the captions stay in view beneath it. */
 @media (max-width: 639px) {
-  .avatar { max-height: 34vh; }
-  .talk-panel:has(#avatar:not([hidden])) { height: max(var(--talk-h, 55vh), 80vh); }
+  .avatar { max-height: min(34vh, calc(var(--talk-h, 55vh) * .45)); }
 }
 @media (min-width: 640px) {
-  /* Room for the face and some captions, but the customer can still make it smaller or larger. */
-  .talk-panel:has(#avatar:not([hidden])) { height: min(max(var(--talk-h, 560px), 480px), calc(100vh - 48px)); }
+  .avatar { max-height: min(40vh, 340px, calc(var(--talk-h, 560px) * .55)); }
 }
 .chat-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .chat-log li { max-width: 85%; padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -507,6 +507,14 @@ class Pages(Base):
         self.assertIn("declaredByClick = e.isTrusted", apply, "only the customer's own click ticks the declaration")
         self.assertIn("input: 'external'", apply, "Touchpoint binds headless to the widget's own contact")
 
+    def test_the_panel_can_be_resized_while_the_face_is_showing(self):
+        styles = (APP / "web" / "styles.css").read_text()
+        self.assertNotIn(":has(#avatar", styles, "a height floor with the face showing froze the phone sheet at 80vh")
+        self.assertIn(".avatar { max-height: min(34vh, calc(var(--talk-h, 55vh) * .45)); }", styles,
+                      "the face shrinks with the sheet")
+        talk = (APP / "web" / "widget" / "talk.js").read_text()
+        self.assertIn("dock.roomForFace();", talk, "the panel still grows once when the face starts")
+
     def test_every_script_the_app_loads_later_is_one_it_serves(self):
         """import(), worklets and the Touchpoint path: each must be an address this Lambda answers (a wrong one only
         shows when a call or chat starts)."""

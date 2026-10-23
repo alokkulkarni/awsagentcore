@@ -263,6 +263,7 @@ export function setupTalk({ api, context, onEnded = () => {}, onActivity = () =>
     const run = {};                   // this attempt: a later Hide (or a newer attempt) makes it stale
     current.avatar = 'starting';
     current.avatarRun = run;
+    dock.roomForFace();
     showVideo(true, 'Starting video…');
     tell('video', { state: 'starting' });
     try {
