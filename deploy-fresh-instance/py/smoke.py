@@ -1,8 +1,9 @@
 """Reads everything back once the run is done, and prints where to start.
 
     check   the instance, every flow (published, and no longer the placeholder), the Lambdas and bot it may call,
-            the assistant's knowledge base, the AI agents, the gateway and the two integrations, the designer apps,
-            and the web pages answering. Prints each as OK or MISSING; never changes anything.
+            the assistant's knowledge base, the AI agents and their tool counts, every gateway target (READY), the
+            two integrations, the designer apps, and the web pages answering. Prints each as OK or MISSING; never
+            changes anything.
 """
 
 from __future__ import annotations
@@ -10,11 +11,17 @@ from __future__ import annotations
 import json
 import urllib.request
 
+from branch_tools import TOOLS as BRANCH_TOOLS
 from common import GREEN, RED, RESET, TEMPLATES, cli, load_json, paged
 
 CONNECT = load_json(TEMPLATES / "connect.json")
 LAMBDAS = ("aria-session-injector-qconnect", "aria-handback-recovery", "aria-routing-lookup", "aria-card-dispute",
            "aria-agent-assist-injector")
+# Targets the AI agents' tools live on: the gateway script's ten, Money Hub's, the dispute service's, the branch tools.
+TARGETS = ("aria-banking-account", "aria-banking-auth", "aria-banking-credit-card", "aria-banking-customer",
+           "aria-banking-debit-card", "aria-banking-escalation", "aria-banking-knowledge", "aria-banking-mortgage",
+           "aria-banking-pii", "aria-banking-products", "aria-money-hub", "aria-banking-dispute",
+           *(t["target"] for t in BRANCH_TOOLS))
 
 
 def check(ctx) -> None:
@@ -46,7 +53,19 @@ def check(ctx) -> None:
         row("Knowledge base on the assistant", any(a["assistantAssociationId"] == s.get("KB_ASSOC_ID") for a in links))
         for key, label in (("ARIA", "ARIA v2"), ("AGENT_ASSIST", "Agent assist"), ("BRIEFING", "Briefing")):
             agent, version = s.get(f"{key}_AGENT_ID"), s.get(f"{key}_AGENT_VERSION")
-            row(f"AI agent {label}", bool(agent and version), f"{agent}:{version}" if agent else "not made")
+            if not (agent and version):
+                row(f"AI agent {label}", False, "not made")
+                continue
+            got = q.get_ai_agent(assistantId=aid, aiAgentId=f"{agent}:{version}")["aiAgent"]
+            tools = got["configuration"].get("orchestrationAIAgentConfiguration", {}).get("toolConfigurations", [])
+            row(f"AI agent {label}", True, f"{agent}:{version}, {len(tools)} tools")
+    gid = s.get("GATEWAY_ID")
+    if gid:
+        ac = ctx.client("bedrock-agentcore-control")
+        status = {t["name"]: t["status"] for t in paged(ac.list_gateway_targets, "items", token="nextToken",
+                                                        gatewayIdentifier=gid)}
+        for name in TARGETS:
+            row(f"Gateway target {name}", status.get(name) == "READY", status.get(name, "not made"))
     apps = {a["IntegrationArn"].split("/")[-1] for a in paged(
         connect.list_integration_associations, "IntegrationAssociationSummaryList",
         InstanceId=ctx.instance_id, IntegrationType="APPLICATION")}
@@ -54,7 +73,8 @@ def check(ctx) -> None:
     row("Money Hub A2A integration", s.get("APP_MONEY_HUB_ID") in apps)
     for key, label in (("ACXD_MORTGAGE_ALIAS", "Mortgage assistant (designer)"), ("ACXD_DISPUTE_ALIAS", "Card dispute assistant (designer)")):
         row(label, bool(s.get(key)), s.get(key) or "not deployed")
-    for key, label in (("BANKING_APP_URL", "Banking app"), ("MONEY_HUB_URL", "Money Hub page")):
+    for key, label in (("BANKING_APP_URL", "Banking app"), ("MONEY_HUB_URL", "Money Hub page"),
+                       ("MORTGAGE_WEB_URL", "Mortgage reference page")):
         url = s.get(key)
         if not url:
             row(label, False, "no URL recorded")

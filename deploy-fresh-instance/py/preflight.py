@@ -1,8 +1,9 @@
 """Before anything is created: the right account, nothing in the way, and every tool the scripts need.
 
-    check           refuses the account today's system runs in, and (on a first run) any account where aria-*
-                    Lambdas or tables already exist: every script uses fixed names, so it would quietly reuse them
-                    and wire the new instance to someone else's resources. Then checks the tools.
+    check           refuses the account today's system runs in, and (on a first run) any account where aria-*,
+                    mortgage-livesync-* or the branch tools' Lambdas or tables already exist: every script uses fixed
+                    names, so it would quietly reuse them and wire the new instance to someone else's resources.
+                    Then checks the tools and the two other checkouts (mortgage, branch tools).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from common import TEMPLATES, cli, fail, info, load_json, ok, warn
 
 LIVE = load_json(TEMPLATES / "live-map.json")
 ALIAS = re.compile(r"^[a-z][a-z0-9-]{2,36}[a-z0-9]$")
+BRANCH_NAMES = {"branch-info-tool", "branch-appointment-tool", "queue-status-tool", "branches", "branch-appointments"}
 
 
 def _version(cmd: list[str]) -> str:
@@ -53,7 +55,7 @@ def check(ctx) -> None:
         lam, ddb = ctx.client("lambda"), ctx.client("dynamodb")
         names = [f["FunctionName"] for page in lam.get_paginator("list_functions").paginate() for f in page["Functions"]]
         names += [t for page in ddb.get_paginator("list_tables").paginate() for t in page["TableNames"]]
-        clash = [n for n in names if n.startswith(("aria-", "mortgage-livesync-"))]
+        clash = [n for n in names if n.startswith(("aria-", "mortgage-livesync-")) or n in BRANCH_NAMES]
         if clash:
             fail("This account already has resources with the names this system uses: "
                  f"{', '.join(clash[:8])}{'…' if len(clash) > 8 else ''}. The scripts would reuse them. "
@@ -91,13 +93,17 @@ def check(ctx) -> None:
     mortgage = s.get("MORTGAGE_REPO", "")
     if not (mortgage and Path(mortgage, "scripts/deploy-backend.sh").exists()):
         problems.append(f"MORTGAGE_REPO ({mortgage or 'not set'}) must be a checkout of connect-livesync-mortgage.")
+    branch = s.get("BRANCH_REPO", "")
+    if not (branch and Path(branch, "backend/branch_info_tool.py").exists()):
+        problems.append(f"BRANCH_REPO ({branch or 'not set'}) must be a checkout of branchtransfercalldesign "
+                        "(ARIA's branch and appointment tools are deployed from it).")
     if problems:
         fail("Missing or too old:\n  - " + "\n  - ".join(problems))
     ok("Tools: AWS CLI, boto3, node, npm, sam, docker buildx, jq, zip, curl, openssl")
 
     if not (TEMPLATES / "acxd" / "index.json").exists():
-        warn("No agentic CX designer templates yet (templates/acxd). The designer phase will stop and ask you to run "
-             "`./deploy.sh capture-acxd` against today's workspace first.")
+        warn("No agentic CX designer templates yet (templates/acxd). The designer-access step will capture them from "
+             "today's workspace first (it asks for today's designer API key).")
     info("Bedrock model access: the knowledge base uses Titan text embeddings v2; ARIA uses Claude Sonnet 4.5, the "
          "agent-assist agent Claude Sonnet 5, the briefing agent and Money Hub Claude Haiku 4.5. In a new account, "
          "open Bedrock → Model access once and accept any terms Anthropic asks for, or those steps fail.")

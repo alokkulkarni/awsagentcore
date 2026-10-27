@@ -4,14 +4,16 @@
 #
 # Builds the whole ARIA system in a NEW AWS account, on a NEW Amazon Connect instance, in dependency order:
 # the instance and its queues, Q in Connect (assistant, knowledge base, guardrail), the Lex bot, the MCP gateway and
-# its tools, the core Lambdas, every contact flow and module, Money Hub (page, agent, A2A bridge, collaborator), card
-# disputes, the mortgage Live Sync backend, the agentic CX designer apps (mortgage and card dispute assistants),
-# ARIA v2 and the advisers' AI agents, the screen pop and agent assist, the banking app, and a final read-back.
+# its tools (the branch finder, appointment and queue-status tools too), the core Lambdas, every contact flow and module,
+# Money Hub (page, agent, A2A bridge, collaborator), card disputes, the mortgage Live Sync backend and reference page,
+# the agentic CX designer apps (mortgage and card dispute assistants), ARIA v2 and the advisers' AI agents, the screen
+# pop and agent assist, the banking app, and a final read-back.
 #
 # Interactive: every step says what it makes and why, shows the command, and asks before running it. Its output
 # follows straight away. IDs go to state/<alias>.env, so you can stop at any point and carry on later.
-# A few values only a console can give you (the designer's API key, each designer app's Touchpoint keys, your
-# Tavus keys for the video avatar): the script stops, tells you exactly where to click, and checks what you paste.
+# A few values only a console can give you (today's and the new designer's API keys, each designer app's Touchpoint
+# keys, your Tavus keys for the video avatar): the script stops, tells you exactly where to click, and checks what you
+# paste.
 #
 # Usage:
 #   ./deploy.sh --config my.env                 run every step, asking before each
@@ -19,10 +21,12 @@
 #   ./deploy.sh --config my.env --only aria-agent   run one step again (also one marked done)
 #   ./deploy.sh --config my.env --list          the steps, in order, with what's done
 #   ./deploy.sh --config my.env --yes           don't ask before each step (console pauses still ask)
-#   ./deploy.sh --config old.env capture-acxd   ONCE, against TODAY's workspace: capture the designer apps
+#   ./deploy.sh --config old.env capture-acxd   capture the designer apps from TODAY's workspace on their own
+#                                               (designer-access does it too when templates/acxd is missing)
 #
 # Requirements: bash 4+ (macOS: brew install bash), AWS CLI 2.38+, Python 3 with a current boto3, node 20+, npm,
-# AWS SAM CLI, docker with buildx, jq, zip, curl, openssl, and a checkout of connect-livesync-mortgage.
+# AWS SAM CLI, docker with buildx, jq, zip, curl, openssl, and checkouts of connect-livesync-mortgage and
+# branchtransfercalldesign (ARIA's branch and appointment tools).
 # Sign in to the NEW account first (AWS_PROFILE in your config). It refuses the account today's system runs in.
 # =============================================================================
 set -Eeuo pipefail          # -E: the error trap applies inside step functions too
@@ -61,6 +65,7 @@ source "$CONFIG"
 [[ -n "${AWS_PROFILE:-}" ]] && export AWS_PROFILE
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 MORTGAGE_REPO="${MORTGAGE_REPO:-$HOME/Downloads/connect-livesync-mortgage}"
+BRANCH_REPO="${BRANCH_REPO:-$HOME/Documents/Development/branchtransfercalldesign}"
 STATE="$HERE/state/${INSTANCE_ALIAS}.env"
 LOG="$HERE/state/${INSTANCE_ALIAS}.log"
 mkdir -p "$HERE/state"; chmod 700 "$HERE/state"
@@ -73,7 +78,9 @@ needs() { local k; for k in "$@"; do st has "$k" || die "$k isn't known yet: run
 py()  { local helper="$1" command="$2"; shift 2; "$PY" "$HERE/py/${helper}.py" "$command" --state "$STATE" "$@"; }
 
 # ── capture-acxd: against TODAY's workspace, read only ───────────────────────
-if [[ "$COMMAND" == "capture" ]]; then
+# On its own (capture-acxd) or from designer-access when templates/acxd is missing. Uses the designer's API key only,
+# so which AWS account you're signed in to doesn't matter.
+capture_acxd() {
     echo "${BOLD}Capture the agentic CX designer apps from today's workspace (reads only)${RESET}"
     about "Writes every flow, Data request, knowledge base, guardrail, Live Sync script and application in the" \
           "workspace to templates/acxd, so the new account's designer can be rebuilt from them. Secret values are" \
@@ -87,12 +94,17 @@ if [[ "$COMMAND" == "capture" ]]; then
     ask OLD_REGION "Its region" "eu-west-2"
     (cd "$HERE/acxd" && { [[ -d node_modules/amazon-connect-acxd-sdk ]] || npm install --no-audit --no-fund; } &&
         ACXD_API_KEY="$OLD_KEY" ACXD_WORKSPACE_ID="$OLD_WORKSPACE" ACXD_REGION="$OLD_REGION" node capture.mjs)
-    ok "Captured. Commit templates/acxd so the fresh deploy can use it (no secret values are in it)."
+    [[ -f "$HERE/templates/acxd/index.json" ]] || die "The capture didn't write templates/acxd/index.json (see above)."
+    ok "Captured to templates/acxd. Commit it so the next fresh deploy can use it (no secret values are in it)."
+}
+if [[ "$COMMAND" == "capture" ]]; then
+    capture_acxd
     exit 0
 fi
 
 # The run's settings, kept with its IDs.
 st set REGION "$REGION"; st set INSTANCE_ALIAS "$INSTANCE_ALIAS"; st set MORTGAGE_REPO "$MORTGAGE_REPO"
+st set BRANCH_REPO "$BRANCH_REPO"
 for k in ACXD_MORTGAGE_APP_NAME ACXD_DISPUTE_APP_NAME ARIA_MODEL_ID AGENT_ASSIST_MODEL_ID BRIEFING_MODEL_ID; do
     [[ -n "${!k:-}" ]] && st set "$k" "${!k}"
 done
@@ -115,6 +127,7 @@ STEPS=(
   "injector|4 Tools and core Lambdas|The session injector (who the customer is, for ARIA)"
   "handback-recovery|4 Tools and core Lambdas|Hand-back recovery (chats Connect loses on the way back)"
   "routing|4 Tools and core Lambdas|Routing lookup (which queue an escalation goes to)"
+  "branch-tools|4 Tools and core Lambdas|Branch finder, appointment and queue-status tools (on the gateway)"
   "flow-shells|5 Flows|Every contact flow and module, as placeholders (for their IDs)"
   "money-hub|6 Money Hub, disputes, mortgage|Money Hub: its page, API and tools"
   "money-hub-agent|6 Money Hub, disputes, mortgage|The Money Hub agent (Strands on AgentCore Runtime)"
@@ -124,6 +137,7 @@ STEPS=(
   "card-dispute|6 Money Hub, disputes, mortgage|The card dispute service, its tools and pages"
   "dispute-pages|6 Money Hub, disputes, mortgage|CloudFront in front of the dispute pages"
   "mortgage-backend|6 Money Hub, disputes, mortgage|The mortgage Live Sync backend (connect-livesync-mortgage)"
+  "mortgage-web|6 Money Hub, disputes, mortgage|The mortgage reference page and CX simulation (CloudFront)"
   "tool-grants|6 Money Hub, disputes, mortgage|Admin and Agent may use every gateway tool"
   "agent-assist-lambda|6 Money Hub, disputes, mortgage|The advisers' agent-assist injector (screen pop data)"
   "web-urls|6 Money Hub, disputes, mortgage|The web addresses made so far"
@@ -279,6 +293,18 @@ step_routing() {
     py connect_setup associate aria-routing-lookup
 }
 
+step_branch_tools() {
+    about "From branchtransfercalldesign (${BRANCH_REPO}): the tables branches (seeded with its sample branches) and" \
+          "branch-appointments, a role and Lambda for each tool, and each as a target on the gateway: branch-info" \
+          "(find_branches, get_branch_details, get_current_time), branch-appointments (get_appointment_slots," \
+          "book_branch_appointment) and queue-status (get_queue_status, which the advisers' agent-assist agent uses;" \
+          "it reads the routing table). Then asks find_branches for Leeds. Its Teams transfer pieces aren't made."
+    will "python3 py/branch_tools.py tools"
+    go || return 0
+    needs GATEWAY_ID INSTANCE_ID BRANCH_REPO
+    py branch_tools tools
+}
+
 # ── Phase 5 ──────────────────────────────────────────────────────────────────
 step_flow_shells() {
     about "The flows transfer to each other in a circle (ARIA → card dispute → ARIA; human handover → agent assist →" \
@@ -379,9 +405,21 @@ step_mortgage_backend() {
         bash scripts/deploy-backend.sh)
     py outputs mortgage
 }
+step_mortgage_web() {
+    about "connect-livesync-mortgage/scripts/deploy-web.sh (in ${MORTGAGE_REPO}): the reference page and the CX" \
+          "simulation in a private S3 bucket behind CloudFront, with /api passed to the backend, then its live checks." \
+          "The first CloudFront build takes 5-10 minutes."
+    will "(cd ${MORTGAGE_REPO} && STACK_NAME=mortgage-livesync-api WEB_STACK_NAME=mortgage-livesync-web scripts/deploy-web.sh)" \
+         "python3 py/outputs.py mortgage-web"
+    go || return 0
+    needs MORTGAGE_ENDPOINT_URL
+    (cd "$MORTGAGE_REPO" && env STACK_NAME=mortgage-livesync-api WEB_STACK_NAME=mortgage-livesync-web bash scripts/deploy-web.sh)
+    py outputs mortgage-web
+}
 step_tool_grants() {
-    about "Lets the Admin and Agent security profiles use every tool on the gateway (now that Money Hub and the" \
-          "dispute service have added theirs). ARIA's tool calls run with these profiles and fail without them."
+    about "Lets the Admin and Agent security profiles use every tool on the gateway (now that the branch tools, Money" \
+          "Hub and the dispute service have added theirs). ARIA's tool calls run with these profiles and fail" \
+          "without them."
     will "python3 py/integrations.py tool-grants"
     go || return 0
     py integrations tool-grants
@@ -409,10 +447,13 @@ step_designer_access() {
     about "The designer's SDK only accepts an API key, and the first key can only come from its console." \
           "This stores it as the mortgage stack's designer access secret, then runs that stack's sync, which writes" \
           "mortgage_api_key into the workspace."
-    [[ -f "$HERE/templates/acxd/index.json" ]] || die "No designer templates yet: run './deploy.sh --config <today's config> capture-acxd' against today's workspace first, commit templates/acxd, then come back."
+    [[ -f "$HERE/templates/acxd/index.json" ]] ||
+        about "templates/acxd isn't there yet, so first it captures the designer apps from TODAY's workspace (reads" \
+              "only; it asks for today's designer API key)."
     will "python3 py/designer.py store-access   (key and workspace ID from what you paste)"
     go || return 0
     needs CONNECT_URL ADMIN_USER MORTGAGE_ACXD_ACCESS_SECRET MORTGAGE_ACXD_SYNC_FUNCTION
+    [[ -f "$HERE/templates/acxd/index.json" ]] || capture_acxd
     console "the NEW account's designer API key" \
         "1. Sign in at $(v CONNECT_URL) as $(v ADMIN_USER)." \
         "2. Open Agentic CX designer. If it asks, create a workspace (any name, e.g. ${INSTANCE_ALIAS})." \
@@ -458,17 +499,17 @@ step_touchpoint_keys() {
 
 # ── Phase 8 ──────────────────────────────────────────────────────────────────
 step_aria_agent() {
-    about "ARIA v2: her prompt (connect-bot-flow-modular/ai-agent) and agent with her gateway tools, Retrieve on the" \
-          "knowledge base, the guardrail and the Money Hub collaborator, all moved onto this instance; published and" \
-          "linked to Admin, Agent and the collaborators profile. Tools this gateway doesn't have (the branch tools," \
-          "from another project) are left out with a warning."
+    about "ARIA v2: her prompt (connect-bot-flow-modular/ai-agent) and agent with her 23 gateway tools (banking," \
+          "branches and appointments), Retrieve on the knowledge base, the guardrail and the Money Hub collaborator," \
+          "all moved onto this instance; published and linked to Admin, Agent and the collaborators profile. A tool" \
+          "the gateway doesn't have would be left out with a warning (none, once branch-tools has run)."
     will "python3 py/agents.py aria"
     go || return 0
     py agents aria
 }
 step_assist_agents() {
-    about "The advisers' agent-assist and briefing agents (connect-agent-assist prompts), with the gateway tools" \
-          "that exist here (today's branch-finder tools belong to another project and are left out)."
+    about "The advisers' agent-assist and briefing agents (connect-agent-assist prompts), with their gateway tools" \
+          "(agent assist's include the branch, appointment and queue-status tools)."
     will "python3 py/agents.py agent-assist" "python3 py/agents.py briefing"
     go || return 0
     py agents agent-assist
@@ -513,12 +554,12 @@ step_banking_app() {
     py outputs web
 }
 step_origins() {
-    about "Approves the Money Hub page and the dispute pages as origins for in-app calls and chat (the banking app" \
-          "approved its own)."
-    will "python3 py/connect_setup.py origin $(v MONEY_HUB_URL) $(v DISPUTE_PAGES_URL)"
+    about "Approves the Money Hub page, the dispute pages and the mortgage reference page as origins for in-app" \
+          "calls and chat (the banking app approved its own)."
+    will "python3 py/connect_setup.py origin $(v MONEY_HUB_URL) $(v DISPUTE_PAGES_URL) $(v MORTGAGE_WEB_URL)"
     go || return 0
-    needs MONEY_HUB_URL DISPUTE_PAGES_URL
-    py connect_setup origin "$(v MONEY_HUB_URL)" "$(v DISPUTE_PAGES_URL)"
+    needs MONEY_HUB_URL DISPUTE_PAGES_URL MORTGAGE_WEB_URL
+    py connect_setup origin "$(v MONEY_HUB_URL)" "$(v DISPUTE_PAGES_URL)" "$(v MORTGAGE_WEB_URL)"
 }
 step_smoke() {
     about "Reads everything back (instance, flows, Lambdas and bot on the instance, knowledge base, AI agents," \
@@ -531,6 +572,7 @@ step_smoke() {
     echo "  Connect admin:  $(v CONNECT_URL)  (user $(v ADMIN_USER))"
     echo "  Banking app:    $(v BANKING_APP_URL)  (open it from the demo link the banking-app step printed; it's also in ${LOG})"
     echo "  Money Hub page: $(v MONEY_HUB_URL)"
+    echo "  Mortgage page:  $(v MORTGAGE_WEB_URL)  (reference page; the simulation is at demo/)"
     [[ -n "$(v PHONE_NUMBER)" ]] && echo "  Phone:          $(v PHONE_NUMBER)"
     echo "  Every ID:       $STATE"
 }
