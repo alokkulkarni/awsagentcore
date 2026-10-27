@@ -86,6 +86,11 @@ def _configuration(ctx, key: str, spec: dict, prompt: str) -> dict:
     kept, dropped = [], []
     for tool in body.get("toolConfigurations", []):
         tool_id = tool.get("toolId", "")
+        if tool.get("toolName") == "Retrieve":
+            # The model fills Retrieve's assistantId itself and has picked the instance ID (AccessDenied): pin it.
+            pinned = {"jsonPath": "$.assistantId", "value": {"constant": {"type": "STRING", "value": ctx.state.need("ASSISTANT_ID")}}}
+            tool["overrideInputValues"] = [pinned, *[o for o in tool.get("overrideInputValues", [])
+                                                     if o["jsonPath"] != "$.assistantId"]]
         if tool.get("toolType") == "MODEL_CONTEXT_PROTOCOL" and tool_id.startswith(f"gateway_{gid}__"):
             if tool_id[len(f"gateway_{gid}__"):] not in available:
                 dropped.append(tool["toolName"])

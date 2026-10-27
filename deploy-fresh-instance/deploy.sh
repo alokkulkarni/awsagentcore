@@ -458,9 +458,10 @@ step_touchpoint_keys() {
 
 # ── Phase 8 ──────────────────────────────────────────────────────────────────
 step_aria_agent() {
-    about "ARIA v2: her prompt (connect-bot-flow-modular/ai-agent) and agent with 18 gateway tools, Retrieve on the" \
+    about "ARIA v2: her prompt (connect-bot-flow-modular/ai-agent) and agent with her gateway tools, Retrieve on the" \
           "knowledge base, the guardrail and the Money Hub collaborator, all moved onto this instance; published and" \
-          "linked to Admin, Agent and the collaborators profile."
+          "linked to Admin, Agent and the collaborators profile. Tools this gateway doesn't have (the branch tools," \
+          "from another project) are left out with a warning."
     will "python3 py/agents.py aria"
     go || return 0
     py agents aria

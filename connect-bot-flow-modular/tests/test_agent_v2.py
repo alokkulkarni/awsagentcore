@@ -240,9 +240,44 @@ class ThePromptIsQuickToAnswer(unittest.TestCase):
 
 class TheAgentKeepsItsToolsCollaboratorAndGuardrail(unittest.TestCase):
     def test_tools_are_v38s_minus_query_assistant_byte_for_byte(self):
-        self.assertEqual(set(NEW_TOOLS), set(LIVE_TOOLS) - {"QueryAssistant"})
+        self.assertEqual(set(NEW_TOOLS), set(LIVE_TOOLS) - {"QueryAssistant"} | set(build_agent.BRANCH_TOOLS))
         for name, tool in NEW_TOOLS.items():
+            if name in build_agent.BRANCH_TOOLS:         # the branch agent's (next tests)
+                continue
+            if name == "Retrieve":                       # v38's, plus the pinned assistant (next test)
+                tool = {**tool, "overrideInputValues": [o for o in tool["overrideInputValues"]
+                                                        if o["jsonPath"] != "$.assistantId"]}
             self.assertEqual(tool, LIVE_TOOLS[name], name)
+
+    def test_branch_tools_are_the_branch_agents_byte_for_byte_and_only_info_and_appointments(self):
+        ava = json.loads((ROOT / "ai-agent" / "reference" / "other-agents.json").read_text())["AVA-BranchInfo-Orchestration-agent"]
+        ava_tools = {t["toolName"]: t for t in ava.get("aiAgent", ava)["configuration"]["orchestrationAIAgentConfiguration"]
+                     ["toolConfigurations"]}
+        self.assertEqual(set(build_agent.BRANCH_TOOLS), {n for n in ava_tools if n.startswith(("branch_info___",
+                                                                                                "branch_appointments___"))})
+        for name in build_agent.BRANCH_TOOLS:
+            self.assertEqual(NEW_TOOLS[name], ava_tools[name], name)
+            self.assertTrue(NEW_TOOLS[name]["toolId"].startswith("gateway_aria-banking-mcp-gateway-prod-"),
+                            "ARIA's own gateway: the Admin and Agent profiles already allow these tools")
+        self.assertNotIn("queue_status___get_queue_status", NEW_TOOLS, "branch info and appointments only")
+
+    def test_aria_finds_branches_and_books_from_the_tools_and_a_booking_is_not_a_hand_over(self):
+        branches = NEW[NEW.index("  <branches>"):NEW.index("  </branches>")]
+        for rule in ("Branch facts come only from the tools", "Whether a branch is open now comes only from is_open_now",
+                     "call get_current_time first", 'brand "Nationwide Building Society" unless they ask about Virgin',
+                     "Offer only times get_appointment_slots returned", "full name from get_customer_details",
+                     "wait for their yes", "A booking isn't a hand-over: don't call Escalate or Complete for it",
+                     "You can't put a customer\n  through to a branch", "to open an account"):
+            self.assertIn(rule, branches)
+        self.assertIn("Branches and appointments: find_branches, get_branch_details, get_current_time, "
+                      "get_appointment_slots, book_branch_appointment", NEW)
+
+    def test_retrieve_searches_the_assistant_the_flow_uses_never_one_the_model_picks(self):
+        """ARIA passed the instance ID as assistantId (her context has it, not the assistant's), and every Retrieve
+        failed with AccessDenied on assistant/<instance-id>; she then offered a colleague."""
+        overrides = {o["jsonPath"]: o["value"]["constant"] for o in NEW_TOOLS["Retrieve"]["overrideInputValues"]}
+        self.assertEqual(overrides["$.assistantId"], {"type": "STRING", "value": build_agent.LIVE_AGENT["assistantId"]})
+        self.assertIn("$.retrievalConfiguration.knowledgeSource.assistantAssociationIds", overrides, "still pinned")
 
     def test_every_card_tool_takes_the_customer(self):
         for name in ("aria_banking_debit_card___get_debit_card_details", "aria_banking_credit_card___get_credit_card_details",
