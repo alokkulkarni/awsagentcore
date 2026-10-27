@@ -23,6 +23,15 @@
           },
           "overrideInputValues": [
             {
+              "jsonPath": "$.assistantId",
+              "value": {
+                "constant": {
+                  "type": "STRING",
+                  "value": "e6991ed4-e11c-4194-8d20-13889a36bd15"
+                }
+              }
+            },
+            {
               "jsonPath": "$.retrievalConfiguration.knowledgeSource.assistantAssociationIds",
               "value": {
                 "constant": {
@@ -1186,6 +1195,147 @@
           },
           "userInteractionConfiguration": {
             "isUserConfirmationRequired": false
+          }
+        },
+        {
+          "toolName": "branch_info___find_branches",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___find_branches",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___find_branches",
+          "description": "Search Nationwide Building Society and Virgin Money branches by town, area, postcode or outcode. Optionally filter by brand and by a required service (e.g. 'mortgage advice', 'counter cash', 'business banking'). Returns location, phone, today's opening hours, is_open_now (the ONLY authority on whether the branch is open right now \u2014 never work it out yourself) and the services available at each matching branch. Use get_branch_details for full opening times.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "service": {
+                "description": "Only return branches offering this service. Canonical values: counter cash, cash deposit, cheque deposit, mortgage advice, savings advice, financial planning, business banking, safe custody. Also accepted: 'atm' or 'cash machine' (branches with an ATM) and accessibility terms such as 'wheelchair access' or 'hearing loop'. Map the customer's words to the closest canonical value.",
+                "type": "string"
+              },
+              "query": {
+                "description": "Town, area, full postcode or outcode, e.g. 'Leeds', 'SW1E 5NH', 'NE3'.",
+                "type": "string"
+              },
+              "limit": {
+                "description": "Maximum number of branches to return (default 5).",
+                "type": "integer"
+              },
+              "brand": {
+                "description": "Restrict results to one brand. Default: any. Natural forms ('Virgin Money', 'Nationwide Building Society') are also accepted.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "toolName": "branch_info___get_branch_details",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___get_branch_details",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___get_branch_details",
+          "description": "Get the full record for one branch by its branch_id (from a find_branches result): complete address, phone, opening times for all seven days, today's hours, is_open_now (the ONLY authority on whether the branch is open right now), every service offered, accessibility features and ATM availability.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "branch_id": {
+                "description": "Branch identifier, e.g. 'NBS-0001' or 'VM-0002'.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "branch_id"
+            ]
+          }
+        },
+        {
+          "toolName": "branch_info___get_current_time",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___get_current_time",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-info___get_current_time",
+          "description": "Get the current date and time in the United Kingdom (Europe/London): day of week, date, 24-hour time, ISO timestamp and timezone. This is your ONLY clock \u2014 call it before any time-dependent statement or decision: whether a branch has closed for the day, when it reopens, what day 'tomorrow' is, or which days suit an appointment. Takes no arguments.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "toolName": "branch_appointments___get_appointment_slots",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-appointments___get_appointment_slots",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-appointments___get_appointment_slots",
+          "description": "List bookable appointment slots at one branch for the next 7 days (or a single date). Slots are hourly, within the branch's opening hours, at least 1 hour ahead, and exclude times already booked. Always call this before offering or booking a time \u2014 never invent availability. Use the branch_id from a find_branches result.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "description": "Optional single date to check, format YYYY-MM-DD (e.g. '2026-07-08'). Omit to get the full 7-day window.",
+                "type": "string"
+              },
+              "branch_id": {
+                "description": "Branch identifier from a find_branches result, e.g. 'NBS-0002' or 'VM-0001'. Never typed from memory.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "branch_id"
+            ]
+          }
+        },
+        {
+          "toolName": "branch_appointments___book_branch_appointment",
+          "toolType": "MODEL_CONTEXT_PROTOCOL",
+          "title": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-appointments___book_branch_appointment",
+          "toolId": "gateway_aria-banking-mcp-gateway-prod-11grjuxyru__branch-appointments___book_branch_appointment",
+          "description": "Book a confirmed appointment at a branch for the customer, with the reason for their visit. Only book a date and time that get_appointment_slots returned, and only after the customer confirmed the slot, their name, and the reason. Returns a confirmation message with an appointment reference to read back to the customer. If the slot was just taken, offer another slot.",
+          "instruction": {},
+          "overrideInputValues": [],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "description": "Appointment date, format YYYY-MM-DD, within the next 7 days.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Why the customer is visiting, short, in their own words \u2014 e.g. 'rearrange a mortgage document appointment'. Same reason already captured for the conversation.",
+                "type": "string"
+              },
+              "contact_phone": {
+                "description": "Optional contact number, only if the customer volunteers one.",
+                "type": "string"
+              },
+              "branch_id": {
+                "description": "Branch identifier from a find_branches result, e.g. 'NBS-0002'. Never typed from memory.",
+                "type": "string"
+              },
+              "time": {
+                "description": "Appointment start time, format HH:MM (24-hour), taken from get_appointment_slots.",
+                "type": "string"
+              },
+              "customer_name": {
+                "description": "The customer's name for the branch diary, as they gave it.",
+                "type": "string"
+              },
+              "topic_category": {
+                "description": "Optional canonical topic if one fits: branch_services, mortgages, savings, business_banking, bereavement, power_of_attorney, financial_difficulty, fraud_security, complaint, general.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "branch_id",
+              "customer_name",
+              "date",
+              "reason",
+              "time"
+            ]
           }
         }
       ],

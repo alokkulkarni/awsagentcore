@@ -43,6 +43,19 @@ CUSTOMER_ID = next(t for t in LIVE_AGENT["configuration"]["orchestrationAIAgentC
                    if t["toolName"] == "aria_banking_debit_card___get_debit_card_details")["inputSchema"]["properties"]["customer_id"]
 PROMPT_NAME = "ARIA-Banking-Orchestration-Prompt-v2"
 AGENT_NAME = "aria-conversation-agent-v2"
+# Retrieve asks the model for assistantId, and ARIA's context holds the instance ID but not the assistant's: she
+# passed the instance ID, and Q in Connect refused it (AccessDenied on assistant/<instance-id>). Pin it, as the
+# knowledge base association already is, so the model never chooses it.
+RETRIEVE_ASSISTANT = {"jsonPath": "$.assistantId",
+                      "value": {"constant": {"type": "STRING", "value": LIVE_AGENT["assistantId"]}}}
+# Branch information and appointment booking, exactly as the branch agent (AVA-BranchInfo-Orchestration-agent) has
+# them: tools on ARIA's own MCP gateway, already allowed by the Admin and Agent security profiles. Not its queue-status
+# tool, nor its live transfer to a branch (a flow, not a tool).
+BRANCH_TOOLS = ("branch_info___find_branches", "branch_info___get_branch_details", "branch_info___get_current_time",
+                "branch_appointments___get_appointment_slots", "branch_appointments___book_branch_appointment")
+_AVA = json.loads((HERE / "reference" / "other-agents.json").read_text())["AVA-BranchInfo-Orchestration-agent"]
+_AVA_TOOLS = {t["toolName"]: t for t in _AVA.get("aiAgent", _AVA)["configuration"]["orchestrationAIAgentConfiguration"]
+              ["toolConfigurations"]}
 
 
 def section(start: str, end: str, text: str = LIVE_PROMPT) -> str:
@@ -218,10 +231,50 @@ TOOL_STRATEGY = """  <tool_usage_strategy>
   - Mortgage queries: get_mortgage_details
   - Product information: get_product_catalogue, Retrieve, search_knowledge_base, get_feature_parity
   - Spending and analysis: analyse_spending (for understanding their money in depth, bring in the Money Hub agent as <money_hub> describes)
+  - Branches and appointments: find_branches, get_branch_details, get_current_time, get_appointment_slots, book_branch_appointment (as <branches> describes)
   - Ending your part of the conversation: the Complete tool (with nextStep: none, card_dispute or mortgage_application)
   - Transferring to a person: the Escalate tool. It is the ONLY way to transfer a customer.
   Always call tools in <thinking> — never reveal tool names, raw JSON responses, or internal architecture in <message>. Before calling a tool, always produce a pre-tool <message> that confirms the request and fills the audio gap while the tool executes. Apply the channel-aware bridging rules below. When combining tools, chain them in <thinking> and present a single consolidated response in <message>.
   </tool_usage_strategy>"""
+
+BRANCHES = """  <branches>
+  Use this when the customer asks about a branch (the nearest one, opening times, whether it's open now, services,
+  accessibility, cash machines), wants a branch appointment (for example to open an account, for mortgage advice,
+  to bring in documents, or anything done in a branch), or says they'd rather sort something out in person.
+  Branch information doesn't need the customer to be verified.
+
+  Branch facts come only from the tools, never from memory or the knowledge base (addresses, hours and services
+  change):
+  1. You need a location. If they haven't given one, ask: "Whereabouts are you? A town or postcode is perfect."
+  2. Call find_branches with it as query, and brand "Nationwide Building Society" unless they ask about Virgin
+     Money. When they need something specific, add the service filter with the closest of: counter cash, cash
+     deposit, cheque deposit, mortgage advice, savings advice, financial planning, business banking, safe custody
+     ("atm" for cash machines; accessibility words such as "wheelchair access" as they are).
+  3. Offer at most two branches on a call (name, street, open or not), up to five on chat.
+  4. Whether a branch is open now comes only from is_open_now: if it's false, say so in the same breath ("they've
+     closed for today, they open at nine tomorrow"). For any day, date or time ("tomorrow", "Saturday", when they
+     reopen), call get_current_time first; never work out the time yourself.
+  5. Full opening times, accessibility or services for one branch: get_branch_details with its branch_id.
+  6. No match: ask for a nearby larger town or the first part of the postcode, and try once more.
+
+  Booking an appointment. All of these first:
+  1. The branch was chosen from find_branches in this conversation (its branch_id exactly as returned).
+  2. You know why they're visiting: reuse what they've said, or ask one short question. It goes in the booking so
+     the branch can prepare.
+  3. Offer only times get_appointment_slots returned for that branch (two or three on a call).
+  4. Their name for the branch diary: a verified customer's full name from get_customer_details (call it if you
+     haven't); otherwise ask once.
+  5. Read back the branch, day, time and reason in one sentence and wait for their yes.
+  Then call book_branch_appointment with branch_id, date (YYYY-MM-DD), time (HH:MM, from the slots), customer_name
+  and reason, plus topic_category if one fits and contact_phone only if they gave one. Read back the day, time,
+  branch and the appointment reference (on a call one character at a time, and offer to repeat it), then ask if
+  there's anything else. If the slot was just taken, apologise once and offer fresh times.
+
+  A booking isn't a hand-over: don't call Escalate or Complete for it, just carry on. You can't put a customer
+  through to a branch: offer an appointment, or the branch's phone number from the tool result. If nothing suits
+  them, offer another nearby branch or a colleague (the Escalate tool, as usual). If these tools aren't in your
+  tool list, answer branch questions with Retrieve and say you can't book an appointment here.
+  </branches>"""
 
 KB_INDEX = """  <knowledge_base_retrieval>
   The Retrieve tool gives you direct access to the Nationwide Building Society internal Knowledge Base. Use Retrieve
@@ -382,7 +435,7 @@ def build_prompt() -> str:
         v["intro"], "", v["formatting"], "", BRIEF_THINKING, "", v["identity"], "", PERSONAL_DATA, "", v["farewell"], "",
         v["personalisation"], "", v["known_contact_reasons"], "",
         v["greeting"], "", v["assurance"], "", e["money_hub"], "", v["card_disputes"], "", DISPUTE_UPDATES, "",
-        v["mortgage_applications"], "", FROM_INTERNET_BANKING, "", PAGE_CHANGES, "", v["pre_authenticated"], "", e["vulnerability"], "", e["distress"], "",
+        v["mortgage_applications"], "", BRANCHES, "", FROM_INTERNET_BANKING, "", PAGE_CHANGES, "", v["pre_authenticated"], "", e["vulnerability"], "", e["distress"], "",
         UNAUTHENTICATED, "", e["query_handling"].rsplit("\n", 1)[0], KB_GUIDE, "", TOOL_STRATEGY, "",
         e["bridging"], "", KB_INDEX + e["kb_how_to"], "", v["proactive"], "", e["escalation"], "",
         NO_TOOL_REQUESTS, "", e["security"], "", v["in_flight"], "", TONE + v["number_formatting"], "", e["out_of_scope"], "",
@@ -405,6 +458,10 @@ def build_agent(prompt_id: str = "${PROMPT_ID_V2}") -> dict:
             schema = tool["inputSchema"]                 # (v38 already has it: then the live tool is kept as it is)
             schema["properties"]["customer_id"] = dict(CUSTOMER_ID)
             schema["required"] = ["customer_id", *[r for r in schema.get("required", []) if r != "customer_id"]]
+        if tool["toolName"] == "Retrieve":
+            overrides = [o for o in tool.get("overrideInputValues", []) if o["jsonPath"] != RETRIEVE_ASSISTANT["jsonPath"]]
+            tool["overrideInputValues"] = [RETRIEVE_ASSISTANT, *overrides]
+    tools += [json.loads(json.dumps(_AVA_TOOLS[name])) for name in BRANCH_TOOLS]
     configuration["toolConfigurations"] = tools
     return {"name": AGENT_NAME, "type": "ORCHESTRATION", "visibilityStatus": "PUBLISHED",
             "description": "ARIA v2 for the modular conversation bot flow: same business logic as "

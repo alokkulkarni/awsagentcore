@@ -592,6 +592,38 @@ Check:
 | Mortgages → Chat → "can I speak to an adviser?" | "Of course." then ARIA escalates; the screen pop opens the mortgage application view |
 | Money Hub → "I want to dispute a payment" | "Let's sort that out." (no colleague), then the disputes specialist |
 
+## ARIA's knowledge base search works, and she finds branches and books appointments (27 Oct 2026)
+
+Every `Retrieve` (the knowledge base search) failed with AccessDenied, so ARIA fell back to `search_knowledge_base`
+(a stub that finds nothing) and offered a colleague. The tool asks the model for `assistantId`; ARIA's context holds
+the instance ID but not the assistant's, so she passed the instance ID, and Q in Connect refused a Retrieve on
+`assistant/<instance-id>`. The session traces show it (`ListSpans`, `execute_tool` → `Retrieve`, status ERROR). The
+agent now pins `assistantId` to the assistant, as it already pinned the knowledge base association, so the model never
+chooses it. Permissions and security profiles were never the problem.
+
+ARIA also has the branch agent's (AVA-BranchInfo-Orchestration-agent) branch information and appointment tools:
+`find_branches`, `get_branch_details`, `get_current_time`, `get_appointment_slots` and `book_branch_appointment`
+(not its queue-status tool or its live transfer to a branch). They're on ARIA's own MCP gateway and the Admin and
+Agent profiles already allow them, so nothing else changes. Her new `<branches>` section: branch facts only from the
+tools, `is_open_now` alone says whether a branch is open, a booking needs a branch from `find_branches`, a reason,
+a slot from `get_appointment_slots`, the customer's name and a confirmed read-back, and it isn't a hand-over.
+
+1. **ARIA** (one new version for both):
+   `/Users/alokkulkarni/Documents/Development/awsagentcore/connect-bot-flow-modular/ai-agent/create_agent.sh --update`,
+   then the same with `--update --apply`. Put the new version at the end of `"aria"` in
+   `/Users/alokkulkarni/Documents/Development/awsagentcore/connect-bot-flow-modular/config.json`, run
+   `python3 /Users/alokkulkarni/Documents/Development/awsagentcore/connect-bot-flow-modular/build_flows.py --config /Users/alokkulkarni/Documents/Development/awsagentcore/connect-bot-flow-modular/config.json`,
+   then import
+   `/Users/alokkulkarni/Documents/Development/awsagentcore/connect-bot-flow-modular/flows/aria-conversation-bot-flow.json`
+   into "ARIA conversation bot flow (modular)", Save, **Publish**.
+2. **Check**: ask ARIA a how-to question ("how do I make a faster payment in the app?"): she answers from the knowledge
+   base, and the session's `Retrieve` span is OK. Then "where's my nearest branch in Leeds, and can I book an
+   appointment to open an account?": she lists branches (open or not), offers real times, reads back and books, and
+   gives an appointment reference.
+
+The advisers' agent-assist and briefing agents use the same tool and were made in the console: pin their
+`Retrieve` → `assistantId` the same way (deploy-fresh-instance does it for all three).
+
 ## Afterwards
 
 - **Changing ARIA v2** (prompt or tools):

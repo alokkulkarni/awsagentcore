@@ -66,7 +66,7 @@ designer builds).
 | 5 Flows | `flow-shells` | Every flow and module as a placeholder, for their IDs (they refer to each other in a circle) |
 | 6 Money Hub, disputes, mortgage | `money-hub` … `web-urls` | Money Hub page, agent, A2A bridge and warmer, its collaborator integration; the card dispute service and pages; the mortgage stack; tool permissions; the agent-assist Lambda |
 | 7 Agentic CX designer | `designer-access`, `designer-apps`, `touchpoint-keys` | Access to the new workspace, the mortgage and card dispute assistants rebuilt and deployed, their Touchpoint keys |
-| 8 AI agents | `aria-agent`, `assist-agents` | ARIA v2 (18 tools, knowledge base, guardrail, Money Hub collaborator) and the advisers' agent-assist and briefing agents |
+| 8 AI agents | `aria-agent`, `assist-agents` | ARIA v2 (the gateway tools, knowledge base, guardrail, Money Hub collaborator) and the advisers' agent-assist and briefing agents |
 | 9 Flows | `flows-fill` | Every flow and module's real content, published |
 | 10 Front doors | `phone`, `banking-app`, `origins`, `smoke` | An optional phone number, the banking app, approved origins, and a read-back of everything |
 
@@ -131,8 +131,11 @@ nothing changes for the current deployment): `scripts/deploy_mcp_gateway.sh` (`A
 - **Legacy Lambdas:** `scripts/deploy_mcp_gateway.sh` always also makes three older support Lambdas nothing uses
   now. They're harmless; delete them if you like.
 - **Not included** (not used by the current system): DTMF secure capture, meeting ID, the WebRTC API, the two old
-  chat widgets, the analytics agent, the IDV test harness. The agent-assist agent's branch-finder tools belong to
-  another project and are left out.
+  chat widgets, the analytics agent, the IDV test harness.
+- **Branch tools:** ARIA's and the agent-assist agent's branch information and appointment tools run on the branch
+  agent's Lambdas, which belong to another project and aren't deployed here, so `aria-agent` and `assist-agents`
+  leave them out (with a warning). ARIA then answers branch questions from the knowledge base and says she can't
+  book. Deploy that project's `branch-info` and `branch-appointments` gateway targets first to keep them.
 - **No teardown script.** To remove a test build, delete the Connect instance, then the CloudFormation stack
   `mortgage-livesync-api`, then the resources tagged `project=deploy-fresh-instance` and the `aria-*` ones.
 
