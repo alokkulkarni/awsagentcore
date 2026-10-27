@@ -196,12 +196,14 @@ class Orchestrator(unittest.TestCase):
                   ("knowledge-base", "aria-agent"), ("guardrail", "aria-agent"), ("tool-grants", "aria-agent"),
                   ("designer-apps", "flows-fill"), ("aria-agent", "flows-fill"), ("assist-agents", "flows-fill"),
                   ("lex-bot", "flows-fill"), ("flows-fill", "phone"), ("flows-fill", "banking-app"),
-                  ("banking-app", "smoke")]
+                  ("banking-app", "smoke"), ("gateway", "branch-tools"), ("routing", "branch-tools"),
+                  ("branch-tools", "tool-grants"), ("branch-tools", "aria-agent"), ("branch-tools", "assist-agents"),
+                  ("mortgage-backend", "mortgage-web"), ("mortgage-web", "origins")]
         for first, then in before:
             self.assertLess(order[first], order[then], f"{first} must come before {then}")
 
     # Values a step reads that may rightly be empty (a declined phone number; the summary's display lines).
-    OPTIONAL = {"PHONE_NUMBER", "CONNECT_URL", "ADMIN_USER", "BANKING_APP_URL", "MONEY_HUB_URL"}
+    OPTIONAL = {"PHONE_NUMBER", "CONNECT_URL", "ADMIN_USER", "BANKING_APP_URL", "MONEY_HUB_URL", "MORTGAGE_WEB_URL"}
 
     def test_every_step_asks_and_checks_its_inputs_before_running(self):
         for body in re.findall(r"(?ms)^step_[a-z0-9_]+\(\) \{\n(.*?)^\}", self.TEXT):
@@ -231,6 +233,72 @@ class Orchestrator(unittest.TestCase):
     def test_errors_stop_the_run(self):
         self.assertIn("set -Eeuo pipefail", self.TEXT)
         self.assertIn('"step_${id//-/_}"          # a plain call', self.TEXT)
+
+
+BRANCH_REPO = Path.home() / "Documents/Development/branchtransfercalldesign"
+
+
+class BranchTools(unittest.TestCase):
+    """ARIA's branch and appointment tools and agent assist's queue-status tool come from another project: the
+    branch-tools step must make every gateway target the AI agents name, with the tools they name."""
+
+    def setUp(self):
+        import branch_tools
+        self.bt = branch_tools
+
+    def named(self) -> dict[str, set[str]]:
+        """Gateway target → tools, as ARIA v2 and the advisers' agents name them (toolId gateway_<id>__<target>___<tool>)."""
+        aria = json.loads((ROOT / "connect-bot-flow-modular/ai-agent/agent/aria-conversation-agent-v2.json").read_text())
+        others = json.loads((ROOT / "connect-bot-flow-modular/ai-agent/reference/other-agents.json").read_text())
+        configs = [aria["configuration"]] + [others[n].get("aiAgent", others[n])["configuration"]
+                                             for n in ("my-agent-assistant-agent", "my-agent-briefing-agent")]
+        out: dict[str, set[str]] = {}
+        for config in configs:
+            for tool in config["orchestrationAIAgentConfiguration"].get("toolConfigurations", []):
+                found = re.match(r"gateway_.+?__([a-z-]+)___(\w+)$", tool.get("toolId", ""))
+                if found:
+                    out.setdefault(found.group(1), set()).add(found.group(2))
+        return out
+
+    def test_every_target_the_agents_name_is_made_by_some_step(self):
+        made = {t["target"] for t in self.bt.TOOLS}
+        smoke = (PACKAGE / "py/smoke.py").read_text()
+        for target in self.named():
+            self.assertTrue(target in made or f'"{target}"' in smoke, f"no step makes gateway target {target}")
+        self.assertEqual(made, {"branch-info", "branch-appointments", "queue-status"})
+
+    @unittest.skipUnless(BRANCH_REPO.exists(), "branchtransfercalldesign isn't checked out here")
+    def test_the_branch_projects_schemas_have_every_tool_the_agents_call(self):
+        named = self.named()
+        for tool in self.bt.TOOLS:
+            backend = BRANCH_REPO / "backend"
+            self.assertTrue((backend / tool["file"]).exists(), tool["file"])
+            schemas = {t["name"] for t in json.loads((backend / tool["schemas"]).read_text())}
+            self.assertLessEqual(named.get(tool["target"], set()), schemas, tool["target"])
+
+    def test_the_lambdas_run_as_todays(self):
+        self.assertEqual(self.bt.LAMBDA, {"Runtime": "python3.12", "Architectures": ["arm64"], "MemorySize": 256,
+                                          "Timeout": 10})
+
+    def test_the_inline_schema_drops_only_what_agentcore_refuses(self):
+        schema = {"type": "object", "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 14,
+                                                            "description": "1 to 14"},
+                                                   "brand": {"type": "string", "enum": ["A", "B"]}},
+                  "required": ["days"]}
+        self.assertEqual(self.bt.plain([{"name": "t", "inputSchema": schema}])[0]["inputSchema"],
+                         {"type": "object", "properties": {"days": {"type": "integer", "description": "1 to 14"},
+                                                           "brand": {"type": "string"}}, "required": ["days"]})
+
+    def test_each_role_may_touch_only_its_own_tables_and_this_instance(self):
+        class Ctx:
+            region, account, instance_id = "eu-west-2", "000000000000", "i-1"
+            instance_arn = "arn:aws:connect:eu-west-2:000000000000:instance/i-1"
+        for tool in self.bt.TOOLS:
+            for statement in tool["allow"](Ctx):
+                resources = statement["Resource"] if isinstance(statement["Resource"], list) else [statement["Resource"]]
+                for arn in resources:
+                    self.assertNotIn("*", arn.replace("instance/i-1/*", ""), (tool["role"], arn))
+                self.assertFalse(any(a.endswith(":*") or a == "*" for a in statement["Action"]), tool["role"])
 
 
 class Templates(unittest.TestCase):
